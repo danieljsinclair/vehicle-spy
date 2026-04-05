@@ -1,0 +1,639 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXAggregateTarget section */
+		7BF89CE1902F9C90FB86A991 /* googletest-populate */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 0ECC26656A39401387796177 /* Build configuration list for PBXAggregateTarget "googletest-populate" */;
+			buildPhases = (
+				BE656AAE61FF099504077961 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-mkdir */,
+				B5F67460F1950BF4EEE365C8 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-download */,
+				234081E3FCDCB618AFFA7030 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-update */,
+				269F570142C665317671F25D /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-patch */,
+				66C405DE930D2F7C7527C993 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-configure */,
+				BA67E33F168180718BEB6DC5 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-build */,
+				2413E438F8DFD171B045B3FF /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-install */,
+				B899997BF14328CC403FE662 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-test */,
+				1E63E9DB49EBAC5633405884 /* Generate CMakeFiles/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-complete */,
+				9FF6174290DA7BDF2A8CF4F2 /* Generate CMakeFiles/googletest-populate */,
+			);
+			dependencies = (
+				26896713C6B24BFB90D2AC92 /* PBXTargetDependency */,
+			);
+			name = "googletest-populate";
+			productName = "googletest-populate";
+		};
+		98959723428CD6F78C946125 /* ALL_BUILD */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 8BEB8CD300E04B1493986E5D /* Build configuration list for PBXAggregateTarget "ALL_BUILD" */;
+			buildPhases = (
+				EDA601FFE87115B86AB86D93 /* Generate CMakeFiles/ALL_BUILD */,
+			);
+			dependencies = (
+				B031501E9EFC4AD6812805E8 /* PBXTargetDependency */,
+				4076D4FF208745CEACD81056 /* PBXTargetDependency */,
+			);
+			name = ALL_BUILD;
+			productName = ALL_BUILD;
+		};
+		D8DEE12038E206E8FA7B841C /* ZERO_CHECK */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = EBAE13422BC2497A8A55AEA9 /* Build configuration list for PBXAggregateTarget "ZERO_CHECK" */;
+			buildPhases = (
+				9CB8B54EDB4E16A028553A9B /* Generate CMakeFiles/ZERO_CHECK */,
+			);
+			dependencies = (
+			);
+			name = ZERO_CHECK;
+			productName = ZERO_CHECK;
+		};
+/* End PBXAggregateTarget section */
+
+/* Begin PBXBuildStyle section */
+		B470F889AB564ED2AA846696 /* Debug */ = {
+			isa = PBXBuildStyle;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+			};
+			name = Debug;
+		};
+/* End PBXBuildStyle section */
+
+/* Begin PBXContainerItemProxy section */
+		0268617868454F9D86810F85 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 56A95D5507D74BBAAB254EBE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D8DEE12038E206E8FA7B841C;
+			remoteInfo = ZERO_CHECK;
+		};
+		A355300A834D42EEB2160714 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 56A95D5507D74BBAAB254EBE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D8DEE12038E206E8FA7B841C;
+			remoteInfo = ZERO_CHECK;
+		};
+		B33724EF655C43E089A1A154 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 56A95D5507D74BBAAB254EBE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7BF89CE1902F9C90FB86A991;
+			remoteInfo = "googletest-populate";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		E374273F9B0246C782C3979E /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeLists.txt */ = {isa = PBXFileReference; explicitFileType = sourcecode.text; fileEncoding = 4; name = CMakeLists.txt; path = CMakeLists.txt; sourceTree = SOURCE_ROOT; };
+		EE01A8CA87E6488C9C43CF65 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeLists.txt */ = {isa = PBXFileReference; explicitFileType = sourcecode.text; fileEncoding = 4; name = CMakeLists.txt; path = CMakeLists.txt; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0816323268FC4B7B97B46495 /* ALL_BUILD */ = {
+			isa = PBXGroup;
+			children = (
+				56C4C6829CA54B2ABC577F82 /* CMake Rules */,
+				EE01A8CA87E6488C9C43CF65 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeLists.txt */,
+			);
+			name = ALL_BUILD;
+			sourceTree = "<group>";
+		};
+		128B49FA1D704FDB8F00BEF9 /* googletest-populate */ = {
+			isa = PBXGroup;
+			children = (
+				FF3543D418074F50827E42E0 /* googletest-populate */,
+			);
+			name = "googletest-populate";
+			sourceTree = "<group>";
+		};
+		409F0A1522B34FC2A34CCED6 /* ExternalProjectTargets */ = {
+			isa = PBXGroup;
+			children = (
+				128B49FA1D704FDB8F00BEF9 /* googletest-populate */,
+			);
+			name = ExternalProjectTargets;
+			sourceTree = "<group>";
+		};
+		492CD7C4F62E4CF392A0F7C0 = {
+			isa = PBXGroup;
+			children = (
+				0816323268FC4B7B97B46495 /* ALL_BUILD */,
+				409F0A1522B34FC2A34CCED6 /* ExternalProjectTargets */,
+				E2F8C3AFA2B64FD5A87BC9D1 /* Products */,
+				A32B8A33F3854E1A9956199C /* Frameworks */,
+				6E6E1284CBE84195B9804537 /* Resources */,
+			);
+			sourceTree = "<group>";
+		};
+		56C4C6829CA54B2ABC577F82 /* CMake Rules */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = "CMake Rules";
+			sourceTree = "<group>";
+		};
+		5EC12F1E2F3B4F4CAE427279 /* CMake Rules */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = "CMake Rules";
+			sourceTree = "<group>";
+		};
+		6E6E1284CBE84195B9804537 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		A32B8A33F3854E1A9956199C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		E2F8C3AFA2B64FD5A87BC9D1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		FF3543D418074F50827E42E0 /* googletest-populate */ = {
+			isa = PBXGroup;
+			children = (
+				5EC12F1E2F3B4F4CAE427279 /* CMake Rules */,
+				E374273F9B0246C782C3979E /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeLists.txt */,
+			);
+			name = "googletest-populate";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXProject section */
+		56A95D5507D74BBAAB254EBE /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1640;
+			};
+			buildConfigurationList = DCA4A37DA72E429184280AE0 /* Build configuration list for PBXProject "googletest-populate" */;
+			buildSettings = {
+			};
+			buildStyles = (
+				B470F889AB564ED2AA846696 /* Debug */,
+			);
+			compatibilityVersion = "Xcode 3.2";
+			hasScannedForEncodings = 0;
+			mainGroup = 492CD7C4F62E4CF392A0F7C0;
+			projectDirPath = .;
+			projectRoot = "";
+			targets = (
+				98959723428CD6F78C946125 /* ALL_BUILD */,
+				7BF89CE1902F9C90FB86A991 /* googletest-populate */,
+				D8DEE12038E206E8FA7B841C /* ZERO_CHECK */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		1E63E9DB49EBAC5633405884 /* Generate CMakeFiles/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-complete */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-build","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-configure","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-download","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-install","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-mkdir","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-patch","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-test","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-update"			);
+			name = "Generate CMakeFiles/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-complete";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeFiles/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-complete"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild
+  /opt/homebrew/bin/cmake -E make_directory /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeFiles/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeFiles/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-complete
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-done
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		234081E3FCDCB618AFFA7030 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-update */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-download","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/googletest-populate-update-info.txt","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/tmp/googletest-populate-gitupdate.cmake"			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-update";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-update"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src
+  /opt/homebrew/bin/cmake -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/tmp/googletest-populate-gitupdate.cmake
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		2413E438F8DFD171B045B3FF /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-install */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-build"			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-install";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-install"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -E echo_append
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-install
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		269F570142C665317671F25D /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-patch */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-update","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/googletest-populate-patch-info.txt"			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-patch";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-patch"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild
+  /opt/homebrew/bin/cmake -E echo_append
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-patch
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		3C0110FC8322DE7E50886E21 = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here
+exit 0";
+			showEnvVarsInLog = 0;
+		};
+		466A25D3C0B8EE85A3C4FEA0 = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here
+exit 0";
+			showEnvVarsInLog = 0;
+		};
+		66C405DE930D2F7C7527C993 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-configure */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-patch","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/tmp/googletest-populate-cfgcmd.txt"			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-configure";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-configure"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -E echo_append
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-configure
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		9B50530E35CC49C82C2FACCF = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here
+exit 0";
+			showEnvVarsInLog = 0;
+		};
+		9CB8B54EDB4E16A028553A9B /* Generate CMakeFiles/ZERO_CHECK */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Generate CMakeFiles/ZERO_CHECK";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeFiles/ZERO_CHECK"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild
+  make -f /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeScripts/ReRunCMake.make
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		9FF6174290DA7BDF2A8CF4F2 /* Generate CMakeFiles/googletest-populate */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeFiles/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-complete"			);
+			name = "Generate CMakeFiles/googletest-populate";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeFiles/googletest-populate"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		B5F67460F1950BF4EEE365C8 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-download */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-mkdir","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/googletest-populate-gitinfo.txt"			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-download";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-download"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps
+  /opt/homebrew/bin/cmake -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/tmp/googletest-populate-gitclone.cmake
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-download
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		B899997BF14328CC403FE662 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-test */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-install"			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-test";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-test"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -E echo_append
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-test
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		BA67E33F168180718BEB6DC5 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-build */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-configure"			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-build";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-build"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -E echo_append
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-build
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		BE656AAE61FF099504077961 /* Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-mkdir */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Generate googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-mkdir";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/googletest-populate-mkdir"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild
+  /opt/homebrew/bin/cmake -Dcfgdir=/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME -P /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/tmp/googletest-populate-mkdirs.cmake
+  /opt/homebrew/bin/cmake -E touch /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/$CONFIGURATION$EFFECTIVE_PLATFORM_NAME/googletest-populate-mkdir
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		EDA601FFE87115B86AB86D93 /* Generate CMakeFiles/ALL_BUILD */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Generate CMakeFiles/ALL_BUILD";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/CMakeFiles/ALL_BUILD"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild
+  echo Build\\ all\\ projects
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		26896713C6B24BFB90D2AC92 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D8DEE12038E206E8FA7B841C /* ZERO_CHECK */;
+			targetProxy = 0268617868454F9D86810F85 /* PBXContainerItemProxy */;
+		};
+		4076D4FF208745CEACD81056 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D8DEE12038E206E8FA7B841C /* ZERO_CHECK */;
+			targetProxy = A355300A834D42EEB2160714 /* PBXContainerItemProxy */;
+		};
+		B031501E9EFC4AD6812805E8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7BF89CE1902F9C90FB86A991 /* googletest-populate */;
+			targetProxy = B33724EF655C43E089A1A154 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2F0959AF33B246FFBEB4F1AE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ALL_BUILD;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		9B9CA5B9FDD7407287538623 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				SDKROOT = "";
+				SYMROOT = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-subbuild/build";
+			};
+			name = Debug;
+		};
+		CD2C105CA93A4C9880DA7CF4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = "googletest-populate";
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		D3CA2DE6176D478C9C460BD9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ZERO_CHECK;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0ECC26656A39401387796177 /* Build configuration list for PBXAggregateTarget "googletest-populate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CD2C105CA93A4C9880DA7CF4 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8BEB8CD300E04B1493986E5D /* Build configuration list for PBXAggregateTarget "ALL_BUILD" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F0959AF33B246FFBEB4F1AE /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DCA4A37DA72E429184280AE0 /* Build configuration list for PBXProject "googletest-populate" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9B9CA5B9FDD7407287538623 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EBAE13422BC2497A8A55AEA9 /* Build configuration list for PBXAggregateTarget "ZERO_CHECK" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D3CA2DE6176D478C9C460BD9 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 56A95D5507D74BBAAB254EBE /* Project object */;
+}

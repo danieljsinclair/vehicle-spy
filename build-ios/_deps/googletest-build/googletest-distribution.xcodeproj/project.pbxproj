@@ -1,0 +1,1755 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXAggregateTarget section */
+		05AF218013D3D27D9F5A683E /* RUN_TESTS */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = AD383F4AE4BB4DAAA6608AFD /* Build configuration list for PBXAggregateTarget "RUN_TESTS" */;
+			buildPhases = (
+				003C8D08B0008F35F218E126 /* CMake PostBuild Rules */,
+			);
+			dependencies = (
+			);
+			name = RUN_TESTS;
+			productName = RUN_TESTS;
+		};
+		30D12E7667657E7E77C44812 /* install */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = EAB7B37216834C1EBA045C69 /* Build configuration list for PBXAggregateTarget "install" */;
+			buildPhases = (
+				93426DA6A4AC2C2AC9CE883C /* CMake PostBuild Rules */,
+			);
+			dependencies = (
+				0A500E11EDD04B86B70029D2 /* PBXTargetDependency */,
+			);
+			name = install;
+			productName = install;
+		};
+		985B041780ADD87CCEF1BAAB /* ALL_BUILD */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 1F958D16759B40D7A2B9DBBA /* Build configuration list for PBXAggregateTarget "ALL_BUILD" */;
+			buildPhases = (
+				FE6DE3BF6B7B58AE276BA2D5 /* Generate CMakeFiles/ALL_BUILD */,
+			);
+			dependencies = (
+				B28CF6572E7E476599C6B267 /* PBXTargetDependency */,
+				04AFDDCAF5294F2DA1300D17 /* PBXTargetDependency */,
+				1773BCC80F9A4720BE1277B1 /* PBXTargetDependency */,
+				979DF18075124FBAAFB96F90 /* PBXTargetDependency */,
+				4E2A1647995844B38F720539 /* PBXTargetDependency */,
+			);
+			name = ALL_BUILD;
+			productName = ALL_BUILD;
+		};
+		D57C100DB8579414EE47B9D5 /* ZERO_CHECK */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 9B0ABC8396994F46B5648F23 /* Build configuration list for PBXAggregateTarget "ZERO_CHECK" */;
+			buildPhases = (
+				99C402B0623708268D5E11E0 /* Generate CMakeFiles/ZERO_CHECK */,
+			);
+			dependencies = (
+			);
+			name = ZERO_CHECK;
+			productName = ZERO_CHECK;
+		};
+/* End PBXAggregateTarget section */
+
+/* Begin PBXBuildFile section */
+		040D0534A95147E9ACCADD92 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */ = {isa = PBXBuildFile; fileRef = D829676017694B02941CB65A /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */; };
+		1E1C691273584DFFB4700573 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */ = {isa = PBXBuildFile; fileRef = 794E2731F8DC42589F40730C /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */; };
+		2089D0FC02B449A2B47EFADC /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */ = {isa = PBXBuildFile; fileRef = 06E7114925234353B847EB1E /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */; };
+		45642F36641442179F7D9ADE /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock_main.cc */ = {isa = PBXBuildFile; fileRef = DF227798D87C46B483058FE4 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock_main.cc */; };
+		9B44CF64D5DA4FEB9B055369 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest-all.cc */ = {isa = PBXBuildFile; fileRef = 2476D5248D094E9684C351E2 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest-all.cc */; };
+		BC2D9F1559C447158DF42EAD /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/Info.plist */ = {isa = PBXBuildFile; fileRef = 6C908A237A5B4BECB0FB4BBF /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/Info.plist */; };
+		C1ED618F20A84A7FB45D71E6 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock.dir/Info.plist */ = {isa = PBXBuildFile; fileRef = D8C27655D39C4EBC9DDD803F /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock.dir/Info.plist */; };
+		CCE9A46AF55D4FDBB9B2478A /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock-all.cc */ = {isa = PBXBuildFile; fileRef = E1C7ADF693B14555B0D6F95C /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock-all.cc */; };
+		D16B4EB88285483EBB6ED496 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest_main.cc */ = {isa = PBXBuildFile; fileRef = 8D88491357BF441DB6658933 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest_main.cc */; };
+		E22C93F0AA734E809F3419D3 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/Info.plist */ = {isa = PBXBuildFile; fileRef = 2F41230CBC774E0D85C438EF /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/Info.plist */; };
+		FC93E669B99C4832B5FB9133 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest.dir/Info.plist */ = {isa = PBXBuildFile; fileRef = 1CAD48615FA24945A6C31565 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest.dir/Info.plist */; };
+		FF690409A2084D31B2FCC004 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */ = {isa = PBXBuildFile; fileRef = 9A76C99A5CE14CA8B6964453 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXBuildStyle section */
+		22517F946FF242CF9071885A /* MinSizeRel */ = {
+			isa = PBXBuildStyle;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+			};
+			name = MinSizeRel;
+		};
+		2AB821C8E2A84CF8AD10442E /* Release */ = {
+			isa = PBXBuildStyle;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+			};
+			name = Release;
+		};
+		2F8B5C7E40C24259A1CA2A77 /* RelWithDebInfo */ = {
+			isa = PBXBuildStyle;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+			};
+			name = RelWithDebInfo;
+		};
+		F23E684B2F9546018CE3C6B2 /* Debug */ = {
+			isa = PBXBuildStyle;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+			};
+			name = Debug;
+		};
+/* End PBXBuildStyle section */
+
+/* Begin PBXContainerItemProxy section */
+		1D550747296F4533A322203A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 985B041780ADD87CCEF1BAAB;
+			remoteInfo = ALL_BUILD;
+		};
+		226C9B2748454E34B11E9257 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2EB944189E6503F372C5923;
+			remoteInfo = gtest;
+		};
+		502BC70BC94049EDA7A63066 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2EB944189E6503F372C5923;
+			remoteInfo = gtest;
+		};
+		6D79F53AF8A84610AFB21242 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D57C100DB8579414EE47B9D5;
+			remoteInfo = ZERO_CHECK;
+		};
+		8C931C9137934CF2A6565EF0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8F13C643BCFF1077D9C32826;
+			remoteInfo = gtest_main;
+		};
+		B5EAC057546943ADB4792B51 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3BA1A74AD5C8810A6229856F;
+			remoteInfo = gmock_main;
+		};
+		BC77A593AD4F4080884811B0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 039C78AC0241182EBB18760C;
+			remoteInfo = gmock;
+		};
+		CE038854866F4F948947D60B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2EB944189E6503F372C5923;
+			remoteInfo = gtest;
+		};
+		CF085D8739E3470B96341183 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 039C78AC0241182EBB18760C;
+			remoteInfo = gmock;
+		};
+		D077479603E94F0E934996DF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2EB944189E6503F372C5923;
+			remoteInfo = gtest;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		06E7114925234353B847EB1E /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */ = {isa = PBXFileReference; explicitFileType = sourcecode.text; fileEncoding = 4; name = CMakeLists.txt; path = googletest/CMakeLists.txt; sourceTree = SOURCE_ROOT; };
+		1CAD48615FA24945A6C31565 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest.dir/Info.plist */ = {isa = PBXFileReference; explicitFileType = sourcecode.text.plist; fileEncoding = 4; name = Info.plist; path = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest.dir/Info.plist"; sourceTree = "<absolute>"; };
+		2476D5248D094E9684C351E2 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest-all.cc */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.cpp; fileEncoding = 4; name = "gtest-all.cc"; path = "googletest/src/gtest-all.cc"; sourceTree = SOURCE_ROOT; };
+		2F41230CBC774E0D85C438EF /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/Info.plist */ = {isa = PBXFileReference; explicitFileType = sourcecode.text.plist; fileEncoding = 4; name = Info.plist; path = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/Info.plist"; sourceTree = "<absolute>"; };
+		6C908A237A5B4BECB0FB4BBF /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/Info.plist */ = {isa = PBXFileReference; explicitFileType = sourcecode.text.plist; fileEncoding = 4; name = Info.plist; path = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/Info.plist"; sourceTree = "<absolute>"; };
+		73C42CE384504BF0812687B1 /* gtest_main */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libgtest_main.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		794E2731F8DC42589F40730C /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */ = {isa = PBXFileReference; explicitFileType = sourcecode.text; fileEncoding = 4; name = CMakeLists.txt; path = googlemock/CMakeLists.txt; sourceTree = SOURCE_ROOT; };
+		868B063F4A7C45D0B86D5858 /* gmock */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libgmock.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		8D88491357BF441DB6658933 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest_main.cc */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.cpp; fileEncoding = 4; name = gtest_main.cc; path = googletest/src/gtest_main.cc; sourceTree = SOURCE_ROOT; };
+		9A76C99A5CE14CA8B6964453 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */ = {isa = PBXFileReference; explicitFileType = sourcecode.text; fileEncoding = 4; name = CMakeLists.txt; path = googletest/CMakeLists.txt; sourceTree = SOURCE_ROOT; };
+		B8B678856C1B47CA9F2850D8 /* gmock_main */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libgmock_main.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		C2B163BA0281457291CF2E8B /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/CMakeLists.txt */ = {isa = PBXFileReference; explicitFileType = sourcecode.text; fileEncoding = 4; name = CMakeLists.txt; path = CMakeLists.txt; sourceTree = SOURCE_ROOT; };
+		D6BE896A7D8941439DA53FCD /* gtest */ = {isa = PBXFileReference; explicitFileType = archive.ar; path = libgtest.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		D829676017694B02941CB65A /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */ = {isa = PBXFileReference; explicitFileType = sourcecode.text; fileEncoding = 4; name = CMakeLists.txt; path = googlemock/CMakeLists.txt; sourceTree = SOURCE_ROOT; };
+		D8C27655D39C4EBC9DDD803F /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock.dir/Info.plist */ = {isa = PBXFileReference; explicitFileType = sourcecode.text.plist; fileEncoding = 4; name = Info.plist; path = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock.dir/Info.plist"; sourceTree = "<absolute>"; };
+		DF227798D87C46B483058FE4 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock_main.cc */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.cpp; fileEncoding = 4; name = gmock_main.cc; path = googlemock/src/gmock_main.cc; sourceTree = SOURCE_ROOT; };
+		E1C7ADF693B14555B0D6F95C /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock-all.cc */ = {isa = PBXFileReference; explicitFileType = sourcecode.cpp.cpp; fileEncoding = 4; name = "gmock-all.cc"; path = "googlemock/src/gmock-all.cc"; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		66A19EC2C527432A83B60E89 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8C117EC8A2944F788452AC83 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F08B3871D1684D869FDF83EF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FC0EE2E691FC4683991B4D37 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		09F641E7A77D47FF9FD93432 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6C908A237A5B4BECB0FB4BBF /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock_main.dir/Info.plist */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		1E46EEDA77A44072BE8D7C9A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D8C27655D39C4EBC9DDD803F /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googlemock/CMakeFiles/gmock.dir/Info.plist */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		31FA061982C6448C804D88D1 /* gtest */ = {
+			isa = PBXGroup;
+			children = (
+				FDE5DEC1ED6F4E3E9B838F66 /* Resources */,
+				E601DB0B9BDC4070913400B9 /* Source Files */,
+				06E7114925234353B847EB1E /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */,
+			);
+			name = gtest;
+			sourceTree = "<group>";
+		};
+		458F435EBF7B4748B2DD186C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				2F41230CBC774E0D85C438EF /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest_main.dir/Info.plist */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		4AF3135D2ECF4C95A0D02B8D /* Source Files */ = {
+			isa = PBXGroup;
+			children = (
+				8D88491357BF441DB6658933 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest_main.cc */,
+			);
+			name = "Source Files";
+			sourceTree = "<group>";
+		};
+		51B5B41A7DCC4F998485554A /* Source Files */ = {
+			isa = PBXGroup;
+			children = (
+				DF227798D87C46B483058FE4 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock_main.cc */,
+			);
+			name = "Source Files";
+			sourceTree = "<group>";
+		};
+		63EA3A46565640639FBA73D7 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				868B063F4A7C45D0B86D5858 /* gmock */,
+				B8B678856C1B47CA9F2850D8 /* gmock_main */,
+				D6BE896A7D8941439DA53FCD /* gtest */,
+				73C42CE384504BF0812687B1 /* gtest_main */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		9CC5CA13AC2A49629B4239C9 /* gmock_main */ = {
+			isa = PBXGroup;
+			children = (
+				09F641E7A77D47FF9FD93432 /* Resources */,
+				51B5B41A7DCC4F998485554A /* Source Files */,
+				D829676017694B02941CB65A /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */,
+			);
+			name = gmock_main;
+			sourceTree = "<group>";
+		};
+		A6BDAFFDCB0A49ACA6237CA7 /* Source Files */ = {
+			isa = PBXGroup;
+			children = (
+				E1C7ADF693B14555B0D6F95C /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock-all.cc */,
+			);
+			name = "Source Files";
+			sourceTree = "<group>";
+		};
+		AA6B571849A743AC8DEC3D99 = {
+			isa = PBXGroup;
+			children = (
+				EE86CF643D2442F39CE68E88 /* ALL_BUILD */,
+				FD95EE0603AE4E35BF220C4B /* gmock */,
+				9CC5CA13AC2A49629B4239C9 /* gmock_main */,
+				31FA061982C6448C804D88D1 /* gtest */,
+				E5DBD34DEDE046A689C089D5 /* gtest_main */,
+				63EA3A46565640639FBA73D7 /* Products */,
+				EC07EBA91B6A48F3AA45FC00 /* Frameworks */,
+				B88BF0070B7842C6AB140C8D /* Resources */,
+			);
+			sourceTree = "<group>";
+		};
+		B88BF0070B7842C6AB140C8D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+		D6E10AF6657044E79EE5C994 /* CMake Rules */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = "CMake Rules";
+			sourceTree = "<group>";
+		};
+		E5DBD34DEDE046A689C089D5 /* gtest_main */ = {
+			isa = PBXGroup;
+			children = (
+				458F435EBF7B4748B2DD186C /* Resources */,
+				4AF3135D2ECF4C95A0D02B8D /* Source Files */,
+				9A76C99A5CE14CA8B6964453 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/CMakeLists.txt */,
+			);
+			name = gtest_main;
+			sourceTree = "<group>";
+		};
+		E601DB0B9BDC4070913400B9 /* Source Files */ = {
+			isa = PBXGroup;
+			children = (
+				2476D5248D094E9684C351E2 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest-all.cc */,
+			);
+			name = "Source Files";
+			sourceTree = "<group>";
+		};
+		EC07EBA91B6A48F3AA45FC00 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		EE86CF643D2442F39CE68E88 /* ALL_BUILD */ = {
+			isa = PBXGroup;
+			children = (
+				D6E10AF6657044E79EE5C994 /* CMake Rules */,
+				C2B163BA0281457291CF2E8B /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/CMakeLists.txt */,
+			);
+			name = ALL_BUILD;
+			sourceTree = "<group>";
+		};
+		FD95EE0603AE4E35BF220C4B /* gmock */ = {
+			isa = PBXGroup;
+			children = (
+				1E46EEDA77A44072BE8D7C9A /* Resources */,
+				A6BDAFFDCB0A49ACA6237CA7 /* Source Files */,
+				794E2731F8DC42589F40730C /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/CMakeLists.txt */,
+			);
+			name = gmock;
+			sourceTree = "<group>";
+		};
+		FDE5DEC1ED6F4E3E9B838F66 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				1CAD48615FA24945A6C31565 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/googletest/CMakeFiles/gtest.dir/Info.plist */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		039C78AC0241182EBB18760C /* gmock */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C4B672264DA2494BA8BA6F1C /* Build configuration list for PBXNativeTarget "gmock" */;
+			buildPhases = (
+				22265D8F20034E309C7ACD88 /* Sources */,
+				F08B3871D1684D869FDF83EF /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F8D2F1A264E442AF9C351255 /* PBXTargetDependency */,
+			);
+			name = gmock;
+			productName = gmock;
+			productReference = 868B063F4A7C45D0B86D5858 /* gmock */;
+			productType = "com.apple.product-type.library.static";
+		};
+		3BA1A74AD5C8810A6229856F /* gmock_main */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C61AE9547A6D4A7D9EB7CE70 /* Build configuration list for PBXNativeTarget "gmock_main" */;
+			buildPhases = (
+				4C6C0B5A600B448E9354DBCF /* Sources */,
+				FC0EE2E691FC4683991B4D37 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				319E78E21E1543D48EEC84F2 /* PBXTargetDependency */,
+				505E7C1ED4E84277B5F1DB74 /* PBXTargetDependency */,
+			);
+			name = gmock_main;
+			productName = gmock_main;
+			productReference = B8B678856C1B47CA9F2850D8 /* gmock_main */;
+			productType = "com.apple.product-type.library.static";
+		};
+		8F13C643BCFF1077D9C32826 /* gtest_main */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1D9C09D44FA94DFE9EF52069 /* Build configuration list for PBXNativeTarget "gtest_main" */;
+			buildPhases = (
+				3B2771CC82AC41A39D0F9134 /* Sources */,
+				66A19EC2C527432A83B60E89 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3FE0CAB707C4471B834BBDF7 /* PBXTargetDependency */,
+			);
+			name = gtest_main;
+			productName = gtest_main;
+			productReference = 73C42CE384504BF0812687B1 /* gtest_main */;
+			productType = "com.apple.product-type.library.static";
+		};
+		D2EB944189E6503F372C5923 /* gtest */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 22DDE5B59CA84C44A7FDC2C2 /* Build configuration list for PBXNativeTarget "gtest" */;
+			buildPhases = (
+				9A6453102FF7437EA64B861D /* Sources */,
+				8C117EC8A2944F788452AC83 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = gtest;
+			productName = gtest;
+			productReference = D6BE896A7D8941439DA53FCD /* gtest */;
+			productType = "com.apple.product-type.library.static";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DE7BC1B6D7694E91A58A9E6E /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1640;
+			};
+			buildConfigurationList = 6503885AA6D843AEBCB87D06 /* Build configuration list for PBXProject "googletest-distribution" */;
+			buildSettings = {
+			};
+			buildStyles = (
+				F23E684B2F9546018CE3C6B2 /* Debug */,
+				2AB821C8E2A84CF8AD10442E /* Release */,
+				22517F946FF242CF9071885A /* MinSizeRel */,
+				2F8B5C7E40C24259A1CA2A77 /* RelWithDebInfo */,
+			);
+			compatibilityVersion = "Xcode 3.2";
+			hasScannedForEncodings = 0;
+			mainGroup = AA6B571849A743AC8DEC3D99;
+			projectDirPath = "../googletest-src";
+			projectRoot = "";
+			targets = (
+				985B041780ADD87CCEF1BAAB /* ALL_BUILD */,
+				039C78AC0241182EBB18760C /* gmock */,
+				3BA1A74AD5C8810A6229856F /* gmock_main */,
+				D2EB944189E6503F372C5923 /* gtest */,
+				8F13C643BCFF1077D9C32826 /* gtest_main */,
+				30D12E7667657E7E77C44812 /* install */,
+				05AF218013D3D27D9F5A683E /* RUN_TESTS */,
+				D57C100DB8579414EE47B9D5 /* ZERO_CHECK */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		003C8D08B0008F35F218E126 /* CMake PostBuild Rules */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "CMake PostBuild Rules";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/ctest -C $CONFIGURATION$EFFECTIVE_PLATFORM_NAME
+fi
+if test \"$CONFIGURATION\" = \"Release\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/ctest -C $CONFIGURATION$EFFECTIVE_PLATFORM_NAME
+fi
+if test \"$CONFIGURATION\" = \"MinSizeRel\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/ctest -C $CONFIGURATION$EFFECTIVE_PLATFORM_NAME
+fi
+if test \"$CONFIGURATION\" = \"RelWithDebInfo\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/ctest -C $CONFIGURATION$EFFECTIVE_PLATFORM_NAME
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		3C0110FC8322DE7E50886E21 = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here
+exit 0";
+			showEnvVarsInLog = 0;
+		};
+		87AF4882E018677E2624B544 = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here
+exit 0";
+			showEnvVarsInLog = 0;
+		};
+		910A41151295C5F9742C25BD = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here
+exit 0";
+			showEnvVarsInLog = 0;
+		};
+		93426DA6A4AC2C2AC9CE883C /* CMake PostBuild Rules */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "CMake PostBuild Rules";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -DBUILD_TYPE=$CONFIGURATION$EFFECTIVE_PLATFORM_NAME -P cmake_install.cmake
+fi
+if test \"$CONFIGURATION\" = \"Release\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -DBUILD_TYPE=$CONFIGURATION$EFFECTIVE_PLATFORM_NAME -P cmake_install.cmake
+fi
+if test \"$CONFIGURATION\" = \"MinSizeRel\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -DBUILD_TYPE=$CONFIGURATION$EFFECTIVE_PLATFORM_NAME -P cmake_install.cmake
+fi
+if test \"$CONFIGURATION\" = \"RelWithDebInfo\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  /opt/homebrew/bin/cmake -DBUILD_TYPE=$CONFIGURATION$EFFECTIVE_PLATFORM_NAME -P cmake_install.cmake
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		99C402B0623708268D5E11E0 /* Generate CMakeFiles/ZERO_CHECK */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Generate CMakeFiles/ZERO_CHECK";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/CMakeFiles/ZERO_CHECK"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  make -f /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/CMakeScripts/ReRunCMake.make
+fi
+if test \"$CONFIGURATION\" = \"Release\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  make -f /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/CMakeScripts/ReRunCMake.make
+fi
+if test \"$CONFIGURATION\" = \"MinSizeRel\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  make -f /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/CMakeScripts/ReRunCMake.make
+fi
+if test \"$CONFIGURATION\" = \"RelWithDebInfo\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  make -f /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/CMakeScripts/ReRunCMake.make
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+		9B50530E35CC49C82C2FACCF = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here
+exit 0";
+			showEnvVarsInLog = 0;
+		};
+		FE6DE3BF6B7B58AE276BA2D5 /* Generate CMakeFiles/ALL_BUILD */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Generate CMakeFiles/ALL_BUILD";
+			outputPaths = (
+"/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build/CMakeFiles/ALL_BUILD"			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e
+if test \"$CONFIGURATION\" = \"Debug\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  echo Build\\ all\\ projects
+fi
+if test \"$CONFIGURATION\" = \"Release\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  echo Build\\ all\\ projects
+fi
+if test \"$CONFIGURATION\" = \"MinSizeRel\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  echo Build\\ all\\ projects
+fi
+if test \"$CONFIGURATION\" = \"RelWithDebInfo\"; then :
+  cd /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-build
+  echo Build\\ all\\ projects
+fi
+";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		22265D8F20034E309C7ACD88 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CCE9A46AF55D4FDBB9B2478A /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock-all.cc */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3B2771CC82AC41A39D0F9134 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D16B4EB88285483EBB6ED496 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest_main.cc */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4C6C0B5A600B448E9354DBCF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				45642F36641442179F7D9ADE /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/src/gmock_main.cc */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A6453102FF7437EA64B861D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9B44CF64D5DA4FEB9B055369 /* /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/src/gtest-all.cc */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		04AFDDCAF5294F2DA1300D17 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3BA1A74AD5C8810A6229856F /* gmock_main */;
+			targetProxy = B5EAC057546943ADB4792B51 /* PBXContainerItemProxy */;
+		};
+		0A500E11EDD04B86B70029D2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 985B041780ADD87CCEF1BAAB /* ALL_BUILD */;
+			targetProxy = 1D550747296F4533A322203A /* PBXContainerItemProxy */;
+		};
+		1773BCC80F9A4720BE1277B1 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2EB944189E6503F372C5923 /* gtest */;
+			targetProxy = D077479603E94F0E934996DF /* PBXContainerItemProxy */;
+		};
+		319E78E21E1543D48EEC84F2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 039C78AC0241182EBB18760C /* gmock */;
+			targetProxy = CF085D8739E3470B96341183 /* PBXContainerItemProxy */;
+		};
+		3FE0CAB707C4471B834BBDF7 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2EB944189E6503F372C5923 /* gtest */;
+			targetProxy = 226C9B2748454E34B11E9257 /* PBXContainerItemProxy */;
+		};
+		4E2A1647995844B38F720539 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D57C100DB8579414EE47B9D5 /* ZERO_CHECK */;
+			targetProxy = 6D79F53AF8A84610AFB21242 /* PBXContainerItemProxy */;
+		};
+		505E7C1ED4E84277B5F1DB74 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2EB944189E6503F372C5923 /* gtest */;
+			targetProxy = CE038854866F4F948947D60B /* PBXContainerItemProxy */;
+		};
+		979DF18075124FBAAFB96F90 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8F13C643BCFF1077D9C32826 /* gtest_main */;
+			targetProxy = 8C931C9137934CF2A6565EF0 /* PBXContainerItemProxy */;
+		};
+		B28CF6572E7E476599C6B267 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 039C78AC0241182EBB18760C /* gmock */;
+			targetProxy = BC77A593AD4F4080884811B0 /* PBXContainerItemProxy */;
+		};
+		F8D2F1A264E442AF9C351255 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2EB944189E6503F372C5923 /* gtest */;
+			targetProxy = 502BC70BC94049EDA7A63066 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		029C4B70667748B99157F58B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = install;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		039A8465611943CE9C9B71AA /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = install;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+		076693B26A0C47F3B3E6DC04 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Release";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		114B68468B044049B30FB32B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Debug";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "   '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		20D09642147848FFBCF4930F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ZERO_CHECK;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		212E8CC0BA474119A83C35DB /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/MinSizeRel";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		23A53F19D19544EB9A08A461 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = RUN_TESTS;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		2E0574B6E8574DF299BB3616 /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/RelWithDebInfo";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 2;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "       -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+		38478CCC03E04C1DBA6BBC0A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ZERO_CHECK;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		3A8D904E671C4385A12F1648 /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				SDKROOT = "";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 4.0;
+				SYMROOT = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build";
+			};
+			name = RelWithDebInfo;
+		};
+		3AAFC99C9C724E9ABB9C4DF9 /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/MinSizeRel";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		3E175476AB1C4B77B9713BAB /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/RelWithDebInfo";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 2;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "       -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+		4057DE5970FE455094F3A766 /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ZERO_CHECK;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+		43BF10A8CC3D45D1AD6CAE91 /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/MinSizeRel";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest;
+				SECTORDER_FLAGS = "";
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		48127553900146868338DEA8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = install;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		664822A60B0C47BA9C3944E4 /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ALL_BUILD;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		743A18FA92414E27BD3001BD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ALL_BUILD;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		79967F2C44E2451D96FF9555 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				SDKROOT = "";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 4.0;
+				SYMROOT = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build";
+			};
+			name = Release;
+		};
+		7C607B1EBF3F46C0A6BE46B2 /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = RUN_TESTS;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		830FE2CF232342ED94CB552E /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ZERO_CHECK;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		8E5114D9A10F4879AD307DE2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Debug";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "   '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		A2D25A0C49B848A9A39996CE /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				SDKROOT = "";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 4.0;
+				SYMROOT = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build";
+			};
+			name = MinSizeRel;
+		};
+		B84A2D92E3CE4BC3857C1F38 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = RUN_TESTS;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		B94C84303B9B4BC288F5FECD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				SDKROOT = "";
+				SWIFT_VERSION = 4.0;
+				SYMROOT = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build";
+			};
+			name = Debug;
+		};
+		BA8295F912D1479584523AB3 /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/RelWithDebInfo";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 2;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "       -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+		BA92FC810455477EBCAFFB7A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Debug";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "   '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		BEDDB2B3A2B846C485F1BA98 /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = install;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		C2906D52436848589A41DE12 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Release";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest;
+				SECTORDER_FLAGS = "";
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		C377857E39564B61B535F602 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Release";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		D37EC918697440579016DDB8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Release";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 3;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		DFECE255BCBC4F369A7B9917 /* MinSizeRel */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/MinSizeRel";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = NO;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "    -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gmock_main;
+				SECTORDER_FLAGS = "";
+				SYSTEM_HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googlemock","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gmock_main.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = MinSizeRel;
+		};
+		E8D946730B7C4B508FFEFB46 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/Debug";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "   '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest;
+				SECTORDER_FLAGS = "";
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Debug;
+		};
+		EA95F55DD2A645B19BB97FF8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ALL_BUILD;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = Release;
+		};
+		EC60CA1EE05549ADB2554D91 /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = ALL_BUILD;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+		F63EE42DCFD24330B7DA0C8E /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				INSTALL_PATH = "";
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = ("","$(inherited)");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = RUN_TESTS;
+				SECTORDER_FLAGS = "";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+		FF201AF66D2C42C2BEEEA4FB /* RelWithDebInfo */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				COMBINE_HIDPI_IMAGES = YES;
+				CONFIGURATION_BUILD_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/lib/RelWithDebInfo";
+				EXECUTABLE_PREFIX = lib;
+				EXECUTABLE_SUFFIX = .a;
+				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
+				GCC_INLINES_ARE_PRIVATE_EXTERN = NO;
+				GCC_OPTIMIZATION_LEVEL = 2;
+				GCC_PREPROCESSOR_DEFINITIONS = ("'CMAKE_INTDIR=\"$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)\"'","$(inherited)");
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				HEADER_SEARCH_PATHS = ("/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest/include","/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/_deps/googletest-src/googletest","$(inherited)");
+				INSTALL_PATH = "";
+				LIBRARY_STYLE = STATIC;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CPLUSPLUSFLAGS = "       -DNDEBUG '-std=c++17'  -DGTEST_HAS_PTHREAD=1   ";
+				OTHER_LIBTOOLFLAGS = ("");
+				OTHER_REZFLAGS = "";
+				PRODUCT_NAME = gtest;
+				SECTORDER_FLAGS = "";
+				TARGET_TEMP_DIR = "/Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build-ios/build/gtest.build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)";
+				USE_HEADERMAP = NO;
+				WARNING_CFLAGS = ("$(inherited)");
+			};
+			name = RelWithDebInfo;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1D9C09D44FA94DFE9EF52069 /* Build configuration list for PBXNativeTarget "gtest_main" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				114B68468B044049B30FB32B /* Debug */,
+				D37EC918697440579016DDB8 /* Release */,
+				212E8CC0BA474119A83C35DB /* MinSizeRel */,
+				BA8295F912D1479584523AB3 /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		1F958D16759B40D7A2B9DBBA /* Build configuration list for PBXAggregateTarget "ALL_BUILD" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				743A18FA92414E27BD3001BD /* Debug */,
+				EA95F55DD2A645B19BB97FF8 /* Release */,
+				664822A60B0C47BA9C3944E4 /* MinSizeRel */,
+				EC60CA1EE05549ADB2554D91 /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		22DDE5B59CA84C44A7FDC2C2 /* Build configuration list for PBXNativeTarget "gtest" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E8D946730B7C4B508FFEFB46 /* Debug */,
+				C2906D52436848589A41DE12 /* Release */,
+				43BF10A8CC3D45D1AD6CAE91 /* MinSizeRel */,
+				FF201AF66D2C42C2BEEEA4FB /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6503885AA6D843AEBCB87D06 /* Build configuration list for PBXProject "googletest-distribution" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B94C84303B9B4BC288F5FECD /* Debug */,
+				79967F2C44E2451D96FF9555 /* Release */,
+				A2D25A0C49B848A9A39996CE /* MinSizeRel */,
+				3A8D904E671C4385A12F1648 /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9B0ABC8396994F46B5648F23 /* Build configuration list for PBXAggregateTarget "ZERO_CHECK" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				20D09642147848FFBCF4930F /* Debug */,
+				38478CCC03E04C1DBA6BBC0A /* Release */,
+				830FE2CF232342ED94CB552E /* MinSizeRel */,
+				4057DE5970FE455094F3A766 /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AD383F4AE4BB4DAAA6608AFD /* Build configuration list for PBXAggregateTarget "RUN_TESTS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				23A53F19D19544EB9A08A461 /* Debug */,
+				B84A2D92E3CE4BC3857C1F38 /* Release */,
+				7C607B1EBF3F46C0A6BE46B2 /* MinSizeRel */,
+				F63EE42DCFD24330B7DA0C8E /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C4B672264DA2494BA8BA6F1C /* Build configuration list for PBXNativeTarget "gmock" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8E5114D9A10F4879AD307DE2 /* Debug */,
+				076693B26A0C47F3B3E6DC04 /* Release */,
+				3AAFC99C9C724E9ABB9C4DF9 /* MinSizeRel */,
+				3E175476AB1C4B77B9713BAB /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C61AE9547A6D4A7D9EB7CE70 /* Build configuration list for PBXNativeTarget "gmock_main" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BA92FC810455477EBCAFFB7A /* Debug */,
+				C377857E39564B61B535F602 /* Release */,
+				DFECE255BCBC4F369A7B9917 /* MinSizeRel */,
+				2E0574B6E8574DF299BB3616 /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		EAB7B37216834C1EBA045C69 /* Build configuration list for PBXAggregateTarget "install" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				48127553900146868338DEA8 /* Debug */,
+				029C4B70667748B99157F58B /* Release */,
+				BEDDB2B3A2B846C485F1BA98 /* MinSizeRel */,
+				039A8465611943CE9C9B71AA /* RelWithDebInfo */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = DE7BC1B6D7694E91A58A9E6E /* Project object */;
+}

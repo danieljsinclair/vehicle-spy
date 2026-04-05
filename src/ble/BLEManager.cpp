@@ -1,55 +1,75 @@
 #include "vehicle-sim/BLEManager.h"
+#include "vehicle-sim/ble/platform/BLEManagerMock.h"
 #include <iostream>
 
 namespace vehicle_sim {
 
 BLEManager::BLEManager()
-    : connected_(false) {
-    // Initialize BLE subsystem (platform-specific)
+    : platform_(std::make_unique<BLEManagerMock>()) {
 }
 
-BLEManager::~BLEManager() {
-}
+BLEManager::~BLEManager() = default;
 
 std::vector<BLEDeviceInfo> BLEManager::scanForDevices(int timeout_seconds) {
-    std::cout << "[BLEManager] Scanning for devices (timeout: " << timeout_seconds << "s)..." << std::endl;
+    if (platform_) {
+        // Wire callbacks to platform
+        if (platform_->isConnected()) {
+            // Already connected, maybe disconnect first or handle differently
+        }
 
-    // Placeholder - integrate with platform BLE API
-    // macOS: CoreBluetooth
-    // Linux: BlueZ
+        auto devices = platform_->scanForDevices(timeout_seconds);
 
-    std::vector<BLEDeviceInfo> devices;
-
-    // Simulated result
-    BLEDeviceInfo tesla_device;
-    tesla_device.address = "XX:XX:XX:XX:XX:XX";
-    tesla_device.name = "Tesla Model Y OBD2";
-    tesla_device.isConnected = false;
-    devices.push_back(tesla_device);
-
-    return devices;
+        // Invoke callbacks for discovered devices (already done by platform)
+        return devices;
+    }
+    return {};
 }
 
-bool BLEManager::connect(const std::string& device_address) {
-    std::cout << "[BLEManager] Connecting to device: " << device_address << std::endl;
-    // Placeholder - implement BLE connection
-    return true;
+bool BLEManager::connect(const std::string& device_identifier) {
+    if (!platform_) return false;
+
+    bool success = platform_->connect(device_identifier);
+    if (success) {
+        std::cout << "[BLEManager] Connected to device: " << device_identifier << std::endl;
+    } else {
+        std::cout << "[BLEManager] Connection failed" << std::endl;
+    }
+    return success;
 }
 
 void BLEManager::disconnect() {
-    std::cout << "[BLEManager] Disconnecting..." << std::endl;
+    if (platform_) {
+        platform_->disconnect();
+        std::cout << "[BLEManager] Disconnected" << std::endl;
+    }
 }
 
 void BLEManager::onDeviceFound(DeviceCallback callback) {
-    // Store callback for later invocation
+    // Set callback on underlying platform
+    if (platform_) {
+        platform_->setDeviceFoundCallback(std::move(callback));
+    }
 }
 
 void BLEManager::onDataReceived(DataCallback callback) {
-    // Store callback for data processing
+    // Set callback on underlying platform
+    if (platform_) {
+        platform_->setDataReceivedCallback(std::move(callback));
+    }
 }
 
 bool BLEManager::isConnected() const {
-    return false; // Placeholder
+    return platform_ ? platform_->isConnected() : false;
+}
+
+std::string BLEManager::getConnectedDeviceId() const {
+    return platform_ ? platform_->getConnectedDeviceId() : std::string();
+}
+
+void BLEManager::setPlatform(std::unique_ptr<BLEPlatform> platform) {
+    if (platform) {
+        platform_ = std::move(platform);
+    }
 }
 
 } // namespace vehicle_sim

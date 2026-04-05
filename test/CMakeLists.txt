@@ -2,6 +2,7 @@
 add_executable(vehicle-sim-tests
     test_main.cpp
     test_example.cpp
+    domain/VehicleSignal.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests

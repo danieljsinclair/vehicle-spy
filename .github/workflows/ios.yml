@@ -1,0 +1,63 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  build-ios-simulator:
+    name: Build iOS Simulator
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install CMake
+      run: |
+        brew install cmake
+
+    - name: Configure iOS build
+      run: |
+        mkdir -p build-ios
+        cd build-ios
+        cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_IOS=ON -G Xcode ..
+
+    - name: Build iOS core library
+      run: |
+        cd build-ios
+        xcodebuild -scheme vehicle-sim-core-ios -configuration Release -sdk iphonesimulator -arch arm64 build
+
+    - name: Upload iOS library artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: vehicle-sim-core-ios
+        path: |
+          build-ios/Release/libvehicle-sim-core.a
+          build-ios/Release/include/
+        retention-days: 7
+
+  test:
+    name: Run Tests
+    runs-on: macos-14
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install CMake
+      run: |
+        brew install cmake
+
+    - name: Build and test CLI
+      run: |
+        make clean
+        make test
+      working-directory: ${{ github.workspace }}

@@ -5,13 +5,10 @@
 #include <functional>
 #include <memory>
 
-namespace vehicle_sim {
+#include "ble/BLEPlatform.h"
+#include "ble/BLEDeviceInfo.h"
 
-struct BLEDeviceInfo {
-    std::string address;
-    std::string name;
-    bool isConnected;
-};
+namespace vehicle_sim {
 
 class BLEManager {
 public:
@@ -24,8 +21,8 @@ public:
     // Scan for BLE devices
     std::vector<BLEDeviceInfo> scanForDevices(int timeout_seconds = 5);
 
-    // Connect to a specific device by address
-    bool connect(const std::string& device_address);
+    // Connect to a specific device by address or UUID (platform-dependent)
+    bool connect(const std::string& device_identifier);
 
     // Disconnect from current device
     void disconnect();
@@ -39,8 +36,14 @@ public:
     // Check connection status
     bool isConnected() const;
 
+    // Get currently connected device identifier
+    std::string getConnectedDeviceId() const;
+
+    // Set the BLE platform implementation (for testing/configuration)
+    void setPlatform(std::unique_ptr<BLEPlatform> platform);
+
 private:
-    bool connected_;
+    std::unique_ptr<BLEPlatform> platform_;
     DeviceCallback device_callback_;
     DataCallback data_callback_;
 };
