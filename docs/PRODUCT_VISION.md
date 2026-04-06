@@ -33,21 +33,24 @@ All physics modelling, engine simulation and sound generation belongs in the par
 5. Maintain 10Hz minimum update rate
 6. Full end to end regression test covering entire stack
 
-✅ **We will NOT reimplement physics simulation.** We will use existing parent engine-sim physics library.
 ✅ **All architecture rules apply 100%:** SOLID, DI, TDD, no technical debt, no corners cut.
 
 THIS IS THE ONLY PRIORITY. DO NOT WORK ON ANYTHING ELSE UNTIL THIS IS WORKING END TO END ON ACTUAL HARDWARE.
 
-### Phase 1: Single Powertrain Model
+### Phase 1: Single Powertrain Model (OPTIONAL)
 1. Implement IPowertrainModel interface
 2. Add Mustang GT500 reference model
 3. Calculate RPM / Gear / Torque from real input signals
 4. Display translated values on dashboard
 
-### Phase 2: Pluggable Models
+### Phase 2: Pluggable Models (OPTIONAL)
 1. Multiple powertrain model support
 2. Hot swap models at runtime
 3. Compare multiple vehicle outputs side by side
+
+NOTE: Phase 1 and 2 are optional simulation features for powertrain modeling.
+Phase 0 provides real data acquisition from Tesla BLE and display.
+Phase 1/2 can be added later via clean boundary separation without affecting Phase 0.
 
 ### Phase 3: Advanced Features
 1. Gearbox shift algorithm simulation
