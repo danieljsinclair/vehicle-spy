@@ -9,13 +9,15 @@ add_executable(vehicle-sim-tests
     physics/PhysicsEngine.test.cpp
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp
-    ble/TeslaBLETransport.test.cpp
+    boundary/TeslaBLETransport.test.cpp
+)
 
 target_link_libraries(vehicle-sim-tests
     PRIVATE
     GTest::gtest_main
     GTest::gmock
     vehicle-sim-lib
+)
 
 target_include_directories(vehicle-sim-tests
     PRIVATE

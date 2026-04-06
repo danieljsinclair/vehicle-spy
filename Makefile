@@ -603,29 +603,53 @@ src/audio/common/CircularBuffer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/common/CircularBuffer.cpp.s
 .PHONY : src/audio/common/CircularBuffer.cpp.s
 
-src/audio/platform/macos/CoreAudioPlatform.o: src/audio/platform/macos/CoreAudioPlatform.cpp.o
-.PHONY : src/audio/platform/macos/CoreAudioPlatform.o
+src/audio/hardware/AudioHardwareProviderFactory.o: src/audio/hardware/AudioHardwareProviderFactory.cpp.o
+.PHONY : src/audio/hardware/AudioHardwareProviderFactory.o
 
 # target to build an object file
-src/audio/platform/macos/CoreAudioPlatform.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/platform/macos/CoreAudioPlatform.cpp.o
-.PHONY : src/audio/platform/macos/CoreAudioPlatform.cpp.o
+src/audio/hardware/AudioHardwareProviderFactory.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/hardware/AudioHardwareProviderFactory.cpp.o
+.PHONY : src/audio/hardware/AudioHardwareProviderFactory.cpp.o
 
-src/audio/platform/macos/CoreAudioPlatform.i: src/audio/platform/macos/CoreAudioPlatform.cpp.i
-.PHONY : src/audio/platform/macos/CoreAudioPlatform.i
+src/audio/hardware/AudioHardwareProviderFactory.i: src/audio/hardware/AudioHardwareProviderFactory.cpp.i
+.PHONY : src/audio/hardware/AudioHardwareProviderFactory.i
 
 # target to preprocess a source file
-src/audio/platform/macos/CoreAudioPlatform.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/platform/macos/CoreAudioPlatform.cpp.i
-.PHONY : src/audio/platform/macos/CoreAudioPlatform.cpp.i
+src/audio/hardware/AudioHardwareProviderFactory.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/hardware/AudioHardwareProviderFactory.cpp.i
+.PHONY : src/audio/hardware/AudioHardwareProviderFactory.cpp.i
 
-src/audio/platform/macos/CoreAudioPlatform.s: src/audio/platform/macos/CoreAudioPlatform.cpp.s
-.PHONY : src/audio/platform/macos/CoreAudioPlatform.s
+src/audio/hardware/AudioHardwareProviderFactory.s: src/audio/hardware/AudioHardwareProviderFactory.cpp.s
+.PHONY : src/audio/hardware/AudioHardwareProviderFactory.s
 
 # target to generate assembly for a file
-src/audio/platform/macos/CoreAudioPlatform.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/platform/macos/CoreAudioPlatform.cpp.s
-.PHONY : src/audio/platform/macos/CoreAudioPlatform.cpp.s
+src/audio/hardware/AudioHardwareProviderFactory.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/hardware/AudioHardwareProviderFactory.cpp.s
+.PHONY : src/audio/hardware/AudioHardwareProviderFactory.cpp.s
+
+src/audio/hardware/CoreAudioHardwareProvider.o: src/audio/hardware/CoreAudioHardwareProvider.cpp.o
+.PHONY : src/audio/hardware/CoreAudioHardwareProvider.o
+
+# target to build an object file
+src/audio/hardware/CoreAudioHardwareProvider.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/hardware/CoreAudioHardwareProvider.cpp.o
+.PHONY : src/audio/hardware/CoreAudioHardwareProvider.cpp.o
+
+src/audio/hardware/CoreAudioHardwareProvider.i: src/audio/hardware/CoreAudioHardwareProvider.cpp.i
+.PHONY : src/audio/hardware/CoreAudioHardwareProvider.i
+
+# target to preprocess a source file
+src/audio/hardware/CoreAudioHardwareProvider.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/hardware/CoreAudioHardwareProvider.cpp.i
+.PHONY : src/audio/hardware/CoreAudioHardwareProvider.cpp.i
+
+src/audio/hardware/CoreAudioHardwareProvider.s: src/audio/hardware/CoreAudioHardwareProvider.cpp.s
+.PHONY : src/audio/hardware/CoreAudioHardwareProvider.s
+
+# target to generate assembly for a file
+src/audio/hardware/CoreAudioHardwareProvider.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/engine-sim-cli.dir/build.make CMakeFiles/engine-sim-cli.dir/src/audio/hardware/CoreAudioHardwareProvider.cpp.s
+.PHONY : src/audio/hardware/CoreAudioHardwareProvider.cpp.s
 
 src/audio/renderers/AudioRendererFactory.o: src/audio/renderers/AudioRendererFactory.cpp.o
 .PHONY : src/audio/renderers/AudioRendererFactory.o
@@ -1015,9 +1039,12 @@ help:
 	@echo "... src/audio/common/CircularBuffer.o"
 	@echo "... src/audio/common/CircularBuffer.i"
 	@echo "... src/audio/common/CircularBuffer.s"
-	@echo "... src/audio/platform/macos/CoreAudioPlatform.o"
-	@echo "... src/audio/platform/macos/CoreAudioPlatform.i"
-	@echo "... src/audio/platform/macos/CoreAudioPlatform.s"
+	@echo "... src/audio/hardware/AudioHardwareProviderFactory.o"
+	@echo "... src/audio/hardware/AudioHardwareProviderFactory.i"
+	@echo "... src/audio/hardware/AudioHardwareProviderFactory.s"
+	@echo "... src/audio/hardware/CoreAudioHardwareProvider.o"
+	@echo "... src/audio/hardware/CoreAudioHardwareProvider.i"
+	@echo "... src/audio/hardware/CoreAudioHardwareProvider.s"
 	@echo "... src/audio/renderers/AudioRendererFactory.o"
 	@echo "... src/audio/renderers/AudioRendererFactory.i"
 	@echo "... src/audio/renderers/AudioRendererFactory.s"

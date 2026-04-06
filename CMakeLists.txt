@@ -41,6 +41,9 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/presentation/TelemetryFormatter.cpp
     src/ble/BLEManager.cpp
     src/ble/platform/BLEManagerMock.cpp
+    src/ble/ITransport.cpp
+)
+    src/ble/TeslaBLETransport.cpp
     src/config/ConfigLoader.cpp
     src/domain/VehicleSignal.cpp
     src/domain/TelemetrySignal.cpp
@@ -95,14 +98,13 @@ if(BUILD_IOS)
         OUTPUT_NAME vehicle-sim-core
     )
 
-    # iOS app bundle
+    # iOS app bundle - Swift as main language
     add_executable(vehicle-sim-ios
-        vehicle-sim-ios/VehicleSim/VehicleSimWrapper.mm
         vehicle-sim-ios/VehicleSim/VehicleSimAppApp.swift
         vehicle-sim-ios/VehicleSim/ContentView.swift
         vehicle-sim-ios/VehicleSim/VehicleViewModel.swift
         vehicle-sim-ios/VehicleSim/Models/TelemetryData.swift
-        vehicle-sim-ios/VehicleSim/VehicleSim-Bridging-Header.h
+        vehicle-sim-ios/VehicleSim/VehicleSimWrapper.mm
     )
     target_include_directories(vehicle-sim-ios
         PRIVATE
@@ -119,9 +121,8 @@ if(BUILD_IOS)
         BUNDLE_EXTENSION app
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/vehicle-sim-ios/Info.plist
         XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/vehicle-sim-ios/VehicleSim/VehicleSim-Bridging-Header.h"
-        XCODE_ATTRIBUTE_ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES "YES"
-        XCODE_ATTRIBUTE_EMBEDDED_CONTENT_CONTAINS_SWIFT "YES"
-        SWIFT_VERSION "5.0"
+        XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "14.0"
     )
 endif()
 
