@@ -53,9 +53,18 @@ TEST(VehicleSignalTest, ValueEqualityWorks)
     EXPECT_NE(a, c);
 }
 
-TEST(VehicleSignalTest, IsImmutable)
+TEST(VehicleSignalTest, ValueInequalityWorks)
 {
-    // Compile time test: no mutator methods exist
-    // This test passes by compiling successfully
-    SUCCEED();
+    const VehicleSignal a(50.0, 100.0, 0.5, 25.0, 12345);
+    const VehicleSignal b(51.0, 100.0, 0.5, 25.0, 12345);
+
+    EXPECT_NE(a, b);
 }
+
+// NOTE: Immutability test removed
+// Original test used SUCCEED() placeholder which violated TDD
+// Immutability is enforced by compile-time through API design:
+// - No mutator methods exist in VehicleSignal class
+// - All methods are const
+// - Return by value only
+// This is a compile-time guarantee, not a runtime test

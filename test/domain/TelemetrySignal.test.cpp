@@ -22,26 +22,26 @@ TEST(TelemetrySignalTest, ConstructsWithValidValues)
 
 TEST(TelemetrySignalTest, ClampsRpmToValidRange)
 {
-    EXPECT_DOUBLE_EQ(TelemetrySignal(-100.0, 1, 0, 0, 0, 0).getRpm(), 0.0);
-    EXPECT_DOUBLE_EQ(TelemetrySignal(15000.0, 1, 0, 0, 0, 0).getRpm(), 12000.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(-100.0, 1, 0, 0, 0).getRpm(), 0.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(15000.0, 1, 0, 0, 0).getRpm(), 12000.0);
 }
 
 TEST(TelemetrySignalTest, ClampsGearToValidRange)
 {
-    EXPECT_EQ(TelemetrySignal(0, -2, 0, 0, 0, 0).getGear(), -1);
-    EXPECT_EQ(TelemetrySignal(0, 10, 0, 0, 0, 0).getGear(), 9);
+    EXPECT_EQ(TelemetrySignal(0, -2, 0, 0, 0).getGear(), -1);
+    EXPECT_EQ(TelemetrySignal(0, 10, 0, 0, 0).getGear(), 9);
 }
 
 TEST(TelemetrySignalTest, ClampsTorqueToValidRange)
 {
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, -100.0, 0, 0, 0).getTorqueNm(), 0.0);
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 2000.0, 0, 0, 0).getTorqueNm(), 1500.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, -100.0, 0, 0).getTorqueNm(), 0.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 2000.0, 0, 0).getTorqueNm(), 1500.0);
 }
 
 TEST(TelemetrySignalTest, ClampsThrottleToValidRange)
 {
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, 0, -10.0, 0).getThrottlePercent(), 0.0);
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, 0, 120.0, 0).getThrottlePercent(), 100.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, -10.0, 0).getThrottlePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, 120.0, 0).getThrottlePercent(), 100.0);
 }
 
 TEST(TelemetrySignalTest, ValueEqualityWorks)
@@ -54,9 +54,18 @@ TEST(TelemetrySignalTest, ValueEqualityWorks)
     EXPECT_NE(a, c);
 }
 
-TEST(TelemetrySignalTest, IsImmutable)
+TEST(TelemetrySignalTest, ValueInequalityWorks)
 {
-    // Compile time test: no mutator methods exist
-    // This test passes by compiling successfully
-    SUCCEED();
+    const TelemetrySignal a(3000.0, 3, 450.0, 100.0, 50.0, 12345);
+    const TelemetrySignal b(3001.0, 3, 450.0, 100.0, 50.0, 12345);
+
+    EXPECT_NE(a, b);
 }
+
+// NOTE: Immutability test removed
+// Original test used SUCCEED() placeholder which violated TDD
+// Immutability is enforced by compile-time through API design:
+// - No mutator methods exist in TelemetrySignal class
+// - All methods are const
+// - Return by value only
+// This is a compile-time guarantee, not a runtime test

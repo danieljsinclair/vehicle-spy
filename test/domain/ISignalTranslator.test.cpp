@@ -6,6 +6,8 @@
 using namespace vehicle_sim::domain;
 using testing::_;
 using testing::Return;
+using testing::Eq;
+using testing::Field;
 
 // ================================================
 // ISignalTranslator Interface Tests
@@ -18,21 +20,15 @@ public:
     MOCK_METHOD(bool, isValidPacket, (const std::vector<std::uint8_t>& rawData), (const, noexcept, override));
 };
 
-TEST(ISignalTranslatorTest, InterfaceHasCorrectMethods)
-{
-    // Compile time test: interface methods exist and are callable
-    MockSignalTranslator mock;
-    std::vector<std::uint8_t> dummyData = {0x01, 0x02, 0x03};
-
-    // These calls compile, verifying the interface contract
-    (void)mock.translate(dummyData);
-    (void)mock.isValidPacket(dummyData);
-
-    SUCCEED();
-}
+// ================================================
+// Test Suite 1: Translation Behavior Tests
+// ================================================
 
 TEST(ISignalTranslatorTest, TranslateReturnsOptionalVehicleSignal)
 {
+    // ASSERT: Valid raw data is translated to VehicleSignal
+    // This tests the happy path behavior
+
     MockSignalTranslator mock;
     std::vector<std::uint8_t> validData = {0xAA, 0x55};
 
@@ -40,12 +36,17 @@ TEST(ISignalTranslatorTest, TranslateReturnsOptionalVehicleSignal)
         .WillOnce(Return(VehicleSignal(50.0, 100.0, 0.5, 0.0, 12345)));
 
     auto result = mock.translate(validData);
-    ASSERT_TRUE(result.has_value());
+
+    ASSERT_TRUE(result.has_value())
+        << "Should return VehicleSignal for valid data";
     EXPECT_DOUBLE_EQ(result->getThrottlePercent(), 50.0);
 }
 
 TEST(ISignalTranslatorTest, TranslateReturnsEmptyOptionalOnFailure)
 {
+    // ASSERT: Invalid raw data returns empty optional
+    // This tests the error handling behavior
+
     MockSignalTranslator mock;
     std::vector<std::uint8_t> invalidData = {0xFF};
 
@@ -53,20 +54,32 @@ TEST(ISignalTranslatorTest, TranslateReturnsEmptyOptionalOnFailure)
         .WillOnce(Return(std::nullopt));
 
     auto result = mock.translate(invalidData);
-    EXPECT_FALSE(result.has_value());
+
+    ASSERT_FALSE(result.has_value())
+        << "Should return nullopt for invalid data";
 }
 
-TEST(ISignalTranslatorTest, IsValidPacketValidatesData)
+// ================================================
+// Test Suite 2: Validation Behavior Tests
+// ================================================
+
+TEST(ISignalTranslatorTest, IsValidPacketValidatesCorrectly)
 {
+    // ASSERT: Packet validation works correctly
+    // Test that the validation method behaves as expected
+
     MockSignalTranslator mock;
     std::vector<std::uint8_t> validData = {0xAA, 0x55};
     std::vector<std::uint8_t> invalidData = {0x00};
 
     EXPECT_CALL(mock, isValidPacket(validData))
         .WillOnce(Return(true));
+
     EXPECT_CALL(mock, isValidPacket(invalidData))
         .WillOnce(Return(false));
 
-    EXPECT_TRUE(mock.isValidPacket(validData));
-    EXPECT_FALSE(mock.isValidPacket(invalidData));
+    ASSERT_TRUE(mock.isValidPacket(validData))
+        << "Should validate valid packet as true";
+    ASSERT_FALSE(mock.isValidPacket(invalidData))
+        << "Should validate invalid packet as false";
 }
