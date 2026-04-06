@@ -23,6 +23,7 @@ public:
     void disconnect() override;
     void setDeviceFoundCallback(DeviceCallback callback) override;
     void setDataReceivedCallback(DataCallback callback) override;
+    void send(const std::vector<uint8_t>& data) override;
     bool isConnected() const override;
     std::string getConnectedDeviceId() const override;
 

@@ -6,13 +6,15 @@ This is **not a vehicle simulator**. This is a powertrain reference model transl
 We read real live telemetry directly from Tesla Model Y BLE OBD2 scanner. The sole purpose of this product is to translate those real input signals into what any other reference vehicle would be doing under exactly the same driving conditions.
 
 ## End Goal
-Given real throttle position, speed, and acceleration from a Tesla, we act as an adapter that feeds these canonical signals into the existing parent engine-sim physics library. We will NOT reimplement engine physics. We will:
-1. Normalize real Tesla signals into standard OBD2 format
-2. Feed normalized signals into existing engine-sim physics library
-3. Receive resulting gear, RPM and torque values from the parent physics engine
-4. Forward final values to the engine sound generator
+This project is **STANDALONE DATA ACQUISITION AND DISPLAY LAYER ONLY**.
+We will **NOT** integrate, reference, or depend on engine-sim, physics libraries or any external projects.
 
-This project is the adapter layer between real vehicle telemetry and the existing physics engine.
+This repository's **ONLY** responsibility:
+1. Read real live telemetry directly from Tesla Model Y BLE OBD2 scanner
+2. Parse Tesla proprietary signals and normalize to standard OBD2 canonical format **EXACTLY AT THE BOUNDARY LAYER**
+3. Display live telemetry values on iPhone SwiftUI dashboard
+
+All physics modelling, engine simulation and sound generation belongs in the parent project. This project is strictly data in, data out, display.
 
 ## Breadth First Delivery Strategy
 ✅ **Always deployable, always demoable**
@@ -22,11 +24,19 @@ This project is the adapter layer between real vehicle telemetry and the existin
 ✅ No sprints, continuous incremental delivery
 
 ## Product Roadmap
-### Phase 0: End to End Pipe
-1. Read raw Tesla BLE signal
-2. Translate to standard OBD2 canonical format at the boundary
-3. Normalize and validate
-4. Display value on dashboard UI
+### Phase 0: MVP End to End Pipe (🔴 HIGHEST PRIORITY)
+✅ **Deliver end to end working value first**
+1. Read ONE actual raw signal from real Tesla Model Y over BLE
+2. Parse Tesla proprietary signal using public DBC files (Adminius/tesla-can-dbc)
+3. Translate EXACTLY at the boundary layer to standard OBD2 canonical format
+4. Display live updating value on real iPhone SwiftUI dashboard
+5. Maintain 10Hz minimum update rate
+6. Full end to end regression test covering entire stack
+
+✅ **We will NOT reimplement physics simulation.** We will use existing parent engine-sim physics library.
+✅ **All architecture rules apply 100%:** SOLID, DI, TDD, no technical debt, no corners cut.
+
+THIS IS THE ONLY PRIORITY. DO NOT WORK ON ANYTHING ELSE UNTIL THIS IS WORKING END TO END ON ACTUAL HARDWARE.
 
 ### Phase 1: Single Powertrain Model
 1. Implement IPowertrainModel interface

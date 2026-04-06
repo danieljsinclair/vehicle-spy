@@ -49,6 +49,11 @@ void BLEManagerMock::setDataReceivedCallback(DataCallback callback) {
     data_callback_ = std::move(callback);
 }
 
+void BLEManagerMock::send(const std::vector<uint8_t>& data) {
+    // Mock implementation - in real implementation, this would write to BLE characteristic
+    // For testing, we can optionally echo back data or track sent data
+}
+
 bool BLEManagerMock::isConnected() const {
     return connected_;
 }

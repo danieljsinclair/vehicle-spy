@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include "PhysicsEngine.h"
+#include "domain/TelemetrySignal.h"
 
 namespace vehicle_sim {
 
@@ -15,8 +15,8 @@ class TelemetryFormatter {
 public:
     TelemetryFormatter(Format format = Format::JSON);
 
-    // Format physics data according to configured format
-    std::string format(const PhysicsData& data);
+    // Format telemetry data according to configured format
+    std::string format(const domain::TelemetrySignal& data);
 
     // Set output format
     void setFormat(Format format);

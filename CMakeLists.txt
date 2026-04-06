@@ -29,21 +29,16 @@ if(BUILD_IOS)
     set(CMAKE_MACOSX_BUNDLE YES)
 endif()
 
-# Add submodules if present
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/engine-sim-bridge/CMakeLists.txt)
-    add_subdirectory(engine-sim-bridge ${CMAKE_BINARY_DIR}/engine-sim-bridge)
-endif()
+# NOTE: We are a standalone Tesla→iPhone data flow module
+# We do NOT integrate with external physics engines
 
 # Define core library sources
+# NOTE: Physics engine removed - we are standalone Tesla→iPhone data flow module
 set(VEHICLE_SIM_LIB_SOURCES
     src/VehicleSim.cpp
-    src/physics/PhysicsEngine.cpp
     src/presentation/TelemetryFormatter.cpp
     src/ble/BLEManager.cpp
     src/ble/platform/BLEManagerMock.cpp
-    src/ble/ITransport.cpp
-)
-    src/ble/TeslaBLETransport.cpp
     src/config/ConfigLoader.cpp
     src/domain/VehicleSignal.cpp
     src/domain/TelemetrySignal.cpp

@@ -2,7 +2,6 @@
 #include <memory>
 #include "vehicle-sim/VehicleSim.h"
 #include "vehicle-sim/BLEManager.h"
-#include "vehicle-sim/PhysicsEngine.h"
 #include "vehicle-sim/TelemetryFormatter.h"
 
 int main(int argc, char* argv[]) {
@@ -23,7 +22,6 @@ int main(int argc, char* argv[]) {
     std::cout << "Core components initialized:" << std::endl;
     std::cout << "  - VehicleSim (main orchestrator)" << std::endl;
     std::cout << "  - BLEManager (Tesla OBD2 BLE interface)" << std::endl;
-    std::cout << "  - PhysicsEngine (real-time calculations)" << std::endl;
     std::cout << "  - TelemetryFormatter (JSON/CSV output)" << std::endl;
     std::cout << std::endl;
 

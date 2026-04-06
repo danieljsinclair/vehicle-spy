@@ -37,6 +37,9 @@ public:
     // Subscribe to raw BLE data notifications
     virtual void setDataReceivedCallback(DataCallback callback) = 0;
 
+    // Send data to connected device
+    virtual void send(const std::vector<uint8_t>& data) = 0;
+
     // Check connection status
     virtual bool isConnected() const = 0;
 

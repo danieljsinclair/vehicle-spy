@@ -18,6 +18,7 @@ public:
     MOCK_METHOD(void, disconnect, (), (override));
     MOCK_METHOD(void, setDeviceFoundCallback, (DeviceCallback callback), (override));
     MOCK_METHOD(void, setDataReceivedCallback, (DataCallback callback), (override));
+    MOCK_METHOD(void, send, (const std::vector<uint8_t>& data), (override));
     MOCK_METHOD(bool, isConnected, (), (const, override));
     MOCK_METHOD(std::string, getConnectedDeviceId, (), (const, override));
 };

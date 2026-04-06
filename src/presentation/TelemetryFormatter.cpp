@@ -22,50 +22,44 @@ void TelemetryFormatter::setDelimiter(char delimiter) {
     delimiter_ = delimiter;
 }
 
-std::string TelemetryFormatter::format(const PhysicsData& data) {
+std::string TelemetryFormatter::format(const domain::TelemetrySignal& data) {
     std::ostringstream oss;
 
     switch (format_) {
         case Format::JSON: {
             oss << "{";
-            oss << "\"timestamp\":" << data.timestamp << ",";
-            oss << "\"rpm\":" << data.rpm << ",";
-            oss << "\"speed\":" << data.speed << ",";
-            oss << "\"throttle\":" << data.throttle_position << ",";
-            oss << "\"torque\":" << data.torque << ",";
-            oss << "\"acceleration\":" << data.acceleration << ",";
-            oss << "\"gear\":" << data.gear << ",";
-            oss << "\"brake\":" << (data.brake_active ? "true" : "false");
+            oss << "\"timestamp\":" << data.getTimestampUtcMs() << ",";
+            oss << "\"rpm\":" << data.getRpm() << ",";
+            oss << "\"speed\":" << data.getSpeedKmh() << ",";
+            oss << "\"throttle\":" << data.getThrottlePercent() << ",";
+            oss << "\"torque\":" << data.getTorqueNm() << ",";
+            oss << "\"gear\":" << data.getGear();
             oss << "}";
             break;
         }
 
         case Format::CSV: {
             if (include_headers_) {
-                oss << "timestamp,rpm,speed,throttle,torque,acceleration,gear,brake" << std::endl;
+                oss << "timestamp,rpm,speed,throttle,torque,gear" << std::endl;
             }
             oss << std::fixed << std::setprecision(6);
-            oss << data.timestamp << delimiter_
-                << data.rpm << delimiter_
-                << data.speed << delimiter_
-                << data.throttle_position << delimiter_
-                << data.torque << delimiter_
-                << data.acceleration << delimiter_
-                << data.gear << delimiter_
-                << (data.brake_active ? "1" : "0");
+            oss << data.getTimestampUtcMs() << delimiter_
+                << data.getRpm() << delimiter_
+                << data.getSpeedKmh() << delimiter_
+                << data.getThrottlePercent() << delimiter_
+                << data.getTorqueNm() << delimiter_
+                << data.getGear();
             break;
         }
 
         case Format::PLAINTEXT: {
             oss << "Telemetry:" << std::endl;
-            oss << "  Time: " << data.timestamp << "s" << std::endl;
-            oss << "  RPM: " << data.rpm << std::endl;
-            oss << "  Speed: " << data.speed << " km/h" << std::endl;
-            oss << "  Throttle: " << (data.throttle_position * 100.0) << "%" << std::endl;
-            oss << "  Torque: " << data.torque << " Nm" << std::endl;
-            oss << "  Acceleration: " << data.acceleration << " m/s²" << std::endl;
-            oss << "  Gear: " << data.gear << std::endl;
-            oss << "  Brake: " << (data.brake_active ? "ON" : "OFF");
+            oss << "  Time: " << data.getTimestampUtcMs() << " ms" << std::endl;
+            oss << "  RPM: " << data.getRpm() << std::endl;
+            oss << "  Speed: " << data.getSpeedKmh() << " km/h" << std::endl;
+            oss << "  Throttle: " << data.getThrottlePercent() << "%" << std::endl;
+            oss << "  Torque: " << data.getTorqueNm() << " Nm" << std::endl;
+            oss << "  Gear: " << data.getGear();
             break;
         }
     }
