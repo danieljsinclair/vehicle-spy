@@ -31,14 +31,7 @@ endif()
 
 # NOTE: We are a standalone Tesla→iPhone data flow module
 # We do NOT integrate with external physics engines
-
-# Phase separation: PhysicsEngine is Phase 2 only
-# Phase 0: Data acquisition (VehicleSignal only, no physics)
-# Phase 2: Add Single Powertrain Model with Mustang GT500 simulation
-# Build with -DENABLE_PHASE_2_PHYSICS=OFF for Phase 0 (default)
-# Build with -DENABLE_PHASE_2_PHYSICS=ON for Phase 2
-
-option(ENABLE_PHASE_2_PHYSICS "Enable Phase 2 physics simulation" OFF)
+# Our ONLY job: Read Tesla CAN bus -> Normalize -> Display on iPhone
 
 # Define core library sources
 set(VEHICLE_SIM_LIB_SOURCES
@@ -51,16 +44,6 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/TelemetrySignal.cpp
     src/domain/TeslaSignalTranslator.cpp
 )
-
-# Phase 2 physics sources (only included when ENABLE_PHASE_2_PHYSICS=ON)
-set(PHASE_2_SOURCES
-    src/physics/PhysicsEngine.cpp
-)
-
-# Append phase 2 sources if enabled
-if(ENABLE_PHASE_2_PHYSICS)
-    list(APPEND VEHICLE_SIM_LIB_SOURCES ${PHASE_2_SOURCES})
-endif()
 
 # Library target with core functionality (for testing and main executable)
 add_library(vehicle-sim-lib

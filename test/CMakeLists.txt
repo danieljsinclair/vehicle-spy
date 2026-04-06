@@ -1,6 +1,5 @@
 # Test CMake configuration
-# NOTE: Physics engine tests are Phase 2 only (not included in Phase 0 build)
-# Build with -DENABLE_PHASE_2_PHYSICS=ON for Phase 2 to include PhysicsEngine tests
+# NOTE: We are standalone Tesla→iPhone data flow - no physics simulation
 
 add_executable(vehicle-sim-tests
     test_main.cpp
@@ -11,17 +10,8 @@ add_executable(vehicle-sim-tests
     domain/TeslaSignalTranslator.test.cpp
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp
+    boundary/TeslaBLETransport.test.cpp
 )
-
-# Phase 2 physics test (only included when ENABLE_PHASE_2_PHYSICS=ON)
-set(PHASE_2_TESTS
-    physics/PhysicsEngine.test.cpp
-)
-
-# Append phase 2 tests if enabled
-if(ENABLE_PHASE_2_PHYSICS)
-    list(APPEND vehicle-sim-tests ${PHASE_2_TESTS})
-endif()
 
 target_link_libraries(vehicle-sim-tests
     PRIVATE
