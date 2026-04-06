@@ -62,6 +62,10 @@ test/unit/
 # Temporary files
 tmp/
 temp/
+
+# Version control violations - NO .bak files
+*.bak
+*.bak.*
 .temp/
 
 # Clangd index
