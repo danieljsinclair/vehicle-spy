@@ -10,6 +10,7 @@ using namespace vehicle_sim::domain;
 
 TEST(TelemetrySignalTest, ConstructsWithValidValues)
 {
+    // rpm, gear, torqueNm, speedKmh, throttlePercent, timestamp
     const TelemetrySignal signal(3000.0, 3, 450.0, 100.0, 50.0, 123456789ULL);
 
     EXPECT_DOUBLE_EQ(signal.getRpm(), 3000.0);
@@ -22,26 +23,26 @@ TEST(TelemetrySignalTest, ConstructsWithValidValues)
 
 TEST(TelemetrySignalTest, ClampsRpmToValidRange)
 {
-    EXPECT_DOUBLE_EQ(TelemetrySignal(-100.0, 1, 0, 0, 0).getRpm(), 0.0);
-    EXPECT_DOUBLE_EQ(TelemetrySignal(15000.0, 1, 0, 0, 0).getRpm(), 12000.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(-100.0, 1, 0, 0, 0, 1000).getRpm(), 0.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(15000.0, 1, 0, 0, 0, 1000).getRpm(), 12000.0);
 }
 
 TEST(TelemetrySignalTest, ClampsGearToValidRange)
 {
-    EXPECT_EQ(TelemetrySignal(0, -2, 0, 0, 0).getGear(), -1);
-    EXPECT_EQ(TelemetrySignal(0, 10, 0, 0, 0).getGear(), 9);
+    EXPECT_EQ(TelemetrySignal(0, -2, 0, 0, 0, 1000).getGear(), -1);
+    EXPECT_EQ(TelemetrySignal(0, 10, 0, 0, 0, 1000).getGear(), 9);
 }
 
 TEST(TelemetrySignalTest, ClampsTorqueToValidRange)
 {
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, -100.0, 0, 0).getTorqueNm(), 0.0);
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 2000.0, 0, 0).getTorqueNm(), 1500.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, -100.0, 0, 0, 1000).getTorqueNm(), 0.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 2000.0, 0, 0, 1000).getTorqueNm(), 1500.0);
 }
 
 TEST(TelemetrySignalTest, ClampsThrottleToValidRange)
 {
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, -10.0, 0).getThrottlePercent(), 0.0);
-    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, 120.0, 0).getThrottlePercent(), 100.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, 0, -10.0, 1000).getThrottlePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(TelemetrySignal(0, 1, 0, 0, 120.0, 1000).getThrottlePercent(), 100.0);
 }
 
 TEST(TelemetrySignalTest, ValueEqualityWorks)
@@ -62,8 +63,7 @@ TEST(TelemetrySignalTest, ValueInequalityWorks)
     EXPECT_NE(a, b);
 }
 
-// NOTE: Immutability test removed
-// Original test used SUCCEED() placeholder which violated TDD
+// NOTE: Immutability is a compile-time guarantee, not runtime behavior
 // Immutability is enforced by compile-time through API design:
 // - No mutator methods exist in TelemetrySignal class
 // - All methods are const

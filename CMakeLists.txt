@@ -38,11 +38,14 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/VehicleSim.cpp
     src/presentation/TelemetryFormatter.cpp
     src/ble/BLEManager.cpp
+    src/ble/TeslaBLETransport.cpp
     src/ble/platform/BLEManagerMock.cpp
     src/config/ConfigLoader.cpp
     src/domain/VehicleSignal.cpp
     src/domain/TelemetrySignal.cpp
     src/domain/TeslaSignalTranslator.cpp
+    src/domain/TeslaSignalParser.cpp
+    src/domain/EventDispatcher.cpp
 )
 
 # Library target with core functionality (for testing and main executable)

@@ -61,8 +61,7 @@ TEST(VehicleSignalTest, ValueInequalityWorks)
     EXPECT_NE(a, b);
 }
 
-// NOTE: Immutability test removed
-// Original test used SUCCEED() placeholder which violated TDD
+// NOTE: Immutability is a compile-time guarantee, not runtime behavior
 // Immutability is enforced by compile-time through API design:
 // - No mutator methods exist in VehicleSignal class
 // - All methods are const

@@ -7,6 +7,8 @@ add_executable(vehicle-sim-tests
     domain/VehicleSignal.test.cpp
     domain/TelemetrySignal.test.cpp
     domain/ISignalTranslator.test.cpp
+    domain/TeslaSignalParser.test.cpp
+    domain/EventDispatcher.test.cpp
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp
     boundary/TeslaBLETransport.test.cpp

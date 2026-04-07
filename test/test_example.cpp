@@ -1,12 +1,9 @@
 #include <gtest/gtest.h>
 
-TEST(VehicleSimTest, BasicTest) {
+// Basic test verifying gtest framework works
+TEST(VehicleSimTest, BasicFrameworkTest) {
     EXPECT_EQ(1 + 1, 2);
-    SUCCEED();
 }
 
-TEST(VehicleSimTest, Placeholder) {
-    // Placeholder test to demonstrate test structure
-    // Replace with actual vehicle simulation tests
-    EXPECT_TRUE(true);
-}
+// Note: All tests are RED-phase specifications that drive implementation
+// All tests must specify behavior, not use SUCCEED()
