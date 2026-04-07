@@ -12,6 +12,7 @@ add_executable(vehicle-sim-tests
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp
     boundary/TeslaBLETransport.test.cpp
+    integration/EventDispatcherIntegration.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests
