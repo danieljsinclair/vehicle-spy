@@ -7,8 +7,9 @@ all: native
 clean:
 	rm -rf build-native build-ios
 
-# Run tests (builds first)
-test: all
+# Run tests (builds everything including test binary first)
+test: native
+	@$(MAKE) -C build-native vehicle-sim-tests
 	@$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes
 
 # Build C++ library for iOS, headless build the Xcode app
