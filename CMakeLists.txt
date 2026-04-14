@@ -74,11 +74,12 @@ target_link_libraries(vehicle-sim-lib
     Threads::Threads
 )
 
-# Link CoreBluetooth on Apple platforms
+# Link CoreBluetooth and Foundation on Apple platforms
 if(APPLE)
     target_link_libraries(vehicle-sim-lib
         PRIVATE
         ${COREBLUETOOTH}
+        ${FOUNDATION}
     )
 endif()
 
@@ -102,11 +103,6 @@ target_link_libraries(vehicle-sim
     PRIVATE
     vehicle-sim-lib
 )
-
-# Link frameworks for macOS CLI (needed for Objective-C++ BLE code)
-if(APPLE AND NOT BUILD_IOS)
-    target_link_libraries(vehicle-sim PRIVATE ${FOUNDATION})
-endif()
 
 target_compile_options(vehicle-sim PRIVATE -g)
 endif() # NOT BUILD_IOS (closes the executable block)

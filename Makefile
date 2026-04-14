@@ -1,27 +1,27 @@
 .PHONY: all clean test help ios xcode native
 
 # Default target - build native
-all: native
+all: test ios
 
 # Clean build artifacts
 clean:
 	rm -rf build-native build-ios
+	rm -rf ~/Library/Developer/Xcode/DerivedData
+	rm -rf vehicle-sim-ios/VehicleSim/build
 
 # Run tests (builds everything including test binary first)
 test: native
 	@$(MAKE) -C build-native vehicle-sim-tests
 	@$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes
 
-# Build C++ library for iOS, headless build the Xcode app
+# Build iOS app (Xcode compiles C++ sources directly — no prebuilt library needed)
 ios:
-	@if [ ! -d build-ios ]; then mkdir build-ios; fi
-	@cd build-ios && cmake .. -DBUILD_IOS=ON -DBUILD_TESTS=OFF
-	@$(MAKE) -C build-ios all
 	@echo "--- Building iOS app ---"
-	@set -o pipefail && xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj -scheme VehicleSimApp -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -5
+	@set -o pipefail && xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj -target VehicleSimApp -destination 'platform=iOS Simulator,name=iPhone 16' build 2>&1 | tail -10
 
 # Open in Xcode (runs ios build first)
 xcode: ios
+	@echo "Launching xcode..."
 	@open vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj
 
 native:
@@ -34,8 +34,8 @@ help:
 	@echo "Available targets:"
 	@echo "  all     - Build native CLI (default)"
 	@echo "  clean   - Clean build artifacts"
-	@echo "  test    - Run unit tests (88 passing)"
-	@echo "  ios     - Build iOS app headlessly (C++ lib + Swift app)"
+	@echo "  test    - Run unit tests"
+	@echo "  ios     - Build iOS app (Xcode compiles C++ directly)"
 	@echo "  xcode   - Build iOS app and open in Xcode (for device deploy)"
 	@echo "  native  - Build native macOS CLI"
 	@echo "  help    - Show this help message"

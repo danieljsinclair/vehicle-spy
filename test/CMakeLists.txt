@@ -4,6 +4,7 @@
 add_executable(vehicle-sim-tests
     test_main.cpp
     test_example.cpp
+    VehicleSimulator.test.cpp
     domain/VehicleSignal.test.cpp
     domain/TelemetrySignal.test.cpp
     domain/ISignalTranslator.test.cpp

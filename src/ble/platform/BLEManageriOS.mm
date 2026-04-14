@@ -285,7 +285,7 @@ bool BLEManageriOS::connect(const std::string& device_identifier) {
 
     if (device && device->peripheral) {
         // Transfer ownership from void* to CBPeripheral*
-        target_peripheral = (CBPeripheral*)device->peripheral;
+        target_peripheral = (__bridge CBPeripheral*)device->peripheral;
         // Clear the void* to prevent double-free
         const_cast<BLEDeviceInfo&>(*device).peripheral = nullptr;
     } else {
@@ -464,7 +464,7 @@ bool BLEManageriOS::waitForBluetoothReady(int timeout_ms) {
 CBPeripheral* BLEManageriOS::findPeripheralByAddress(const std::string& address) {
     auto device = findDeviceByAddress(address);
     if (device && device->peripheral) {
-        CBPeripheral* peripheral = (CBPeripheral*)device->peripheral;
+        CBPeripheral* peripheral = (__bridge CBPeripheral*)device->peripheral;
         const_cast<BLEDeviceInfo&>(*device).peripheral = nullptr;
         return peripheral;
     }

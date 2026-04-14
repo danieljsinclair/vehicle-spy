@@ -1,0 +1,1 @@
+sed: 1: "/A1000010.*Sources.*=.* ...": unbalanced brackets ([])

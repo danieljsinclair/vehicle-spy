@@ -1,56 +1,45 @@
 /**
- * @brief Objective-C++ bridge between C++ core and Swift UI.
+ * @brief Objective-C++ thin bridge between C++ VehicleSimulator and Swift UI.
  *
- * This class exposes the vehicle-sim C++ API to Swift in a type-safe manner.
- * It must be compiled as Objective-C++ (.mm) to link against the C++ library.
+ * Zero simulation logic — delegates entirely to C++ VehicleSimulator.
+ * Only exposes the 4 VehicleSignal fields: throttle, speed, acceleration, brake.
  *
  * Usage from Swift:
  *   let wrapper = VehicleSimWrapper()
- *   let data = wrapper.getTelemetry()
+ *   wrapper.start()
+ *   let t = wrapper.throttlePercent
  */
 
 #import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
-/// Immutable telemetry data for Swift consumption
-@interface TelemetryData : NSObject
-
-@property (nonatomic, readonly) NSTimeInterval timestamp;
-@property (nonatomic, readonly) double rpm;
-@property (nonatomic, readonly) double speedKmh;
-@property (nonatomic, readonly) double throttlePercent;
-@property (nonatomic, readonly) double brakePercent;
-@property (nonatomic, readonly) NSInteger gear;
-@property (nonatomic, readonly) double torque;
-@property (nonatomic, readonly) double accelerationG;
-
-- (instancetype)initWithTimestamp:(NSTimeInterval)timestamp
-                              rpm:(double)rpm
-                        speedKmh:(double)speedKmh
-                throttlePercent:(double)throttlePercent
-                   brakePercent:(double)brakePercent
-                           gear:(NSInteger)gear
-                         torque:(double)torque
-                accelerationG:(double)accelerationG;
-
-@end
-
 /// Objective-C++ wrapper for vehicle-sim C++ core
 @interface VehicleSimWrapper : NSObject
 
-/// Initialize the simulator (loads default configuration)
+/// Initialize the simulator (creates C++ VehicleSimulator)
 - (instancetype)init;
 
-/// Start telemetry capture (connects to BLE mock)
+/// Start simulation
 - (void)start;
 
-/// Stop telemetry capture
+/// Stop simulation
 - (void)stop;
 
-/// Get the latest telemetry snapshot (blocking call for simplicity)
-/// Returns nil if no data available
-- (nullable TelemetryData *)getTelemetry;
+/// Advance simulation by one tick and update signal values
+- (void)update;
+
+/// Latest signal values from C++ VehicleSignal (0.0 - 100.0)
+@property (nonatomic, readonly) double throttlePercent;
+
+/// Latest speed in km/h (0.0 - 300.0)
+@property (nonatomic, readonly) double speedKmh;
+
+/// Latest acceleration in G (-5.0 to +5.0)
+@property (nonatomic, readonly) double accelerationG;
+
+/// Latest brake percent (0.0 - 100.0)
+@property (nonatomic, readonly) double brakePercent;
 
 /// Check if simulator is running
 - (BOOL)isRunning;

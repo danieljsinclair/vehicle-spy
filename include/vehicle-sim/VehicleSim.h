@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include "vehicle-sim/domain/VehicleSignal.h"
 
 namespace vehicle_sim {
 
@@ -20,11 +21,13 @@ public:
     // Stop all capture and processing
     void stop();
 
-    // Main update loop - call regularly for real-time processing
+    // Main update loop - animates simulation values
     void update();
 
-    // Get current telemetry data
-    // Returns JSON or structured data depending on configuration
+    // Get the latest typed signal (single source of truth)
+    [[nodiscard]] domain::VehicleSignal getLatestSignal() const;
+
+    // Get current telemetry data as JSON (CLI backward compat)
     std::string getTelemetry() const;
 
     // Set callback for event-driven architecture

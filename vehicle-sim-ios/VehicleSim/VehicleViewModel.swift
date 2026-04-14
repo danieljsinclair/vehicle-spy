@@ -1,20 +1,15 @@
 import Foundation
 import Combine
 
-// Bridge to C++ core - will be provided by ObjC++ wrapper
-// @objc class VehicleSimWrapper: NSObject { ... }
-
-/// Observable view model for SwiftUI telemetry display
+/// Observable view model for SwiftUI telemetry display.
+/// Maps directly from C++ VehicleSignal via VehicleSimWrapper.
 class VehicleViewModel: ObservableObject {
-    // MARK: - Published Properties for UI
+    // MARK: - Published Properties (match VehicleSignal exactly)
 
-    @Published var rpm: Double = 0.0
-    @Published var speed: Double = 0.0
     @Published var throttlePercent: Double = 0.0
-    @Published var brakePercent: Double = 0.0
-    @Published var gear: Int = 0
-    @Published var torque: Double = 0.0
+    @Published var speed: Double = 0.0
     @Published var acceleration: Double = 0.0
+    @Published var brakePercent: Double = 0.0
 
     @Published var isConnected: Bool = false
     @Published var connectionStatus: String = "Disconnected"
@@ -28,7 +23,6 @@ class VehicleViewModel: ObservableObject {
     // MARK: - Lifecycle
 
     init() {
-        // Initialize C++ wrapper
         wrapper = VehicleSimWrapper()
     }
 
@@ -38,28 +32,26 @@ class VehicleViewModel: ObservableObject {
 
     // MARK: - Public API
 
-    /// Start the telemetry stream (connect to BLE mock)
     func start() {
         guard wrapper != nil else {
             connectionStatus = "Wrapper not initialized"
             return
         }
 
+        wrapper?.start()
         isConnected = true
         connectionStatus = "Connected (Demo)"
 
-        // Start periodic updates
         updateTimer = Timer.scheduledTimer(
             withTimeInterval: updateInterval,
             repeats: true
         ) { [weak self] _ in
-            // Timer fires on main run loop, safe to call directly
             self?.updateTelemetry()
         }
     }
 
-    /// Stop the telemetry stream
     func stop() {
+        wrapper?.stop()
         stopUpdates()
         isConnected = false
         connectionStatus = "Disconnected"
@@ -75,16 +67,10 @@ class VehicleViewModel: ObservableObject {
     private func updateTelemetry() {
         guard let wrapper = wrapper else { return }
 
-        // Get latest telemetry from C++ core through wrapper
-        if let data = wrapper.getTelemetry() {
-            // Update published properties (on main actor)
-            self.rpm = data.rpm
-            self.speed = data.speedKmh
-            self.throttlePercent = data.throttlePercent
-            self.brakePercent = data.brakePercent
-            self.gear = Int(data.gear)
-            self.torque = data.torque
-            self.acceleration = data.accelerationG
-        }
+        wrapper.update()
+        self.throttlePercent = wrapper.throttlePercent
+        self.speed = wrapper.speedKmh
+        self.acceleration = wrapper.accelerationG
+        self.brakePercent = wrapper.brakePercent
     }
 }

@@ -1,16 +1,34 @@
 #include "vehicle-sim/VehicleSim.h"
 #include <iostream>
+#include <cmath>
+#include <sstream>
+#include <chrono>
 
 namespace vehicle_sim {
+
+static std::uint64_t nowUtcMs() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count()
+    );
+}
 
 // Define the PIMPL implementation
 class VehicleSimulator::Impl {
 public:
-    Impl() : running_(false) {}
+    Impl()
+        : running_(false)
+        , tick_(0)
+        , speed_(0.0)
+        , lastSpeed_(0.0)
+    {}
+
     ~Impl() = default;
 
     bool initialize(const std::string& config_file) {
-        std::cout << "[VehicleSimulator] Initializing with config: " << (config_file.empty() ? "default" : config_file) << std::endl;
+        std::cout << "[VehicleSimulator] Initializing with config: "
+                  << (config_file.empty() ? "default" : config_file) << std::endl;
         return true;
     }
 
@@ -26,14 +44,55 @@ public:
     }
 
     void update() {
-        if (running_) {
-            // Simulate processing - placeholder
+        if (!running_) return;
+
+        tick_++;
+        double t = tick_ * 0.1;
+
+        // Throttle: oscillates between 0-60% with sine wave
+        double throttle = 30.0 + 25.0 * std::sin(t * 0.3) + 5.0 * std::sin(t * 1.7);
+
+        // Speed: follows throttle with lag (vehicle accelerates/decelerates)
+        double targetSpeed = throttle * 1.8;
+        speed_ += (targetSpeed - speed_) * 0.05;
+
+        // Acceleration: derivative of speed
+        double acceleration = (speed_ - lastSpeed_) * 2.0;
+        lastSpeed_ = speed_;
+
+        // Brake: occasionally pulses
+        double brake = (std::fmod(t, 8.0) > 7.0)
+            ? 20.0 + 10.0 * std::sin(t * 5.0)
+            : 0.0;
+
+        // Store latest signal (VehicleSignal clamps values on construction)
+        latestSignal_ = domain::VehicleSignal(
+            throttle,
+            speed_,
+            acceleration,
+            brake,
+            nowUtcMs()
+        );
+
+        // Fire callback if set
+        if (callback_) {
+            callback_(getTelemetry());
         }
     }
 
+    domain::VehicleSignal getLatestSignal() const {
+        return latestSignal_;
+    }
+
     std::string getTelemetry() const {
-        // Return mock telemetry as JSON
-        return R"({"rpm":2500,"speed":85.0,"throttle":0.35,"brake":0.0,"gear":4,"torque":200.0,"accel":0.2})";
+        std::ostringstream json;
+        json << "{"
+             << "\"throttle\":" << latestSignal_.getThrottlePercent() << ","
+             << "\"speed\":" << latestSignal_.getSpeedKmh() << ","
+             << "\"acceleration\":" << latestSignal_.getAccelerationG() << ","
+             << "\"brake\":" << latestSignal_.getBrakePercent()
+             << "}";
+        return json.str();
     }
 
     void setTelemetryCallback(TelemetryCallback callback) {
@@ -50,6 +109,10 @@ public:
 
 private:
     bool running_;
+    int tick_;
+    double speed_;
+    double lastSpeed_;
+    domain::VehicleSignal latestSignal_{0.0, 0.0, 0.0, 0.0, 0};
     TelemetryCallback callback_;
 };
 
@@ -71,6 +134,10 @@ void VehicleSimulator::stop() {
 
 void VehicleSimulator::update() {
     pImpl->update();
+}
+
+domain::VehicleSignal VehicleSimulator::getLatestSignal() const {
+    return pImpl->getLatestSignal();
 }
 
 std::string VehicleSimulator::getTelemetry() const {

@@ -45,22 +45,13 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Section(header: Text("Engine")) {
-                    TelemetryCardView(
-                        title: "RPM",
-                        value: String(format: "%.0f", viewModel.rpm),
-                        unit: "rev/min",
-                        color: .orange
-                    )
+                Section(header: Text("Vehicle Telemetry")) {
                     TelemetryCardView(
                         title: "Throttle",
                         value: String(format: "%.1f%%", viewModel.throttlePercent),
                         unit: "",
                         color: .blue
                     )
-                }
-
-                Section(header: Text("Performance")) {
                     TelemetryCardView(
                         title: "Speed",
                         value: String(format: "%.1f", viewModel.speed),
@@ -68,27 +59,11 @@ struct ContentView: View {
                         color: .green
                     )
                     TelemetryCardView(
-                        title: "Torque",
-                        value: String(format: "%.1f", viewModel.torque),
-                        unit: "Nm",
-                        color: .purple
-                    )
-                    TelemetryCardView(
                         title: "Acceleration",
                         value: String(format: "%.2f", viewModel.acceleration),
                         unit: "g",
                         color: .red
                     )
-                }
-
-                Section(header: Text("Drivetrain")) {
-                    HStack {
-                        Text("Gear")
-                        Spacer()
-                        Text("\(viewModel.gear)")
-                            .font(.title3)
-                            .foregroundColor(.primary)
-                    }
                     TelemetryCardView(
                         title: "Brake",
                         value: String(format: "%.1f%%", viewModel.brakePercent),
