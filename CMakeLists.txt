@@ -10,6 +10,7 @@ find_package(Threads REQUIRED)
 
 # Platform-specific settings
 find_library(COREBLUETOOTH CoreBluetooth)
+find_library(FOUNDATION Foundation)
 
 # Platform-specific settings
 if(APPLE)
@@ -47,7 +48,10 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/TelemetrySignal.cpp
     src/domain/TeslaSignalTranslator.cpp
     src/domain/TeslaSignalParser.cpp
+    src/domain/OBD2SignalTranslator.cpp
+    src/domain/SignalTranslatorFactory.cpp
     src/domain/EventDispatcher.cpp
+    src/ble/OBD2Transport.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds

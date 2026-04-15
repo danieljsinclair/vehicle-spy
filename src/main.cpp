@@ -10,6 +10,8 @@
 #include "vehicle-sim/TelemetryFormatter.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
 #include "vehicle-sim/domain/TeslaSignalParser.h"
+#include "vehicle-sim/domain/SignalTranslatorFactory.h"
+#include "vehicle-sim/domain/ISignalTranslator.h"
 
 namespace {
     std::atomic<bool> g_running(true);
@@ -20,41 +22,53 @@ namespace {
     }
 
     void printHelp() {
-        std::cout << "vehicle-sim - Tesla Model Y OBD2 Telemetry Display\n\n";
+        std::cout << "vehicle-sim - Vehicle OBD2 Telemetry Display\n\n";
         std::cout << "USAGE:\n";
         std::cout << "  vehicle-sim [OPTIONS]\n\n";
         std::cout << "OPTIONS:\n";
-        std::cout << "  --scan             Scan for BLE OBD2 adapters\n";
+        std::cout << "  --scan              Scan for BLE OBD2 adapters\n";
         std::cout << "  --connect <addr>    Connect to specific BLE adapter address\n";
-        std::cout << "  --list             List supported Tesla signals\n";
-        std::cout << "  --format <fmt>     Output format: json, csv, or plain (default: plain)\n";
+        std::cout << "  --vehicle <type>    Vehicle type: generic (default) or tesla\n";
+        std::cout << "  --list              List supported signals\n";
+        std::cout << "  --format <fmt>      Output format: json, csv, or plain (default: plain)\n";
         std::cout << "  --interval <ms>     Update interval in milliseconds (default: 500)\n";
-        std::cout << "  --simulate         Demo mode with mock telemetry (no hardware needed)\n";
-        std::cout << "  --help             Show this help message\n\n";
+        std::cout << "  --simulate          Demo mode with mock telemetry (no hardware needed)\n";
+        std::cout << "  --help              Show this help message\n\n";
+        std::cout << "VEHICLE TYPES:\n";
+        std::cout << "  generic   Standard OBD2 (SAE J1979) - any car with ELM327 adapter\n";
+        std::cout << "  tesla     Tesla Model 3/Y CAN bus format\n\n";
         std::cout << "EXAMPLES:\n";
         std::cout << "  vehicle-sim --simulate\n";
         std::cout << "  vehicle-sim --scan\n";
-        std::cout << "  vehicle-sim --connect <device-uuid>\n";
-        std::cout << "  vehicle-sim --connect <device-uuid> --interval 200\n";
+        std::cout << "  vehicle-sim --connect <addr> --vehicle generic\n";
+        std::cout << "  vehicle-sim --connect <addr> --vehicle tesla --interval 200\n";
         std::cout << "\nREQUIREMENTS:\n";
-        std::cout << "  For real data: Connect a BLE OBD2 adapter to your Tesla's OBD-II port.\n";
-        std::cout << "  The port is powered when the vehicle is ON. Use --simulate to demo\n";
-        std::cout << "  without hardware.\n";
+        std::cout << "  For real data: Connect a BLE OBD2 adapter to your vehicle's OBD-II port.\n";
+        std::cout << "  Use --vehicle generic for standard OBD2 (most cars), or --vehicle tesla\n";
+        std::cout << "  for Tesla-specific CAN bus format.\n";
     }
 
-    void printSupportedSignals() {
-        std::cout << "\nSupported Tesla Model Y Signals:\n";
+    void printSupportedSignals(const std::string& vehicleType) {
+        if (vehicleType == "tesla") {
+            std::cout << "\nSupported Tesla Model Y Signals:\n";
+        } else {
+            std::cout << "\nSupported OBD2 Signals (SAE J1979):\n";
+        }
         std::cout << "  Throttle Position  - 0-100% (accelerator pedal)\n";
         std::cout << "  Vehicle Speed     - km/h\n";
         std::cout << "  Brake Pressure    - 0-100%\n";
         std::cout << "  Acceleration     - G-force (lateral/longitudinal)\n\n";
-        std::cout << "These signals are parsed from Tesla CAN bus data via OBD-II port.\n";
-        std::cout << "Requires Tesla Model 3/Y with powered OBD-II port (post-2021).\n";
+        if (vehicleType == "tesla") {
+            std::cout << "These signals are parsed from Tesla CAN bus data via OBD-II port.\n";
+        } else {
+            std::cout << "Standard OBD2 PIDs read via ELM327 BLE adapter.\n";
+        }
     }
 
-    void printTelemetryHeader() {
+    void printTelemetryHeader(const std::string& vehicleType) {
         std::cout << "\n" << std::string(70, '=') << "\n";
-        std::cout << "Tesla Model Y Real-Time Telemetry\n";
+        std::cout << (vehicleType == "tesla" ? "Tesla" : "Vehicle");
+        std::cout << " Real-Time Telemetry\n";
         std::cout << std::string(70, '=') << "\n\n";
     }
 
@@ -76,7 +90,7 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
 
-    std::cout << "vehicle-sim v1.0.0 - Tesla Model Y OBD2 Telemetry Display\n";
+    std::cout << "vehicle-sim v1.0.0 - Vehicle OBD2 Telemetry Display\n";
 
     // Parse command line arguments
     bool scan_mode = false;
@@ -85,6 +99,7 @@ int main(int argc, char* argv[]) {
     bool simulate_mode = false;
     std::string connect_address;
     std::string format = "plain";
+    std::string vehicle_type = "generic";  // Default to generic OBD2
     int update_interval_ms = 500;
 
     for (int i = 1; i < argc; ++i) {
@@ -100,6 +115,13 @@ int main(int argc, char* argv[]) {
                 connect_address = argv[++i];
             } else {
                 std::cerr << "Error: --connect requires an address argument\n";
+                return 1;
+            }
+        } else if (arg == "--vehicle" || arg == "-v") {
+            if (i + 1 < argc) {
+                vehicle_type = argv[++i];
+            } else {
+                std::cerr << "Error: --vehicle requires a type argument (generic or tesla)\n";
                 return 1;
             }
         } else if (arg == "--list" || arg == "-l") {
@@ -129,9 +151,13 @@ int main(int argc, char* argv[]) {
 
     // Handle list signals mode
     if (list_signals) {
-        printSupportedSignals();
+        printSupportedSignals(vehicle_type);
         return 0;
     }
+
+    // Create signal translator via factory (DI)
+    vehicle_sim::domain::SignalTranslatorFactory translatorFactory;
+    auto translator = translatorFactory.create(vehicle_type);
 
     // Initialize BLE components for scan and connect modes
     auto ble_manager = std::make_unique<vehicle_sim::BLEManager>();
@@ -141,10 +167,10 @@ int main(int argc, char* argv[]) {
 
     // Handle simulation mode
     if (simulate_mode) {
-        std::cout << "\nStarting Tesla telemetry simulation (10Hz update rate)\n";
+        std::cout << "\nStarting " << vehicle_type << " telemetry simulation (10Hz update rate)\n";
         std::cout << "Press Ctrl+C to stop\n\n";
 
-        printTelemetryHeader();
+        printTelemetryHeader(vehicle_type);
 
         int signal_count = 0;
         auto last_time = std::chrono::steady_clock::now();
@@ -188,15 +214,15 @@ int main(int argc, char* argv[]) {
     // Scan mode
     if (scan_mode) {
         std::cout << "\nScanning for BLE devices (10 seconds)...\n";
-        std::cout << "Note: Make sure your Tesla is ON and OBD2 adapter is connected.\n\n";
+        std::cout << "Note: Make sure your vehicle is ON and OBD2 adapter is connected.\n\n";
 
         auto devices = ble_manager->scanForDevices(10);
 
         if (devices.empty()) {
             std::cout << "\nNo BLE devices found.\n\n";
             std::cout << "Troubleshooting:\n";
-            std::cout << "  1. Ensure your Tesla is powered ON (accessory mode or drive mode)\n";
-            std::cout << "  2. Verify OBD2 adapter is connected to Tesla's OBD-II port\n";
+            std::cout << "  1. Ensure your vehicle is powered ON (accessory mode or drive mode)\n";
+            std::cout << "  2. Verify OBD2 adapter is connected to vehicle's OBD-II port\n";
             std::cout << "  3. Check adapter has power (some require external power)\n";
             std::cout << "  4. On macOS, grant Bluetooth permissions if prompted\n";
             std::cout << "  5. Try moving closer to the vehicle (BLE range ~10m)\n";
@@ -285,7 +311,7 @@ int main(int argc, char* argv[]) {
         // Start active OBD2 PID polling
         std::cout << "Starting OBD2 data polling (interval: " << update_interval_ms << "ms)...\n";
         std::cout << "Press Ctrl+C to stop\n\n";
-        printTelemetryHeader();
+        printTelemetryHeader(vehicle_type);
 
         ble_manager->startOBD2Polling(update_interval_ms);
 

@@ -78,6 +78,18 @@
 				COMPILER_FLAGS = "-fno-objc-arc";
 			};
 		};
+		B1000023 /* OBD2SignalTranslator.cpp in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = B2000023 /* OBD2SignalTranslator.cpp */;
+		};
+		B1000024 /* SignalTranslatorFactory.cpp in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = B2000024 /* SignalTranslatorFactory.cpp */;
+		};
+		B1000025 /* OBD2Transport.cpp in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = B2000025 /* OBD2Transport.cpp */;
+		};
 		B1000030 /* CoreBluetooth.framework in Frameworks */ = {
 			isa = PBXBuildFile;
 			fileRef = B2000030 /* CoreBluetooth.framework */;
@@ -218,6 +230,27 @@
 			path = ../../src/ble/platform/BLEManageriOS.mm;
 			sourceTree = "<group>";
 		};
+		B2000023 /* OBD2SignalTranslator.cpp */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.cpp.cpp;
+			name = OBD2SignalTranslator.cpp;
+			path = ../../src/domain/OBD2SignalTranslator.cpp;
+			sourceTree = "<group>";
+		};
+		B2000024 /* SignalTranslatorFactory.cpp */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.cpp.cpp;
+			name = SignalTranslatorFactory.cpp;
+			path = ../../src/domain/SignalTranslatorFactory.cpp;
+			sourceTree = "<group>";
+		};
+		B2000025 /* OBD2Transport.cpp */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.cpp.cpp;
+			name = OBD2Transport.cpp;
+			path = ../../src/ble/OBD2Transport.cpp;
+			sourceTree = "<group>";
+		};
 		B2000080 /* VehicleSimApp.app */ = {
 			isa = PBXFileReference;
 			explicitFileType = wrapper.application;
@@ -292,6 +325,9 @@
 				B2000020 /* TeslaSignalParser.cpp */,
 				B2000021 /* EventDispatcher.cpp */,
 				B2000022 /* BLEManageriOS.mm */,
+				B2000023 /* OBD2SignalTranslator.cpp */,
+				B2000024 /* SignalTranslatorFactory.cpp */,
+				B2000025 /* OBD2Transport.cpp */,
 			);
 			name = "Core (C++)";
 			sourceTree = "<group>";
@@ -370,6 +406,9 @@
 				B1000020 /* TeslaSignalParser.cpp in Sources */,
 				B1000021 /* EventDispatcher.cpp in Sources */,
 				B1000022 /* BLEManageriOS.mm in Sources */,
+				B1000023 /* OBD2SignalTranslator.cpp in Sources */,
+				B1000024 /* SignalTranslatorFactory.cpp in Sources */,
+				B1000025 /* OBD2Transport.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
