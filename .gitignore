@@ -57,15 +57,6 @@ test/Makefile
 *.mp3
 *.aiff
 
-# Temporary files
-tmp/
-temp/
-
-# Version control violations - NO .bak files
-*.bak
-*.bak.*
-.temp/
-
 # Clangd index
 .cache/
 
@@ -89,10 +80,23 @@ DEMO.md
 # Database
 *.db
 
+# built assets
+image/build/
+
 # Xcode user data and workspace
 *.xcworkspace/
 xcuserdata/
 *.xcuserdatad/
 
-# Backups
+# Xcode asset catalog generated icons (keep Contents.json)
+vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/*.png
+
+# Transient, backup, temporary, and log files
+tmp/
+temp/
+.temp/
 *.backup
+*.bak
+*.bak.*
+*.tmp
+*.log

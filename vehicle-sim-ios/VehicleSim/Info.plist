@@ -37,5 +37,7 @@
             </dict>
         </array>
     </dict>
+    <key>UIRequiresFullScreen</key>
+    <true/>
 </dict>
 </plist>

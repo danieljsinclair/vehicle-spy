@@ -7,264 +7,57 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B1000001 /* VehicleSimAppApp.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000001 /* VehicleSimAppApp.swift */;
-		};
-		B1000002 /* ContentView.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000002 /* ContentView.swift */;
-		};
-		B1000003 /* VehicleViewModel.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000003 /* VehicleViewModel.swift */;
-		};
-		B1000005 /* VehicleSimWrapper.mm in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000005 /* VehicleSimWrapper.mm */;
-		};
-		B1000010 /* VehicleSim.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000010 /* VehicleSim.cpp */;
-		};
-		B1000011 /* TelemetryFormatter.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000011 /* TelemetryFormatter.cpp */;
-		};
-		B1000012 /* BLEManager.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000012 /* BLEManager.cpp */;
-		};
-		B1000013 /* BLEManagerBase.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000013 /* BLEManagerBase.cpp */;
-		};
-		B1000014 /* TeslaBLETransport.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000014 /* TeslaBLETransport.cpp */;
-		};
-		B1000015 /* BLEManagerMock.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000015 /* BLEManagerMock.cpp */;
-		};
-		B1000016 /* ConfigLoader.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000016 /* ConfigLoader.cpp */;
-		};
-		B1000017 /* VehicleSignal.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000017 /* VehicleSignal.cpp */;
-		};
-		B1000018 /* TelemetrySignal.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000018 /* TelemetrySignal.cpp */;
-		};
-		B1000019 /* TeslaSignalTranslator.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000019 /* TeslaSignalTranslator.cpp */;
-		};
-		B1000020 /* TeslaSignalParser.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000020 /* TeslaSignalParser.cpp */;
-		};
-		B1000021 /* EventDispatcher.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000021 /* EventDispatcher.cpp */;
-		};
-		B1000022 /* BLEManageriOS.mm in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000022 /* BLEManageriOS.mm */;
-			settings = {
-				COMPILER_FLAGS = "-fno-objc-arc";
-			};
-		};
-		B1000023 /* OBD2SignalTranslator.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000023 /* OBD2SignalTranslator.cpp */;
-		};
-		B1000024 /* SignalTranslatorFactory.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000024 /* SignalTranslatorFactory.cpp */;
-		};
-		B1000025 /* OBD2Transport.cpp in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000025 /* OBD2Transport.cpp */;
-		};
-		B1000030 /* CoreBluetooth.framework in Frameworks */ = {
-			isa = PBXBuildFile;
-			fileRef = B2000030 /* CoreBluetooth.framework */;
-		};
+		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
+		B1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002 /* ContentView.swift */; };
+		B1000003 /* VehicleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003 /* VehicleViewModel.swift */; };
+		B1000005 /* VehicleSimWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000005 /* VehicleSimWrapper.mm */; };
+		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
+		B1000011 /* TelemetryFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000011 /* TelemetryFormatter.cpp */; };
+		B1000012 /* BLEManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000012 /* BLEManager.cpp */; };
+		B1000013 /* BLEManagerBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000013 /* BLEManagerBase.cpp */; };
+		B1000014 /* TeslaBLETransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000014 /* TeslaBLETransport.cpp */; };
+		B1000015 /* BLEManagerMock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000015 /* BLEManagerMock.cpp */; };
+		B1000016 /* ConfigLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000016 /* ConfigLoader.cpp */; };
+		B1000017 /* VehicleSignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000017 /* VehicleSignal.cpp */; };
+		B1000018 /* TelemetrySignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000018 /* TelemetrySignal.cpp */; };
+		B1000019 /* TeslaSignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000019 /* TeslaSignalTranslator.cpp */; };
+		B1000020 /* TeslaSignalParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000020 /* TeslaSignalParser.cpp */; };
+		B1000021 /* EventDispatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000021 /* EventDispatcher.cpp */; };
+		B1000022 /* BLEManageriOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000022 /* BLEManageriOS.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		B1000023 /* OBD2SignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000023 /* OBD2SignalTranslator.cpp */; };
+		B1000024 /* SignalTranslatorFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000024 /* SignalTranslatorFactory.cpp */; };
+		B1000025 /* OBD2Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000025 /* OBD2Transport.cpp */; };
+		B1000030 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B2000030 /* CoreBluetooth.framework */; };
+		B1000032 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000032 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		B2000001 /* VehicleSimAppApp.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = VehicleSimAppApp.swift;
-			sourceTree = "<group>";
-		};
-		B2000002 /* ContentView.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = ContentView.swift;
-			sourceTree = "<group>";
-		};
-		B2000003 /* VehicleViewModel.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = VehicleViewModel.swift;
-			sourceTree = "<group>";
-		};
-		B2000004 /* VehicleSimWrapper.h */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.h;
-			path = VehicleSimWrapper.h;
-			sourceTree = "<group>";
-		};
-		B2000005 /* VehicleSimWrapper.mm */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.objcpp;
-			path = VehicleSimWrapper.mm;
-			sourceTree = "<group>";
-		};
-		B2000006 /* Info.plist */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = text.plist.xml;
-			path = Info.plist;
-			sourceTree = "<group>";
-		};
-		B2000007 /* VehicleSim-Bridging-Header.h */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.h;
-			path = "VehicleSim-Bridging-Header.h";
-			sourceTree = "<group>";
-		};
-		B2000010 /* VehicleSim.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = VehicleSim.cpp;
-			path = ../../src/VehicleSim.cpp;
-			sourceTree = "<group>";
-		};
-		B2000011 /* TelemetryFormatter.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = TelemetryFormatter.cpp;
-			path = ../../src/presentation/TelemetryFormatter.cpp;
-			sourceTree = "<group>";
-		};
-		B2000012 /* BLEManager.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = BLEManager.cpp;
-			path = ../../src/ble/BLEManager.cpp;
-			sourceTree = "<group>";
-		};
-		B2000013 /* BLEManagerBase.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = BLEManagerBase.cpp;
-			path = ../../src/ble/BLEManagerBase.cpp;
-			sourceTree = "<group>";
-		};
-		B2000014 /* TeslaBLETransport.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = TeslaBLETransport.cpp;
-			path = ../../src/ble/TeslaBLETransport.cpp;
-			sourceTree = "<group>";
-		};
-		B2000015 /* BLEManagerMock.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = BLEManagerMock.cpp;
-			path = ../../src/ble/platform/BLEManagerMock.cpp;
-			sourceTree = "<group>";
-		};
-		B2000016 /* ConfigLoader.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = ConfigLoader.cpp;
-			path = ../../src/config/ConfigLoader.cpp;
-			sourceTree = "<group>";
-		};
-		B2000017 /* VehicleSignal.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = VehicleSignal.cpp;
-			path = ../../src/domain/VehicleSignal.cpp;
-			sourceTree = "<group>";
-		};
-		B2000018 /* TelemetrySignal.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = TelemetrySignal.cpp;
-			path = ../../src/domain/TelemetrySignal.cpp;
-			sourceTree = "<group>";
-		};
-		B2000019 /* TeslaSignalTranslator.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = TeslaSignalTranslator.cpp;
-			path = ../../src/domain/TeslaSignalTranslator.cpp;
-			sourceTree = "<group>";
-		};
-		B2000020 /* TeslaSignalParser.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = TeslaSignalParser.cpp;
-			path = ../../src/domain/TeslaSignalParser.cpp;
-			sourceTree = "<group>";
-		};
-		B2000021 /* EventDispatcher.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = EventDispatcher.cpp;
-			path = ../../src/domain/EventDispatcher.cpp;
-			sourceTree = "<group>";
-		};
-		B2000022 /* BLEManageriOS.mm */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.objcpp;
-			name = BLEManageriOS.mm;
-			path = ../../src/ble/platform/BLEManageriOS.mm;
-			sourceTree = "<group>";
-		};
-		B2000023 /* OBD2SignalTranslator.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = OBD2SignalTranslator.cpp;
-			path = ../../src/domain/OBD2SignalTranslator.cpp;
-			sourceTree = "<group>";
-		};
-		B2000024 /* SignalTranslatorFactory.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = SignalTranslatorFactory.cpp;
-			path = ../../src/domain/SignalTranslatorFactory.cpp;
-			sourceTree = "<group>";
-		};
-		B2000025 /* OBD2Transport.cpp */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.cpp.cpp;
-			name = OBD2Transport.cpp;
-			path = ../../src/ble/OBD2Transport.cpp;
-			sourceTree = "<group>";
-		};
-		B2000080 /* VehicleSimApp.app */ = {
-			isa = PBXFileReference;
-			explicitFileType = wrapper.application;
-			includeInIndex = 0;
-			path = VehicleSimApp.app;
-			sourceTree = BUILT_PRODUCTS_DIR;
-		};
-		B2000030 /* CoreBluetooth.framework */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = wrapper.framework;
-			name = CoreBluetooth.framework;
-			path = System/Library/Frameworks/CoreBluetooth.framework;
-			sourceTree = SDKROOT;
-		};
+		B2000001 /* VehicleSimAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleSimAppApp.swift; sourceTree = "<group>"; };
+		B2000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B2000003 /* VehicleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleViewModel.swift; sourceTree = "<group>"; };
+		B2000004 /* VehicleSimWrapper.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VehicleSimWrapper.h; sourceTree = "<group>"; };
+		B2000005 /* VehicleSimWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VehicleSimWrapper.mm; sourceTree = "<group>"; };
+		B2000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B2000007 /* VehicleSim-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "VehicleSim-Bridging-Header.h"; sourceTree = "<group>"; };
+		B2000010 /* VehicleSim.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSim.cpp; path = ../../src/VehicleSim.cpp; sourceTree = "<group>"; };
+		B2000011 /* TelemetryFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetryFormatter.cpp; path = ../../src/presentation/TelemetryFormatter.cpp; sourceTree = "<group>"; };
+		B2000012 /* BLEManager.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManager.cpp; path = ../../src/ble/BLEManager.cpp; sourceTree = "<group>"; };
+		B2000013 /* BLEManagerBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerBase.cpp; path = ../../src/ble/BLEManagerBase.cpp; sourceTree = "<group>"; };
+		B2000014 /* TeslaBLETransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaBLETransport.cpp; path = ../../src/ble/TeslaBLETransport.cpp; sourceTree = "<group>"; };
+		B2000015 /* BLEManagerMock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerMock.cpp; path = ../../src/ble/platform/BLEManagerMock.cpp; sourceTree = "<group>"; };
+		B2000016 /* ConfigLoader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ConfigLoader.cpp; path = ../../src/config/ConfigLoader.cpp; sourceTree = "<group>"; };
+		B2000017 /* VehicleSignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignal.cpp; path = ../../src/domain/VehicleSignal.cpp; sourceTree = "<group>"; };
+		B2000018 /* TelemetrySignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetrySignal.cpp; path = ../../src/domain/TelemetrySignal.cpp; sourceTree = "<group>"; };
+		B2000019 /* TeslaSignalTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaSignalTranslator.cpp; path = ../../src/domain/TeslaSignalTranslator.cpp; sourceTree = "<group>"; };
+		B2000020 /* TeslaSignalParser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaSignalParser.cpp; path = ../../src/domain/TeslaSignalParser.cpp; sourceTree = "<group>"; };
+		B2000021 /* EventDispatcher.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = EventDispatcher.cpp; path = ../../src/domain/EventDispatcher.cpp; sourceTree = "<group>"; };
+		B2000022 /* BLEManageriOS.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = BLEManageriOS.mm; path = ../../src/ble/platform/BLEManageriOS.mm; sourceTree = "<group>"; };
+		B2000023 /* OBD2SignalTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2SignalTranslator.cpp; path = ../../src/domain/OBD2SignalTranslator.cpp; sourceTree = "<group>"; };
+		B2000024 /* SignalTranslatorFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SignalTranslatorFactory.cpp; path = ../../src/domain/SignalTranslatorFactory.cpp; sourceTree = "<group>"; };
+		B2000025 /* OBD2Transport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2Transport.cpp; path = ../../src/ble/OBD2Transport.cpp; sourceTree = "<group>"; };
+		B2000030 /* CoreBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
+		B2000032 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B2000080 /* VehicleSimApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VehicleSimApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -279,16 +72,26 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		62BAA8EC2FA20D550073A3EE /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				B2000030 /* CoreBluetooth.framework */,
+				B2000032 /* Assets.xcassets */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		B4000001 = {
 			isa = PBXGroup;
 			children = (
-				B4000002 /* VehicleSim */,
+				B4000002,
 				B4000004 /* Core (C++) */,
 				B4000003 /* Products */,
+				62BAA8EC2FA20D550073A3EE /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
-		B4000002 /* VehicleSim */ = {
+		B4000002 = {
 			isa = PBXGroup;
 			children = (
 				B2000001 /* VehicleSimAppApp.swift */,
@@ -328,6 +131,8 @@
 				B2000023 /* OBD2SignalTranslator.cpp */,
 				B2000024 /* SignalTranslatorFactory.cpp */,
 				B2000025 /* OBD2Transport.cpp */,
+				B2000026 /* AudiSignalTranslator.cpp */,
+				B2000028 /* AudiSignalTranslator.h */,
 			);
 			name = "Core (C++)";
 			sourceTree = "<group>";
@@ -341,6 +146,7 @@
 			buildPhases = (
 				B3000001 /* Frameworks */,
 				B3000002 /* Sources */,
+				B3000003 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -357,7 +163,7 @@
 		B7000001 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				BuildIndependentTargetsInParallel = 1;
+				BuildIndependentTargetsInParallel = NO;
 				LastSwiftUpdateCheck = 1610;
 				LastUpgradeCheck = 1610;
 				TargetAttributes = {
@@ -383,6 +189,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B3000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1000032 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		B3000002 /* Sources */ = {
@@ -419,6 +236,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -474,7 +292,11 @@
 					"$(PROJECT_DIR)/../../src",
 				);
 				INFOPLIST_FILE = Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -483,9 +305,6 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.axxiant.vehiclesim;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -503,6 +322,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -552,7 +372,9 @@
 					"$(PROJECT_DIR)/../../src",
 				);
 				INFOPLIST_FILE = Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -595,7 +417,7 @@
 					"$(PROJECT_DIR)/../../include",
 					"$(PROJECT_DIR)/../../src",
 				);
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OBJC_BRIDGING_HEADER = "VehicleSim-Bridging-Header.h";
@@ -624,7 +446,7 @@
 					"$(PROJECT_DIR)/../../include",
 					"$(PROJECT_DIR)/../../src",
 				);
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_OBJC_BRIDGING_HEADER = "VehicleSim-Bridging-Header.h";

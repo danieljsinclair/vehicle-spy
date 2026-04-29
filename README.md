@@ -87,12 +87,66 @@ On connection the CLI will:
 
 The iOS app shows live Tesla telemetry on your iPhone.
 
-```bash
-make ios
-# Builds C++ library and opens Xcode — then press Play to run on simulator or device
-```
+### Prerequisites
 
-The app runs with **demo data by default** (press "Start" to begin). Values simulate a driving scenario — throttle, speed, RPM, gear, and brake all update in real-time.
+- **Xcode** 16+ with iOS SDK
+- **Homebrew** + **ImageMagick** for app icons:
+  ```bash
+  brew install imagemagick
+  ```
+- Physical iPhone for device deployment (simulator works out of the box)
+
+### Quick Start
+
+1. **Install dependencies** (once):
+   ```bash
+   make install-deps          # Installs ImageMagick, cmake, etc. via Homebrew
+   ```
+
+2. **Build everything** (native C++ libs + iOS app icons):
+   ```bash
+   make                       # Builds native libs + tests + iOS simulator build
+   ```
+
+3. **Run on iPhone Simulator**:
+   ```bash
+   make ios                   # Builds Debug for simulator
+   # Then in Xcode: select iPhone simulator → press Play
+   ```
+
+4. **Deploy to physical iPhone**:
+   ```bash
+   make ios-signed            # Build Release-signed .app for device
+   make deploy                # Install to connected iPhone
+   make run                   # Install AND launch on device
+   ```
+
+   > **Note**: The first time you run, Xcode may ask you to select a Development Team. Choose your Apple ID in Project Settings → Signing & Capabilities.
+
+5. **Open in Xcode** (for development/debugging):
+   ```bash
+   make xcode                 # Builds native + icons, then opens .xcodeproj
+   ```
+
+### Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make ios` | Build Debug for iOS Simulator |
+| `make ios-signed` | Build Release for physical device |
+| `make deploy` | Install signed build to connected iPhone |
+| `make run` | Install and launch on device |
+| `make xcode` | Open Xcode project (ensures native libs are built) |
+| `make native` | Build C++ native libraries only |
+| `make test` | Run C++ unit tests |
+| `make scrub` | Full clean: DerivedData, caches, generated icons |
+
+### Notes
+
+- **Native library dependency**: `ios`, `ios-signed`, and `xcode` all depend on `native` — C++ libs are built automatically.
+- **App icons**: Generated from `image/ODB2_car_logo*.png` via ImageMagick; regenerated when source changes.
+- **Full-screen mode**: Enabled for both Debug and Release via `UIRequiresFullScreen` in Info.plist.
+- **Scheme configuration**: The Xcode scheme uses `BuildableProductRunnable` — automatically picks correct build (simulator vs device) when you press Play.
 
 ### iOS File Structure
 ```

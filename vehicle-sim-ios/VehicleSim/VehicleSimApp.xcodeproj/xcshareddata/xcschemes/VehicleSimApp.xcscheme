@@ -40,11 +40,16 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
-      <PathRunnable
-         runnableDebuggingMode = "0"
-         BundleIdentifier = "com.axxiant.vehiclesim"
-         FilePath = "/Users/danielsinclair/Library/Developer/Xcode/DerivedData/VehicleSimApp-bxfchvotcyfydscqxorxsszqhhzu/Build/Products/Debug-iphoneos/VehicleSimApp.app">
-      </PathRunnable>
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "B5000001"
+            BuildableName = "VehicleSimApp.app"
+            BlueprintName = "VehicleSimApp"
+            ReferencedContainer = "container:VehicleSimApp.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

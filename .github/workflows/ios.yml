@@ -18,33 +18,53 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install CMake
+    - name: Install dependencies
       run: |
-        brew install cmake
+        brew bundle --no-upgrade
 
-    - name: Configure iOS build
+    # Cache Xcode build to speed up subsequent runs
+    - name: Cache Xcode DerivedData
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData
+        key: xcode-deriveddata-${{ hashFiles('vehicle-sim-ios/VehicleSim/**/*.swift', 'vehicle-sim-ios/VehicleSim/**/*.m*', 'CMakeLists.txt') }}
+        restore-keys: |
+          xcode-deriveddata-
+
+    - name: Generate app icons
       run: |
-        mkdir -p build-ios
-        cd build-ios
-        cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_IOS=ON -G Xcode ..
+        mkdir -p vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset
+        # Generate required icon sizes from source image if present
+        if ls image/ODB2_car_logo*.png 1>/dev/null 2>&1; then \
+          IMG=$(ls image/ODB2_car_logo*.png | head -1); \
+          for size in 20 29 40 60 76 83.5 1024; do \
+            magick "$$IMG" -resize "$${size}x$${size}" -background transparent -gravity center -extent "$${size}x$${size}" "vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/Icon-App-$${size}x$${size}@1x.png"; \
+          done; \
+          echo "Icons generated."; \
+        else \
+          echo "No source icon found in image/. Skipping icon generation."; \
+        fi
 
-    - name: Build iOS core library
+    - name: Build iOS app (Simulator)
       run: |
-        cd build-ios
-        xcodebuild -scheme vehicle-sim-core-ios -configuration Release -sdk iphonesimulator -arch arm64 build
+        cd vehicle-sim-ios/VehicleSim
+        xcodebuild -project VehicleSimApp.xcodeproj -target VehicleSimApp -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16' build
 
-    - name: Upload iOS library artifact
+    - name: Upload simulator app
       uses: actions/upload-artifact@v4
       with:
-        name: vehicle-sim-core-ios
+        name: VehicleSimApp-simulator
         path: |
-          build-ios/Release/libvehicle-sim-core.a
-          build-ios/Release/include/
+          vehicle-sim-ios/VehicleSim/build/Debug-iphonesimulator/VehicleSimApp.app
         retention-days: 7
 
   test:
     name: Run Tests
     runs-on: macos-14
+
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 500M
 
     steps:
     - name: Checkout repository
@@ -52,12 +72,36 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install CMake
+    - name: Install CMake and ccache
       run: |
-        brew install cmake
+        brew install cmake ccache
 
-    - name: Build and test CLI
+    - name: Restore ccache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ccache-vehicle-sim-macos-${{ github.sha }}
+        restore-keys: |
+          ccache-vehicle-sim-macos-
+
+    - name: Restore FetchContent dependencies (native)
+      uses: actions/cache@v4
+      with:
+        path: build-native/_deps
+        key: fetchcontent-vehicle-sim-native-${{ hashFiles('CMakeLists.txt') }}
+        restore-keys: |
+          fetchcontent-vehicle-sim-native-
+
+    # Run cmake directly to pass ccache launchers; avoids make clean which
+    # would defeat caching. ctest --output-on-failure gives the same output
+    # as the Makefile's ARGS="--verbose" target.
+    - name: Build and test
       run: |
-        make clean
-        make test
+        cmake -S . -B build-native \
+          -DBUILD_IOS=OFF \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        cmake --build build-native -j$(sysctl -n hw.logicalcpu)
+        ctest --test-dir build-native --output-on-failure
       working-directory: ${{ github.workspace }}
