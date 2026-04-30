@@ -1,9 +1,4 @@
 #include "vehicle-sim/BLEManager.h"
-#if TARGET_OS_OSX
-#include "vehicle-sim/ble/platform/BLEManagerMacOS.h"
-#elif TARGET_OS_IPHONE
-#include "vehicle-sim/ble/platform/BLEManageriOS.h"
-#endif
 #include <iostream>
 
 #if defined(__APPLE__)
@@ -13,6 +8,12 @@
     #elif TARGET_OS_IPHONE
         #define PLATFORM_IOS 1
     #endif
+#endif
+
+#if defined(PLATFORM_MACOS)
+#include "vehicle-sim/ble/platform/BLEManagerMacOS.h"
+#elif defined(PLATFORM_IOS)
+#include "vehicle-sim/ble/platform/BLEManageriOS.h"
 #endif
 
 namespace vehicle_sim {

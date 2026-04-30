@@ -2,9 +2,9 @@ name: iOS Build
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, github_fix ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, github_fix ]
   workflow_dispatch:
 
 jobs:
@@ -35,14 +35,14 @@ jobs:
       run: |
         mkdir -p vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset
         # Generate required icon sizes from source image if present
-        if ls image/ODB2_car_logo*.png 1>/dev/null 2>&1; then \
-          IMG=$(ls image/ODB2_car_logo*.png | head -1); \
-          for size in 20 29 40 60 76 83.5 1024; do \
-            magick "$$IMG" -resize "$${size}x$${size}" -background transparent -gravity center -extent "$${size}x$${size}" "vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/Icon-App-$${size}x$${size}@1x.png"; \
-          done; \
-          echo "Icons generated."; \
-        else \
-          echo "No source icon found in image/. Skipping icon generation."; \
+        if ls image/ODB2_car_logo*.png 1>/dev/null 2>&1; then
+          IMG=$(ls image/ODB2_car_logo*.png | head -1)
+          for size in 20 29 40 60 76 83.5 1024; do
+            magick "$IMG" -resize "${size}x${size}" -background transparent -gravity center -extent "${size}x${size}" "vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/Icon-App-${size}x${size}@1x.png"
+          done
+          echo "Icons generated."
+        else
+          echo "No source icon found in image/. Skipping icon generation."
         fi
 
     - name: Build iOS app (Simulator)
