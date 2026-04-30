@@ -43,8 +43,27 @@ public:
     ) const noexcept override;
 
 protected:
-    // OBD2 response mode (subclasses can override if needed)
+    // OBD2 response validation
     static constexpr std::uint8_t RESPONSE_MODE = 0x41;
+    static constexpr std::uint8_t RESPONSE_MODE_MIN = 0x40;  // 0x40-0x4F = Mode 01-0F responses
+    static constexpr std::uint8_t RESPONSE_MODE_MAX = 0x4F;
+    static constexpr std::size_t DATA_OFFSET = 2;             // skip mode + pid bytes
+
+    // SAE J1979 protocol constants
+    static constexpr double OBD2_RPM_DIVISOR = 4.0;      // ((A * 256) + B) / 4
+    static constexpr double OBD2_TEMP_OFFSET = 40.0;     // A - 40 (coolant/intake air temp)
+
+    // OBD2 Mode 01 PIDs (SAE J1979)
+    static constexpr std::uint8_t PID_ENGINE_LOAD = 0x04;
+    static constexpr std::uint8_t PID_COOLANT_TEMP = 0x05;
+    static constexpr std::uint8_t PID_ENGINE_RPM = 0x0C;
+    static constexpr std::uint8_t PID_VEHICLE_SPEED = 0x0D;
+    static constexpr std::uint8_t PID_INTAKE_AIR_TEMP = 0x0F;
+    static constexpr std::uint8_t PID_THROTTLE_POSITION = 0x11;
+    static constexpr std::uint8_t PID_FUEL_LEVEL = 0x2F;
+    static constexpr std::uint8_t PID_ACCELERATOR_POS_D = 0x5A;
+    static constexpr std::uint8_t PID_ACCELERATOR_POS_P = 0x5C;
+    static constexpr std::uint8_t PID_BRAKE_PRESSURE = 0xA4;
 
     // State accumulated across multiple PID responses
     mutable std::mutex state_mutex_;

@@ -19,11 +19,11 @@ bool OBD2SignalTranslatorBase::isValidPacket(
     const std::vector<std::uint8_t>& rawData
 ) const noexcept {
     // Minimum: mode byte + PID byte + at least 1 data byte
-    if (rawData.size() < 3) {
+    if (rawData.size() < DATA_OFFSET + 1) {
         return false;
     }
     // Must be a response mode (0x40-0x4F for Mode 01-0F responses)
-    if (rawData[0] < 0x40 || rawData[0] > 0x4F) {
+    if (rawData[0] < RESPONSE_MODE_MIN || rawData[0] > RESPONSE_MODE_MAX) {
         return false;
     }
     return true;
@@ -37,7 +37,7 @@ std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
     }
 
     const std::uint8_t pid = rawData[1];
-    std::vector<std::uint8_t> data(rawData.begin() + 2, rawData.end());
+    std::vector<std::uint8_t> data(rawData.begin() + DATA_OFFSET, rawData.end());
 
     double value = extractPIDValue(pid, data);
 
@@ -70,10 +70,10 @@ void OBD2SignalTranslatorBase::updateSignalField(
 ) const noexcept {
     // Default mapping
     switch (pid) {
-        case 0x11: case 0x5A: case 0x5C: lastThrottle_ = value; break;
-        case 0x0D: lastSpeed_ = value; break;
-        case 0x04: lastAcceleration_ = (value / 100.0) * 2.0 - 1.0; break;
-        case 0xA4: lastBrake_ = value; break;
+        case PID_THROTTLE_POSITION: case PID_ACCELERATOR_POS_D: case PID_ACCELERATOR_POS_P: lastThrottle_ = value; break;
+        case PID_VEHICLE_SPEED: lastSpeed_ = value; break;
+        case PID_ENGINE_LOAD: lastAcceleration_ = (value / 100.0) * 2.0 - 1.0; break;
+        case PID_BRAKE_PRESSURE: lastBrake_ = value; break;
         default: break;
     }
 }

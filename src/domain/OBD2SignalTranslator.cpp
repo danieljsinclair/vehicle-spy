@@ -19,30 +19,30 @@ double OBD2SignalTranslator::extractPIDValue(
     }
 
     switch (pid) {
-        case 0x0D:  // Vehicle speed: A = km/h
+        case PID_VEHICLE_SPEED:  // Vehicle speed: A = km/h
             return static_cast<double>(data[0]);
 
-        case 0x11:  // Throttle position: (A / 255) * 100
-            return (static_cast<double>(data[0]) / OBD2_MAX_BYTE) * OBD2_PERCENT_SCALE;
+        case PID_THROTTLE_POSITION:  // Throttle position: (A / 255) * 100
+            return (static_cast<double>(data[0]) / 255.0) * 100.0;
 
-        case 0x04:  // Engine load: (A / 255) * 100
-            return (static_cast<double>(data[0]) / OBD2_MAX_BYTE) * OBD2_PERCENT_SCALE;
+        case PID_ENGINE_LOAD:  // Engine load: (A / 255) * 100
+            return (static_cast<double>(data[0]) / 255.0) * 100.0;
 
-        case 0x0C:  // Engine RPM: ((A * 256) + B) / 4
+        case PID_ENGINE_RPM:  // Engine RPM: ((A * 256) + B) / 4
             if (data.size() >= 2) {
                 return ((static_cast<double>(data[0]) * 256.0) +
                          static_cast<double>(data[1])) / OBD2_RPM_DIVISOR;
             }
             return static_cast<double>(data[0]);
 
-        case 0x05:  // Coolant temp: A - 40
+        case PID_COOLANT_TEMP:  // Coolant temp: A - 40
             return static_cast<double>(data[0]) - OBD2_TEMP_OFFSET;
 
-        case 0x2F:  // Fuel level: (A / 255) * 100
-            return (static_cast<double>(data[0]) / OBD2_MAX_BYTE) * OBD2_PERCENT_SCALE;
+        case PID_FUEL_LEVEL:  // Fuel level: (A / 255) * 100
+            return (static_cast<double>(data[0]) / 255.0) * 100.0;
 
-        case 0x5A:  // Accelerator position D: (A / 255) * 100
-            return (static_cast<double>(data[0]) / OBD2_MAX_BYTE) * OBD2_PERCENT_SCALE;
+        case PID_ACCELERATOR_POS_D:  // Accelerator position D: (A / 255) * 100
+            return (static_cast<double>(data[0]) / 255.0) * 100.0;
 
         default:
             return static_cast<double>(data[0]);

@@ -38,7 +38,7 @@ std::optional<VehicleSignal> AudiMLBTranslator::translate(
     const uint16_t id = extractCANId(rawData);
     std::vector<uint8_t> data(
         rawData.begin() + CAN_DATA_OFFSET,
-        rawData.begin() + CAN_DATA_OFFSET + 8
+        rawData.begin() + CAN_FRAME_SIZE
     );
 
     switch (id) {

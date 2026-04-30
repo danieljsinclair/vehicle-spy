@@ -44,7 +44,7 @@ void BLEManagerBase::setConnectionCallback(ConnectionCallback callback) {
 std::vector<uint8_t> BLEManagerBase::buildOBD2Query(uint8_t pid) const {
     // Standard OBD2 query format: [Mode] [PID] [Terminator]
     // Mode 01 = Show Live Data
-    std::vector<uint8_t> cmd = {0x01, pid};
+    std::vector<uint8_t> cmd = {OBD2_MODE_LIVE_DATA, pid};
     // Many adapters expect carriage return terminator
     return cmd;
 }
@@ -53,7 +53,7 @@ std::vector<uint8_t> BLEManagerBase::buildMode01Request(uint8_t pid) const {
     // Mode 01 request - standard OBD2 live data query
     // Format: "01 PID\r" as ASCII for most ELM327 adapters
     std::vector<uint8_t> cmd;
-    cmd.push_back(0x01);  // Mode 01: Show Current Data
+    cmd.push_back(OBD2_MODE_LIVE_DATA);  // Mode 01: Show Current Data
     cmd.push_back(pid);   // PID code
 
     // Some adapters also accept ASCII format - but we use binary for CoreBluetooth
@@ -78,10 +78,10 @@ OBD2Response BLEManagerBase::parseOBD2Response(const std::vector<uint8_t>& respo
     result.pid = response[1];
 
     // Data starts at byte 2 (mode + pid + maybe length byte)
-    size_t data_start = 2;
-    if (response.size() > 2 && response[2] <= 0x40) {
+    size_t data_start = DATA_OFFSET;
+    if (response.size() > DATA_OFFSET && response[DATA_OFFSET] <= RESPONSE_MODE_MIN) {
         // Some responses have a length byte
-        data_start = 3;
+        data_start = DATA_OFFSET + 1;
     }
 
     // Copy data bytes
@@ -131,17 +131,17 @@ double BLEManagerBase::parseSpecificPID(uint8_t pid, const std::vector<uint8_t>&
         case OBD2PIDs::ENGINE_RPM:  // 0x0C
             // ((A * 256) + B) / 4 = RPM
             if (data.size() >= 2) {
-                return ((data[0] * 256.0) + data[1]) / 4.0;
+                return ((data[0] * 256.0) + data[1]) / OBD2_RPM_DIVISOR;
             }
             return static_cast<double>(data[0]);
 
         case OBD2PIDs::COOLANT_TEMP:  // 0x05
             // A - 40 = Celsius
-            return static_cast<double>(data[0]) - 40.0;
+            return static_cast<double>(data[0]) - OBD2_TEMP_OFFSET;
 
         case OBD2PIDs::INTAKE_AIR_TEMP:  // 0x0F
             // A - 40 = Celsius
-            return static_cast<double>(data[0]) - 40.0;
+            return static_cast<double>(data[0]) - OBD2_TEMP_OFFSET;
 
         case OBD2PIDs::ENGINE_LOAD:  // 0x04
             // A/255 * 100 = percentage
@@ -170,13 +170,13 @@ double BLEManagerBase::parseSpecificPID(uint8_t pid, const std::vector<uint8_t>&
 
 bool BLEManagerBase::validateOBD2Response(const std::vector<uint8_t>& response) const {
     // Minimum response: mode + pid + at least one data byte
-    if (response.size() < 3) {
+    if (response.size() < DATA_OFFSET + 1) {
         return false;
     }
 
     // Mode 0x41 = Response to Mode 0x01 (Show Current Data)
     // Mode 0x4X would be response to other modes
-    if (response[0] < 0x40 || response[0] > 0x4F) {
+    if (response[0] < RESPONSE_MODE_MIN || response[0] > RESPONSE_MODE_MAX) {
         // Not a standard OBD2 response mode
         // Could be an error code or non-standard response
         std::cerr << "[BLEManagerBase] Unusual response mode: 0x"
@@ -230,9 +230,9 @@ bool BLEManagerBase::initializeELM327() {
 }
 
 std::string BLEManagerBase::signalQuality(int rssi) {
-    if (rssi >= -50) return "Excellent";
-    if (rssi >= -65) return "Good";
-    if (rssi >= -75) return "Fair";
+    if (rssi >= RSSI_EXCELLENT) return "Excellent";
+    if (rssi >= RSSI_GOOD) return "Good";
+    if (rssi >= RSSI_FAIR) return "Fair";
     return "Poor";
 }
 
@@ -253,32 +253,32 @@ void BLEManagerBase::startOBD2Polling(int interval_ms) {
                   << polling_interval_ms_ << "ms intervals" << std::endl;
 
         // Wait a moment for characteristic notifications to be set up
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(POST_CONNECT_SETUP_DELAY_MS));
 
         while (polling_active_ && connected_) {
             // Query each PID sequentially
             // Throttle position
             queryPID(OBD2PIDs::THROTTLE_POSITION);
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(PID_QUERY_DELAY_MS));
 
             // Vehicle speed
             queryPID(OBD2PIDs::VEHICLE_SPEED);
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(PID_QUERY_DELAY_MS));
 
             // Engine RPM
             queryPID(OBD2PIDs::ENGINE_RPM);
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(PID_QUERY_DELAY_MS));
 
             // Engine load
             queryPID(OBD2PIDs::ENGINE_LOAD);
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(PID_QUERY_DELAY_MS));
 
             // Coolant temp
             queryPID(OBD2PIDs::COOLANT_TEMP);
 
             // Wait remaining interval time
             std::this_thread::sleep_for(std::chrono::milliseconds(
-                polling_interval_ms_ - 250 > 0 ? polling_interval_ms_ - 250 : 50
+                polling_interval_ms_ - TOTAL_PID_QUERY_TIME_MS > 0 ? polling_interval_ms_ - TOTAL_PID_QUERY_TIME_MS : PID_QUERY_DELAY_MS
             ));
         }
 
