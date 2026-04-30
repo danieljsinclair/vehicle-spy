@@ -18,6 +18,8 @@ add_executable(vehicle-sim-tests
     domain/VehicleSignalEV.test.cpp
     domain/CANSignalDecoderShared.test.cpp
     domain/CANSignalDecoderBase.test.cpp
+    domain/DBCParser.test.cpp
+    domain/DBCFileParser.test.cpp
     domain/EventDispatcher.test.cpp
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp

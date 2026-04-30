@@ -56,6 +56,10 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/CANDecoder.cpp
     src/domain/CANSignalDecoderBase.cpp
     src/domain/ITimeProvider.cpp
+    src/domain/DBCSignalDefinition.cpp
+    src/domain/DBCSignalMapper.cpp
+    src/domain/DBCFileParser.cpp
+    src/domain/VehicleConfig.cpp
     src/domain/SignalTranslatorFactory.cpp
     src/domain/EventDispatcher.cpp
     src/ble/OBD2Transport.cpp
