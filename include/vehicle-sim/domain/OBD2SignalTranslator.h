@@ -2,9 +2,7 @@
 
 #include <vector>
 #include <cstdint>
-#include <optional>
-#include <mutex>
-#include "vehicle-sim/domain/ISignalTranslator.h"
+#include "vehicle-sim/domain/OBD2SignalTranslatorBase.h"
 
 namespace vehicle_sim::domain {
 
@@ -15,10 +13,10 @@ namespace vehicle_sim::domain {
  * Works with any ELM327-compatible BLE adapter connected to standard
  * OBD2 ports (Toyota, Ford, VW, etc.).
  *
- * Maintains state across PID responses to build a complete VehicleSignal
- * from individual PID queries (speed, throttle, etc. arrive one at a time).
+ * Inherits all infrastructure from OBD2SignalTranslatorBase.
+ * Only decode logic (extractPIDValue) is implemented here.
  */
-class OBD2SignalTranslator final : public ISignalTranslator {
+class OBD2SignalTranslator : public OBD2SignalTranslatorBase {
 public:
     OBD2SignalTranslator();
     ~OBD2SignalTranslator() override = default;
@@ -26,32 +24,17 @@ public:
     OBD2SignalTranslator(const OBD2SignalTranslator&) = delete;
     OBD2SignalTranslator& operator=(const OBD2SignalTranslator&) = delete;
 
-    [[nodiscard]] std::optional<VehicleSignal> translate(
-        const std::vector<std::uint8_t>& rawData
-    ) const noexcept override;
+protected:
+    // SAE J1979 scaling constants
+    static constexpr double OBD2_MAX_BYTE = 255.0;       // 8-bit A value maximum
+    static constexpr double OBD2_PERCENT_SCALE = 100.0;  // (A / 255) * 100
+    static constexpr double OBD2_RPM_DIVISOR = 4.0;      // ((A * 256) + B) / 4
+    static constexpr double OBD2_TEMP_OFFSET = 40.0;     // A - 40 (coolant/intake temp)
 
-    [[nodiscard]] bool isValidPacket(
-        const std::vector<std::uint8_t>& rawData
-    ) const noexcept override;
-
-private:
-    // OBD2 response mode for Mode 01
-    static constexpr std::uint8_t MODE_01_RESPONSE = 0x41;
-
-    // State accumulated across multiple PID responses
-    mutable std::mutex state_mutex_;
-    mutable double lastThrottle_ = 0.0;
-    mutable double lastSpeed_ = 0.0;
-    mutable double lastAcceleration_ = 0.0;
-    mutable double lastBrake_ = 0.0;
-    mutable std::uint64_t lastTimestamp_ = 0;
-
-    [[nodiscard]] double extractPID(
+    [[nodiscard]] double extractPIDValue(
         std::uint8_t pid,
         const std::vector<std::uint8_t>& data
-    ) const noexcept;
-
-    [[nodiscard]] std::uint64_t getCurrentTimestamp() const noexcept;
+    ) const noexcept override;
 };
 
 } // namespace vehicle_sim::domain

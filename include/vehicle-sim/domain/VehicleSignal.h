@@ -24,7 +24,13 @@ public:
         double speedKmh,
         double accelerationG,
         double brakePercent,
-        std::uint64_t timestampUtcMs
+        std::uint64_t timestampUtcMs,
+        double steeringAngleDeg = 0.0,
+        double motorRpm = 0.0,
+        double motorHvVoltage = 0.0,
+        double motorHvCurrent = 0.0,
+        double motorPower = 0.0,
+        double regenPower = 0.0
     ) noexcept;
 
     // Default copy / move
@@ -39,6 +45,12 @@ public:
     [[nodiscard]] double getSpeedKmh() const noexcept;
     [[nodiscard]] double getAccelerationG() const noexcept;
     [[nodiscard]] double getBrakePercent() const noexcept;
+    [[nodiscard]] double getSteeringAngleDeg() const noexcept;
+    [[nodiscard]] double getMotorRpm() const noexcept;
+    [[nodiscard]] double getMotorHvVoltage() const noexcept;
+    [[nodiscard]] double getMotorHvCurrent() const noexcept;
+    [[nodiscard]] double getMotorPower() const noexcept;
+    [[nodiscard]] double getRegenPower() const noexcept;
     [[nodiscard]] std::uint64_t getTimestampUtcMs() const noexcept;
 
     // Equality comparison (member-wise)
@@ -47,12 +59,40 @@ public:
     // Inequality (derived from operator==)
     [[nodiscard]] bool operator!=(const VehicleSignal& other) const noexcept;
 
+    // Valid signal ranges (DBC-verified)
+    static constexpr double THROTTLE_MIN = 0.0;
+    static constexpr double THROTTLE_MAX = 100.0;
+    static constexpr double SPEED_MIN = 0.0;
+    static constexpr double SPEED_MAX = 300.0;
+    static constexpr double ACCEL_MIN = -5.0;
+    static constexpr double ACCEL_MAX = 5.0;
+    static constexpr double BRAKE_MIN = 0.0;
+    static constexpr double BRAKE_MAX = 100.0;
+    static constexpr double STEERING_MIN = -819.2;  // DBC: SCCM 14-bit range
+    static constexpr double STEERING_MAX = 819.2;
+    static constexpr double MOTOR_RPM_MIN = 0.0;
+    static constexpr double MOTOR_RPM_MAX = 20000.0;       // Tesla CMPD DBC
+    static constexpr double HV_VOLTAGE_MIN = 0.0;
+    static constexpr double HV_VOLTAGE_MAX = 1000.0;       // Tesla CMPD DBC
+    static constexpr double HV_CURRENT_MIN = 0.0;
+    static constexpr double HV_CURRENT_MAX = 50.0;         // Tesla CMPD DBC
+    static constexpr double MOTOR_POWER_MIN = 0.0;
+    static constexpr double MOTOR_POWER_MAX = 20000.0;     // Tesla CMPD DBC
+    static constexpr double REGEN_POWER_MIN = 0.0;
+    static constexpr double REGEN_POWER_MAX = 12700.0;     // Audi BEM_01 DBC
+
 private:
-    double      m_throttlePercent;  // 0.0 - 100.0
-    double      m_speedKmh;         // 0.0 - 300.0
-    double      m_accelerationG;    // -5.0 to +5.0
-    double      m_brakePercent;     // 0.0 - 100.0
-    std::uint64_t m_timestampUtcMs; // Unix timestamp milliseconds
+    double      m_throttlePercent;
+    double      m_speedKmh;
+    double      m_accelerationG;
+    double      m_brakePercent;
+    double      m_steeringAngleDeg;
+    double      m_motorRpm;
+    double      m_motorHvVoltage;
+    double      m_motorHvCurrent;
+    double      m_motorPower;
+    double      m_regenPower;
+    std::uint64_t m_timestampUtcMs;
 };
 
 } // namespace vehicle_sim::domain

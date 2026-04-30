@@ -27,6 +27,8 @@
 		B1000023 /* OBD2SignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000023 /* OBD2SignalTranslator.cpp */; };
 		B1000024 /* SignalTranslatorFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000024 /* SignalTranslatorFactory.cpp */; };
 		B1000025 /* OBD2Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000025 /* OBD2Transport.cpp */; };
+		B1000026 /* AudiSignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000026 /* AudiSignalTranslator.cpp */; };
+		B1000028 /* AudiSignalTranslator.h in Sources */ = {isa = PBXBuildFile; fileRef = B2000028 /* AudiSignalTranslator.h */; };
 		B1000030 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B2000030 /* CoreBluetooth.framework */; };
 		B1000032 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000032 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
@@ -226,6 +228,8 @@
 				B1000023 /* OBD2SignalTranslator.cpp in Sources */,
 				B1000024 /* SignalTranslatorFactory.cpp in Sources */,
 				B1000025 /* OBD2Transport.cpp in Sources */,
+				B1000026 /* AudiSignalTranslator.cpp in Sources */,
+				B1000028 /* AudiSignalTranslator.h in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

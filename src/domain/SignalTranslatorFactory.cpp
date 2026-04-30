@@ -1,6 +1,7 @@
 #include "vehicle-sim/domain/SignalTranslatorFactory.h"
 #include "vehicle-sim/domain/OBD2SignalTranslator.h"
 #include "vehicle-sim/domain/TeslaSignalTranslator.h"
+#include "vehicle-sim/domain/AudiSignalTranslator.h"
 
 #include <algorithm>
 #include <cctype>
@@ -26,13 +27,16 @@ std::unique_ptr<ISignalTranslator> SignalTranslatorFactory::create(
     if (lower == "tesla") {
         return std::make_unique<TeslaSignalTranslator>();
     }
+    if (lower == "audi") {
+        return std::make_unique<AudiSignalTranslator>();
+    }
 
     // Default: generic OBD2 (covers "generic", empty string, unknown types)
     return std::make_unique<OBD2SignalTranslator>();
 }
 
 std::vector<std::string> SignalTranslatorFactory::availableTypes() {
-    return {"generic", "tesla"};
+    return {"generic", "tesla", "audi"};
 }
 
 } // namespace vehicle_sim::domain

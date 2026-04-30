@@ -10,7 +10,14 @@ add_executable(vehicle-sim-tests
     domain/ISignalTranslator.test.cpp
     domain/TeslaSignalParser.test.cpp
     domain/OBD2SignalTranslator.test.cpp
+    domain/AudiSignalTranslator.test.cpp
     domain/SignalTranslatorFactory.test.cpp
+    domain/CANDecoder.test.cpp
+    domain/AudiMLBTranslator.test.cpp
+    domain/TeslaCANTranslator.test.cpp
+    domain/VehicleSignalEV.test.cpp
+    domain/CANSignalDecoderShared.test.cpp
+    domain/CANSignalDecoderBase.test.cpp
     domain/EventDispatcher.test.cpp
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp

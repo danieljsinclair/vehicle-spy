@@ -2,7 +2,6 @@
 
 #include <functional>
 #include <memory>
-#include <cstdint>
 
 #include "vehicle-sim/domain/VehicleSignal.h"
 
@@ -25,10 +24,7 @@ namespace vehicle_sim::domain {
  */
 class EventDispatcher final {
 public:
-    /**
-     * Consumer callback type
-     * @param signal The vehicle signal to process
-     */
+    /** Consumer callback — receives const VehicleSignal& */
     using SignalCallback = std::function<void(const VehicleSignal&)>;
 
     /**

@@ -49,6 +49,13 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/TeslaSignalTranslator.cpp
     src/domain/TeslaSignalParser.cpp
     src/domain/OBD2SignalTranslator.cpp
+    src/domain/OBD2SignalTranslatorBase.cpp
+    src/domain/AudiSignalTranslator.cpp
+    src/domain/AudiMLBTranslator.cpp
+    src/domain/TeslaCANTranslator.cpp
+    src/domain/CANDecoder.cpp
+    src/domain/CANSignalDecoderBase.cpp
+    src/domain/ITimeProvider.cpp
     src/domain/SignalTranslatorFactory.cpp
     src/domain/EventDispatcher.cpp
     src/ble/OBD2Transport.cpp
