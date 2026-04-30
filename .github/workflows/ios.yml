@@ -48,7 +48,7 @@ jobs:
     - name: Build iOS app (Simulator)
       run: |
         cd vehicle-sim-ios/VehicleSim
-        xcodebuild -project VehicleSimApp.xcodeproj -target VehicleSimApp -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16' build
+        xcodebuild -project VehicleSimApp.xcodeproj -target VehicleSimApp -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16' build CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO IPHONEOS_DEPLOYMENT_TARGET=17.0
 
     - name: Upload simulator app
       uses: actions/upload-artifact@v4
