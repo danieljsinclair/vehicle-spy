@@ -30,7 +30,8 @@ public:
         double motorHvVoltage = 0.0,
         double motorHvCurrent = 0.0,
         double motorPower = 0.0,
-        double regenPower = 0.0
+        double regenPower = 0.0,
+        double motorTorqueNm = 0.0
     ) noexcept;
 
     // Default copy / move
@@ -51,6 +52,7 @@ public:
     [[nodiscard]] double getMotorHvCurrent() const noexcept;
     [[nodiscard]] double getMotorPower() const noexcept;
     [[nodiscard]] double getRegenPower() const noexcept;
+    [[nodiscard]] double getMotorTorqueNm() const noexcept;
     [[nodiscard]] std::uint64_t getTimestampUtcMs() const noexcept;
 
     // Equality comparison (member-wise)
@@ -80,6 +82,8 @@ public:
     static constexpr double MOTOR_POWER_MAX = 20000.0;     // Tesla CMPD DBC
     static constexpr double REGEN_POWER_MIN = 0.0;
     static constexpr double REGEN_POWER_MAX = 12700.0;     // Audi BEM_01 DBC
+    static constexpr double MOTOR_TORQUE_MIN = -7500.0;    // Tesla DIR_torqueActual
+    static constexpr double MOTOR_TORQUE_MAX = 7500.0;
 
 private:
     double      m_throttlePercent;
@@ -92,6 +96,7 @@ private:
     double      m_motorHvCurrent;
     double      m_motorPower;
     double      m_regenPower;
+    double      m_motorTorqueNm;
     std::uint64_t m_timestampUtcMs;
 };
 

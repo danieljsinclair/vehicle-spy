@@ -61,6 +61,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/DBCFileParser.cpp
     src/domain/VehicleConfig.cpp
     src/domain/SignalTranslatorFactory.cpp
+    src/domain/VehicleSignalFactory.cpp
     src/domain/EventDispatcher.cpp
     src/ble/OBD2Transport.cpp
 )

@@ -15,7 +15,8 @@ VehicleSignal::VehicleSignal(
     double motorHvVoltage,
     double motorHvCurrent,
     double motorPower,
-    double regenPower
+    double regenPower,
+    double motorTorqueNm
 ) noexcept
     : m_throttlePercent(std::clamp(throttlePercent, THROTTLE_MIN, THROTTLE_MAX))
     , m_speedKmh(std::clamp(speedKmh, SPEED_MIN, SPEED_MAX))
@@ -27,6 +28,7 @@ VehicleSignal::VehicleSignal(
     , m_motorHvCurrent(std::clamp(motorHvCurrent, HV_CURRENT_MIN, HV_CURRENT_MAX))
     , m_motorPower(std::clamp(motorPower, MOTOR_POWER_MIN, MOTOR_POWER_MAX))
     , m_regenPower(std::clamp(regenPower, REGEN_POWER_MIN, REGEN_POWER_MAX))
+    , m_motorTorqueNm(std::clamp(motorTorqueNm, MOTOR_TORQUE_MIN, MOTOR_TORQUE_MAX))
     , m_timestampUtcMs(timestampUtcMs)
 {
 }
@@ -81,6 +83,11 @@ double VehicleSignal::getRegenPower() const noexcept
     return m_regenPower;
 }
 
+double VehicleSignal::getMotorTorqueNm() const noexcept
+{
+    return m_motorTorqueNm;
+}
+
 std::uint64_t VehicleSignal::getTimestampUtcMs() const noexcept
 {
     return m_timestampUtcMs;
@@ -98,6 +105,7 @@ bool VehicleSignal::operator==(const VehicleSignal& other) const noexcept
            m_motorHvCurrent == other.m_motorHvCurrent &&
            m_motorPower == other.m_motorPower &&
            m_regenPower == other.m_regenPower &&
+           m_motorTorqueNm == other.m_motorTorqueNm &&
            m_timestampUtcMs == other.m_timestampUtcMs;
 }
 
