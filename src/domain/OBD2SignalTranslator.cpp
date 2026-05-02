@@ -1,14 +1,10 @@
 #include "vehicle-sim/domain/OBD2SignalTranslator.h"
 #include "vehicle-sim/domain/OBD2SignalTranslatorBase.h"
-
-#include <cmath>
+#include "vehicle-sim/domain/OBD2Math.h"
 
 namespace vehicle_sim::domain {
 
 OBD2SignalTranslator::OBD2SignalTranslator() = default;
-
-// translate() and isValidPacket() are inherited from base class — no override needed
-// Base implementation handles: validation, state accumulation, VehicleSignal construction
 
 double OBD2SignalTranslator::extractPIDValue(
     std::uint8_t pid,
@@ -19,36 +15,33 @@ double OBD2SignalTranslator::extractPIDValue(
     }
 
     switch (pid) {
-        case PID_VEHICLE_SPEED:  // Vehicle speed: A = km/h
-            return static_cast<double>(data[0]);
+        case PID_VEHICLE_SPEED:
+            return obd2RawValue(data[0]);
 
-        case PID_THROTTLE_POSITION:  // Throttle position: (A / 255) * 100
-            return (static_cast<double>(data[0]) / 255.0) * 100.0;
+        case PID_THROTTLE_POSITION:
+            return obd2BytePercent(data[0]);
 
-        case PID_ENGINE_LOAD:  // Engine load: (A / 255) * 100
-            return (static_cast<double>(data[0]) / 255.0) * 100.0;
+        case PID_ENGINE_LOAD:
+            return obd2BytePercent(data[0]);
 
-        case PID_ENGINE_RPM:  // Engine RPM: ((A * 256) + B) / 4
+        case PID_ENGINE_RPM:
             if (data.size() >= 2) {
-                return ((static_cast<double>(data[0]) * 256.0) +
-                         static_cast<double>(data[1])) / OBD2_RPM_DIVISOR;
+                return obd2WordRPM(data[0], data[1]);
             }
-            return static_cast<double>(data[0]);
+            return obd2RawValue(data[0]);
 
-        case PID_COOLANT_TEMP:  // Coolant temp: A - 40
-            return static_cast<double>(data[0]) - OBD2_TEMP_OFFSET;
+        case PID_COOLANT_TEMP:
+            return obd2TempCelsius(data[0]);
 
-        case PID_FUEL_LEVEL:  // Fuel level: (A / 255) * 100
-            return (static_cast<double>(data[0]) / 255.0) * 100.0;
+        case PID_FUEL_LEVEL:
+            return obd2BytePercent(data[0]);
 
-        case PID_ACCELERATOR_POS_D:  // Accelerator position D: (A / 255) * 100
-            return (static_cast<double>(data[0]) / 255.0) * 100.0;
+        case PID_ACCELERATOR_POS_D:
+            return obd2BytePercent(data[0]);
 
         default:
-            return static_cast<double>(data[0]);
+            return obd2RawValue(data[0]);
     }
 }
-
-// getCurrentTimestamp() is inherited from base class
 
 } // namespace vehicle_sim::domain

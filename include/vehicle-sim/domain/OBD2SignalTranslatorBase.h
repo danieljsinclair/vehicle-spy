@@ -49,10 +49,6 @@ protected:
     static constexpr std::uint8_t RESPONSE_MODE_MAX = 0x4F;
     static constexpr std::size_t DATA_OFFSET = 2;             // skip mode + pid bytes
 
-    // SAE J1979 protocol constants
-    static constexpr double OBD2_RPM_DIVISOR = 4.0;      // ((A * 256) + B) / 4
-    static constexpr double OBD2_TEMP_OFFSET = 40.0;     // A - 40 (coolant/intake air temp)
-
     // OBD2 Mode 01 PIDs (SAE J1979)
     static constexpr std::uint8_t PID_ENGINE_LOAD = 0x04;
     static constexpr std::uint8_t PID_COOLANT_TEMP = 0x05;

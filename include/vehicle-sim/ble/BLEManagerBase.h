@@ -240,13 +240,8 @@ protected:
     static constexpr int TOTAL_PID_QUERY_TIME_MS = 250;      // 5 PIDs * 50ms
     static constexpr int POST_CONNECT_SETUP_DELAY_MS = 500;  // wait for characteristic notifications
 
-    // OBD2 protocol constants
+    // OBD2 protocol constants (math formulas live in OBD2Math.h)
     static constexpr uint8_t OBD2_MODE_LIVE_DATA = 0x01;    // Mode 01: Show Current Data
-    static constexpr double OBD2_MAX_BYTE = 255.0;           // 8-bit A value maximum
-    static constexpr double OBD2_PERCENT_SCALE = 100.0;      // (A / 255) * 100
-    static constexpr double OBD2_RPM_DIVISOR = 4.0;          // ((A * 256) + B) / 4
-    static constexpr double OBD2_TEMP_OFFSET = 40.0;         // A - 40 (coolant/intake temp)
-    static constexpr double OBD2_MULTI_BYTE_SCALE = 256.0;   // A * 256 + B scaling
     static constexpr std::size_t DATA_OFFSET = 2;             // skip mode + pid bytes
     static constexpr uint8_t RESPONSE_MODE_MIN = 0x40;       // 0x40-0x4F = Mode 01-0F responses
     static constexpr uint8_t RESPONSE_MODE_MAX = 0x4F;

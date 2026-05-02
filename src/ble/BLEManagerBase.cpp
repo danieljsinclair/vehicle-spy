@@ -1,4 +1,11 @@
 #include "vehicle-sim/ble/BLEManagerBase.h"
+#include "vehicle-sim/domain/OBD2Math.h"
+
+using vehicle_sim::domain::obd2BytePercent;
+using vehicle_sim::domain::obd2RawValue;
+using vehicle_sim::domain::obd2WordRPM;
+using vehicle_sim::domain::obd2TempCelsius;
+
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -118,51 +125,40 @@ std::optional<double> BLEManagerBase::extractOBD2Value(const std::vector<uint8_t
 }
 
 double BLEManagerBase::parseSpecificPID(uint8_t pid, const std::vector<uint8_t>& data) const {
-    // OBD2 scaling formulas from SAE J1979
     switch (pid) {
-        case OBD2PIDs::THROTTLE_POSITION:  // 0x11
-            // A/255 * 100 = percentage
-            return (data[0] / 255.0) * 100.0;
+        case OBD2PIDs::THROTTLE_POSITION:
+            return obd2BytePercent(data[0]);
 
-        case OBD2PIDs::VEHICLE_SPEED:  // 0x0D
-            // Raw value in km/h
-            return static_cast<double>(data[0]);
+        case OBD2PIDs::VEHICLE_SPEED:
+            return obd2RawValue(data[0]);
 
-        case OBD2PIDs::ENGINE_RPM:  // 0x0C
-            // ((A * 256) + B) / 4 = RPM
+        case OBD2PIDs::ENGINE_RPM:
             if (data.size() >= 2) {
-                return ((data[0] * 256.0) + data[1]) / OBD2_RPM_DIVISOR;
+                return obd2WordRPM(data[0], data[1]);
             }
-            return static_cast<double>(data[0]);
+            return obd2RawValue(data[0]);
 
-        case OBD2PIDs::COOLANT_TEMP:  // 0x05
-            // A - 40 = Celsius
-            return static_cast<double>(data[0]) - OBD2_TEMP_OFFSET;
+        case OBD2PIDs::COOLANT_TEMP:
+            return obd2TempCelsius(data[0]);
 
-        case OBD2PIDs::INTAKE_AIR_TEMP:  // 0x0F
-            // A - 40 = Celsius
-            return static_cast<double>(data[0]) - OBD2_TEMP_OFFSET;
+        case OBD2PIDs::INTAKE_AIR_TEMP:
+            return obd2TempCelsius(data[0]);
 
-        case OBD2PIDs::ENGINE_LOAD:  // 0x04
-            // A/255 * 100 = percentage
-            return (data[0] / 255.0) * 100.0;
+        case OBD2PIDs::ENGINE_LOAD:
+            return obd2BytePercent(data[0]);
 
-        case OBD2PIDs::FUEL_LEVEL:  // 0x2F
-            // A/255 * 100 = percentage
-            return (data[0] / 255.0) * 100.0;
+        case OBD2PIDs::FUEL_LEVEL:
+            return obd2BytePercent(data[0]);
 
-        case OBD2PIDs::ACCELERATOR_POSITION_D:  // 0x5A
-            // A/255 * 100 = percentage
-            return (data[0] / 255.0) * 100.0;
+        case OBD2PIDs::ACCELERATOR_POSITION_D:
+            return obd2BytePercent(data[0]);
 
-        case OBD2PIDs::ACCELERATOR_POSITION_P:  // 0x5C
-            // A/255 * 100 = percentage
-            return (data[0] / 255.0) * 100.0;
+        case OBD2PIDs::ACCELERATOR_POSITION_P:
+            return obd2BytePercent(data[0]);
 
         default:
-            // Generic: return first byte as-is
             if (!data.empty()) {
-                return static_cast<double>(data[0]);
+                return obd2RawValue(data[0]);
             }
             return 0.0;
     }
