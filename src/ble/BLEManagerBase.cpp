@@ -1,5 +1,6 @@
 #include "vehicle-sim/ble/BLEManagerBase.h"
 #include "vehicle-sim/domain/OBD2Math.h"
+#include "vehicle-sim/boundary/OBD2Protocol.h"
 
 using vehicle_sim::domain::obd2BytePercent;
 using vehicle_sim::domain::obd2RawValue;
@@ -194,35 +195,49 @@ OBD2Response BLEManagerBase::queryPID(uint8_t pid) {
 bool BLEManagerBase::initializeELM327() {
     std::cout << "[BLEManagerBase] Initializing ELM327 adapter..." << std::endl;
 
-    // AT commands to initialize ELM327
-    // These should be sent sequentially with delays
+    // Set up OBD2Protocol to send ASCII commands via this BLEManagerBase
+    obd2_protocol_.setSendCallback([this](const std::string& asciiCommand) {
+        // Convert ASCII command string to bytes for BLE send
+        std::vector<uint8_t> bytes(asciiCommand.begin(), asciiCommand.end());
+        send(bytes);
+    });
 
-    // Reset adapter
-    std::vector<uint8_t> reset_cmd = {'A', 'T', 'Z', '\r'};
-    send(reset_cmd);
-
-    // Disable echo
-    std::vector<uint8_t> echo_cmd = {'A', 'T', 'E', '0', '\r'};
-    send(echo_cmd);
-
-    // Disable line feeds
-    std::vector<uint8_t> lf_cmd = {'A', 'T', 'L', '0', '\r'};
-    send(lf_cmd);
-
-    // Set protocol to auto
-    std::vector<uint8_t> proto_cmd = {'A', 'T', 'S', 'P', '0', '\r'};
-    send(proto_cmd);
-
-    // Set headers off (standard OBD2)
-    std::vector<uint8_t> header_cmd = {'A', 'T', 'H', '0', '\r'};
-    send(header_cmd);
-
-    // Set timeout
-    std::vector<uint8_t> timeout_cmd = {'A', 'T', 'S', 'T', 'F', 'F', '\r'};
-    send(timeout_cmd);
+    // Send initialization sequence
+    obd2_protocol_.initialize();
 
     std::cout << "[BLEManagerBase] ELM327 initialization commands sent" << std::endl;
     return true;
+}
+
+std::optional<domain::VehicleDetectionResult> BLEManagerBase::initializeOBD2WithDetection() {
+    std::cout << "[BLEManagerBase] Initializing ELM327 with auto-detection..." << std::endl;
+
+    // Set up OBD2Protocol to send ASCII commands via this BLEManagerBase
+    obd2_protocol_.setSendCallback([this](const std::string& asciiCommand) {
+        // Convert ASCII command string to bytes for BLE send
+        std::vector<uint8_t> bytes(asciiCommand.begin(), asciiCommand.end());
+        send(bytes);
+    });
+
+    // Send initialization sequence
+    obd2_protocol_.initialize();
+
+    // Note: In a real async implementation, we would:
+    // 1. Send VIN query
+    // 2. Wait for and parse multi-frame response
+    // 3. Send fuel type query
+    // 4. Parse fuel type response
+    // 5. Return detection result
+    //
+    // For now, this method sets up the protocol and returns an empty result.
+    // The caller must call processOBD2Data() with incoming responses.
+
+    std::cout << "[BLEManagerBase] Auto-detection ready - send queries and process responses" << std::endl;
+    return obd2_protocol_.detectVehicle();
+}
+
+void BLEManagerBase::processOBD2Data(const std::string& asciiData) {
+    obd2_protocol_.processIncomingData(asciiData);
 }
 
 std::string BLEManagerBase::signalQuality(int rssi) {

@@ -32,6 +32,9 @@ add_executable(vehicle-sim-tests
     cli/CliOptions.test.cpp
     boundary/TeslaBLETransport.test.cpp
     boundary/OBD2Transport.test.cpp
+    boundary/ELM327Protocol.test.cpp
+    boundary/OBD2EndToEnd.test.cpp
+    boundary/VehicleDetectorIntegration.test.cpp
     integration/EventDispatcherIntegration.test.cpp
     integration/DBCPipelineIntegration.test.cpp
 )

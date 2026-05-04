@@ -7,6 +7,7 @@
 
 #include "vehicle-sim/ble/BLEManagerBase.h"
 #include "vehicle-sim/ble/BLEDeviceInfo.h"
+#include "vehicle-sim/domain/VehicleDetector.h"
 
 namespace vehicle_sim {
 
@@ -60,7 +61,21 @@ public:
     // Initialize ELM327 adapter (send AT commands after connection)
     bool initializeELM327();
 
-    // Start polling OBD2 PIDs at specified interval
+    /**
+     * @brief Initialize OBD2 protocol with auto-detection.
+     * Sends AT commands, queries VIN and fuel type, and returns detection result.
+     * @return Vehicle detection result if successful, nullopt otherwise
+     */
+    std::optional<domain::VehicleDetectionResult> initializeOBD2WithDetection();
+
+    /**
+     * @brief Process incoming ASCII data from ELM327 adapter.
+     * Routes data to OBD2Protocol handler which manages vehicle detection.
+     * @param asciiData Raw ASCII response from adapter
+     */
+    void processOBD2Data(const std::string& asciiData);
+
+    // Start OBD2 PID polling at specified interval
     void startOBD2Polling(int interval_ms = 200);
 
     // Stop OBD2 PID polling

@@ -79,6 +79,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/DefaultVehicleConfigs.cpp
     src/cli/CliOptions.cpp
     src/presentation/VehicleSignalFormatter.cpp
+    src/boundary/ELM327Transport.cpp
+    src/boundary/OBD2Protocol.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds

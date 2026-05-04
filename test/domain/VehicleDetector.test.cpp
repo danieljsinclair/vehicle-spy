@@ -150,7 +150,7 @@ TEST(VehicleDetector, ExtractVINFromResponse_EmptyResponse)
 TEST(VehicleDetector, FeedFuelTypeResponse_Electric)
 {
     VehicleDetector detector;
-    std::vector<uint8_t> response = {0x41, 0x51, 0x08};
+    std::vector<uint8_t> response = {0x49, 0x51, 0x08};
     bool success = detector.feedFuelTypeResponse(response);
     EXPECT_TRUE(success);
 
@@ -162,7 +162,7 @@ TEST(VehicleDetector, FeedFuelTypeResponse_Electric)
 TEST(VehicleDetector, FeedFuelTypeResponse_Gasoline)
 {
     VehicleDetector detector;
-    std::vector<uint8_t> response = {0x41, 0x51, 0x01};
+    std::vector<uint8_t> response = {0x49, 0x51, 0x01};
     bool success = detector.feedFuelTypeResponse(response);
     EXPECT_TRUE(success);
 

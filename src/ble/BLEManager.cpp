@@ -1,4 +1,5 @@
 #include "vehicle-sim/BLEManager.h"
+#include "vehicle-sim/domain/VehicleDetector.h"
 #if TARGET_OS_OSX
 #include "vehicle-sim/ble/platform/BLEManagerMacOS.h"
 #elif TARGET_OS_IPHONE
@@ -118,6 +119,16 @@ void BLEManager::startOBD2Polling(int interval_ms) {
 void BLEManager::stopOBD2Polling() {
     if (platform_) {
         platform_->stopOBD2Polling();
+    }
+}
+
+std::optional<domain::VehicleDetectionResult> BLEManager::initializeOBD2WithDetection() {
+    return platform_ ? platform_->initializeOBD2WithDetection() : std::nullopt;
+}
+
+void BLEManager::processOBD2Data(const std::string& asciiData) {
+    if (platform_) {
+        platform_->processOBD2Data(asciiData);
     }
 }
 

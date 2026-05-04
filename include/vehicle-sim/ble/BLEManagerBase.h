@@ -11,6 +11,8 @@
 #include <chrono>
 
 #include "vehicle-sim/ble/BLEDeviceInfo.h"
+#include "vehicle-sim/boundary/OBD2Protocol.h"
+#include "vehicle-sim/domain/VehicleDetector.h"
 
 namespace vehicle_sim {
 
@@ -206,6 +208,20 @@ public:
     void stopOBD2Polling();
 
     /**
+     * Initialize OBD2 protocol with auto-detection.
+     * Sends AT commands, queries VIN and fuel type, and returns detection result.
+     * @return Vehicle detection result if successful, nullopt otherwise
+     */
+    std::optional<domain::VehicleDetectionResult> initializeOBD2WithDetection();
+
+    /**
+     * Process incoming ASCII data from ELM327 adapter.
+     * Routes data to OBD2Protocol handler which manages vehicle detection.
+     * @param asciiData Raw ASCII response from adapter
+     */
+    void processOBD2Data(const std::string& asciiData);
+
+    /**
      * Convert RSSI to signal quality string.
      * @param rssi Signal strength in dBm
      * @return Human-readable quality (Excellent/Good/Fair/Poor)
@@ -255,6 +271,9 @@ protected:
     std::atomic<bool> polling_active_{false};
     std::thread polling_thread_;
     int polling_interval_ms_ = DEFAULT_POLLING_INTERVAL_MS;
+
+    // OBD2 protocol handler for vehicle detection and command management
+    boundary::OBD2Protocol obd2_protocol_;
 
     // ================================================
     // Protected Helper Methods for Derived Classes

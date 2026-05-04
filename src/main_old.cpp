@@ -97,12 +97,12 @@ namespace {
 
         if (devices.empty()) {
             std::cout << "\nNo BLE devices found.\n\n"
-                              << "Troubleshooting:\n"
-                              << "  1. Ensure your vehicle is powered ON (accessory mode or drive mode)\n"
-                              << "  2. Verify OBD2 adapter is connected to vehicle's OBD-II port\n"
-                              << "  3. Check adapter has power (some require external power)\n"
-                              << "  4. On macOS, grant Bluetooth permissions if prompted\n"
-                              << "  5. Try moving closer to vehicle (BLE range ~10m)\n";
+                      << "Troubleshooting:\n"
+                      << "  1. Ensure your vehicle is powered ON (accessory mode or drive mode)\n"
+                      << "  2. Verify OBD2 adapter is connected to vehicle's OBD-II port\n"
+                      << "  3. Check adapter has power (some require external power)\n"
+                      << "  4. On macOS, grant Bluetooth permissions if prompted\n"
+                      << "  5. Try moving closer to the vehicle (BLE range ~10m)\n";
             return 1;
         }
 
@@ -110,12 +110,12 @@ namespace {
         for (size_t i = 0; i < devices.size(); ++i) {
             const auto& dev = devices[i];
             std::cout << "  [" << (i + 1) << "] " << dev.name << "\n"
-                              << "      Address: " << dev.address << "\n"
-                              << "      Status: " << (dev.isConnected ? "Connected" : "Available") << "\n\n";
+                      << "      Address: " << dev.address << "\n"
+                      << "      Status: " << (dev.isConnected ? "Connected" : "Available") << "\n\n";
         }
 
         std::cout << "To connect to a device, use:\n"
-                      << "  vehicle-sim --connect <address>\n";
+                  << "  vehicle-sim --connect <address>\n";
         return 0;
     }
 
@@ -152,61 +152,28 @@ namespace {
 
         if (!bleManager.connect(address)) {
             std::cerr << "\nFailed to connect to BLE device: " << address << "\n\n"
-                          << "Possible reasons:\n"
-                          << "  - Device address is incorrect\n"
-                          << "  - Device is out of range\n"
-                          << "  - Device is already connected to another application\n"
-                          << "  - OBD2 adapter lost power\n"
-                          << "\nTry running --scan to verify device is available.\n";
+                      << "Possible reasons:\n"
+                      << "  - Device address is incorrect\n"
+                      << "  - Device is out of range\n"
+                      << "  - Device is already connected to another application\n"
+                      << "  - OBD2 adapter lost power\n"
+                      << "\nTry running --scan to verify device is available.\n";
             return 1;
         }
 
         std::cout << "Connected! Waiting for service discovery...\n";
         std::this_thread::sleep_for(std::chrono::seconds(SERVICE_DISCOVERY_WAIT_S));
 
-        // Auto-detect vehicle type
-        std::cout << "Initializing OBD2 with auto-detection...\n";
-        auto detectionResult = bleManager.initializeOBD2WithDetection();
-
-        // Process detection result
-        std::string vehicleType;
-        const vehicle_sim::domain::VehicleConfig* detectedConfig = nullptr;
-
-        if (detectionResult && !detectionResult->suggestedVehicleId.empty()) {
-            std::string makeStr;
-            switch (detectionResult->make) {
-                case domain::VehicleMake::Tesla: makeStr = "Tesla"; break;
-                case domain::VehicleMake::Audi: makeStr = "Audi"; break;
-                case domain::VehicleMake::Volkswagen: makeStr = "Volkswagen"; break;
-                case domain::VehicleMake::BMW: makeStr = "BMW"; break;
-                case domain::VehicleMake::MercedesBenz: makeStr = "Mercedes-Benz"; break;
-                case domain::VehicleMake::Generic: makeStr = "Generic"; break;
-                default: makeStr = "Unknown"; break;
-            }
-            std::cout << "[Auto-detect] Vehicle detected: " << makeStr << "\n";
-            std::cout << "[Auto-detect] VIN: " << detectionResult->vin << "\n";
-            std::cout << "[Auto-detect] Suggested config: " << detectionResult->suggestedVehicleId << "\n";
-
-            // Reload vehicle config with detected vehicle
-            if (translationService.loadVehicle(detectionResult->suggestedVehicleId, domain::VehicleProtocol::OBD2)) {
-                detectedConfig = translationService.registry().getConfig(detectionResult->suggestedVehicleId);
-                vehicleType = detectionResult->suggestedVehicleId;
-                std::cout << "[Auto-detect] Loaded vehicle config: " << vehicleType << "\n";
-            } else {
-                std::cout << "[Auto-detect] Failed to load detected config, using: " << vehicleType << "\n";
-                detectedConfig = activeConfig;
-            }
-        } else {
-            std::cout << "[Auto-detect] Detection failed or no result, using: " << vehicleType << "\n";
-            detectedConfig = activeConfig;
-        }
-
+        std::cout << "Initializing OBD2 adapter...\n";
+        bleManager.initializeELM327();
         std::this_thread::sleep_for(std::chrono::seconds(ELM327_INIT_WAIT_S));
 
+        // TODO: Auto-detect vehicle via VIN query here, then reload config
+
         std::cout << "Starting OBD2 data polling (interval: " << updateIntervalMs << "ms)...\n";
-        std::cout << "Press Ctrl+C to stop\n";
-        if (detectedConfig) {
-            presentation::printTelemetryHeader(std::cout, *detectedConfig);
+        std::cout << "Press Ctrl+C to stop\n\n";
+        if (activeConfig) {
+            presentation::printTelemetryHeader(std::cout, *activeConfig);
         }
 
         bleManager.startOBD2Polling(updateIntervalMs);
@@ -233,7 +200,7 @@ namespace {
                 noDataCount++;
                 if (noDataCount == 1) {
                     std::cout << "\n[!] No data received for " << elapsed << " seconds.\n"
-                                  << "[!] Ensure vehicle is ON and OBD2 adapter has power.\n";
+                              << "[!] Ensure vehicle is ON and OBD2 adapter has power.\n";
                 } else if (noDataCount == DRIVE_MODE_HINT_COUNT) {
                     std::cout << "[!] Still waiting. Some adapters need 'Drive' mode.\n";
                 }

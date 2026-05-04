@@ -16,15 +16,36 @@ std::vector<std::uint8_t> VehicleDetector::buildFuelTypeQuery()
 
 bool VehicleDetector::feedVINResponse(const std::vector<std::uint8_t>& response)
 {
-    if (response.size() < 8 || response[0] != 0x49 || response[1] != 0x02) {
-        return false;
-    }
+    // Mode 09 PID 02 responses use ISO-TP multi-frame protocol
+    // ELM327 adapter handles ISO-TP framing internally
+    // First frame: [mode 0x49, pid 0x02, pci 0x01, padding, VIN data...]
+    // Continuation frames: [VIN data bytes only, no mode/pid/pci prefix]
 
     std::string newPart;
-    for (size_t i = 3; i < response.size(); ++i) {
-        if (response[i] != 0x00) {
-            newPart += static_cast<char>(response[i]);
+
+    if (response.size() >= 8 && response[0] == 0x49 && response[1] == 0x02) {
+        // Full frame with mode, pid, pci prefix
+        size_t start = 3; // Start after mode, pid, pci
+
+        // Skip null padding bytes
+        while (start < response.size() && response[start] == 0x00) {
+            start++;
         }
+
+        for (size_t i = start; i < response.size(); ++i) {
+            if (response[i] != 0x00) {
+                newPart += static_cast<char>(response[i]);
+            }
+        }
+    } else if (response.size() >= 1) {
+        // Continuation frame - just VIN data bytes
+        for (size_t i = 0; i < response.size(); ++i) {
+            if (response[i] != 0x00) {
+                newPart += static_cast<char>(response[i]);
+            }
+        }
+    } else {
+        return false;
     }
 
     vin_ += newPart;
@@ -39,7 +60,14 @@ bool VehicleDetector::feedVINResponse(const std::vector<std::uint8_t>& response)
 
 bool VehicleDetector::feedFuelTypeResponse(const std::vector<std::uint8_t>& response)
 {
-    if (response.size() < 3 || response[0] != 0x41 || response[1] != 0x51) {
+    if (response.size() < 3) {
+        return false;
+    }
+
+    // Accept both Mode 01 (0x41) and Mode 09 (0x49) response formats
+    // Mode 01 PID 51: fuel type (some vehicles)
+    // Mode 09 PID 51: fuel type (standard)
+    if ((response[0] != 0x41 && response[0] != 0x49) || response[1] != 0x51) {
         return false;
     }
 
