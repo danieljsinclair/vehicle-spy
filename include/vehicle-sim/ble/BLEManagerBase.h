@@ -293,11 +293,13 @@ protected:
 
     // ELM327 prompt-driven sequencing state
     // The ELM327 sends '>' when ready for the next command.
-    // The data callback detects '>' and signals this condition variable.
-    // The polling loop waits on it instead of using fixed sleeps.
+    // BLE notifications may fragment ELM327 responses, so we buffer
+    // incoming data and scan for '>' across notification boundaries.
     std::mutex prompt_mutex_;
     std::condition_variable prompt_cv_;
     bool prompt_ready_ = false;
+    std::string prompt_buffer_;
+    static constexpr size_t PROMPT_BUFFER_MAX = 256;
 
     // OBD2 protocol handler for vehicle detection and command management
     boundary::OBD2Protocol obd2_protocol_;

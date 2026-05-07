@@ -295,12 +295,17 @@ void BLEManagerBase::invokeDataCallback(const std::vector<uint8_t>& data) {
     }
 
     // In OBD2 mode (not CAN monitor), detect ELM327 '>' prompt to drive
-    // prompt-based query sequencing. The prompt may arrive as a standalone
-    // notification or appended to a response (e.g., "41 0D FF\r>").
+    // prompt-based query sequencing. BLE notifications may fragment ELM327
+    // responses, so we buffer and scan for '>' across notification boundaries.
     if (!can_mode_) {
-        std::string asciiStr(data.begin(), data.end());
-        if (asciiStr.find('>') != std::string::npos) {
+        prompt_buffer_.append(data.begin(), data.end());
+        auto pos = prompt_buffer_.find('>');
+        if (pos != std::string::npos) {
+            prompt_buffer_.erase(0, pos + 1);
             notifyPrompt();
+        }
+        if (prompt_buffer_.size() > PROMPT_BUFFER_MAX) {
+            prompt_buffer_.erase(0, prompt_buffer_.size() - PROMPT_BUFFER_MAX);
         }
     }
 
