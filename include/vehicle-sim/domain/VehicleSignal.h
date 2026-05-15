@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace vehicle_sim::domain {
 
@@ -29,9 +30,8 @@ public:
         double motorRpm = 0.0,
         double motorHvVoltage = 0.0,
         double motorHvCurrent = 0.0,
-        double motorPower = 0.0,
-        double regenPower = 0.0,
-        double motorTorqueNm = 0.0
+        double motorTorqueNm = 0.0,
+        std::string gearSelector = ""
     ) noexcept;
 
     // Default copy / move
@@ -50,9 +50,8 @@ public:
     [[nodiscard]] double getMotorRpm() const noexcept;
     [[nodiscard]] double getMotorHvVoltage() const noexcept;
     [[nodiscard]] double getMotorHvCurrent() const noexcept;
-    [[nodiscard]] double getMotorPower() const noexcept;
-    [[nodiscard]] double getRegenPower() const noexcept;
     [[nodiscard]] double getMotorTorqueNm() const noexcept;
+    [[nodiscard]] const std::string& getGearSelector() const noexcept;
     [[nodiscard]] std::uint64_t getTimestampUtcMs() const noexcept;
 
     // Equality comparison (member-wise)
@@ -78,10 +77,6 @@ public:
     static constexpr double HV_VOLTAGE_MAX = 1000.0;       // Tesla CMPD DBC
     static constexpr double HV_CURRENT_MIN = 0.0;
     static constexpr double HV_CURRENT_MAX = 50.0;         // Tesla CMPD DBC
-    static constexpr double MOTOR_POWER_MIN = 0.0;
-    static constexpr double MOTOR_POWER_MAX = 20000.0;     // Tesla CMPD DBC
-    static constexpr double REGEN_POWER_MIN = 0.0;
-    static constexpr double REGEN_POWER_MAX = 12700.0;     // Audi BEM_01 DBC
     static constexpr double MOTOR_TORQUE_MIN = -7500.0;    // Tesla DIR_torqueActual
     static constexpr double MOTOR_TORQUE_MAX = 7500.0;
 
@@ -94,9 +89,8 @@ private:
     double      m_motorRpm;
     double      m_motorHvVoltage;
     double      m_motorHvCurrent;
-    double      m_motorPower;
-    double      m_regenPower;
     double      m_motorTorqueNm;
+    std::string m_gearSelector;
     std::uint64_t m_timestampUtcMs;
 };
 

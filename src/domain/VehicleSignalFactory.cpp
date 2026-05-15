@@ -24,8 +24,6 @@ VehicleSignal VehicleSignalFactory::build(
     double motorRpm = 0.0;
     double motorHvVoltage = 0.0;
     double motorHvCurrent = 0.0;
-    double motorPower = 0.0;
-    double regenPower = 0.0;
     double motorTorqueNm = 0.0;
 
     for (const auto& [signalName, fieldName] : config_.signalMappings) {
@@ -39,8 +37,6 @@ VehicleSignal VehicleSignalFactory::build(
         else if (fieldName == "motorRpm") targetField = &motorRpm;
         else if (fieldName == "motorHvVoltage") targetField = &motorHvVoltage;
         else if (fieldName == "motorHvCurrent") targetField = &motorHvCurrent;
-        else if (fieldName == "motorPower") targetField = &motorPower;
-        else if (fieldName == "regenPower") targetField = &regenPower;
         else if (fieldName == "motorTorqueNm") targetField = &motorTorqueNm;
 
         if (!targetField) continue;
@@ -69,8 +65,6 @@ VehicleSignal VehicleSignalFactory::build(
         motorRpm,
         motorHvVoltage,
         motorHvCurrent,
-        motorPower,
-        regenPower,
         motorTorqueNm
     );
 }

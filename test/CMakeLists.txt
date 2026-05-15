@@ -42,6 +42,7 @@ add_executable(vehicle-sim-tests
     integration/DBCLiveDecoding.test.cpp
     integration/TeslaCANLiveDecoding.test.cpp
     integration/AudiOBD2LiveDecoding.test.cpp
+    telemetry/TraceLogger.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests

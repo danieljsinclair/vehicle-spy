@@ -79,8 +79,7 @@ TEST_F(VehicleSignalFactoryTest, UnmappedSignalsDefaultToZero) {
     EXPECT_EQ(signal.getAccelerationG(), 0.0);
     EXPECT_EQ(signal.getMotorHvVoltage(), 0.0);
     EXPECT_EQ(signal.getMotorHvCurrent(), 0.0);
-    EXPECT_EQ(signal.getMotorPower(), 0.0);
-    EXPECT_EQ(signal.getRegenPower(), 0.0);
+    EXPECT_EQ(signal.getMotorTorqueNm(), 0.0);
 }
 
 TEST_F(VehicleSignalFactoryTest, MissingCanFramesProduceDefaultValues) {
@@ -128,8 +127,6 @@ TEST_F(VehicleSignalFactoryTest, BuildFromEmptyFramesReturnsDefaultSignal) {
     EXPECT_EQ(signal.getMotorRpm(), 0.0);
     EXPECT_EQ(signal.getMotorHvVoltage(), 0.0);
     EXPECT_EQ(signal.getMotorHvCurrent(), 0.0);
-    EXPECT_EQ(signal.getMotorPower(), 0.0);
-    EXPECT_EQ(signal.getRegenPower(), 0.0);
     EXPECT_EQ(signal.getMotorTorqueNm(), 0.0);
 }
 

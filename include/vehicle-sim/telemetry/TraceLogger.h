@@ -1,0 +1,33 @@
+#pragma once
+
+#include <string>
+#include <fstream>
+#include "vehicle-sim/domain/VehicleSignal.h"
+
+namespace vehicle_sim::telemetry {
+
+class TraceLogger {
+public:
+    explicit TraceLogger(std::string filePath);
+    ~TraceLogger();
+
+    void operator()(const domain::VehicleSignal& signal) noexcept;
+
+    TraceLogger(const TraceLogger&) = delete;
+    TraceLogger& operator=(const TraceLogger&) = delete;
+    TraceLogger(TraceLogger&&) noexcept;
+    TraceLogger& operator=(TraceLogger&&) noexcept;
+
+    [[nodiscard]] bool isValid() const noexcept;
+
+private:
+    void writeHeader();
+    void writeRow(const domain::VehicleSignal& signal);
+    std::string formatDouble(double value);
+    std::string formatString(const std::string& value);
+
+    std::ofstream file_;
+};
+
+}
+

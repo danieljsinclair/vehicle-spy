@@ -147,8 +147,7 @@ protected:
     [[nodiscard]] double getMotorRpm() const noexcept;
     [[nodiscard]] double getMotorHvVoltage() const noexcept;
     [[nodiscard]] double getMotorHvCurrent() const noexcept;
-    [[nodiscard]] double getMotorPower() const noexcept;
-    [[nodiscard]] double getRegenPower() const noexcept;
+    [[nodiscard]] double getMotorTorqueNm() const noexcept;
 
     // Protected setters with clamping invariants
     void setSpeedKmh(double v) const noexcept;
@@ -159,8 +158,7 @@ protected:
     void setMotorRpm(double v) const noexcept;
     void setMotorHvVoltage(double v) const noexcept;
     void setMotorHvCurrent(double v) const noexcept;
-    void setMotorPower(double v) const noexcept;
-    void setRegenPower(double v) const noexcept;
+    void setMotorTorqueNm(double v) const noexcept;
 
 private:
     std::unique_ptr<ITimeProvider> timeProvider_;
@@ -175,8 +173,7 @@ private:
     mutable double lastMotorRpm_ = 0.0;
     mutable double lastMotorHvVoltage_ = 0.0;
     mutable double lastMotorHvCurrent_ = 0.0;
-    mutable double lastMotorPower_ = 0.0;
-    mutable double lastRegenPower_ = 0.0;
+    mutable double lastMotorTorqueNm_ = 0.0;
 };
 
 } // namespace vehicle_sim::domain

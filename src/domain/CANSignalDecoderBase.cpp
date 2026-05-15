@@ -90,8 +90,7 @@ VehicleSignal CANSignalDecoderBase::buildSignal() const noexcept {
         lastMotorRpm_,
         lastMotorHvVoltage_,
         lastMotorHvCurrent_,
-        lastMotorPower_,
-        lastRegenPower_
+        lastMotorTorqueNm_
     );
 }
 
@@ -105,8 +104,7 @@ double CANSignalDecoderBase::getSteeringAngleDeg() const noexcept { return lastS
 double CANSignalDecoderBase::getMotorRpm() const noexcept { return lastMotorRpm_; }
 double CANSignalDecoderBase::getMotorHvVoltage() const noexcept { return lastMotorHvVoltage_; }
 double CANSignalDecoderBase::getMotorHvCurrent() const noexcept { return lastMotorHvCurrent_; }
-double CANSignalDecoderBase::getMotorPower() const noexcept { return lastMotorPower_; }
-double CANSignalDecoderBase::getRegenPower() const noexcept { return lastRegenPower_; }
+double CANSignalDecoderBase::getMotorTorqueNm() const noexcept { return lastMotorTorqueNm_; }
 
 // --- Setters with clamping ---
 
@@ -142,12 +140,8 @@ void CANSignalDecoderBase::setMotorHvCurrent(double v) const noexcept {
     lastMotorHvCurrent_ = std::clamp(v, VehicleSignal::HV_CURRENT_MIN, VehicleSignal::HV_CURRENT_MAX);
 }
 
-void CANSignalDecoderBase::setMotorPower(double v) const noexcept {
-    lastMotorPower_ = std::clamp(v, VehicleSignal::MOTOR_POWER_MIN, VehicleSignal::MOTOR_POWER_MAX);
-}
-
-void CANSignalDecoderBase::setRegenPower(double v) const noexcept {
-    lastRegenPower_ = std::clamp(v, VehicleSignal::REGEN_POWER_MIN, VehicleSignal::REGEN_POWER_MAX);
+void CANSignalDecoderBase::setMotorTorqueNm(double v) const noexcept {
+    lastMotorTorqueNm_ = std::clamp(v, VehicleSignal::MOTOR_TORQUE_MIN, VehicleSignal::MOTOR_TORQUE_MAX);
 }
 
 } // namespace vehicle_sim::domain

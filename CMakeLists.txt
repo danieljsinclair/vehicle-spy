@@ -82,6 +82,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp
     src/boundary/OBD2Protocol.cpp
+    src/telemetry/TraceLogger.cpp
+    src/telemetry/RawTraceLogger.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
