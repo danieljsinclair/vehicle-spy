@@ -47,12 +47,12 @@ protected:
 TEST_F(TraceLoggerTest, WritesHeaderOnConstruction) {
     TraceLogger logger(testFile);
     std::string content = readFirstLine(testFile);
-    EXPECT_EQ(content, "timestamp_utc_ms,throttle_pct,speed_kmh,acceleration_g,brake_pct,motor_rpm,gear_selector,motor_torque_nm");
+    EXPECT_EQ(content, "timestamp_utc_ms,throttle_pct,speed_kmh,acceleration_g,brake_pct,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,gear_selector,motor_torque_nm");
 }
 
 TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(50.0, 100.0, 0.5, 25.0, 123456789ULL, 0.0, 3500.5, 0.0, 0.0, 150.0, "D");
+    VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.5, 25.0, -12.5, 3500.5, 400.0, 25.3, 150.0, "D");
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -64,13 +64,13 @@ TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     }
 
     ASSERT_EQ(lines.size(), 2); // header + 1 row
-    EXPECT_EQ(lines[1], "123456789,50.00,100.00,0.50,25.00,3500.50,D,150.00");
+    EXPECT_EQ(lines[1], "123456789,50.00,100.00,0.50,25.00,-12.50,3500.50,400.00,25.30,D,150.00");
 }
 
 TEST_F(TraceLoggerTest, WritesMultipleRows) {
     TraceLogger logger(testFile);
-    VehicleSignal signal1(0.0, 0.0, 0.0, 0.0, 1000ULL, 0.0, 0.0, 0.0, 0.0, 0.0, "P");
-    VehicleSignal signal2(100.0, 200.0, 2.0, 80.0, 2000ULL, 0.0, 5000.0, 0.0, 0.0, 300.0, "N");
+    VehicleSignal signal1(1000ULL, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "P");
+    VehicleSignal signal2(2000ULL, 100.0, 200.0, 2.0, 80.0, {}, 5000.0, 380.5, 25.2, 300.0, "N");
 
     logger(signal1);
     logger(signal2);
@@ -84,13 +84,13 @@ TEST_F(TraceLoggerTest, WritesMultipleRows) {
     }
 
     ASSERT_EQ(lines.size(), 3); // header + 2 rows
-    EXPECT_EQ(lines[1], "1000,,,,,,P,"); // all numeric zero values become empty
-    EXPECT_EQ(lines[2], "2000,100.00,200.00,2.00,80.00,5000.00,N,300.00");
+    EXPECT_EQ(lines[1], "1000,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,P,0.00"); // explicit zeros formatted
+    EXPECT_EQ(lines[2], "2000,100.00,200.00,2.00,80.00,,5000.00,380.50,25.20,N,300.00");
 }
 
-TEST_F(TraceLoggerTest, LeavesEmptyCellsForZeroValues) {
+TEST_F(TraceLoggerTest, LeavesEmptyCellsForNulloptValues) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(0.0, 0.0, 0.0, 0.0, 12345ULL, 0.0, 0.0, 0.0, 0.0, 0.0, "");
+    VehicleSignal signal(12345ULL);  // all fields nullopt
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -102,12 +102,12 @@ TEST_F(TraceLoggerTest, LeavesEmptyCellsForZeroValues) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,,,,,,,"); // timestamp + 7 empty cells (6 numeric + 1 empty gear)
+    EXPECT_EQ(lines[1], "12345,,,,,,,,,,"); // timestamp + 10 empty cells
 }
 
-TEST_F(TraceLoggerTest, LeavesEmptyCellForEmptyGearSelector) {
+TEST_F(TraceLoggerTest, LeavesEmptyCellForNulloptGearSelector) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(50.0, 100.0, 0.0, 0.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 0.0, "");
+    VehicleSignal signal(12345ULL, 50.0, 100.0, {}, {}, {}, 3500.0, {}, {}, {});
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -119,12 +119,14 @@ TEST_F(TraceLoggerTest, LeavesEmptyCellForEmptyGearSelector) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,50.00,100.00,,,3500.00,,"); // zero values are empty
+    // Order: timestamp, throttle, speed, accel, brake, steering, motor_rpm, motor_hv_voltage, motor_hv_current, gear_selector, motor_torque
+    // Values: 12345, 50.00, 100.00, nullopt, nullopt, nullopt, 3500.00, nullopt, nullopt, nullopt, nullopt
+    EXPECT_EQ(lines[1], "12345,50.00,100.00,,,,3500.00,,,,");
 }
 
 TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(0.0, 50.0, -2.5, 0.0, 12345ULL, 0.0, 0.0, 0.0, 0.0, -500.0, "R");
+    VehicleSignal signal(12345ULL, {}, 50.0, -2.5, {}, -180.0, {}, {}, {}, -500.0, "R");
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -136,12 +138,12 @@ TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,,50.00,-2.50,,,R,-500.00"); // zero values are empty
+    EXPECT_EQ(lines[1], "12345,,50.00,-2.50,,-180.00,,,,R,-500.00"); // nullopt values are empty, negative values preserved
 }
 
 TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     TraceLogger logger1(testFile);
-    VehicleSignal signal(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 150.0, "D");
+    VehicleSignal signal(12345ULL, 50.0, 100.0, 0.5, 25.0, {}, 3500.0, {}, {}, 150.0, "D");
 
     TraceLogger logger2(std::move(logger1));
     logger2(signal);
@@ -155,12 +157,12 @@ TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,50.00,100.00,0.50,25.00,3500.00,D,150.00");
+    EXPECT_EQ(lines[1], "12345,50.00,100.00,0.50,25.00,,3500.00,,,D,150.00");
 }
 
 TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(75.0, 150.0, 1.0, 50.0, 54321ULL, 0.0, 4000.0, 0.0, 0.0, 200.0, "S");
+    VehicleSignal signal(54321ULL, 75.0, 150.0, 1.0, 50.0, {}, 4000.0, {}, {}, 200.0, "S");
 
     logger(signal);
 
@@ -173,7 +175,7 @@ TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "54321,75.00,150.00,1.00,50.00,4000.00,S,200.00");
+    EXPECT_EQ(lines[1], "54321,75.00,150.00,1.00,50.00,,4000.00,,,S,200.00");
 }
 
 // ================================================
@@ -316,112 +318,4 @@ TEST_F(TraceLoggerTest, RawLoggerAppendsToFile) {
     ASSERT_EQ(lines.size(), 6); // 2 header + 2 data from first + 2 header + 1 data from second
     EXPECT_TRUE(content.find("1000,0102") != std::string::npos);
     EXPECT_TRUE(content.find("2000,0304") != std::string::npos);
-}
-
-// ================================================
-// VehicleSignal New Field Tests
-// (note: comprehensive EV field tests in VehicleSignalEV.test.cpp)
-// ================================================
-
-TEST(VehicleSignalNewFieldsTest, MotorRpmIsClampedToMax20000) {
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, 25000.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 20000.0);
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorRpmIsClampedToMin0) {
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, -500.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 0.0);
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorRpmAcceptsValidRange) {
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, 15000.5);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 15000.5);
-}
-
-TEST(VehicleSignalNewFieldsTest, GearSelectorStoresValidValues) {
-    VehicleSignal signalP(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, "P");
-    VehicleSignal signalR(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, "R");
-    VehicleSignal signalN(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, "N");
-    VehicleSignal signalD(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, "D");
-    VehicleSignal signalS(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, "S");
-
-    EXPECT_EQ(signalP.getGearSelector(), "P");
-    EXPECT_EQ(signalR.getGearSelector(), "R");
-    EXPECT_EQ(signalN.getGearSelector(), "N");
-    EXPECT_EQ(signalD.getGearSelector(), "D");
-    EXPECT_EQ(signalS.getGearSelector(), "S");
-}
-
-TEST(VehicleSignalNewFieldsTest, GearSelectorStoresEmptyStringByDefault) {
-    VehicleSignal signal(0, 0, 0, 0, 0);
-    EXPECT_TRUE(signal.getGearSelector().empty());
-}
-
-TEST(VehicleSignalNewFieldsTest, GearSelectorMovesInputCorrectly) {
-    std::string gear = "D";
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, std::move(gear));
-    EXPECT_EQ(signal.getGearSelector(), "D");
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorTorqueNmIsClampedToMax7500) {
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 8000.0, "");
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 7500.0);
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorTorqueNmIsClampedToMinNegative7500) {
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, -8000.0, "");
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), -7500.0);
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorTorqueNmAcceptsValidRange) {
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 375.5, "");
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 375.5);
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorTorqueNmAcceptsNegativeValues) {
-    VehicleSignal signal(0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, -250.5, "");
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), -250.5);
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorTorqueNmIsZeroByDefault) {
-    VehicleSignal signal(0, 0, 0, 0, 0);
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 0.0);
-}
-
-TEST(VehicleSignalNewFieldsTest, MotorRpmIsZeroByDefault) {
-    VehicleSignal signal(0, 0, 0, 0, 0);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 0.0);
-}
-
-TEST(VehicleSignalNewFieldsTest, EqualityIncludesNewFields) {
-    VehicleSignal a(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 150.0, "D");
-    VehicleSignal b(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 150.0, "D");
-    VehicleSignal c(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 4000.0, 0.0, 0.0, 150.0, "D"); // different rpm
-    VehicleSignal d(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 150.0, "N"); // different gear
-    VehicleSignal e(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 200.0, "D"); // different torque
-
-    EXPECT_EQ(a, b);
-    EXPECT_NE(a, c);
-    EXPECT_NE(a, d);
-    EXPECT_NE(a, e);
-}
-
-TEST(VehicleSignalNewFieldsTest, InequalityIncludesNewFields) {
-    VehicleSignal a(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 150.0, "D");
-    VehicleSignal b(50.0, 100.0, 0.5, 25.0, 12345ULL, 0.0, 3500.0, 0.0, 0.0, 150.0, "N");
-
-    EXPECT_NE(a, b);
-}
-
-TEST(VehicleSignalNewFieldsTest, AllFieldsConstructCorrectly) {
-    VehicleSignal signal(50.0, 100.0, 0.5, 25.0, 123456789ULL, 0.0, 5000.0, 0.0, 0.0, 300.0, "D");
-
-    EXPECT_DOUBLE_EQ(signal.getThrottlePercent(), 50.0);
-    EXPECT_DOUBLE_EQ(signal.getSpeedKmh(), 100.0);
-    EXPECT_DOUBLE_EQ(signal.getAccelerationG(), 0.5);
-    EXPECT_DOUBLE_EQ(signal.getBrakePercent(), 25.0);
-    EXPECT_EQ(signal.getTimestampUtcMs(), 123456789ULL);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 5000.0);
-    EXPECT_EQ(signal.getGearSelector(), "D");
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 300.0);
 }

@@ -109,7 +109,7 @@ TEST_F(EventDispatcherIntegrationTest, TeslaSignalParserToDispatcherToMultipleCo
     });
 
     // Create a test VehicleSignal directly (simulating what parser would produce)
-    VehicleSignal signalFromParser(50.0, 100.0, 0.5, 10.0, 1234567890ULL);
+    VehicleSignal signalFromParser(1234567890ULL, 50.0, 100.0, 0.5, 10.0);
 
     // Action: Dispatch signal through parser callback integration
     dispatcher_->dispatch(signalFromParser);
@@ -121,10 +121,10 @@ TEST_F(EventDispatcherIntegrationTest, TeslaSignalParserToDispatcherToMultipleCo
 
     // Verify: Signal data integrity preserved
     auto consumer1Signals = consumer1.getSignals();
-    EXPECT_DOUBLE_EQ(consumer1Signals[0].getSpeedKmh(), signalFromParser.getSpeedKmh());
-    EXPECT_DOUBLE_EQ(consumer1Signals[0].getThrottlePercent(), signalFromParser.getThrottlePercent());
-    EXPECT_DOUBLE_EQ(consumer1Signals[0].getAccelerationG(), signalFromParser.getAccelerationG());
-    EXPECT_DOUBLE_EQ(consumer1Signals[0].getBrakePercent(), signalFromParser.getBrakePercent());
+    EXPECT_DOUBLE_EQ(consumer1Signals[0].getSpeedKmh().value(), signalFromParser.getSpeedKmh().value());
+    EXPECT_DOUBLE_EQ(consumer1Signals[0].getThrottlePercent().value(), signalFromParser.getThrottlePercent().value());
+    EXPECT_DOUBLE_EQ(consumer1Signals[0].getAccelerationG().value(), signalFromParser.getAccelerationG().value());
+    EXPECT_DOUBLE_EQ(consumer1Signals[0].getBrakePercent().value(), signalFromParser.getBrakePercent().value());
     EXPECT_EQ(consumer1Signals[0].getTimestampUtcMs(), signalFromParser.getTimestampUtcMs());
 }
 
@@ -148,7 +148,7 @@ TEST_F(EventDispatcherIntegrationTest, EventDispatcherToBLETransportConsumerPatt
     });
 
     // Create test signal
-    VehicleSignal testSignal(50.0, 100.0, 0.5, 10.0, 1234567890ULL);
+    VehicleSignal testSignal(1234567890ULL, 50.0, 100.0, 0.5, 10.0);
 
     // Action: Dispatch signal
     dispatcher_->dispatch(testSignal);
@@ -157,10 +157,10 @@ TEST_F(EventDispatcherIntegrationTest, EventDispatcherToBLETransportConsumerPatt
     {
         std::lock_guard<std::mutex> lock(bleMutex);
         EXPECT_EQ(bleReceivedSignals.size(), 1);
-        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getSpeedKmh(), testSignal.getSpeedKmh());
-        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getThrottlePercent(), testSignal.getThrottlePercent());
-        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getAccelerationG(), testSignal.getAccelerationG());
-        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getBrakePercent(), testSignal.getBrakePercent());
+        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getSpeedKmh().value(), testSignal.getSpeedKmh().value());
+        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getThrottlePercent().value(), testSignal.getThrottlePercent().value());
+        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getAccelerationG().value(), testSignal.getAccelerationG().value());
+        EXPECT_DOUBLE_EQ(bleReceivedSignals[0].getBrakePercent().value(), testSignal.getBrakePercent().value());
         EXPECT_EQ(bleReceivedSignals[0].getTimestampUtcMs(), testSignal.getTimestampUtcMs());
     }
 }
@@ -206,11 +206,11 @@ TEST_F(EventDispatcherIntegrationTest, ThreadSafeConcurrentDispatchFromMultipleB
         threads.emplace_back([&, t]() {
             for (int i = 0; i < signalsPerThread; i++) {
                 VehicleSignal signal(
+                    static_cast<std::uint64_t>(t * 1000 + i), // Timestamp
                     50.0 + t,           // Throttle varies by thread
                     100.0 + i,          // Speed varies by iteration
                     0.5 + (i * 0.01), // Acceleration varies
-                    10.0,                // Constant brake
-                    static_cast<std::uint64_t>(t * 1000 + i) // Timestamp
+                    10.0                // Constant brake
                 );
 
                 dispatcher_->dispatch(signal);
@@ -259,8 +259,8 @@ TEST_F(EventDispatcherIntegrationTest, ThroughputExceeds10HzRequirement) {
     auto startTime = std::chrono::steady_clock::now();
     for (int i = 0; i < signalCount; i++) {
         VehicleSignal signal(
-            50.0, 100.0, 0.5, 10.0,
-            static_cast<std::uint64_t>(i)
+            static_cast<std::uint64_t>(i),
+            50.0, 100.0, 0.5, 10.0
         );
         dispatcher_->dispatch(signal);
     }
@@ -311,7 +311,7 @@ TEST_F(EventDispatcherIntegrationTest, EndToEndDataFlowIntegration) {
     });
 
     // Create test signal (simulating parser output)
-    VehicleSignal parsedSignal(75.0, 120.5, 0.8, 15.0, 9876543210ULL);
+    VehicleSignal parsedSignal(9876543210ULL, 75.0, 120.5, 0.8, 15.0);
 
     // Action: Dispatch signal through complete pipeline
     dispatcher_->dispatch(parsedSignal);
@@ -324,10 +324,10 @@ TEST_F(EventDispatcherIntegrationTest, EndToEndDataFlowIntegration) {
     auto bleSignals = bleCollector.getSignals();
     auto loggingSignals = loggingCollector.getSignals();
 
-    EXPECT_DOUBLE_EQ(bleSignals[0].getSpeedKmh(), parsedSignal.getSpeedKmh());
-    EXPECT_DOUBLE_EQ(loggingSignals[0].getSpeedKmh(), parsedSignal.getSpeedKmh());
-    EXPECT_DOUBLE_EQ(bleSignals[0].getThrottlePercent(), parsedSignal.getThrottlePercent());
-    EXPECT_DOUBLE_EQ(loggingSignals[0].getThrottlePercent(), parsedSignal.getThrottlePercent());
+    EXPECT_DOUBLE_EQ(bleSignals[0].getSpeedKmh().value(), parsedSignal.getSpeedKmh().value());
+    EXPECT_DOUBLE_EQ(loggingSignals[0].getSpeedKmh().value(), parsedSignal.getSpeedKmh().value());
+    EXPECT_DOUBLE_EQ(bleSignals[0].getThrottlePercent().value(), parsedSignal.getThrottlePercent().value());
+    EXPECT_DOUBLE_EQ(loggingSignals[0].getThrottlePercent().value(), parsedSignal.getThrottlePercent().value());
 
     // Verify: Timestamps are reasonable
     EXPECT_GT(parsedSignal.getTimestampUtcMs(), 0ULL);
@@ -362,11 +362,11 @@ TEST_F(EventDispatcherIntegrationTest, MemorySafetyUnderLoad) {
     // Action: Rapid dispatch under load
     for (int i = 0; i < iterations; i++) {
         VehicleSignal signal(
+            static_cast<std::uint64_t>(i),
             50.0 + (i % 100),
             100.0 + (i % 200),
             0.5 + (i * 0.001),
-            10.0,
-            static_cast<std::uint64_t>(i)
+            10.0
         );
 
         dispatcher_->dispatch(signal);
@@ -413,8 +413,8 @@ TEST_F(EventDispatcherIntegrationTest, DynamicConsumerRegistrationDuringActiveDi
         int counter = 0;
         while (!stopDispatch) {
             VehicleSignal signal(
-                50.0, 100.0, 0.5, 10.0,
-                static_cast<std::uint64_t>(counter++)
+                static_cast<std::uint64_t>(counter++),
+                50.0, 100.0, 0.5, 10.0
             );
 
             dispatcher_->dispatch(signal);
@@ -488,9 +488,9 @@ TEST_F(EventDispatcherIntegrationTest, SignalCallbackIntegrationPattern) {
 
     // Create test signals
     std::vector<VehicleSignal> testSignals = {
-        VehicleSignal(10.0, 50.0, 0.2, 5.0, 1000000000ULL),
-        VehicleSignal(30.0, 75.0, 0.4, 8.0, 2000000000ULL),
-        VehicleSignal(60.0, 120.0, 0.6, 12.0, 3000000000ULL)
+        VehicleSignal(1000000000ULL, 10.0, 50.0, 0.2, 5.0),
+        VehicleSignal(2000000000ULL, 30.0, 75.0, 0.4, 8.0),
+        VehicleSignal(3000000000ULL, 60.0, 120.0, 0.6, 12.0)
     };
 
     // Dispatch signals
@@ -504,9 +504,9 @@ TEST_F(EventDispatcherIntegrationTest, SignalCallbackIntegrationPattern) {
 
     // Verify: Signal data preserved
     for (size_t i = 0; i < testSignals.size(); i++) {
-        EXPECT_DOUBLE_EQ(receivedSignals1[i].getSpeedKmh(), testSignals[i].getSpeedKmh());
-        EXPECT_DOUBLE_EQ(receivedSignals2[i].getSpeedKmh(), testSignals[i].getSpeedKmh());
-        EXPECT_DOUBLE_EQ(receivedSignals1[i].getThrottlePercent(), testSignals[i].getThrottlePercent());
-        EXPECT_DOUBLE_EQ(receivedSignals2[i].getThrottlePercent(), testSignals[i].getThrottlePercent());
+        EXPECT_DOUBLE_EQ(receivedSignals1[i].getSpeedKmh().value(), testSignals[i].getSpeedKmh().value());
+        EXPECT_DOUBLE_EQ(receivedSignals2[i].getSpeedKmh().value(), testSignals[i].getSpeedKmh().value());
+        EXPECT_DOUBLE_EQ(receivedSignals1[i].getThrottlePercent().value(), testSignals[i].getThrottlePercent().value());
+        EXPECT_DOUBLE_EQ(receivedSignals2[i].getThrottlePercent().value(), testSignals[i].getThrottlePercent().value());
     }
 }

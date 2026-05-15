@@ -300,8 +300,8 @@ TEST_F(CANSignalDecoderBaseTest, TranslateValid280_ReturnsSignal)
     auto result = decoderOwner->translateFrame(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getThrottlePercent(), 50.0);
-    EXPECT_DOUBLE_EQ(result->getBrakePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(result->getThrottlePercent().value(), 50.0);
+    EXPECT_DOUBLE_EQ(result->getBrakePercent().value(), 0.0);
 }
 
 // Test 14: Unregistered CAN ID returns nullopt
@@ -371,10 +371,10 @@ TEST_F(CANSignalDecoderBaseTest, MultipleFrames_AccumulateCompleteSignal)
     auto frame280 = makeFrame(CAN_ID_280, data280);
     auto result1 = decoderOwner->translateFrame(frame280);
     ASSERT_TRUE(result1.has_value());
-    EXPECT_DOUBLE_EQ(result1->getThrottlePercent(), 50.0);
-    EXPECT_DOUBLE_EQ(result1->getBrakePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(result1->getThrottlePercent().value(), 50.0);
+    EXPECT_DOUBLE_EQ(result1->getBrakePercent().value(), 0.0);
     // Steering not yet received — should be default 0
-    EXPECT_DOUBLE_EQ(result1->getSteeringAngleDeg(), 0.0);
+    EXPECT_DOUBLE_EQ(result1->getSteeringAngleDeg().value(), 0.0);
 
     // Frame 2: CAN 297 — +100 deg steering
     std::vector<uint8_t> data297(8, 0);
@@ -385,10 +385,10 @@ TEST_F(CANSignalDecoderBaseTest, MultipleFrames_AccumulateCompleteSignal)
 
     ASSERT_TRUE(result2.has_value());
     // Accumulated throttle from frame 1 persists
-    EXPECT_DOUBLE_EQ(result2->getThrottlePercent(), 50.0);
-    EXPECT_DOUBLE_EQ(result2->getBrakePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(result2->getThrottlePercent().value(), 50.0);
+    EXPECT_DOUBLE_EQ(result2->getBrakePercent().value(), 0.0);
     // Steering updated by frame 2
-    EXPECT_NEAR(result2->getSteeringAngleDeg(), 100.0, 0.1);
+    EXPECT_NEAR(result2->getSteeringAngleDeg().value(), 100.0, 0.1);
 }
 
 // Test 17: VehicleSignal timestamp reflects the MockTimeProvider value

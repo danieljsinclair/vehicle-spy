@@ -78,6 +78,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/DBCSignalTranslator.cpp
     src/domain/DBCTranslationService.cpp
     src/domain/DefaultVehicleConfigs.cpp
+    src/domain/DemoSignalProvider.cpp
     src/cli/CliOptions.cpp
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp

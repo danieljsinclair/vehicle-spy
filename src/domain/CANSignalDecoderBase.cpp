@@ -81,16 +81,17 @@ double CANSignalDecoderBase::decodeCAN297(
 
 VehicleSignal CANSignalDecoderBase::buildSignal() const noexcept {
     return VehicleSignal(
+        timeProvider_->nowMs(),
         lastThrottlePercent_,
         lastSpeedKmh_,
         lastAccelerationG_,
         lastBrakePercent_,
-        timeProvider_->nowMs(),
         lastSteeringAngleDeg_,
         lastMotorRpm_,
         lastMotorHvVoltage_,
         lastMotorHvCurrent_,
-        lastMotorTorqueNm_
+        lastMotorTorqueNm_,
+        std::nullopt  // gearSelector
     );
 }
 

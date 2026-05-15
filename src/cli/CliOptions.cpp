@@ -13,6 +13,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
     CLI::App app{"Vehicle OBD2 Telemetry Display", "vehicle-sim"};
 
     app.add_flag("-s,--scan", opts.scan_mode, "Scan for BLE OBD2 adapters");
+    app.add_flag("--connect-demo", opts.connect_demo, "Demo mode with live telemetry updates (no hardware)");
     app.add_flag("-m,--simulate", opts.simulate_mode, "Demo mode with mock telemetry");
     app.add_flag("-l,--list", opts.list_signals, "List supported signals for each vehicle");
 
@@ -27,6 +28,10 @@ CliOptions parseArgs(int argc, char* argv[]) {
         ->expected(1)
         ->capture_default_str()
         ->check(CLI::PositiveNumber);
+    app.add_option("--log-csv", opts.log_csv, "Log CSV telemetry to file")
+        ->expected(1);
+    app.add_option("--log-raw", opts.log_raw, "Log raw hex data to file")
+        ->expected(1);
 
     // Combine all post-parsing logic in final_callback
     app.final_callback([&opts]() {
@@ -68,10 +73,13 @@ void printHelp(std::ostream& out, const domain::VehicleConfigRegistry& registry)
         << "OPTIONS:\n"
         << "  --scan              Scan for BLE OBD2 adapters\n"
         << "  --connect <addr>    Connect to specific BLE adapter address\n"
+        << "  --connect-demo      Demo mode with live telemetry (no hardware)\n"
         << "  --vehicle <type>    Vehicle type (required with --connect)\n"
         << "  --list              List supported signals for each vehicle\n"
         << "  --format <fmt>      Output format: json, csv, or plain (default: plain)\n"
         << "  --interval <ms>     Update interval in milliseconds (default: 500)\n"
+        << "  --log-csv <file>    Log CSV telemetry to file\n"
+        << "  --log-raw <file>    Log raw hex data to file\n"
         << "  --simulate          Demo mode with mock telemetry (no hardware needed)\n"
         << "  --help              Show this help message\n\n";
 

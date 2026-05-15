@@ -23,30 +23,30 @@ using namespace vehicle_sim::domain;
 
 TEST(VehicleSignalEVTest, ConstructsWithDefaultsForEVFields)
 {
-    const VehicleSignal signal(50.0, 100.0, 0.5, 25.0, 123456789ULL);
+    const VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.5, 25.0);
 
-    EXPECT_DOUBLE_EQ(signal.getThrottlePercent(), 50.0);
-    EXPECT_DOUBLE_EQ(signal.getSpeedKmh(), 100.0);
-    EXPECT_DOUBLE_EQ(signal.getAccelerationG(), 0.5);
-    EXPECT_DOUBLE_EQ(signal.getBrakePercent(), 25.0);
+    EXPECT_DOUBLE_EQ(signal.getThrottlePercent().value(), 50.0);
+    EXPECT_DOUBLE_EQ(signal.getSpeedKmh().value(), 100.0);
+    EXPECT_DOUBLE_EQ(signal.getAccelerationG().value(), 0.5);
+    EXPECT_DOUBLE_EQ(signal.getBrakePercent().value(), 25.0);
     EXPECT_EQ(signal.getTimestampUtcMs(), 123456789ULL);
 
-    // EV fields should default to zero for backward compatibility
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 0.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage(), 0.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent(), 0.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 0.0);
-    EXPECT_EQ(signal.getGearSelector(), "");
+    // EV fields should default to nullopt when not provided
+    EXPECT_FALSE(signal.getMotorRpm().has_value());
+    EXPECT_FALSE(signal.getMotorHvVoltage().has_value());
+    EXPECT_FALSE(signal.getMotorHvCurrent().has_value());
+    EXPECT_FALSE(signal.getMotorTorqueNm().has_value());
+    EXPECT_FALSE(signal.getGearSelector().has_value());
 }
 
 TEST(VehicleSignalEVTest, ConstructsWithExplicitEVFields)
 {
     const VehicleSignal signal(
+        123456789ULL,  // timestampUtcMs
         50.0,          // throttlePercent
         100.0,         // speedKmh
         0.5,           // accelerationG
         25.0,          // brakePercent
-        123456789ULL,  // timestampUtcMs
         45.0,          // steeringAngleDeg
         5000.0,        // motorRpm
         400.0,         // motorHvVoltage
@@ -55,12 +55,12 @@ TEST(VehicleSignalEVTest, ConstructsWithExplicitEVFields)
         "D"            // gearSelector
     );
 
-    EXPECT_DOUBLE_EQ(signal.getSteeringAngleDeg(), 45.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 5000.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage(), 400.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent(), 25.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 350.0);
-    EXPECT_EQ(signal.getGearSelector(), "D");
+    EXPECT_DOUBLE_EQ(signal.getSteeringAngleDeg().value(), 45.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 5000.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage().value(), 400.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent().value(), 25.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), 350.0);
+    EXPECT_EQ(signal.getGearSelector().value(), "D");
 }
 
 // ================================================
@@ -69,23 +69,23 @@ TEST(VehicleSignalEVTest, ConstructsWithExplicitEVFields)
 
 TEST(VehicleSignalEVTest, StoresAndRetrievesMotorRpm)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0, 0, 5000.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 5000.0);
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, 5000.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 5000.0);
 }
 
-TEST(VehicleSignalEVTest, ClampsMotorRpmToVerifiedRange)
+TEST(VehicleSignalEVTest, StoresMotorRpmOutOfRange)
 {
-    const VehicleSignal low(0, 0, 0, 0, 0, 0, -1000.0);
-    EXPECT_DOUBLE_EQ(low.getMotorRpm(), 0.0);
+    const VehicleSignal low(0, {}, {}, {}, {}, {}, -1000.0);
+    EXPECT_DOUBLE_EQ(low.getMotorRpm().value(), -1000.0);
 
-    const VehicleSignal high(0, 0, 0, 0, 0, 0, 25000.0);
-    EXPECT_DOUBLE_EQ(high.getMotorRpm(), 20000.0);
+    const VehicleSignal high(0, {}, {}, {}, {}, {}, 25000.0);
+    EXPECT_DOUBLE_EQ(high.getMotorRpm().value(), 25000.0);
 }
 
 TEST(VehicleSignalEVTest, AcceptsMotorRpmAtVerifiedMaximum)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0, 0, 20000.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 20000.0);
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, 20000.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 20000.0);
 }
 
 // ================================================
@@ -94,23 +94,23 @@ TEST(VehicleSignalEVTest, AcceptsMotorRpmAtVerifiedMaximum)
 
 TEST(VehicleSignalEVTest, StoresAndRetrievesMotorTorqueNm)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0, 0, 0, 0, 0, 350.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 350.0);
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, {}, {}, {}, 350.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), 350.0);
 }
 
-TEST(VehicleSignalEVTest, ClampsMotorTorqueToVerifiedRange)
+TEST(VehicleSignalEVTest, StoresMotorTorqueOutOfRange)
 {
-    const VehicleSignal low(0, 0, 0, 0, 0, 0, 0, 0, 0, -8000.0);
-    EXPECT_DOUBLE_EQ(low.getMotorTorqueNm(), -7500.0);
+    const VehicleSignal low(0, {}, {}, {}, {}, {}, {}, {}, {}, -8000.0);
+    EXPECT_DOUBLE_EQ(low.getMotorTorqueNm().value(), -8000.0);
 
-    const VehicleSignal high(0, 0, 0, 0, 0, 0, 0, 0, 0, 8000.0);
-    EXPECT_DOUBLE_EQ(high.getMotorTorqueNm(), 7500.0);
+    const VehicleSignal high(0, {}, {}, {}, {}, {}, {}, {}, {}, 8000.0);
+    EXPECT_DOUBLE_EQ(high.getMotorTorqueNm().value(), 8000.0);
 }
 
 TEST(VehicleSignalEVTest, NegativeTorqueRepresentsRegen)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0, 0, 0, 0, 0, -200.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), -200.0);
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, {}, {}, {}, -200.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), -200.0);
 }
 
 // ================================================
@@ -119,14 +119,14 @@ TEST(VehicleSignalEVTest, NegativeTorqueRepresentsRegen)
 
 TEST(VehicleSignalEVTest, StoresAndRetrievesGearSelector)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "D");
-    EXPECT_EQ(signal.getGearSelector(), "D");
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, {}, {}, {}, {}, "D");
+    EXPECT_EQ(signal.getGearSelector().value(), "D");
 }
 
-TEST(VehicleSignalEVTest, GearSelectorDefaultsToEmpty)
+TEST(VehicleSignalEVTest, GearSelectorDefaultsToNullopt)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0);
-    EXPECT_EQ(signal.getGearSelector(), "");
+    const VehicleSignal signal(0);
+    EXPECT_FALSE(signal.getGearSelector().has_value());
 }
 
 // ================================================
@@ -135,17 +135,17 @@ TEST(VehicleSignalEVTest, GearSelectorDefaultsToEmpty)
 
 TEST(VehicleSignalEVTest, StoresAndRetrievesMotorHvVoltage)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0, 0, 0, 400.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage(), 400.0);
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, {}, 400.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage().value(), 400.0);
 }
 
-TEST(VehicleSignalEVTest, ClampsMotorHvVoltageToVerifiedRange)
+TEST(VehicleSignalEVTest, StoresMotorHvVoltageOutOfRange)
 {
-    const VehicleSignal low(0, 0, 0, 0, 0, 0, 0, -100.0);
-    EXPECT_DOUBLE_EQ(low.getMotorHvVoltage(), 0.0);
+    const VehicleSignal low(0, {}, {}, {}, {}, {}, {}, -100.0);
+    EXPECT_DOUBLE_EQ(low.getMotorHvVoltage().value(), -100.0);
 
-    const VehicleSignal high(0, 0, 0, 0, 0, 0, 0, 1200.0);
-    EXPECT_DOUBLE_EQ(high.getMotorHvVoltage(), 1000.0);
+    const VehicleSignal high(0, {}, {}, {}, {}, {}, {}, 1200.0);
+    EXPECT_DOUBLE_EQ(high.getMotorHvVoltage().value(), 1200.0);
 }
 
 // ================================================
@@ -154,17 +154,17 @@ TEST(VehicleSignalEVTest, ClampsMotorHvVoltageToVerifiedRange)
 
 TEST(VehicleSignalEVTest, StoresAndRetrievesMotorHvCurrent)
 {
-    const VehicleSignal signal(0, 0, 0, 0, 0, 0, 0, 0, 25.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent(), 25.0);
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, {}, {}, 25.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent().value(), 25.0);
 }
 
-TEST(VehicleSignalEVTest, ClampsMotorHvCurrentToVerifiedRange)
+TEST(VehicleSignalEVTest, StoresMotorHvCurrentOutOfRange)
 {
-    const VehicleSignal low(0, 0, 0, 0, 0, 0, 0, 0, -10.0);
-    EXPECT_DOUBLE_EQ(low.getMotorHvCurrent(), 0.0);
+    const VehicleSignal low(0, {}, {}, {}, {}, {}, {}, {}, -10.0);
+    EXPECT_DOUBLE_EQ(low.getMotorHvCurrent().value(), -10.0);
 
-    const VehicleSignal high(0, 0, 0, 0, 0, 0, 0, 0, 75.0);
-    EXPECT_DOUBLE_EQ(high.getMotorHvCurrent(), 50.0);
+    const VehicleSignal high(0, {}, {}, {}, {}, {}, {}, {}, 75.0);
+    EXPECT_DOUBLE_EQ(high.getMotorHvCurrent().value(), 75.0);
 }
 
 // ================================================
@@ -173,9 +173,9 @@ TEST(VehicleSignalEVTest, ClampsMotorHvCurrentToVerifiedRange)
 
 TEST(VehicleSignalEVTest, EqualityIncludesAllEVFields)
 {
-    const VehicleSignal a(50.0, 100.0, 0.5, 25.0, 12345, 45.0, 5000.0, 400.0, 25.0, 350.0, "D");
-    const VehicleSignal b(50.0, 100.0, 0.5, 25.0, 12345, 45.0, 5000.0, 400.0, 25.0, 350.0, "D");
-    const VehicleSignal c(50.0, 100.0, 0.5, 25.0, 12345, 45.0, 5000.0, 400.0, 25.0, 350.0, "R");
+    const VehicleSignal a(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, "D");
+    const VehicleSignal b(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, "D");
+    const VehicleSignal c(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, "R");
 
     EXPECT_EQ(a, b);
     EXPECT_NE(a, c);
@@ -183,8 +183,8 @@ TEST(VehicleSignalEVTest, EqualityIncludesAllEVFields)
 
 TEST(VehicleSignalEVTest, EqualityWorksWithZeroEVFields)
 {
-    const VehicleSignal a(50.0, 100.0, 0.5, 25.0, 12345);
-    const VehicleSignal b(50.0, 100.0, 0.5, 25.0, 12345);
+    const VehicleSignal a(12345, 50.0, 100.0, 0.5, 25.0);
+    const VehicleSignal b(12345, 50.0, 100.0, 0.5, 25.0);
 
     EXPECT_EQ(a, b);
 }
@@ -196,11 +196,11 @@ TEST(VehicleSignalEVTest, EqualityWorksWithZeroEVFields)
 TEST(VehicleSignalEVTest, RepresentsEVTelemetryUnderAcceleration)
 {
     const VehicleSignal signal(
+        123456789ULL,  // timestamp
         60.0,          // 60% throttle
         80.0,          // 80 km/h
         0.3,           // accelerating at 0.3g
         0.0,           // no braking
-        123456789ULL,  // timestamp
         0.0,           // steering centered
         6000.0,        // motor at 6000 RPM
         380.0,         // 380V bus voltage
@@ -209,21 +209,21 @@ TEST(VehicleSignalEVTest, RepresentsEVTelemetryUnderAcceleration)
         "D"            // drive
     );
 
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 6000.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage(), 380.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent(), 35.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), 350.0);
-    EXPECT_EQ(signal.getGearSelector(), "D");
+    EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 6000.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage().value(), 380.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent().value(), 35.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), 350.0);
+    EXPECT_EQ(signal.getGearSelector().value(), "D");
 }
 
 TEST(VehicleSignalEVTest, RepresentsEVTelemetryUnderRegen)
 {
     const VehicleSignal signal(
+        123456789ULL,  // timestamp
         0.0,           // 0% throttle
         60.0,          // 60 km/h decelerating
         -0.5,          // decelerating at 0.5g
         40.0,          // 40% brake pedal
-        123456789ULL,  // timestamp
         0.0,           // steering centered
         4000.0,        // motor at 4000 RPM
         0.0, 0.0,      // HV readings not available
@@ -231,7 +231,7 @@ TEST(VehicleSignalEVTest, RepresentsEVTelemetryUnderRegen)
         "D"
     );
 
-    EXPECT_DOUBLE_EQ(signal.getMotorRpm(), 4000.0);
-    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm(), -200.0);
-    EXPECT_EQ(signal.getGearSelector(), "D");
+    EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 4000.0);
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), -200.0);
+    EXPECT_EQ(signal.getGearSelector().value(), "D");
 }

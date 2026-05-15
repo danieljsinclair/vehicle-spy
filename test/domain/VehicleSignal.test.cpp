@@ -10,44 +10,35 @@ using namespace vehicle_sim::domain;
 
 TEST(VehicleSignalTest, ConstructsWithValidValues)
 {
-    const VehicleSignal signal(50.0, 100.0, 0.5, 25.0, 123456789ULL);
+    const VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.5, 25.0);
 
-    EXPECT_DOUBLE_EQ(signal.getThrottlePercent(), 50.0);
-    EXPECT_DOUBLE_EQ(signal.getSpeedKmh(), 100.0);
-    EXPECT_DOUBLE_EQ(signal.getAccelerationG(), 0.5);
-    EXPECT_DOUBLE_EQ(signal.getBrakePercent(), 25.0);
+    ASSERT_TRUE(signal.getThrottlePercent().has_value());
+    EXPECT_DOUBLE_EQ(signal.getThrottlePercent().value(), 50.0);
+    ASSERT_TRUE(signal.getSpeedKmh().has_value());
+    EXPECT_DOUBLE_EQ(signal.getSpeedKmh().value(), 100.0);
+    ASSERT_TRUE(signal.getAccelerationG().has_value());
+    EXPECT_DOUBLE_EQ(signal.getAccelerationG().value(), 0.5);
+    ASSERT_TRUE(signal.getBrakePercent().has_value());
+    EXPECT_DOUBLE_EQ(signal.getBrakePercent().value(), 25.0);
     EXPECT_EQ(signal.getTimestampUtcMs(), 123456789ULL);
 }
 
-TEST(VehicleSignalTest, ClampsThrottleToValidRange)
+TEST(VehicleSignalTest, ConstructsWithOptionalNullopt)
 {
-    EXPECT_DOUBLE_EQ(VehicleSignal(-10.0, 0, 0, 0, 0).getThrottlePercent(), 0.0);
-    EXPECT_DOUBLE_EQ(VehicleSignal(150.0, 0, 0, 0, 0).getThrottlePercent(), 100.0);
-}
+    const VehicleSignal signal(123456789ULL);
 
-TEST(VehicleSignalTest, ClampsSpeedToValidRange)
-{
-    EXPECT_DOUBLE_EQ(VehicleSignal(0, -5.0, 0, 0, 0).getSpeedKmh(), 0.0);
-    EXPECT_DOUBLE_EQ(VehicleSignal(0, 400.0, 0, 0, 0).getSpeedKmh(), 300.0);
-}
-
-TEST(VehicleSignalTest, ClampsAccelerationToValidRange)
-{
-    EXPECT_DOUBLE_EQ(VehicleSignal(0, 0, -10.0, 0, 0).getAccelerationG(), -5.0);
-    EXPECT_DOUBLE_EQ(VehicleSignal(0, 0, 10.0, 0, 0).getAccelerationG(), 5.0);
-}
-
-TEST(VehicleSignalTest, ClampsBrakeToValidRange)
-{
-    EXPECT_DOUBLE_EQ(VehicleSignal(0, 0, 0, -5.0, 0).getBrakePercent(), 0.0);
-    EXPECT_DOUBLE_EQ(VehicleSignal(0, 0, 0, 120.0, 0).getBrakePercent(), 100.0);
+    EXPECT_FALSE(signal.getThrottlePercent().has_value());
+    EXPECT_FALSE(signal.getSpeedKmh().has_value());
+    EXPECT_FALSE(signal.getAccelerationG().has_value());
+    EXPECT_FALSE(signal.getBrakePercent().has_value());
+    EXPECT_EQ(signal.getTimestampUtcMs(), 123456789ULL);
 }
 
 TEST(VehicleSignalTest, ValueEqualityWorks)
 {
-    const VehicleSignal a(50.0, 100.0, 0.5, 25.0, 12345);
-    const VehicleSignal b(50.0, 100.0, 0.5, 25.0, 12345);
-    const VehicleSignal c(51.0, 100.0, 0.5, 25.0, 12345);
+    const VehicleSignal a(12345, 50.0, 100.0, 0.5, 25.0);
+    const VehicleSignal b(12345, 50.0, 100.0, 0.5, 25.0);
+    const VehicleSignal c(12345, 51.0, 100.0, 0.5, 25.0);
 
     EXPECT_EQ(a, b);
     EXPECT_NE(a, c);
@@ -55,15 +46,127 @@ TEST(VehicleSignalTest, ValueEqualityWorks)
 
 TEST(VehicleSignalTest, ValueInequalityWorks)
 {
-    const VehicleSignal a(50.0, 100.0, 0.5, 25.0, 12345);
-    const VehicleSignal b(51.0, 100.0, 0.5, 25.0, 12345);
+    const VehicleSignal a(12345, 50.0, 100.0, 0.5, 25.0);
+    const VehicleSignal b(12345, 51.0, 100.0, 0.5, 25.0);
 
     EXPECT_NE(a, b);
 }
 
-// NOTE: Immutability is a compile-time guarantee, not runtime behavior
-// Immutability is enforced by compile-time through API design:
-// - No mutator methods exist in VehicleSignal class
-// - All methods are const
-// - Return by value only
-// This is a compile-time guarantee, not a runtime test
+TEST(VehicleSignalTest, OptionalFieldsAreIndependent)
+{
+    const VehicleSignal signal(12345, std::nullopt, 100.0, std::nullopt, 25.0);
+
+    EXPECT_FALSE(signal.getThrottlePercent().has_value());
+    ASSERT_TRUE(signal.getSpeedKmh().has_value());
+    EXPECT_DOUBLE_EQ(signal.getSpeedKmh().value(), 100.0);
+    EXPECT_FALSE(signal.getAccelerationG().has_value());
+    ASSERT_TRUE(signal.getBrakePercent().has_value());
+    EXPECT_DOUBLE_EQ(signal.getBrakePercent().value(), 25.0);
+}
+
+// ================================================
+// VehicleSignal Extended Field Tests
+// Tests for EV-specific fields (motorRpm, motorTorqueNm, gearSelector, etc.)
+// ================================================
+
+TEST(VehicleSignalTest, MotorRpmStoresValue)
+{
+    VehicleSignal signal(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                         std::nullopt, 15000.5);
+    ASSERT_TRUE(signal.getMotorRpm().has_value());
+    EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 15000.5);
+}
+
+TEST(VehicleSignalTest, MotorRpmDefaultsToNullopt)
+{
+    VehicleSignal signal(0);
+    EXPECT_FALSE(signal.getMotorRpm().has_value());
+}
+
+TEST(VehicleSignalTest, GearSelectorStoresValidValues) {
+    VehicleSignal signalP(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                          std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::optional<std::string>("P"));
+    VehicleSignal signalR(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                          std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::optional<std::string>("R"));
+    VehicleSignal signalN(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                          std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::optional<std::string>("N"));
+    VehicleSignal signalD(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                          std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::optional<std::string>("D"));
+    VehicleSignal signalS(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                          std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::nullopt, std::optional<std::string>("S"));
+
+    ASSERT_TRUE(signalP.getGearSelector().has_value());
+    EXPECT_EQ(signalP.getGearSelector().value(), "P");
+    ASSERT_TRUE(signalR.getGearSelector().has_value());
+    EXPECT_EQ(signalR.getGearSelector().value(), "R");
+    ASSERT_TRUE(signalN.getGearSelector().has_value());
+    EXPECT_EQ(signalN.getGearSelector().value(), "N");
+    ASSERT_TRUE(signalD.getGearSelector().has_value());
+    EXPECT_EQ(signalD.getGearSelector().value(), "D");
+    ASSERT_TRUE(signalS.getGearSelector().has_value());
+    EXPECT_EQ(signalS.getGearSelector().value(), "S");
+}
+
+TEST(VehicleSignalTest, GearSelectorDefaultsToNullopt) {
+    VehicleSignal signal(0);
+    EXPECT_FALSE(signal.getGearSelector().has_value());
+}
+
+TEST(VehicleSignalTest, MotorTorqueNmStoresValue) {
+    VehicleSignal signal(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                         std::nullopt, std::nullopt, std::nullopt, std::nullopt, 375.5);
+    ASSERT_TRUE(signal.getMotorTorqueNm().has_value());
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), 375.5);
+}
+
+TEST(VehicleSignalTest, MotorTorqueNmAcceptsNegativeValues) {
+    VehicleSignal signal(0, std::nullopt, std::nullopt, std::nullopt, std::nullopt,
+                         std::nullopt, std::nullopt, std::nullopt, std::nullopt, -250.5);
+    ASSERT_TRUE(signal.getMotorTorqueNm().has_value());
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), -250.5);
+}
+
+TEST(VehicleSignalTest, MotorTorqueNmDefaultsToNullopt) {
+    VehicleSignal signal(0);
+    EXPECT_FALSE(signal.getMotorTorqueNm().has_value());
+}
+
+TEST(VehicleSignalTest, EqualityIncludesNewFields) {
+    VehicleSignal a(12345ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 3500.0, 0.0, 0.0, 150.0, std::optional<std::string>("D"));
+    VehicleSignal b(12345ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 3500.0, 0.0, 0.0, 150.0, std::optional<std::string>("D"));
+    VehicleSignal c(12345ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 4000.0, 0.0, 0.0, 150.0, std::optional<std::string>("D")); // different rpm
+    VehicleSignal d(12345ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 3500.0, 0.0, 0.0, 150.0, std::optional<std::string>("N")); // different gear
+    VehicleSignal e(12345ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 3500.0, 0.0, 0.0, 200.0, std::optional<std::string>("D")); // different torque
+
+    EXPECT_EQ(a, b);
+    EXPECT_NE(a, c);
+    EXPECT_NE(a, d);
+    EXPECT_NE(a, e);
+}
+
+TEST(VehicleSignalTest, InequalityIncludesNewFields) {
+    VehicleSignal a(12345ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 3500.0, 0.0, 0.0, 150.0, std::optional<std::string>("D"));
+    VehicleSignal b(12345ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 3500.0, 0.0, 0.0, 150.0, std::optional<std::string>("N"));
+
+    EXPECT_NE(a, b);
+}
+
+TEST(VehicleSignalTest, AllFieldsConstructCorrectly) {
+    VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.5, 25.0, 0.0, 5000.0, 0.0, 0.0, 300.0, std::optional<std::string>("D"));
+
+    ASSERT_TRUE(signal.getThrottlePercent().has_value());
+    EXPECT_DOUBLE_EQ(signal.getThrottlePercent().value(), 50.0);
+    ASSERT_TRUE(signal.getSpeedKmh().has_value());
+    EXPECT_DOUBLE_EQ(signal.getSpeedKmh().value(), 100.0);
+    ASSERT_TRUE(signal.getAccelerationG().has_value());
+    EXPECT_DOUBLE_EQ(signal.getAccelerationG().value(), 0.5);
+    ASSERT_TRUE(signal.getBrakePercent().has_value());
+    EXPECT_DOUBLE_EQ(signal.getBrakePercent().value(), 25.0);
+    EXPECT_EQ(signal.getTimestampUtcMs(), 123456789ULL);
+    ASSERT_TRUE(signal.getMotorRpm().has_value());
+    EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 5000.0);
+    ASSERT_TRUE(signal.getGearSelector().has_value());
+    EXPECT_EQ(signal.getGearSelector().value(), "D");
+    ASSERT_TRUE(signal.getMotorTorqueNm().has_value());
+    EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), 300.0);
+}

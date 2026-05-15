@@ -2,6 +2,7 @@
 
 #include <string>
 #include <fstream>
+#include <optional>
 #include "vehicle-sim/domain/VehicleSignal.h"
 
 namespace vehicle_sim::telemetry {
@@ -23,8 +24,8 @@ public:
 private:
     void writeHeader();
     void writeRow(const domain::VehicleSignal& signal);
-    std::string formatDouble(double value);
-    std::string formatString(const std::string& value);
+    std::string formatOptional(std::optional<double> value);
+    std::string formatOptional(std::optional<std::string> value);
 
     std::ofstream file_;
 };

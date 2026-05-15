@@ -65,7 +65,7 @@ TEST_F(OBD2SignalTranslatorTest, TranslatesVehicleSpeed) {
     auto result = translator.translate(response);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getSpeedKmh(), 100.0);
+    EXPECT_DOUBLE_EQ(result->getSpeedKmh().value(), 100.0);
 }
 
 TEST_F(OBD2SignalTranslatorTest, TranslatesZeroSpeed) {
@@ -73,7 +73,7 @@ TEST_F(OBD2SignalTranslatorTest, TranslatesZeroSpeed) {
     auto result = translator.translate(response);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getSpeedKmh(), 0.0);
+    EXPECT_DOUBLE_EQ(result->getSpeedKmh().value(), 0.0);
 }
 
 // ================================================
@@ -87,7 +87,7 @@ TEST_F(OBD2SignalTranslatorTest, TranslatesThrottlePosition) {
 
     ASSERT_TRUE(result.has_value());
     double expected = (128.0 / 255.0) * 100.0;
-    EXPECT_NEAR(result->getThrottlePercent(), expected, 0.1);
+    EXPECT_NEAR(result->getThrottlePercent().value(), expected, 0.1);
 }
 
 TEST_F(OBD2SignalTranslatorTest, TranslatesFullThrottle) {
@@ -95,7 +95,7 @@ TEST_F(OBD2SignalTranslatorTest, TranslatesFullThrottle) {
     auto result = translator.translate(response);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getThrottlePercent(), 100.0);
+    EXPECT_DOUBLE_EQ(result->getThrottlePercent().value(), 100.0);
 }
 
 // ================================================
@@ -110,8 +110,8 @@ TEST_F(OBD2SignalTranslatorTest, TranslatesEngineLoadAsAcceleration) {
 
     ASSERT_TRUE(result.has_value());
     // Engine load used as a proxy — not exact acceleration
-    EXPECT_GT(result->getAccelerationG(), -5.0);
-    EXPECT_LT(result->getAccelerationG(), 5.0);
+    EXPECT_GT(result->getAccelerationG().value(), -5.0);
+    EXPECT_LT(result->getAccelerationG().value(), 5.0);
 }
 
 // ================================================
@@ -131,8 +131,8 @@ TEST_F(OBD2SignalTranslatorTest, AggregatesMultiplePIDsIntoSingleSignal) {
 
     // Second response should contain aggregated state:
     // throttle from first + speed from second
-    EXPECT_NEAR(r2->getThrottlePercent(), (128.0 / 255.0) * 100.0, 0.1);
-    EXPECT_DOUBLE_EQ(r2->getSpeedKmh(), 100.0);
+    EXPECT_NEAR(r2->getThrottlePercent().value(), (128.0 / 255.0) * 100.0, 0.1);
+    EXPECT_DOUBLE_EQ(r2->getSpeedKmh().value(), 100.0);
 }
 
 // ================================================
@@ -158,7 +158,7 @@ TEST_F(OBD2SignalTranslatorTest, MaxSpeedValue) {
     auto result = translator.translate(response);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getSpeedKmh(), 255.0);
+    EXPECT_DOUBLE_EQ(result->getSpeedKmh().value(), 255.0);
 }
 
 TEST_F(OBD2SignalTranslatorTest, TimestampIsPopulated) {

@@ -47,11 +47,17 @@ std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
         lastTimestamp_ = getCurrentTimestamp();
 
         return VehicleSignal(
+            lastTimestamp_,
             lastThrottle_,
             lastSpeed_,
             lastAcceleration_,
             lastBrake_,
-            lastTimestamp_
+            std::nullopt,  // steeringAngleDeg
+            std::nullopt,  // motorRpm
+            std::nullopt,  // motorHvVoltage
+            std::nullopt,  // motorHvCurrent
+            std::nullopt,  // motorTorqueNm
+            std::nullopt   // gearSelector
         );
     }
 }

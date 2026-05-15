@@ -34,34 +34,40 @@ bool TraceLogger::isValid() const noexcept {
 }
 
 void TraceLogger::writeHeader() {
-    file_ << "timestamp_utc_ms,throttle_pct,speed_kmh,acceleration_g,brake_pct,motor_rpm,gear_selector,motor_torque_nm\n";
+    file_ << "timestamp_utc_ms,throttle_pct,speed_kmh,acceleration_g,brake_pct,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,gear_selector,motor_torque_nm\n";
     file_.flush();
 }
 
 void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
     file_ << signal.getTimestampUtcMs() << ","
-          << formatDouble(signal.getThrottlePercent()) << ","
-          << formatDouble(signal.getSpeedKmh()) << ","
-          << formatDouble(signal.getAccelerationG()) << ","
-          << formatDouble(signal.getBrakePercent()) << ","
-          << formatDouble(signal.getMotorRpm()) << ","
-          << formatString(signal.getGearSelector()) << ","
-          << formatDouble(signal.getMotorTorqueNm())
+          << formatOptional(signal.getThrottlePercent()) << ","
+          << formatOptional(signal.getSpeedKmh()) << ","
+          << formatOptional(signal.getAccelerationG()) << ","
+          << formatOptional(signal.getBrakePercent()) << ","
+          << formatOptional(signal.getSteeringAngleDeg()) << ","
+          << formatOptional(signal.getMotorRpm()) << ","
+          << formatOptional(signal.getMotorHvVoltage()) << ","
+          << formatOptional(signal.getMotorHvCurrent()) << ","
+          << formatOptional(signal.getGearSelector()) << ","
+          << formatOptional(signal.getMotorTorqueNm())
           << "\n";
     file_.flush();
 }
 
-std::string TraceLogger::formatDouble(double value) {
-    if (std::abs(value) < 0.0001) {
+std::string TraceLogger::formatOptional(std::optional<double> value) {
+    if (!value.has_value()) {
         return "";
     }
     std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << value;
+    oss << std::fixed << std::setprecision(2) << *value;
     return oss.str();
 }
 
-std::string TraceLogger::formatString(const std::string& value) {
-    return value.empty() ? "" : value;
+std::string TraceLogger::formatOptional(std::optional<std::string> value) {
+    if (!value.has_value()) {
+        return "";
+    }
+    return *value;
 }
 
 TraceLogger::TraceLogger(TraceLogger&& other) noexcept

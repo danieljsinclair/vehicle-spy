@@ -74,7 +74,7 @@ void CANTranslatorBase::decodeSCCMSteering(const std::vector<uint8_t>& data) con
 }
 
 std::optional<VehicleSignal> CANTranslatorBase::buildSignal() const noexcept {
-    return VehicleSignal(lastThrottlePercent_, lastSpeedKmh_, lastAccelerationG_, lastBrakePercent_, timeProvider_->nowMs(), lastSteeringAngleDeg_);
+    return VehicleSignal(timeProvider_->nowMs(), lastThrottlePercent_, lastSpeedKmh_, lastAccelerationG_, lastBrakePercent_, lastSteeringAngleDeg_);
 }
 
 } // namespace vehicle_sim::domain

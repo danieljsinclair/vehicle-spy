@@ -1,0 +1,153 @@
+#include "vehicle-sim/domain/DemoSignalProvider.h"
+#include <chrono>
+#include <cmath>
+
+namespace vehicle_sim::domain {
+
+class DemoSignalProvider::Impl {
+public:
+    explicit Impl(int intervalMs) noexcept
+        : intervalMs_(intervalMs)
+        , running_(false)
+        , phase_(0.0)
+        , gearIndex_(0)
+    {
+    }
+
+    ~Impl() {
+        stop();
+    }
+
+    void start(SignalCallback callback) {
+        if (running_.load()) return;
+
+        callback_ = std::move(callback);
+        running_.store(true);
+        worker_ = std::thread(&Impl::generateSignals, this);
+    }
+
+    void stop() {
+        running_.store(false);
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+    }
+
+    [[nodiscard]] bool isRunning() const noexcept {
+        return running_.load();
+    }
+
+private:
+    void generateSignals() {
+        while (running_.load()) {
+            auto now = std::chrono::steady_clock::now();
+            auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()).count();
+
+            VehicleSignal signal = generateSignal(static_cast<std::uint64_t>(timestamp));
+            callback_(signal);
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs_));
+        }
+    }
+
+    VehicleSignal generateSignal(std::uint64_t timestampUtcMs) {
+        // Advance phase for smooth oscillation
+        phase_ += 0.05;
+        if (phase_ > 2.0 * M_PI) {
+            phase_ -= 2.0 * M_PI;
+        }
+
+        // Simulate driving cycle with sine waves
+        double cycle = (std::sin(phase_) + 1.0) / 2.0; // 0.0 to 1.0
+
+        // Speed: ramps 0-100 km/h over cycle
+        double speedKmh = cycle * 100.0;
+
+        // Throttle: follows speed but with lead
+        double throttlePercent = cycle * 80.0;
+
+        // Brake: activates when decelerating (cycle > 0.7)
+        double brakePercent = (cycle > 0.7) ? (cycle - 0.7) * 333.0 : 0.0;
+        if (brakePercent > 100.0) brakePercent = 100.0;
+
+        // Acceleration: positive when accelerating, negative when braking
+        double accelerationG = (cycle < 0.7) ? 0.3 : -0.5;
+
+        // RPM: varies with speed and gear
+        double baseRpm = 1000.0 + (cycle * 6000.0);
+        double motorRpm = baseRpm;
+
+        // Gear: cycles through P, R, N, D, S based on phase
+        const char* gears[] = {"P", "R", "N", "D", "S"};
+        int newGearIndex = static_cast<int>(cycle * 5.0);
+        if (newGearIndex > 4) newGearIndex = 4;
+        if (newGearIndex != gearIndex_) {
+            gearIndex_ = newGearIndex;
+        }
+        std::string gearSelector = gears[gearIndex_];
+
+        // Torque: positive for acceleration, negative for regen
+        double motorTorqueNm;
+        if (cycle < 0.6) {
+            // Accelerating
+            motorTorqueNm = 100.0 + (cycle * 300.0);
+        } else {
+            // Regenerative braking
+            motorTorqueNm = -50.0 - ((cycle - 0.6) * 200.0);
+        }
+
+        // Steering: slight oscillation
+        double steeringAngleDeg = std::sin(phase_ * 2.0) * 30.0;
+
+        // HV voltage: varies with load
+        double motorHvVoltage = 350.0 + (cycle * 50.0);
+
+        // HV current: proportional to torque
+        double motorHvCurrent = std::abs(motorTorqueNm) / 10.0;
+
+        return VehicleSignal(
+            timestampUtcMs,
+            throttlePercent,
+            speedKmh,
+            accelerationG,
+            brakePercent,
+            steeringAngleDeg,
+            motorRpm,
+            motorHvVoltage,
+            motorHvCurrent,
+            motorTorqueNm,
+            std::optional<std::string>(gearSelector)
+        );
+    }
+
+    int intervalMs_;
+    std::atomic<bool> running_;
+    std::thread worker_;
+    SignalCallback callback_;
+
+    // Simulation state
+    double phase_;
+    int gearIndex_;
+};
+
+DemoSignalProvider::DemoSignalProvider(int intervalMs) noexcept
+    : pImpl(std::make_unique<Impl>(intervalMs))
+{
+}
+
+DemoSignalProvider::~DemoSignalProvider() = default;
+
+void DemoSignalProvider::start(SignalCallback callback) {
+    pImpl->start(std::move(callback));
+}
+
+void DemoSignalProvider::stop() {
+    pImpl->stop();
+}
+
+bool DemoSignalProvider::isRunning() const noexcept {
+    return pImpl->isRunning();
+}
+
+} // namespace vehicle_sim::domain

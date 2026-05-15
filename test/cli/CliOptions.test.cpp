@@ -248,3 +248,85 @@ TEST_F(CliOptionsTest, ScanWithoutVehicleNoError) {
     EXPECT_TRUE(opts.vehicle_type.empty());
     EXPECT_TRUE(opts.error_message.empty());
 }
+
+TEST_F(CliOptionsTest, LogCsvFlag) {
+    Args args({"vehicle-sim", "--log-csv", "trace.csv"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_EQ(opts.log_csv, "trace.csv");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, LogRawFlag) {
+    Args args({"vehicle-sim", "--log-raw", "raw.log"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_EQ(opts.log_raw, "raw.log");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, BothLogFlags) {
+    Args args({"vehicle-sim", "--log-csv", "trace.csv", "--log-raw", "raw.log"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_EQ(opts.log_csv, "trace.csv");
+    EXPECT_EQ(opts.log_raw, "raw.log");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, LogCsvWithSimulate) {
+    Args args({"vehicle-sim", "--simulate", "--log-csv", "output.csv"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.simulate_mode);
+    EXPECT_EQ(opts.log_csv, "output.csv");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, LogCsvWithoutValueReturnsError) {
+    Args args({"vehicle-sim", "--log-csv"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_FALSE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, LogRawWithoutValueReturnsError) {
+    Args args({"vehicle-sim", "--log-raw"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_FALSE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, ConnectDemoFlag) {
+    Args args({"vehicle-sim", "--connect-demo"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.connect_demo);
+    EXPECT_FALSE(opts.help_requested);
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, ConnectDemoWithLogCsv) {
+    Args args({"vehicle-sim", "--connect-demo", "--log-csv", "output.csv"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.connect_demo);
+    EXPECT_EQ(opts.log_csv, "output.csv");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, ConnectDemoWithLogRaw) {
+    Args args({"vehicle-sim", "--connect-demo", "--log-raw", "trace.log"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.connect_demo);
+    EXPECT_EQ(opts.log_raw, "trace.log");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, ConnectDemoDefaultsToFalseWhenNotSpecified) {
+    Args args({"vehicle-sim"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_FALSE(opts.connect_demo);
+}

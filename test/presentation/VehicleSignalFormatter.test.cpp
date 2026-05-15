@@ -10,7 +10,7 @@ using namespace vehicle_sim::domain;
 class VehicleSignalFormatterTest : public ::testing::Test {
 protected:
     VehicleSignal makeSignal(double throttle, double speed, double accel, double brake) {
-        return VehicleSignal(throttle, speed, accel, brake, 1000);
+        return VehicleSignal(1000, throttle, speed, accel, brake);
     }
 
     VehicleConfig makeConfig(const std::string& name) {
@@ -26,6 +26,50 @@ TEST_F(VehicleSignalFormatterTest, FormatRowContainsAllFields) {
     EXPECT_NE(row.find("Speed"), std::string::npos);
     EXPECT_NE(row.find("Brake"), std::string::npos);
     EXPECT_NE(row.find("Accel"), std::string::npos);
+}
+
+TEST_F(VehicleSignalFormatterTest, FormatRowOutputsTwoLines) {
+    auto signal = makeSignal(55.5, 120.3, 0.25, 10.0);
+    std::string row = formatTelemetryRow(signal, 1);
+
+    // Count newlines - should be 2 (one at end of first line, one at end of second)
+    int newlineCount = 0;
+    for (char c : row) {
+        if (c == '\n') newlineCount++;
+    }
+    EXPECT_EQ(newlineCount, 2);
+}
+
+TEST_F(VehicleSignalFormatterTest, FormatRowFirstLineContainsPrimaryFields) {
+    auto signal = makeSignal(55.5, 120.3, 0.25, 10.0);
+    std::string row = formatTelemetryRow(signal, 1);
+
+    // First line should contain: Throttle, Speed, Brake, Accel, Gear
+    size_t firstNewline = row.find('\n');
+    ASSERT_NE(firstNewline, std::string::npos);
+    std::string firstLine = row.substr(0, firstNewline);
+
+    EXPECT_NE(firstLine.find("Throttle"), std::string::npos);
+    EXPECT_NE(firstLine.find("Speed"), std::string::npos);
+    EXPECT_NE(firstLine.find("Brake"), std::string::npos);
+    EXPECT_NE(firstLine.find("Accel"), std::string::npos);
+    EXPECT_NE(firstLine.find("Gear"), std::string::npos);
+}
+
+TEST_F(VehicleSignalFormatterTest, FormatRowSecondLineContainsSecondaryFields) {
+    auto signal = makeSignal(55.5, 120.3, 0.25, 10.0);
+    std::string row = formatTelemetryRow(signal, 1);
+
+    // Second line should contain: Steer, Motor, HV, Curr, Trq
+    size_t firstNewline = row.find('\n');
+    ASSERT_NE(firstNewline, std::string::npos);
+    std::string secondLine = row.substr(firstNewline + 1);
+
+    EXPECT_NE(secondLine.find("Steer"), std::string::npos);
+    EXPECT_NE(secondLine.find("Motor"), std::string::npos);
+    EXPECT_NE(secondLine.find("HV"), std::string::npos);
+    EXPECT_NE(secondLine.find("Curr"), std::string::npos);
+    EXPECT_NE(secondLine.find("Trq"), std::string::npos);
 }
 
 TEST_F(VehicleSignalFormatterTest, FormatRowStartsWithCount) {

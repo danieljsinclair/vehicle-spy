@@ -161,7 +161,7 @@ TEST_F(DBCLiveDecodingTest, Tesla_CAN264_DecodesMotorRpmAndTorque) {
     };
     auto result_rpm = translator.translate(frame264_rpm);
     ASSERT_TRUE(result_rpm.has_value()) << "Failed to translate CAN 264 frame for RPM";
-    EXPECT_NEAR(result_rpm->getMotorRpm(), 1000.0, 0.1);
+    EXPECT_NEAR(result_rpm->getMotorRpm().value(), 1000.0, 0.1);
 
     // DIR_torqueActual: startBit=27, 13-bit, Intel signed, scale=2, offset=0
     // 100 Nm → raw = 50 (100 / 2)
@@ -174,7 +174,7 @@ TEST_F(DBCLiveDecodingTest, Tesla_CAN264_DecodesMotorRpmAndTorque) {
     };
     auto result_torque = translator.translate(frame264_torque);
     ASSERT_TRUE(result_torque.has_value()) << "Failed to translate CAN 264 frame for torque";
-    EXPECT_NEAR(result_torque->getMotorTorqueNm(), 100.0, 0.5);
+    EXPECT_NEAR(result_torque->getMotorTorqueNm().value(), 100.0, 0.5);
 }
 
 TEST_F(DBCLiveDecodingTest, Tesla_CAN280_DecodesThrottlePercent) {
@@ -191,7 +191,7 @@ TEST_F(DBCLiveDecodingTest, Tesla_CAN280_DecodesThrottlePercent) {
     };
     auto result = translator.translate(frame280);
     ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 280 frame";
-    EXPECT_NEAR(result->getThrottlePercent(), 75.2, 0.1);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 75.2, 0.1);
 }
 
 TEST_F(DBCLiveDecodingTest, Tesla_CAN297_DecodesSteeringAngle) {
@@ -208,7 +208,7 @@ TEST_F(DBCLiveDecodingTest, Tesla_CAN297_DecodesSteeringAngle) {
     };
     auto result_center = translator.translate(frame297_center);
     ASSERT_TRUE(result_center.has_value()) << "Failed to translate CAN 297 frame (center)";
-    EXPECT_NEAR(result_center->getSteeringAngleDeg(), 0.0, 0.1);
+    EXPECT_NEAR(result_center->getSteeringAngleDeg().value(), 0.0, 0.1);
 
     // 45 deg right = raw 8642 (45 / 0.1 + 8192) = 0x21C2
     std::vector<std::uint8_t> frame297_right = {
@@ -217,7 +217,7 @@ TEST_F(DBCLiveDecodingTest, Tesla_CAN297_DecodesSteeringAngle) {
     };
     auto result_right = translator.translate(frame297_right);
     ASSERT_TRUE(result_right.has_value()) << "Failed to translate CAN 297 frame (right)";
-    EXPECT_NEAR(result_right->getSteeringAngleDeg(), 45.0, 0.1);
+    EXPECT_NEAR(result_right->getSteeringAngleDeg().value(), 45.0, 0.1);
 
     // -30 deg left = raw 7892 (-30 / 0.1 + 8192) = 0x1ED4
     std::vector<std::uint8_t> frame297_left = {
@@ -226,7 +226,7 @@ TEST_F(DBCLiveDecodingTest, Tesla_CAN297_DecodesSteeringAngle) {
     };
     auto result_left = translator.translate(frame297_left);
     ASSERT_TRUE(result_left.has_value()) << "Failed to translate CAN 297 frame (left)";
-    EXPECT_NEAR(result_left->getSteeringAngleDeg(), -30.0, 0.1);
+    EXPECT_NEAR(result_left->getSteeringAngleDeg().value(), -30.0, 0.1);
 }
 
 TEST_F(DBCLiveDecodingTest, Tesla_MultiFrameAccumulation) {
@@ -242,8 +242,8 @@ TEST_F(DBCLiveDecodingTest, Tesla_MultiFrameAccumulation) {
     };
     auto r1 = translator.translate(frame264);
     ASSERT_TRUE(r1.has_value());
-    EXPECT_NEAR(r1->getMotorTorqueNm(), 100.0, 0.5);
-    EXPECT_NEAR(r1->getMotorRpm(), 1000.0, 0.1);
+    EXPECT_NEAR(r1->getMotorTorqueNm().value(), 100.0, 0.5);
+    EXPECT_NEAR(r1->getMotorRpm().value(), 1000.0, 0.1);
 
     // Feed CAN 280 - sets throttlePercent, preserves motorRpm/torque
     std::vector<std::uint8_t> frame280 = {
@@ -252,9 +252,9 @@ TEST_F(DBCLiveDecodingTest, Tesla_MultiFrameAccumulation) {
     };
     auto r2 = translator.translate(frame280);
     ASSERT_TRUE(r2.has_value());
-    EXPECT_NEAR(r2->getThrottlePercent(), 75.2, 0.1);
-    EXPECT_NEAR(r2->getMotorTorqueNm(), 100.0, 0.5) << "Torque should persist";
-    EXPECT_NEAR(r2->getMotorRpm(), 1000.0, 0.1) << "RPM should persist";
+    EXPECT_NEAR(r2->getThrottlePercent().value(), 75.2, 0.1);
+    EXPECT_NEAR(r2->getMotorTorqueNm().value(), 100.0, 0.5) << "Torque should persist";
+    EXPECT_NEAR(r2->getMotorRpm().value(), 1000.0, 0.1) << "RPM should persist";
 
     // Feed CAN 297 - sets steeringAngleDeg, all fields present
     std::vector<std::uint8_t> frame297 = {
@@ -263,10 +263,10 @@ TEST_F(DBCLiveDecodingTest, Tesla_MultiFrameAccumulation) {
     };
     auto r3 = translator.translate(frame297);
     ASSERT_TRUE(r3.has_value());
-    EXPECT_NEAR(r3->getSteeringAngleDeg(), 0.0, 0.1);
-    EXPECT_NEAR(r3->getMotorTorqueNm(), 100.0, 0.5) << "Torque should persist";
-    EXPECT_NEAR(r3->getMotorRpm(), 1000.0, 0.1) << "RPM should persist";
-    EXPECT_NEAR(r3->getThrottlePercent(), 75.2, 0.1) << "Throttle should persist";
+    EXPECT_NEAR(r3->getSteeringAngleDeg().value(), 0.0, 0.1);
+    EXPECT_NEAR(r3->getMotorTorqueNm().value(), 100.0, 0.5) << "Torque should persist";
+    EXPECT_NEAR(r3->getMotorRpm().value(), 1000.0, 0.1) << "RPM should persist";
+    EXPECT_NEAR(r3->getThrottlePercent().value(), 75.2, 0.1) << "Throttle should persist";
 }
 
 // ================================================
@@ -287,7 +287,7 @@ TEST_F(DBCLiveDecodingTest, Audi_CAN256_DecodesSpeedAndBrake) {
     };
     auto result_speed = translator.translate(frame256_speed);
     ASSERT_TRUE(result_speed.has_value()) << "Failed to translate CAN 256 frame for speed";
-    EXPECT_NEAR(result_speed->getSpeedKmh(), 100.0, 0.01);
+    EXPECT_NEAR(result_speed->getSpeedKmh().value(), 100.0, 0.01);
 
     // ESP_Bremsdruck: startBit=32, 8-bit, Intel unsigned, scale=0.4, offset=0
     // 50% brake = raw 125 (50 / 0.4) = 0x7D
@@ -298,7 +298,7 @@ TEST_F(DBCLiveDecodingTest, Audi_CAN256_DecodesSpeedAndBrake) {
     };
     auto result_brake = translator.translate(frame256_brake);
     ASSERT_TRUE(result_brake.has_value()) << "Failed to translate CAN 256 frame for brake";
-    EXPECT_NEAR(result_brake->getBrakePercent(), 50.0, 0.1);
+    EXPECT_NEAR(result_brake->getBrakePercent().value(), 50.0, 0.1);
 
     // Combined frame with speed and brake
     std::vector<std::uint8_t> frame256_combined = {
@@ -307,8 +307,8 @@ TEST_F(DBCLiveDecodingTest, Audi_CAN256_DecodesSpeedAndBrake) {
     };
     auto result_combined = translator.translate(frame256_combined);
     ASSERT_TRUE(result_combined.has_value()) << "Failed to translate CAN 256 frame for combined";
-    EXPECT_NEAR(result_combined->getSpeedKmh(), 100.0, 0.01);
-    EXPECT_NEAR(result_combined->getBrakePercent(), 50.0, 0.1);
+    EXPECT_NEAR(result_combined->getSpeedKmh().value(), 100.0, 0.01);
+    EXPECT_NEAR(result_combined->getBrakePercent().value(), 50.0, 0.1);
 }
 
 TEST_F(DBCLiveDecodingTest, Audi_CAN256_DecodesBrakePercent) {
@@ -325,7 +325,7 @@ TEST_F(DBCLiveDecodingTest, Audi_CAN256_DecodesBrakePercent) {
     };
     auto result = translator.translate(frame256_brake);
     ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 256 frame for brake";
-    EXPECT_NEAR(result->getBrakePercent(), 50.0, 0.1);
+    EXPECT_NEAR(result->getBrakePercent().value(), 50.0, 0.1);
 }
 
 TEST_F(DBCLiveDecodingTest, Audi_MultiFrameAccumulation) {
@@ -340,8 +340,8 @@ TEST_F(DBCLiveDecodingTest, Audi_MultiFrameAccumulation) {
     };
     auto r1 = translator.translate(frame256);
     ASSERT_TRUE(r1.has_value());
-    EXPECT_NEAR(r1->getSpeedKmh(), 100.0, 0.01);
-    EXPECT_NEAR(r1->getBrakePercent(), 50.0, 0.1);
+    EXPECT_NEAR(r1->getSpeedKmh().value(), 100.0, 0.01);
+    EXPECT_NEAR(r1->getBrakePercent().value(), 50.0, 0.1);
 
     // Feed another CAN 256 with different speed
     std::vector<std::uint8_t> frame256_2 = {
@@ -350,8 +350,8 @@ TEST_F(DBCLiveDecodingTest, Audi_MultiFrameAccumulation) {
     };
     auto r2 = translator.translate(frame256_2);
     ASSERT_TRUE(r2.has_value());
-    EXPECT_NEAR(r2->getSpeedKmh(), 20.0, 0.01);
-    EXPECT_NEAR(r2->getBrakePercent(), 50.0, 0.1);
+    EXPECT_NEAR(r2->getSpeedKmh().value(), 20.0, 0.01);
+    EXPECT_NEAR(r2->getBrakePercent().value(), 50.0, 0.1);
 }
 
 // ================================================
@@ -373,7 +373,7 @@ TEST_F(DBCLiveDecodingTest, CrossVehicle_TeslaConfigDoesNotDecodeAudiSignals) {
 
     // Should return signal but with default/unmodified values
     EXPECT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSpeedKmh(), 0.0, 0.01) << "Audi signal should not be decoded by Tesla config";
+    EXPECT_FALSE(result->getSpeedKmh().has_value()) << "Audi signal should not be decoded by Tesla config";
 }
 
 TEST_F(DBCLiveDecodingTest, CrossVehicle_AudiConfigDoesNotDecodeTeslaSignals) {
@@ -391,8 +391,8 @@ TEST_F(DBCLiveDecodingTest, CrossVehicle_AudiConfigDoesNotDecodeTeslaSignals) {
 
     // Should return signal but with default/unmodified values
     EXPECT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getMotorRpm(), 0.0, 0.1) << "Tesla signal should not be decoded by Audi config";
-    EXPECT_NEAR(result->getMotorTorqueNm(), 0.0, 0.5) << "Tesla torque should not be decoded by Audi config";
+    EXPECT_FALSE(result->getMotorRpm().has_value()) << "Tesla signal should not be decoded by Audi config";
+    EXPECT_FALSE(result->getMotorTorqueNm().has_value()) << "Tesla torque should not be decoded by Audi config";
 }
 
 TEST_F(DBCLiveDecodingTest, UnknownCANIdReturnsSignalWithDefaults) {
@@ -408,8 +408,8 @@ TEST_F(DBCLiveDecodingTest, UnknownCANIdReturnsSignalWithDefaults) {
 
     auto result = translator.translate(unknownFrame);
     EXPECT_TRUE(result.has_value()) << "Should return signal even for unknown CAN ID";
-    EXPECT_EQ(result->getMotorRpm(), 0.0);
-    EXPECT_EQ(result->getThrottlePercent(), 0.0);
+    EXPECT_FALSE(result->getMotorRpm().has_value());
+    EXPECT_FALSE(result->getThrottlePercent().has_value());
 }
 
 // ================================================
@@ -434,8 +434,8 @@ TEST_F(DBCLiveDecodingTest, DBCTranslationService_TeslaEndToEnd) {
     };
     auto result264 = service.processFrame(frame264);
     ASSERT_TRUE(result264.has_value()) << "Failed to process CAN 264 frame";
-    EXPECT_NEAR(result264->getMotorTorqueNm(), 100.0, 0.5);
-    EXPECT_NEAR(result264->getMotorRpm(), 1000.0, 0.1);
+    EXPECT_NEAR(result264->getMotorTorqueNm().value(), 100.0, 0.5);
+    EXPECT_NEAR(result264->getMotorRpm().value(), 1000.0, 0.1);
 
     // CAN 280 with throttle
     std::vector<std::uint8_t> frame280 = {
@@ -444,7 +444,7 @@ TEST_F(DBCLiveDecodingTest, DBCTranslationService_TeslaEndToEnd) {
     };
     auto result280 = service.processFrame(frame280);
     ASSERT_TRUE(result280.has_value()) << "Failed to process CAN 280 frame";
-    EXPECT_NEAR(result280->getThrottlePercent(), 75.2, 0.1);
+    EXPECT_NEAR(result280->getThrottlePercent().value(), 75.2, 0.1);
 }
 
 TEST_F(DBCLiveDecodingTest, DBCTranslationService_AudiEndToEnd) {
@@ -465,7 +465,7 @@ TEST_F(DBCLiveDecodingTest, DBCTranslationService_AudiEndToEnd) {
     };
     auto result = service.processFrame(frame256);
     ASSERT_TRUE(result.has_value()) << "Failed to process CAN 256 frame";
-    EXPECT_NEAR(result->getSpeedKmh(), 100.0, 0.01);
+    EXPECT_NEAR(result->getSpeedKmh().value(), 100.0, 0.01);
 }
 
 // ================================================

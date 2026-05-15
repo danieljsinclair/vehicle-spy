@@ -27,6 +27,7 @@ add_executable(vehicle-sim-tests
     domain/DBCSignalTranslator.test.cpp
     domain/DBCTranslationService.test.cpp
     domain/DefaultVehicleConfigs.test.cpp
+    domain/DemoSignalProvider.test.cpp
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp
     presentation/VehicleSignalFormatter.test.cpp

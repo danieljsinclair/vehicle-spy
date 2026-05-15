@@ -23,6 +23,7 @@ constexpr const char* DEFAULT_VEHICLE_TYPE = "generic";
 struct CliOptions {
     bool scan_mode = false;
     bool connect_mode = false;
+    bool connect_demo = false;
     bool list_signals = false;
     bool simulate_mode = false;
     bool help_requested = false;
@@ -30,6 +31,8 @@ struct CliOptions {
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
+    std::string log_csv;
+    std::string log_raw;
 
     // Set on parse error — caller should print and exit(1).
     std::string error_message;

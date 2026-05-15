@@ -58,6 +58,14 @@ struct VehicleConfig final {
     bool isCANProtocol = false;
 
     /**
+     * Map of gear codes to human-readable gear labels.
+     *
+     * The key is the numeric gear code from the vehicle.
+     * The value is the display label (e.g., "P", "R", "N", "D", "S").
+     */
+    std::unordered_map<int, std::string> gearCodeMappings;
+
+    /**
      * Construct a vehicle config.
      *
      * @param dbcFilePath      Path to DBC file
@@ -65,13 +73,15 @@ struct VehicleConfig final {
      * @param signalMappings   Map of DBC signal → VehicleSignal field
      * @param canBus           Optional CAN bus name
      * @param isCANProtocol    True for CAN/DBC vehicles, false for OBD2
+     * @param gearCodeMappings Map of gear codes to display labels
      */
     VehicleConfig(
         std::string dbcFilePath,
         std::string vehicleName,
         std::unordered_map<std::string, std::string> signalMappings,
         std::string canBus = "",
-        bool isCANProtocol = false
+        bool isCANProtocol = false,
+        std::unordered_map<int, std::string> gearCodeMappings = {}
     ) noexcept;
 
     // Default copy/move

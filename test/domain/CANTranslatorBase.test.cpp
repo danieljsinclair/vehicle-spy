@@ -93,7 +93,7 @@ TEST_F(CANTranslatorBaseTest, DecodeDISystemUpdatesThrottleState) {
     auto result = translator_.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 50.0, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 50.0, 0.5);
 }
 
 TEST_F(CANTranslatorBaseTest, DecodeDISystemUpdatesBrakeStateWhenPressed) {
@@ -103,7 +103,7 @@ TEST_F(CANTranslatorBaseTest, DecodeDISystemUpdatesBrakeStateWhenPressed) {
     auto result = translator_.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getBrakePercent(), 50.0);
+    EXPECT_DOUBLE_EQ(result->getBrakePercent().value(), 50.0);
 }
 
 TEST_F(CANTranslatorBaseTest, DecodeDISystemDoesNotOverwriteHigherBrakeValue) {
@@ -118,7 +118,7 @@ TEST_F(CANTranslatorBaseTest, DecodeDISystemDoesNotOverwriteHigherBrakeValue) {
     auto result = translator_.translate(frame2);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getBrakePercent(), 50.0);
+    EXPECT_DOUBLE_EQ(result->getBrakePercent().value(), 50.0);
 }
 
 // ================================================
@@ -134,7 +134,7 @@ TEST_F(CANTranslatorBaseTest, DecodeSCCMSteeringUpdatesSteeringState) {
     auto result = translator_.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 45.0, 1.0);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 45.0, 1.0);
 }
 
 TEST_F(CANTranslatorBaseTest, DecodeSCCMSteeringAtCenter) {
@@ -146,7 +146,7 @@ TEST_F(CANTranslatorBaseTest, DecodeSCCMSteeringAtCenter) {
     auto result = translator_.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 0.0, 0.5);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 0.0, 0.5);
 }
 
 // ================================================
@@ -176,9 +176,9 @@ TEST_F(CANTranslatorBaseTest, BuildSignalPassesAllStateFields) {
     auto result = translator_.translate(frame2);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 40.0, 0.5);
-    EXPECT_DOUBLE_EQ(result->getBrakePercent(), 50.0);
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 90.0, 1.0);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 40.0, 0.5);
+    EXPECT_DOUBLE_EQ(result->getBrakePercent().value(), 50.0);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 90.0, 1.0);
     EXPECT_EQ(result->getTimestampUtcMs(), 1234567890ULL);
 }
 
@@ -206,7 +206,7 @@ TEST_F(CANTranslatorBaseTest, TranslateCallsDecodeFrameForValidCAN280) {
     auto result = translator_.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 60.0, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 60.0, 0.5);
 }
 
 TEST_F(CANTranslatorBaseTest, TranslateCallsDecodeFrameForValidCAN297) {
@@ -217,7 +217,7 @@ TEST_F(CANTranslatorBaseTest, TranslateCallsDecodeFrameForValidCAN297) {
     auto result = translator_.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), -90.0, 1.0);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), -90.0, 1.0);
 }
 
 TEST_F(CANTranslatorBaseTest, TranslateAccumulatesStateAcrossMultipleCalls) {
@@ -233,8 +233,8 @@ TEST_F(CANTranslatorBaseTest, TranslateAccumulatesStateAcrossMultipleCalls) {
     auto result = translator_.translate(frame2);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 50.0, 0.5);
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 30.0, 1.0);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 50.0, 0.5);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 30.0, 1.0);
 }
 
 // ================================================

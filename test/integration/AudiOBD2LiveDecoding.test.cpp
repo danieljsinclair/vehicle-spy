@@ -37,7 +37,7 @@ TEST_F(AudiOBD2LiveDecodingTest, SpeedPID_0x0D_DecodesCorrectly) {
     auto result = parseAndTranslate(asciiResponse);
 
     ASSERT_TRUE(result.has_value()) << "Failed to decode speed PID response";
-    EXPECT_NEAR(result->getSpeedKmh(), 100.0, 0.1);
+    EXPECT_NEAR(result->getSpeedKmh().value(), 100.0, 0.1);
 }
 
 TEST_F(AudiOBD2LiveDecodingTest, SpeedPID_0x0D_VariousValues) {
@@ -46,17 +46,17 @@ TEST_F(AudiOBD2LiveDecodingTest, SpeedPID_0x0D_VariousValues) {
     // Test 0 km/h
     auto result0 = parseAndTranslate("41 0D 00\r>");
     ASSERT_TRUE(result0.has_value());
-    EXPECT_NEAR(result0->getSpeedKmh(), 0.0, 0.1);
+    EXPECT_NEAR(result0->getSpeedKmh().value(), 0.0, 0.1);
 
     // Test 50 km/h
     auto result50 = parseAndTranslate("41 0D 32\r>");
     ASSERT_TRUE(result50.has_value());
-    EXPECT_NEAR(result50->getSpeedKmh(), 50.0, 0.1);
+    EXPECT_NEAR(result50->getSpeedKmh().value(), 50.0, 0.1);
 
     // Test 200 km/h (maximum for single byte)
     auto result200 = parseAndTranslate("41 0D C8\r>");
     ASSERT_TRUE(result200.has_value());
-    EXPECT_NEAR(result200->getSpeedKmh(), 200.0, 0.1);
+    EXPECT_NEAR(result200->getSpeedKmh().value(), 200.0, 0.1);
 }
 
 // ================================================
@@ -110,7 +110,7 @@ TEST_F(AudiOBD2LiveDecodingTest, ThrottlePID_0x11_DecodesCorrectly) {
     auto result = parseAndTranslate(asciiResponse);
 
     ASSERT_TRUE(result.has_value()) << "Failed to decode throttle PID response";
-    EXPECT_NEAR(result->getThrottlePercent(), 49.8, 0.1);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 49.8, 0.1);
 }
 
 TEST_F(AudiOBD2LiveDecodingTest, ThrottlePID_0x11_VariousValues) {
@@ -119,17 +119,17 @@ TEST_F(AudiOBD2LiveDecodingTest, ThrottlePID_0x11_VariousValues) {
     // Test 0% throttle
     auto result0 = parseAndTranslate("41 11 00\r>");
     ASSERT_TRUE(result0.has_value());
-    EXPECT_NEAR(result0->getThrottlePercent(), 0.0, 0.1);
+    EXPECT_NEAR(result0->getThrottlePercent().value(), 0.0, 0.1);
 
     // Test 50% throttle: raw = 127.5, so 127 gives ~49.8%, 128 gives ~50.2%
     auto result50 = parseAndTranslate("41 11 80\r>");
     ASSERT_TRUE(result50.has_value());
-    EXPECT_NEAR(result50->getThrottlePercent(), 50.2, 0.1);
+    EXPECT_NEAR(result50->getThrottlePercent().value(), 50.2, 0.1);
 
     // Test 100% throttle
     auto result100 = parseAndTranslate("41 11 FF\r>");
     ASSERT_TRUE(result100.has_value());
-    EXPECT_NEAR(result100->getThrottlePercent(), 100.0, 0.1);
+    EXPECT_NEAR(result100->getThrottlePercent().value(), 100.0, 0.1);
 }
 
 // ================================================
@@ -181,7 +181,7 @@ TEST_F(AudiOBD2LiveDecodingTest, EngineLoadPID_0x04_DecodesCorrectly) {
     auto result = parseAndTranslate(asciiResponse);
 
     ASSERT_TRUE(result.has_value()) << "Failed to decode engine load PID response";
-    EXPECT_NEAR(result->getAccelerationG(), 1.0, 0.01);
+    EXPECT_NEAR(result->getAccelerationG().value(), 1.0, 0.01);
 }
 
 TEST_F(AudiOBD2LiveDecodingTest, EngineLoadPID_0x04_VariousValues) {
@@ -190,13 +190,13 @@ TEST_F(AudiOBD2LiveDecodingTest, EngineLoadPID_0x04_VariousValues) {
     // Test 0% load: accelerationG = -1.0
     auto result0 = parseAndTranslate("41 04 00\r>");
     ASSERT_TRUE(result0.has_value());
-    EXPECT_NEAR(result0->getAccelerationG(), -1.0, 0.01);
+    EXPECT_NEAR(result0->getAccelerationG().value(), -1.0, 0.01);
 
     // Test 50% load: accelerationG = 0.0
     // raw 50% = 127.5, so 128 gives 50.2%, accelerationG ≈ 0.004
     auto result50 = parseAndTranslate("41 04 80\r>");
     ASSERT_TRUE(result50.has_value());
-    EXPECT_NEAR(result50->getAccelerationG(), 0.004, 0.01);
+    EXPECT_NEAR(result50->getAccelerationG().value(), 0.004, 0.01);
 }
 
 // ================================================
@@ -209,20 +209,20 @@ TEST_F(AudiOBD2LiveDecodingTest, MultiPID_AccumulationAcrossMultiplePIDs) {
     // Feed Speed PID 0x0D: 100 km/h
     auto resultSpeed = parseAndTranslate("41 0D 64\r>");
     ASSERT_TRUE(resultSpeed.has_value());
-    EXPECT_NEAR(resultSpeed->getSpeedKmh(), 100.0, 0.1);
+    EXPECT_NEAR(resultSpeed->getSpeedKmh().value(), 100.0, 0.1);
 
     // Feed Throttle PID 0x11: 50% throttle - speed should persist
     auto resultThrottle = parseAndTranslate("41 11 80\r>");
     ASSERT_TRUE(resultThrottle.has_value());
-    EXPECT_NEAR(resultThrottle->getThrottlePercent(), 50.2, 0.1);
-    EXPECT_NEAR(resultThrottle->getSpeedKmh(), 100.0, 0.1) << "Speed should persist";
+    EXPECT_NEAR(resultThrottle->getThrottlePercent().value(), 50.2, 0.1);
+    EXPECT_NEAR(resultThrottle->getSpeedKmh().value(), 100.0, 0.1) << "Speed should persist";
 
     // Feed RPM PID 0x0C: 3000 RPM - throttle and speed should persist
     // Note: RPM is not mapped to any VehicleSignal field in current implementation
     auto resultRPM = parseAndTranslate("41 0C 2E E0\r>");
     ASSERT_TRUE(resultRPM.has_value());
-    EXPECT_NEAR(resultRPM->getSpeedKmh(), 100.0, 0.1) << "Speed should persist";
-    EXPECT_NEAR(resultRPM->getThrottlePercent(), 50.2, 0.1) << "Throttle should persist";
+    EXPECT_NEAR(resultRPM->getSpeedKmh().value(), 100.0, 0.1) << "Speed should persist";
+    EXPECT_NEAR(resultRPM->getThrottlePercent().value(), 50.2, 0.1) << "Throttle should persist";
 }
 
 // ================================================
@@ -289,7 +289,7 @@ BO_ 256 ESP_01: 8 ESP
     auto result = service.processFrame(frame256);
 
     ASSERT_TRUE(result.has_value()) << "Failed to decode Audi CAN 256 frame";
-    EXPECT_NEAR(result->getSpeedKmh(), 100.0, 0.01);
+    EXPECT_NEAR(result->getSpeedKmh().value(), 100.0, 0.01);
 }
 
 // Brake pressure tested in AudiCAN_ESP_Bremsdruck_DecodesCorrectly below
@@ -356,7 +356,7 @@ BO_ 256 ESP_01: 8 ESP
     auto result = service.processFrame(frame256);
 
     ASSERT_TRUE(result.has_value()) << "Failed to decode Audi CAN 256 brake frame";
-    EXPECT_NEAR(result->getBrakePercent(), 50.0, 0.1);
+    EXPECT_NEAR(result->getBrakePercent().value(), 50.0, 0.1);
 }
 
 TEST_F(AudiOBD2LiveDecodingTest, AudiCAN_CombinedSpeedAndBrake) {
@@ -420,8 +420,8 @@ BO_ 256 ESP_01: 8 ESP
     auto result = service.processFrame(frame256);
 
     ASSERT_TRUE(result.has_value()) << "Failed to decode combined Audi CAN frame";
-    EXPECT_NEAR(result->getSpeedKmh(), 100.0, 0.01);
-    EXPECT_NEAR(result->getBrakePercent(), 50.0, 0.1);
+    EXPECT_NEAR(result->getSpeedKmh().value(), 100.0, 0.01);
+    EXPECT_NEAR(result->getBrakePercent().value(), 50.0, 0.1);
 }
 
 // ================================================
@@ -446,12 +446,12 @@ TEST_F(AudiOBD2LiveDecodingTest, EdgeCase_UnrecognizedPIDReturnsSignalWithPersis
     // First set a known value
     auto resultSpeed = parseAndTranslate("41 0D 64\r>");
     ASSERT_TRUE(resultSpeed.has_value());
-    EXPECT_NEAR(resultSpeed->getSpeedKmh(), 100.0, 0.1);
+    EXPECT_NEAR(resultSpeed->getSpeedKmh().value(), 100.0, 0.1);
 
     // Then query an unrecognized PID (0x01 - Monitor status)
     auto resultUnknown = parseAndTranslate("41 01 00\r>");
     ASSERT_TRUE(resultUnknown.has_value()) << "Should still return signal for unknown PID";
-    EXPECT_NEAR(resultUnknown->getSpeedKmh(), 100.0, 0.1) << "Speed should persist";
+    EXPECT_NEAR(resultUnknown->getSpeedKmh().value(), 100.0, 0.1) << "Speed should persist";
 }
 
 TEST_F(AudiOBD2LiveDecodingTest, EdgeCase_SwitchingProtocols) {
@@ -462,7 +462,7 @@ TEST_F(AudiOBD2LiveDecodingTest, EdgeCase_SwitchingProtocols) {
     // Parse OBD2 speed response
     auto resultOBD2 = parseAndTranslate("41 0D 64\r>");
     ASSERT_TRUE(resultOBD2.has_value());
-    EXPECT_NEAR(resultOBD2->getSpeedKmh(), 100.0, 0.1);
+    EXPECT_NEAR(resultOBD2->getSpeedKmh().value(), 100.0, 0.1);
 
     // Switch to CAN protocol
     VehicleConfig audiConfig(
@@ -521,5 +521,5 @@ BO_ 256 ESP_01: 8 ESP
     };
     auto resultCAN = service.processFrame(frame256);
     ASSERT_TRUE(resultCAN.has_value());
-    EXPECT_NEAR(resultCAN->getSpeedKmh(), 20.0, 0.01);
+    EXPECT_NEAR(resultCAN->getSpeedKmh().value(), 20.0, 0.01);
 }

@@ -11,7 +11,11 @@
 #include "vehicle-sim/presentation/VehicleSignalFormatter.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
+#include "vehicle-sim/domain/EventDispatcher.h"
+#include "vehicle-sim/telemetry/TraceLogger.h"
+#include "vehicle-sim/telemetry/RawTraceLogger.h"
 #include "vehicle-sim/boundary/OBD2Protocol.h"
+#include "vehicle-sim/domain/DemoSignalProvider.h"
 
 namespace {
     std::atomic<bool> g_running(true);
@@ -37,6 +41,64 @@ namespace {
     // Minimum raw data length to log as hex.
     constexpr std::size_t RAW_DATA_LOG_MIN_LENGTH = 3;
 
+    /**
+     * Telemetry pipeline setup - DRY helper for common logging infrastructure
+     *
+     * Encapsulates the repeated pattern of:
+     * - Creating EventDispatcher
+     * - Optionally setting up CSV logger
+     * - Optionally setting up raw logger
+     * - Registering console output consumer
+     */
+    struct TelemetryPipeline {
+        vehicle_sim::domain::EventDispatcher dispatcher;
+        std::unique_ptr<vehicle_sim::telemetry::TraceLogger> csvLogger;
+        std::unique_ptr<vehicle_sim::telemetry::RawTraceLogger> rawLogger;
+        int dispatchCount_ = 0;
+
+        /**
+         * Setup telemetry logging infrastructure
+         *
+         * @param logCsvPath Path for CSV log (empty to disable)
+         * @param logRawPath Path for raw hex log (empty to disable)
+         * @param outStream Output stream for console display
+         * @return true if setup succeeded, false on error
+         */
+        bool setup(const std::string& logCsvPath,
+                   const std::string& logRawPath,
+                   std::ostream& outStream) {
+            using namespace vehicle_sim;
+
+            // Setup CSV logging if requested
+            if (!logCsvPath.empty()) {
+                csvLogger = std::make_unique<telemetry::TraceLogger>(logCsvPath);
+                if (!csvLogger->isValid()) {
+                    std::cerr << "Failed to open CSV log file: " << logCsvPath << "\n";
+                    return false;
+                }
+                dispatcher.registerConsumer([this](const domain::VehicleSignal& signal) {
+                    (*csvLogger)(signal);
+                });
+            }
+
+            // Setup raw logging if requested
+            if (!logRawPath.empty()) {
+                rawLogger = std::make_unique<telemetry::RawTraceLogger>(logRawPath);
+                if (!rawLogger->isValid()) {
+                    std::cerr << "Failed to open raw log file: " << logRawPath << "\n";
+                    return false;
+                }
+            }
+
+            // Always register console output
+            dispatcher.registerConsumer([this, &outStream](const domain::VehicleSignal& signal) {
+                presentation::printTelemetryRow(outStream, signal, ++dispatchCount_);
+            });
+
+            return true;
+        }
+    };
+
     void signalHandler(int signal) {
         std::cout << "\nReceived signal " << signal << ", shutting down..." << std::endl;
         g_running = false;
@@ -45,7 +107,9 @@ namespace {
     int runSimulation(
         const std::string& vehicleType,
         const vehicle_sim::domain::VehicleConfig* activeConfig,
-        int updateIntervalMs
+        int updateIntervalMs,
+        const std::string& logCsvPath,
+        const std::string& logRawPath
     ) {
         using namespace vehicle_sim;
 
@@ -54,6 +118,11 @@ namespace {
 
         if (activeConfig) {
             presentation::printTelemetryHeader(std::cout, *activeConfig);
+        }
+
+        TelemetryPipeline pipeline;
+        if (!pipeline.setup(logCsvPath, logRawPath, std::cout)) {
+            return 1;
         }
 
         VehicleSimulator sim;
@@ -70,7 +139,16 @@ namespace {
 
             if (elapsed >= interval) {
                 sim.update();
-                presentation::printTelemetryRow(std::cout, sim.getLatestSignal(), ++signalCount);
+                auto signal = sim.getLatestSignal();
+                ++signalCount;
+
+                if (pipeline.rawLogger) {
+                    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now.time_since_epoch()).count();
+                    pipeline.rawLogger->write(timestamp, {0});
+                }
+
+                pipeline.dispatcher.dispatch(signal);
                 lastTime = now;
             }
 
@@ -80,6 +158,49 @@ namespace {
         sim.stop();
         std::cout << "\n\nSimulation ended. Total signals generated: " << signalCount << "\n";
         std::cout << "Goodbye!\n";
+        return 0;
+    }
+
+    int runConnectDemo(
+        const std::string& vehicleType,
+        const vehicle_sim::domain::VehicleConfig* activeConfig,
+        int updateIntervalMs,
+        const std::string& logCsvPath,
+        const std::string& logRawPath
+    ) {
+        using namespace vehicle_sim;
+
+        std::cout << "\nStarting " << vehicleType << " demo telemetry\n";
+        std::cout << "Press Ctrl+C to stop\n\n";
+
+        if (activeConfig) {
+            presentation::printTelemetryHeader(std::cout, *activeConfig);
+        }
+
+        TelemetryPipeline pipeline;
+        if (!pipeline.setup(logCsvPath, logRawPath, std::cout)) {
+            return 1;
+        }
+
+        domain::DemoSignalProvider demoProvider(updateIntervalMs);
+        demoProvider.start([&](const domain::VehicleSignal& signal) {
+            auto now = std::chrono::steady_clock::now();
+            auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()).count();
+
+            if (pipeline.rawLogger) {
+                pipeline.rawLogger->write(timestamp, {0});
+            }
+
+            pipeline.dispatcher.dispatch(signal);
+        });
+
+        while (g_running) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(SPIN_SLEEP_MS));
+        }
+
+        demoProvider.stop();
+        std::cout << "\n\nDemo ended. Goodbye!\n";
         return 0;
     }
 
@@ -113,7 +234,9 @@ namespace {
         const std::string& address,
         const vehicle_sim::domain::VehicleConfig* activeConfig,
         int updateIntervalMs,
-        vehicle_sim::domain::VehicleProtocol protocol
+        vehicle_sim::domain::VehicleProtocol protocol,
+        const std::string& logCsvPath,
+        const std::string& logRawPath
     ) {
         using namespace vehicle_sim;
 
@@ -124,8 +247,19 @@ namespace {
 
         const char* protocolLabel = (protocol == domain::VehicleProtocol::CAN) ? "CAN" : "OBD2";
 
+        TelemetryPipeline pipeline;
+        if (!pipeline.setup(logCsvPath, logRawPath, std::cout)) {
+            return 1;
+        }
+
         bleManager.onDataReceived([&](const std::vector<std::uint8_t>& data) {
             dataReceived = true;
+
+            if (pipeline.rawLogger) {
+                auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                pipeline.rawLogger->write(timestamp, data);
+            }
 
             if (data.size() >= RAW_DATA_LOG_MIN_LENGTH) {
                 std::cout << "[" << protocolLabel << "] Raw response: ";
@@ -137,7 +271,8 @@ namespace {
 
             auto signal = translationService.processFrame(data);
             if (signal) {
-                presentation::printTelemetryRow(std::cout, *signal, ++signalCount);
+                pipeline.dispatcher.dispatch(*signal);
+                ++signalCount;
             }
         });
 
@@ -281,23 +416,30 @@ int main(int argc, char* argv[]) {
         ? vehicle_sim::cli::DEFAULT_VEHICLE_TYPE
         : opts.vehicle_type;
 
-    // Determine protocol based on vehicle type
-    // tesla_model3 and audi_mlb_evo use CAN (DBC decoding), generic uses OBD2
-    vehicle_sim::domain::VehicleProtocol protocol = vehicle_sim::domain::VehicleProtocol::OBD2;
-    if (vehicleType == "tesla_model3" || vehicleType == "audi_mlb_evo") {
-        protocol = vehicle_sim::domain::VehicleProtocol::CAN;
+    // Get the vehicle config to determine protocol (OCP: no hard-coded type checking)
+    const auto* activeConfig = translationService.registry().getConfig(vehicleType);
+    if (!activeConfig) {
+        std::cerr << "Vehicle config not found: " << vehicleType << "\n";
+        return 1;
     }
+
+    // Determine protocol from config (not from hard-coded vehicle type names)
+    vehicle_sim::domain::VehicleProtocol protocol = activeConfig->isCANProtocol
+        ? vehicle_sim::domain::VehicleProtocol::CAN
+        : vehicle_sim::domain::VehicleProtocol::OBD2;
 
     if (!translationService.loadVehicle(vehicleType, protocol)) {
         std::cerr << "Failed to load vehicle config: " << vehicleType << "\n";
         return 1;
     }
-
-    const auto* activeConfig = translationService.registry().getConfig(vehicleType);
     auto bleManager = std::make_unique<vehicle_sim::BLEManager>();
 
     if (opts.simulate_mode) {
-        return runSimulation(vehicleType, activeConfig, opts.update_interval_ms);
+        return runSimulation(vehicleType, activeConfig, opts.update_interval_ms, opts.log_csv, opts.log_raw);
+    }
+
+    if (opts.connect_demo) {
+        return runConnectDemo(vehicleType, activeConfig, opts.update_interval_ms, opts.log_csv, opts.log_raw);
     }
 
     if (opts.scan_mode) {
@@ -305,7 +447,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (opts.connect_mode) {
-        return runConnect(*bleManager, translationService, opts.connect_address, activeConfig, opts.update_interval_ms, protocol);
+        return runConnect(*bleManager, translationService, opts.connect_address, activeConfig, opts.update_interval_ms, protocol, opts.log_csv, opts.log_raw);
     }
 
     vehicle_sim::cli::printHelp(std::cout, translationService.registry());

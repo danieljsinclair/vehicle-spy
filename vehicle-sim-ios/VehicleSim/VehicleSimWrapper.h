@@ -48,26 +48,29 @@ NS_ASSUME_NONNULL_BEGIN
 
 // MARK: - Signal Values
 
-/// Latest throttle percent (0.0 - 100.0)
-@property (nonatomic, readonly) double throttlePercent;
+/// Latest throttle percent (0.0 - 100.0), nil when no data
+@property (nonatomic, readonly, nullable) NSNumber *throttlePercent;
 
-/// Latest speed in km/h (0.0 - 300.0)
-@property (nonatomic, readonly) double speedKmh;
+/// Latest speed in km/h (0.0 - 300.0), nil when no data
+@property (nonatomic, readonly, nullable) NSNumber *speedKmh;
 
-/// Latest acceleration in G (-5.0 to +5.0)
-@property (nonatomic, readonly) double accelerationG;
+/// Latest acceleration in G (-5.0 to +5.0), nil when no data
+@property (nonatomic, readonly, nullable) NSNumber *accelerationG;
 
-/// Latest brake percent (0.0 - 100.0)
-@property (nonatomic, readonly) double brakePercent;
+/// Latest brake percent (0.0 - 100.0), nil when no data
+@property (nonatomic, readonly, nullable) NSNumber *brakePercent;
 
-/// Latest motor RPM (0.0 - 20000.0)
-@property (nonatomic, readonly) double motorRpm;
+/// Latest motor RPM (0.0 - 20000.0), nil when no data
+@property (nonatomic, readonly, nullable) NSNumber *motorRpm;
 
-/// Latest motor torque in Nm (-7500.0 to +7500.0)
-@property (nonatomic, readonly) double motorTorqueNm;
+/// Latest motor torque in Nm (-7500.0 to +7500.0), nil when no data
+@property (nonatomic, readonly, nullable) NSNumber *motorTorqueNm;
 
-/// Latest steering angle in degrees (-819.2 to +819.2)
-@property (nonatomic, readonly) double steeringAngleDeg;
+/// Latest gear selector ("P", "R", "N", "D", "S"), nil when no data
+@property (nonatomic, readonly, nullable) NSString *gearSelector;
+
+/// Latest steering angle in degrees (-819.2 to +819.2), nil when no data
+@property (nonatomic, readonly, nullable) NSNumber *steeringAngleDeg;
 
 // MARK: - State
 
