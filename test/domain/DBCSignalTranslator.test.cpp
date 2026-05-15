@@ -53,7 +53,7 @@ TEST_F(DBCSignalTranslatorTest, SingleCANFrameProducesSignal) {
     auto result = translator_->translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->getMotorRpm(), 2500.0);
+    EXPECT_EQ(result->getMotorRpm().value(), 2500.0);
     EXPECT_GT(result->getTimestampUtcMs(), 0);
 }
 
@@ -81,17 +81,17 @@ TEST_F(DBCSignalTranslatorTest, MultipleCANFramesAccumulateState) {
 
     auto result1 = translator_->translate(frame1);
     ASSERT_TRUE(result1.has_value());
-    EXPECT_EQ(result1->getMotorRpm(), 2500.0);
+    EXPECT_EQ(result1->getMotorRpm().value(), 2500.0);
 
     auto result2 = translator_->translate(frame2);
     ASSERT_TRUE(result2.has_value());
-    EXPECT_EQ(result2->getMotorRpm(), 2500.0);
-    EXPECT_NEAR(result2->getThrottlePercent(), 1.2, 0.01);
+    EXPECT_EQ(result2->getMotorRpm().value(), 2500.0);
+    EXPECT_NEAR(result2->getThrottlePercent().value(), 1.2, 0.01);
 
     auto result3 = translator_->translate(frame3);
     ASSERT_TRUE(result3.has_value());
-    EXPECT_EQ(result3->getMotorRpm(), 2000.0);
-    EXPECT_NEAR(result3->getThrottlePercent(), 1.2, 0.01);
+    EXPECT_EQ(result3->getMotorRpm().value(), 2000.0);
+    EXPECT_NEAR(result3->getThrottlePercent().value(), 1.2, 0.01);
 }
 
 TEST_F(DBCSignalTranslatorTest, UnknownCANIdIgnored) {
@@ -112,7 +112,7 @@ TEST_F(DBCSignalTranslatorTest, UnknownCANIdIgnored) {
 
     auto result2 = translator_->translate(frame2);
     ASSERT_TRUE(result2.has_value());
-    EXPECT_EQ(result2->getMotorRpm(), 2500.0);
+    EXPECT_EQ(result2->getMotorRpm().value(), 2500.0);
 }
 
 TEST_F(DBCSignalTranslatorTest, FrameTooShortReturnsNullopt) {
@@ -139,11 +139,11 @@ TEST_F(DBCSignalTranslatorTest, RepeatedFrameOverwritesState) {
 
     auto result1 = translator_->translate(frame1);
     ASSERT_TRUE(result1.has_value());
-    EXPECT_EQ(result1->getMotorRpm(), 2500.0);
+    EXPECT_EQ(result1->getMotorRpm().value(), 2500.0);
 
     auto result2 = translator_->translate(frame2);
     ASSERT_TRUE(result2.has_value());
-    EXPECT_EQ(result2->getMotorRpm(), 1000.0);
+    EXPECT_EQ(result2->getMotorRpm().value(), 1000.0);
 }
 
 TEST_F(DBCSignalTranslatorTest, IsValidPacket_BasicValidation) {
@@ -185,6 +185,6 @@ TEST_F(DBCSignalTranslatorTest, ResetClearsAccumulatedState) {
     auto result = translator_->translate(frame2);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->getMotorRpm(), 0.0);  // Reset cleared previous state
-    EXPECT_NEAR(result->getThrottlePercent(), 1.2, 0.01);
+    EXPECT_FALSE(result->getMotorRpm().has_value());  // Reset cleared previous state
+    EXPECT_NEAR(result->getThrottlePercent().value(), 1.2, 0.01);
 }

@@ -126,14 +126,14 @@ std::string getEmbeddedDBC(const std::string& vehicleType) {
     std::unique_ptr<DBCTranslationService> _translationService;
 
     // Thread-safe signal values (updated from BLE callback)
-    std::atomic<double> _throttlePercent;
-    std::atomic<double> _speedKmh;
-    std::atomic<double> _accelerationG;
-    std::atomic<double> _brakePercent;
-    std::atomic<double> _motorRpm;
-    std::atomic<double> _motorTorqueNm;
-    std::string _gearSelector;  // Protected by _mutex
-    std::atomic<double> _steeringAngleDeg;
+    std::optional<double> _throttlePercent;  // Protected by _mutex
+    std::optional<double> _speedKmh;
+    std::optional<double> _accelerationG;
+    std::optional<double> _brakePercent;
+    std::optional<double> _motorRpm;
+    std::optional<double> _motorTorqueNm;
+    std::optional<std::string> _gearSelector;
+    std::optional<double> _steeringAngleDeg;
 
     // State
     std::atomic<bool> _isDemoMode;
@@ -164,15 +164,15 @@ std::string getEmbeddedDBC(const std::string& vehicleType) {
         // Register default vehicle configs
         DefaultVehicleConfigs::registerAll(_translationService->registry());
 
-        // Initialize atomic values
-        _throttlePercent.store(0.0);
-        _speedKmh.store(0.0);
-        _accelerationG.store(0.0);
-        _brakePercent.store(0.0);
-        _motorRpm.store(0.0);
-        _motorTorqueNm.store(0.0);
-        _gearSelector = "";
-        _steeringAngleDeg.store(0.0);
+        // Initialize signal values
+        _throttlePercent = std::nullopt;
+        _speedKmh = std::nullopt;
+        _accelerationG = std::nullopt;
+        _brakePercent = std::nullopt;
+        _motorRpm = std::nullopt;
+        _motorTorqueNm = std::nullopt;
+        _gearSelector = std::nullopt;
+        _steeringAngleDeg = std::nullopt;
 
         _isDemoMode.store(false);
         _isConnected.store(false);
@@ -297,17 +297,16 @@ std::string getEmbeddedDBC(const std::string& vehicleType) {
     _bleManager->onDataReceived([self](const std::vector<uint8_t>& data) {
         auto signal = self->_translationService->processFrame(data);
         if (signal) {
-            // Update atomic values (thread-safe)
-            self->_throttlePercent.store(signal->getThrottlePercent());
-            self->_speedKmh.store(signal->getSpeedKmh());
-            self->_accelerationG.store(signal->getAccelerationG());
-            self->_brakePercent.store(signal->getBrakePercent());
-            self->_motorRpm.store(signal->getMotorRpm());
-            self->_motorTorqueNm.store(signal->getMotorTorqueNm());
-            self->_steeringAngleDeg.store(signal->getSteeringAngleDeg());
-            // Update gearSelector with mutex protection
+            // Update signal values (thread-safe via mutex)
             {
                 std::lock_guard<std::mutex> lock(self->_mutex);
+                self->_throttlePercent = signal->getThrottlePercent();
+                self->_speedKmh = signal->getSpeedKmh();
+                self->_accelerationG = signal->getAccelerationG();
+                self->_brakePercent = signal->getBrakePercent();
+                self->_motorRpm = signal->getMotorRpm();
+                self->_motorTorqueNm = signal->getMotorTorqueNm();
+                self->_steeringAngleDeg = signal->getSteeringAngleDeg();
                 self->_gearSelector = signal->getGearSelector();
             }
         }
@@ -342,66 +341,76 @@ std::string getEmbeddedDBC(const std::string& vehicleType) {
 
 // MARK: - Signal Values
 
-- (double)throttlePercent {
+- (NSNumber *)throttlePercent {
     if (_isDemoMode.load()) {
-        return _simulator->getLatestSignal().getThrottlePercent();
+        const auto& val = _simulator->getLatestSignal().getThrottlePercent();
+        return val.has_value() ? @(val.value()) : nil;
     }
-    return _throttlePercent.load();
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _throttlePercent.has_value() ? @(_throttlePercent.value()) : nil;
 }
 
-- (double)speedKmh {
+- (NSNumber *)speedKmh {
     if (_isDemoMode.load()) {
-        return _simulator->getLatestSignal().getSpeedKmh();
+        const auto& val = _simulator->getLatestSignal().getSpeedKmh();
+        return val.has_value() ? @(val.value()) : nil;
     }
-    return _speedKmh.load();
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _speedKmh.has_value() ? @(_speedKmh.value()) : nil;
 }
 
-- (double)accelerationG {
+- (NSNumber *)accelerationG {
     if (_isDemoMode.load()) {
-        return _simulator->getLatestSignal().getAccelerationG();
+        const auto& val = _simulator->getLatestSignal().getAccelerationG();
+        return val.has_value() ? @(val.value()) : nil;
     }
-    return _accelerationG.load();
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _accelerationG.has_value() ? @(_accelerationG.value()) : nil;
 }
 
-- (double)brakePercent {
+- (NSNumber *)brakePercent {
     if (_isDemoMode.load()) {
-        return _simulator->getLatestSignal().getBrakePercent();
+        const auto& val = _simulator->getLatestSignal().getBrakePercent();
+        return val.has_value() ? @(val.value()) : nil;
     }
-    return _brakePercent.load();
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _brakePercent.has_value() ? @(_brakePercent.value()) : nil;
 }
 
-- (double)motorRpm {
+- (NSNumber *)motorRpm {
     if (_isDemoMode.load()) {
-        return _simulator->getLatestSignal().getMotorRpm();
+        const auto& val = _simulator->getLatestSignal().getMotorRpm();
+        return val.has_value() ? @(val.value()) : nil;
     }
-    return _motorRpm.load();
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _motorRpm.has_value() ? @(_motorRpm.value()) : nil;
 }
 
-- (double)motorTorqueNm {
+- (NSNumber *)motorTorqueNm {
     if (_isDemoMode.load()) {
-        return _simulator->getLatestSignal().getMotorTorqueNm();
+        const auto& val = _simulator->getLatestSignal().getMotorTorqueNm();
+        return val.has_value() ? @(val.value()) : nil;
     }
-    return _motorTorqueNm.load();
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _motorTorqueNm.has_value() ? @(_motorTorqueNm.value()) : nil;
 }
 
 - (NSString *)gearSelector {
     if (_isDemoMode.load()) {
-        const std::string& gear = _simulator->getLatestSignal().getGearSelector();
-        return [NSString stringWithUTF8String:gear.c_str()];
+        const auto& gear = _simulator->getLatestSignal().getGearSelector();
+        return gear.has_value() ? [NSString stringWithUTF8String:gear->c_str()] : nil;
     }
-    std::string gear;
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        gear = _gearSelector;
-    }
-    return [NSString stringWithUTF8String:gear.c_str()];
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _gearSelector.has_value() ? [NSString stringWithUTF8String:_gearSelector->c_str()] : nil;
 }
 
-- (double)steeringAngleDeg {
+- (NSNumber *)steeringAngleDeg {
     if (_isDemoMode.load()) {
-        return _simulator->getLatestSignal().getSteeringAngleDeg();
+        const auto& val = _simulator->getLatestSignal().getSteeringAngleDeg();
+        return val.has_value() ? @(val.value()) : nil;
     }
-    return _steeringAngleDeg.load();
+    std::lock_guard<std::mutex> lock(_mutex);
+    return _steeringAngleDeg.has_value() ? @(_steeringAngleDeg.value()) : nil;
 }
 
 // MARK: - State

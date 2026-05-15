@@ -23,24 +23,26 @@ std::string formatTelemetryHeader(const domain::VehicleConfig& config) {
 void printTelemetryRow(std::ostream& out, const domain::VehicleSignal& signal, int count) {
     out << "[" << count << "] ";
     out << "Throttle: " << std::setw(5) << std::fixed << std::setprecision(1)
-        << signal.getThrottlePercent() << "%  ";
+        << signal.getThrottlePercent().value_or(0.0) << "%  ";
     out << "Speed: " << std::setw(5) << std::fixed << std::setprecision(1)
-        << signal.getSpeedKmh() << " km/h  ";
+        << signal.getSpeedKmh().value_or(0.0) << " km/h  ";
     out << "Brake: " << std::setw(5) << std::fixed << std::setprecision(1)
-        << signal.getBrakePercent() << "%  ";
+        << signal.getBrakePercent().value_or(0.0) << "%  ";
     out << "Accel: " << std::setw(5) << std::fixed << std::setprecision(2)
-        << signal.getAccelerationG() << " G  ";
+        << signal.getAccelerationG().value_or(0.0) << " G  ";
+    out << "Gear: " << std::setw(1) << signal.getGearSelector().value_or("") << "\n";
+
+    out << "        ";
     out << "Steer: " << std::setw(6) << std::fixed << std::setprecision(1)
-        << signal.getSteeringAngleDeg() << "°  ";
+        << signal.getSteeringAngleDeg().value_or(0.0) << "°  ";
     out << "Motor: " << std::setw(5) << std::fixed << std::setprecision(0)
-        << signal.getMotorRpm() << " rpm  ";
+        << signal.getMotorRpm().value_or(0.0) << " rpm  ";
     out << "HV: " << std::setw(5) << std::fixed << std::setprecision(1)
-        << signal.getMotorHvVoltage() << "V  ";
+        << signal.getMotorHvVoltage().value_or(0.0) << "V  ";
     out << "Curr: " << std::setw(5) << std::fixed << std::setprecision(1)
-        << signal.getMotorHvCurrent() << "A  ";
+        << signal.getMotorHvCurrent().value_or(0.0) << "A  ";
     out << "Trq: " << std::setw(6) << std::fixed << std::setprecision(1)
-        << signal.getMotorTorqueNm() << " Nm  ";
-    out << "Gear: " << std::setw(1) << signal.getGearSelector() << "\n";
+        << signal.getMotorTorqueNm().value_or(0.0) << " Nm\n";
 }
 
 void printTelemetryHeader(std::ostream& out, const domain::VehicleConfig& config) {

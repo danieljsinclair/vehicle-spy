@@ -157,8 +157,8 @@ TEST(TeslaSignalParserTest, ExtractsVehicleSpeedSignal)
     };
 
     // Create VehicleSignal with expected speed
-    // throttlePercent=50.0, speedKmh=100.0, accelerationG=0.0, brakePercent=0.0, timestamp
-    VehicleSignal signal(50.0, 100.0, 0.0, 0.0, 123456789ULL);
+    // timestamp, throttlePercent=50.0, speedKmh=100.0, accelerationG=0.0, brakePercent=0.0
+    VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.0, 0.0);
 
     // When implemented, parser should extract this speed
     // For now, validate that frame structure is correct
@@ -166,7 +166,7 @@ TEST(TeslaSignalParserTest, ExtractsVehicleSpeedSignal)
         << "Speed frame should have 8 bytes of data";
     EXPECT_EQ(speedFrame.size(), 12)
         << "Speed frame should be 12 bytes total (ID + DLC + Data + Checksum)";
-    EXPECT_DOUBLE_EQ(signal.getSpeedKmh(), 100.0)
+    EXPECT_DOUBLE_EQ(signal.getSpeedKmh().value(), 100.0)
         << "Speed should be correctly converted to km/h";
 }
 
@@ -177,12 +177,12 @@ TEST(TeslaSignalParserTest, ConvertsSpeedToKilometersPerHour)
     // Raw CAN speed value (example: 0x1234 = 4660 in decimal)
     // Represents speed in appropriate units
 
-    // throttlePercent=50.0, speedKmh=100.0, accelerationG=0.0, brakePercent=0.0, timestamp
-    VehicleSignal signal(50.0, 100.0, 0.0, 0.0, 123456789ULL);
+    // timestamp, throttlePercent=50.0, speedKmh=100.0, accelerationG=0.0, brakePercent=0.0
+    VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.0, 0.0);
 
-    EXPECT_DOUBLE_EQ(signal.getSpeedKmh(), 100.0)
+    EXPECT_DOUBLE_EQ(signal.getSpeedKmh().value(), 100.0)
         << "Speed should be correctly converted to km/h";
-    EXPECT_GE(signal.getSpeedKmh(), 0.0)
+    EXPECT_GE(signal.getSpeedKmh().value(), 0.0)
         << "Speed should be non-negative";
 }
 
@@ -204,15 +204,15 @@ TEST(TeslaSignalParserTest, ExtractsBatterySOCSignal)
     };
 
     // Create VehicleSignal with expected battery state
-    // throttlePercent=0.0, speedKmh=0.0, accelerationG=0.0, brakePercent=50.0, timestamp
-    VehicleSignal signal(0.0, 0.0, 0.0, 50.0, 123456789ULL);
+    // timestamp, throttlePercent=0.0, speedKmh=0.0, accelerationG=0.0, brakePercent=50.0
+    VehicleSignal signal(123456789ULL, 0.0, 0.0, 0.0, 50.0);
 
     // Validate frame structure
     EXPECT_EQ(batteryFrame[2], 8)
         << "Battery frame should have 8 bytes of data";
-    EXPECT_DOUBLE_EQ(signal.getBrakePercent(), 50.0)
+    EXPECT_DOUBLE_EQ(signal.getBrakePercent().value(), 50.0)
         << "Brake percent should be extracted correctly";
-    EXPECT_DOUBLE_EQ(signal.getSpeedKmh(), 0.0)
+    EXPECT_DOUBLE_EQ(signal.getSpeedKmh().value(), 0.0)
         << "Speed should be 0 when not moving";
 }
 
@@ -233,14 +233,14 @@ TEST(TeslaSignalParserTest, ExtractsThrottleSignal)
         0x9C                    // Expected checksum
     };
 
-    // throttlePercent=75.0, speedKmh=0.0, accelerationG=0.0, brakePercent=0.0, timestamp
-    VehicleSignal signal(75.0, 0.0, 0.0, 0.0, 123456789ULL);
+    // timestamp, throttlePercent=75.0, speedKmh=0.0, accelerationG=0.0, brakePercent=0.0
+    VehicleSignal signal(123456789ULL, 75.0, 0.0, 0.0, 0.0);
 
-    EXPECT_DOUBLE_EQ(signal.getThrottlePercent(), 75.0)
+    EXPECT_DOUBLE_EQ(signal.getThrottlePercent().value(), 75.0)
         << "Throttle percent should be extracted correctly";
-    EXPECT_GE(signal.getThrottlePercent(), 0.0)
+    EXPECT_GE(signal.getThrottlePercent().value(), 0.0)
         << "Throttle should be non-negative";
-    EXPECT_LE(signal.getThrottlePercent(), 100.0)
+    EXPECT_LE(signal.getThrottlePercent().value(), 100.0)
         << "Throttle should not exceed 100%";
 }
 

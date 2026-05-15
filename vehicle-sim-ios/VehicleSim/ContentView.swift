@@ -224,21 +224,21 @@ struct ContentView: View {
                     ], spacing: 12) {
                         TelemetryCardView(
                             title: "Speed",
-                            value: String(format: "%.1f", viewModel.speed),
+                            value: viewModel.speed.map { String(format: "%.1f", $0) } ?? "--",
                             unit: "km/h",
                             color: .green
                         )
 
                         TelemetryCardView(
                             title: "Gear",
-                            value: viewModel.gearSelector.isEmpty ? "-" : viewModel.gearSelector,
+                            value: viewModel.gearSelector ?? "--",
                             unit: "",
                             color: .orange
                         )
 
                         TelemetryCardView(
                             title: "Throttle",
-                            value: String(format: "%.1f%%", viewModel.throttlePercent),
+                            value: viewModel.throttlePercent.map { String(format: "%.1f%%", $0) } ?? "--",
                             unit: "",
                             color: .blue
                         )
@@ -246,21 +246,21 @@ struct ContentView: View {
                         if viewModel.isTeslaSelected {
                             TelemetryCardView(
                                 title: "Motor RPM",
-                                value: String(format: "%.0f", viewModel.motorRpm),
+                                value: viewModel.motorRpm.map { String(format: "%.0f", $0) } ?? "--",
                                 unit: "rpm",
                                 color: .orange
                             )
 
                             TelemetryCardView(
                                 title: "Torque",
-                                value: String(format: "%.1f", viewModel.motorTorqueNm),
+                                value: viewModel.motorTorqueNm.map { String(format: "%.1f", $0) } ?? "--",
                                 unit: "Nm",
                                 color: .purple
                             )
 
                             TelemetryCardView(
                                 title: "Steering",
-                                value: String(format: "%.1f", viewModel.steeringAngleDeg),
+                                value: viewModel.steeringAngleDeg.map { String(format: "%.1f", $0) } ?? "--",
                                 unit: "deg",
                                 color: .cyan
                             )
@@ -268,14 +268,14 @@ struct ContentView: View {
 
                         TelemetryCardView(
                             title: "Acceleration",
-                            value: String(format: "%.2f", viewModel.acceleration),
+                            value: viewModel.acceleration.map { String(format: "%.2f", $0) } ?? "--",
                             unit: "g",
                             color: .red
                         )
 
                         TelemetryCardView(
                             title: "Brake",
-                            value: String(format: "%.1f%%", viewModel.brakePercent),
+                            value: viewModel.brakePercent.map { String(format: "%.1f%%", $0) } ?? "--",
                             unit: "",
                             color: .yellow
                         )

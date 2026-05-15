@@ -76,7 +76,7 @@ TEST_F(DemoSignalProviderTest, GeneratesNonZeroSignalsAfterStart) {
 
     EXPECT_GE(signalCount, 1);
     ASSERT_TRUE(lastSignal.has_value());
-    EXPECT_GT(lastSignal->getThrottlePercent(), 0.0);
+    EXPECT_GT(lastSignal->getThrottlePercent().value(), 0.0);
 }
 
 TEST_F(DemoSignalProviderTest, StopsGeneratingAfterStop) {
@@ -111,25 +111,25 @@ TEST_F(DemoSignalProviderTest, ProducesSignalsWithinValidVehicleSignalRanges) {
 
     ASSERT_TRUE(lastSignal.has_value());
 
-    EXPECT_GE(lastSignal->getThrottlePercent(), 0.0);
-    EXPECT_LE(lastSignal->getThrottlePercent(), 100.0);
+    EXPECT_GE(lastSignal->getThrottlePercent().value(), 0.0);
+    EXPECT_LE(lastSignal->getThrottlePercent().value(), 100.0);
 
-    EXPECT_GE(lastSignal->getSpeedKmh(), 0.0);
+    EXPECT_GE(lastSignal->getSpeedKmh().value(), 0.0);
 
-    EXPECT_GE(lastSignal->getBrakePercent(), 0.0);
-    EXPECT_LE(lastSignal->getBrakePercent(), 100.0);
+    EXPECT_GE(lastSignal->getBrakePercent().value(), 0.0);
+    EXPECT_LE(lastSignal->getBrakePercent().value(), 100.0);
 
-    EXPECT_GE(lastSignal->getMotorRpm(), 0.0);
-    EXPECT_LE(lastSignal->getMotorRpm(), 20000.0);
+    EXPECT_GE(lastSignal->getMotorRpm().value(), 0.0);
+    EXPECT_LE(lastSignal->getMotorRpm().value(), 20000.0);
 
-    EXPECT_GE(lastSignal->getMotorTorqueNm(), -7500.0);
-    EXPECT_LE(lastSignal->getMotorTorqueNm(), 7500.0);
+    EXPECT_GE(lastSignal->getMotorTorqueNm().value(), -7500.0);
+    EXPECT_LE(lastSignal->getMotorTorqueNm().value(), 7500.0);
 
-    EXPECT_GE(lastSignal->getMotorHvVoltage(), 0.0);
-    EXPECT_LE(lastSignal->getMotorHvVoltage(), 1000.0);
+    EXPECT_GE(lastSignal->getMotorHvVoltage().value(), 0.0);
+    EXPECT_LE(lastSignal->getMotorHvVoltage().value(), 1000.0);
 
-    EXPECT_GE(lastSignal->getMotorHvCurrent(), 0.0);
-    EXPECT_LE(lastSignal->getMotorHvCurrent(), 50.0);
+    EXPECT_GE(lastSignal->getMotorHvCurrent().value(), 0.0);
+    EXPECT_LE(lastSignal->getMotorHvCurrent().value(), 50.0);
 }
 
 // ================================================
@@ -190,9 +190,9 @@ TEST_F(DemoSignalProviderTest, SignalsVaryOverTimeNotIdentical) {
 
     bool allIdentical = true;
     for (size_t i = 1; i < signals.size(); ++i) {
-        if (signals[i].getSpeedKmh() != signals[0].getSpeedKmh() ||
-            signals[i].getThrottlePercent() != signals[0].getThrottlePercent() ||
-            signals[i].getMotorRpm() != signals[0].getMotorRpm()) {
+        if (signals[i].getSpeedKmh().value() != signals[0].getSpeedKmh().value() ||
+            signals[i].getThrottlePercent().value() != signals[0].getThrottlePercent().value() ||
+            signals[i].getMotorRpm().value() != signals[0].getMotorRpm().value()) {
             allIdentical = false;
             break;
         }
@@ -231,7 +231,7 @@ TEST_F(DemoSignalProviderTest, GeneratesValidGearSelectorValues) {
     std::set<std::string> gearsSeen;
 
     provider->start([&gearsSeen](const VehicleSignal& signal) {
-        gearsSeen.insert(signal.getGearSelector());
+        gearsSeen.insert(signal.getGearSelector().value());
     });
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -253,7 +253,7 @@ TEST_F(DemoSignalProviderTest, GeneratesPositiveTorqueForAcceleration) {
     std::atomic<bool> hasPositiveTorque{false};
 
     provider->start([&hasPositiveTorque](const VehicleSignal& signal) {
-        if (signal.getMotorTorqueNm() > 0) {
+        if (signal.getMotorTorqueNm().value() > 0) {
             hasPositiveTorque = true;
         }
     });
@@ -271,7 +271,7 @@ TEST_F(DemoSignalProviderTest, GeneratesNegativeTorqueForRegen) {
     std::atomic<bool> hasNegativeTorque{false};
 
     provider->start([&hasNegativeTorque](const VehicleSignal& signal) {
-        if (signal.getMotorTorqueNm() < 0) {
+        if (signal.getMotorTorqueNm().value() < 0) {
             hasNegativeTorque = true;
         }
     });

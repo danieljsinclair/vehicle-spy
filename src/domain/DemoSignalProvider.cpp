@@ -107,17 +107,17 @@ private:
         double motorHvCurrent = std::abs(motorTorqueNm) / 10.0;
 
         return VehicleSignal(
+            timestampUtcMs,
             throttlePercent,
             speedKmh,
             accelerationG,
             brakePercent,
-            timestampUtcMs,
             steeringAngleDeg,
             motorRpm,
             motorHvVoltage,
             motorHvCurrent,
             motorTorqueNm,
-            gearSelector
+            std::optional<std::string>(gearSelector)
         );
     }
 

@@ -77,7 +77,7 @@ TEST_F(DBCTranslationServiceTest, ProcessOBD2Frame_ReturnsSignal) {
     auto result = service_->processFrame(obd2Frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_EQ(result->getSpeedKmh(), 100.0);
+    EXPECT_EQ(result->getSpeedKmh().value(), 100.0);
 }
 
 TEST_F(DBCTranslationServiceTest, GetProtocol_ReturnsCorrectProtocol) {

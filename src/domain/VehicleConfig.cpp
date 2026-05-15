@@ -7,13 +7,15 @@ VehicleConfig::VehicleConfig(
     std::string vehicleName,
     std::unordered_map<std::string, std::string> signalMappings,
     std::string canBus,
-    bool isCANProtocol
+    bool isCANProtocol,
+    std::unordered_map<int, std::string> gearCodeMappings
 ) noexcept
     : dbcFilePath(std::move(dbcFilePath))
     , vehicleName(std::move(vehicleName))
     , signalMappings(std::move(signalMappings))
     , canBus(std::move(canBus))
     , isCANProtocol(isCANProtocol)
+    , gearCodeMappings(std::move(gearCodeMappings))
 {}
 
 bool VehicleConfig::operator==(
@@ -23,7 +25,8 @@ bool VehicleConfig::operator==(
         && vehicleName == other.vehicleName
         && signalMappings == other.signalMappings
         && canBus == other.canBus
-        && isCANProtocol == other.isCANProtocol;
+        && isCANProtocol == other.isCANProtocol
+        && gearCodeMappings == other.gearCodeMappings;
 }
 
 bool VehicleConfig::operator!=(

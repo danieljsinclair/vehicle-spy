@@ -54,6 +54,7 @@ namespace {
         vehicle_sim::domain::EventDispatcher dispatcher;
         std::unique_ptr<vehicle_sim::telemetry::TraceLogger> csvLogger;
         std::unique_ptr<vehicle_sim::telemetry::RawTraceLogger> rawLogger;
+        int dispatchCount_ = 0;
 
         /**
          * Setup telemetry logging infrastructure
@@ -90,9 +91,8 @@ namespace {
             }
 
             // Always register console output
-            dispatcher.registerConsumer([&outStream](const domain::VehicleSignal& signal) {
-                int counter = 0; // TODO: Add proper counter tracking if needed
-                presentation::printTelemetryRow(outStream, signal, counter);
+            dispatcher.registerConsumer([this, &outStream](const domain::VehicleSignal& signal) {
+                presentation::printTelemetryRow(outStream, signal, ++dispatchCount_);
             });
 
             return true;
@@ -272,6 +272,7 @@ namespace {
             auto signal = translationService.processFrame(data);
             if (signal) {
                 pipeline.dispatcher.dispatch(*signal);
+                ++signalCount;
             }
         });
 

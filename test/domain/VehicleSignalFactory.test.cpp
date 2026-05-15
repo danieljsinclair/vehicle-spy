@@ -49,7 +49,7 @@ TEST_F(VehicleSignalFactoryTest, BuildFromSingleCanFrameWithOneMappedSignal) {
     auto signal = factory.build(frames, 1234567890);
 
     EXPECT_EQ(signal.getTimestampUtcMs(), 1234567890);
-    EXPECT_EQ(signal.getMotorRpm(), 2500.0);
+    EXPECT_EQ(signal.getMotorRpm().value(), 2500.0);
 }
 
 TEST_F(VehicleSignalFactoryTest, BuildFromMultipleCanFramesWithMultipleSignals) {
@@ -62,12 +62,12 @@ TEST_F(VehicleSignalFactoryTest, BuildFromMultipleCanFramesWithMultipleSignals) 
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getMotorRpm(), 2500.0);
-    EXPECT_NEAR(signal.getThrottlePercent(), 1.2, 0.01);
-    EXPECT_NEAR(signal.getSteeringAngleDeg(), -614.4, 0.01);
+    EXPECT_EQ(signal.getMotorRpm().value(), 2500.0);
+    EXPECT_NEAR(signal.getThrottlePercent().value(), 1.2, 0.01);
+    EXPECT_NEAR(signal.getSteeringAngleDeg().value(), -614.4, 0.01);
 }
 
-TEST_F(VehicleSignalFactoryTest, UnmappedSignalsDefaultToZero) {
+TEST_F(VehicleSignalFactoryTest, UnmappedSignalsDefaultToNullopt) {
     VehicleSignalFactory factory(*config_, parseResult_);
 
     std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
@@ -75,14 +75,16 @@ TEST_F(VehicleSignalFactoryTest, UnmappedSignalsDefaultToZero) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getSpeedKmh(), 0.0);
-    EXPECT_EQ(signal.getAccelerationG(), 0.0);
-    EXPECT_EQ(signal.getMotorHvVoltage(), 0.0);
-    EXPECT_EQ(signal.getMotorHvCurrent(), 0.0);
-    EXPECT_EQ(signal.getMotorTorqueNm(), 0.0);
+    // speedKmh, accelerationG, motorHvVoltage, motorHvCurrent have no signal mappings
+    EXPECT_FALSE(signal.getSpeedKmh().has_value());
+    EXPECT_FALSE(signal.getAccelerationG().has_value());
+    EXPECT_FALSE(signal.getMotorHvVoltage().has_value());
+    EXPECT_FALSE(signal.getMotorHvCurrent().has_value());
+    // motorTorqueNm IS mapped (DIR_torqueActual), CAN 264 provides raw 0 -> value 0.0
+    EXPECT_TRUE(signal.getMotorTorqueNm().has_value());
 }
 
-TEST_F(VehicleSignalFactoryTest, MissingCanFramesProduceDefaultValues) {
+TEST_F(VehicleSignalFactoryTest, MissingCanFramesProduceDefaultNullopt) {
     VehicleSignalFactory factory(*config_, parseResult_);
 
     std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
@@ -90,10 +92,10 @@ TEST_F(VehicleSignalFactoryTest, MissingCanFramesProduceDefaultValues) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getMotorRpm(), 2500.0);
-    EXPECT_EQ(signal.getThrottlePercent(), 0.0);
-    EXPECT_EQ(signal.getSteeringAngleDeg(), 0.0);
-    EXPECT_EQ(signal.getBrakePercent(), 0.0);
+    EXPECT_EQ(signal.getMotorRpm().value(), 2500.0);
+    EXPECT_FALSE(signal.getThrottlePercent().has_value());
+    EXPECT_FALSE(signal.getSteeringAngleDeg().has_value());
+    EXPECT_FALSE(signal.getBrakePercent().has_value());
 }
 
 TEST_F(VehicleSignalFactoryTest, FullIntegrationRealTeslaDBCPatterns) {
@@ -106,9 +108,9 @@ TEST_F(VehicleSignalFactoryTest, FullIntegrationRealTeslaDBCPatterns) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getMotorRpm(), 2500.0);
-    EXPECT_NEAR(signal.getThrottlePercent(), 40.0, 0.01);
-    EXPECT_NEAR(signal.getSteeringAngleDeg(), -614.4, 0.01);
+    EXPECT_EQ(signal.getMotorRpm().value(), 2500.0);
+    EXPECT_NEAR(signal.getThrottlePercent().value(), 40.0, 0.01);
+    EXPECT_NEAR(signal.getSteeringAngleDeg().value(), -614.4, 0.01);
 }
 
 TEST_F(VehicleSignalFactoryTest, BuildFromEmptyFramesReturnsDefaultSignal) {
@@ -119,15 +121,15 @@ TEST_F(VehicleSignalFactoryTest, BuildFromEmptyFramesReturnsDefaultSignal) {
     auto signal = factory.build(frames, 1234567890);
 
     EXPECT_EQ(signal.getTimestampUtcMs(), 1234567890);
-    EXPECT_EQ(signal.getThrottlePercent(), 0.0);
-    EXPECT_EQ(signal.getSpeedKmh(), 0.0);
-    EXPECT_EQ(signal.getAccelerationG(), 0.0);
-    EXPECT_EQ(signal.getBrakePercent(), 0.0);
-    EXPECT_EQ(signal.getSteeringAngleDeg(), 0.0);
-    EXPECT_EQ(signal.getMotorRpm(), 0.0);
-    EXPECT_EQ(signal.getMotorHvVoltage(), 0.0);
-    EXPECT_EQ(signal.getMotorHvCurrent(), 0.0);
-    EXPECT_EQ(signal.getMotorTorqueNm(), 0.0);
+    EXPECT_FALSE(signal.getThrottlePercent().has_value());
+    EXPECT_FALSE(signal.getSpeedKmh().has_value());
+    EXPECT_FALSE(signal.getAccelerationG().has_value());
+    EXPECT_FALSE(signal.getBrakePercent().has_value());
+    EXPECT_FALSE(signal.getSteeringAngleDeg().has_value());
+    EXPECT_FALSE(signal.getMotorRpm().has_value());
+    EXPECT_FALSE(signal.getMotorHvVoltage().has_value());
+    EXPECT_FALSE(signal.getMotorHvCurrent().has_value());
+    EXPECT_FALSE(signal.getMotorTorqueNm().has_value());
 }
 
 TEST_F(VehicleSignalFactoryTest, SignalWithNegativeTorqueValue) {
@@ -138,8 +140,9 @@ TEST_F(VehicleSignalFactoryTest, SignalWithNegativeTorqueValue) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getMotorRpm(), 0.0);
-    EXPECT_EQ(signal.getMotorTorqueNm(), -2048.0);
+    // motorRpm IS mapped (DIR_axleSpeed), so it has a value from this frame
+    EXPECT_TRUE(signal.getMotorRpm().has_value());
+    EXPECT_EQ(signal.getMotorTorqueNm().value(), -2048.0);
 }
 
 TEST_F(VehicleSignalFactoryTest, GearSelectorMapsZeroToPark) {
@@ -148,7 +151,10 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsZeroToPark) {
         "Test Vehicle",
         std::unordered_map<std::string, std::string>{
             {"Transmission_Gear", "gearSelector"}
-        }
+        },
+        "",  // canBus
+        false,  // isCANProtocol
+        std::unordered_map<int, std::string>{{0, "P"}, {1, "R"}, {2, "N"}, {3, "D"}, {4, "S"}}  // gearCodeMappings
     );
 
     DBCParseResult gearParseResult;
@@ -163,7 +169,7 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsZeroToPark) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getGearSelector(), "P");
+    EXPECT_EQ(signal.getGearSelector().value(), "P");
 }
 
 TEST_F(VehicleSignalFactoryTest, GearSelectorMapsOneToReverse) {
@@ -172,7 +178,10 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsOneToReverse) {
         "Test Vehicle",
         std::unordered_map<std::string, std::string>{
             {"Transmission_Gear", "gearSelector"}
-        }
+        },
+        "",  // canBus
+        false,  // isCANProtocol
+        std::unordered_map<int, std::string>{{0, "P"}, {1, "R"}, {2, "N"}, {3, "D"}, {4, "S"}}  // gearCodeMappings
     );
 
     DBCParseResult gearParseResult;
@@ -187,7 +196,7 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsOneToReverse) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getGearSelector(), "R");
+    EXPECT_EQ(signal.getGearSelector().value(), "R");
 }
 
 TEST_F(VehicleSignalFactoryTest, GearSelectorMapsTwoToNeutral) {
@@ -196,7 +205,10 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsTwoToNeutral) {
         "Test Vehicle",
         std::unordered_map<std::string, std::string>{
             {"Transmission_Gear", "gearSelector"}
-        }
+        },
+        "",  // canBus
+        false,  // isCANProtocol
+        std::unordered_map<int, std::string>{{0, "P"}, {1, "R"}, {2, "N"}, {3, "D"}, {4, "S"}}  // gearCodeMappings
     );
 
     DBCParseResult gearParseResult;
@@ -211,7 +223,7 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsTwoToNeutral) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getGearSelector(), "N");
+    EXPECT_EQ(signal.getGearSelector().value(), "N");
 }
 
 TEST_F(VehicleSignalFactoryTest, GearSelectorMapsThreeToDrive) {
@@ -220,7 +232,10 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsThreeToDrive) {
         "Test Vehicle",
         std::unordered_map<std::string, std::string>{
             {"Transmission_Gear", "gearSelector"}
-        }
+        },
+        "",  // canBus
+        false,  // isCANProtocol
+        std::unordered_map<int, std::string>{{0, "P"}, {1, "R"}, {2, "N"}, {3, "D"}, {4, "S"}}  // gearCodeMappings
     );
 
     DBCParseResult gearParseResult;
@@ -235,7 +250,7 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsThreeToDrive) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getGearSelector(), "D");
+    EXPECT_EQ(signal.getGearSelector().value(), "D");
 }
 
 TEST_F(VehicleSignalFactoryTest, GearSelectorMapsFourToSport) {
@@ -244,7 +259,10 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsFourToSport) {
         "Test Vehicle",
         std::unordered_map<std::string, std::string>{
             {"Transmission_Gear", "gearSelector"}
-        }
+        },
+        "",  // canBus
+        false,  // isCANProtocol
+        std::unordered_map<int, std::string>{{0, "P"}, {1, "R"}, {2, "N"}, {3, "D"}, {4, "S"}}  // gearCodeMappings
     );
 
     DBCParseResult gearParseResult;
@@ -259,7 +277,7 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsFourToSport) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getGearSelector(), "S");
+    EXPECT_EQ(signal.getGearSelector().value(), "S");
 }
 
 TEST_F(VehicleSignalFactoryTest, GearSelectorMapsUnknownToEmpty) {
@@ -268,7 +286,10 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsUnknownToEmpty) {
         "Test Vehicle",
         std::unordered_map<std::string, std::string>{
             {"Transmission_Gear", "gearSelector"}
-        }
+        },
+        "",  // canBus
+        false,  // isCANProtocol
+        std::unordered_map<int, std::string>{{0, "P"}, {1, "R"}, {2, "N"}, {3, "D"}, {4, "S"}}  // gearCodeMappings
     );
 
     DBCParseResult gearParseResult;
@@ -283,10 +304,10 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorMapsUnknownToEmpty) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getGearSelector(), "");
+    EXPECT_FALSE(signal.getGearSelector().has_value());
 }
 
-TEST_F(VehicleSignalFactoryTest, GearSelectorDefaultsToEmptyWhenNotMapped) {
+TEST_F(VehicleSignalFactoryTest, GearSelectorDefaultsToNulloptWhenNotMapped) {
     VehicleSignalFactory factory(*config_, parseResult_);
 
     std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
@@ -294,5 +315,5 @@ TEST_F(VehicleSignalFactoryTest, GearSelectorDefaultsToEmptyWhenNotMapped) {
 
     auto signal = factory.build(frames, 1234567890);
 
-    EXPECT_EQ(signal.getGearSelector(), "");
+    EXPECT_FALSE(signal.getGearSelector().has_value());
 }

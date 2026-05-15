@@ -52,7 +52,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesSpeedFromCAN256) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSpeedKmh(), 80.0, 0.1);
+    EXPECT_NEAR(result->getSpeedKmh().value(), 80.0, 0.1);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesSpeedFromCAN256AtZero) {
@@ -61,7 +61,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesSpeedFromCAN256AtZero) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getSpeedKmh(), 0.0);
+    EXPECT_DOUBLE_EQ(result->getSpeedKmh().value(), 0.0);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesSpeedFromCAN256AtHighwaySpeed) {
@@ -73,7 +73,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesSpeedFromCAN256AtHighwaySpeed) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSpeedKmh(), 130.0, 0.1);
+    EXPECT_NEAR(result->getSpeedKmh().value(), 130.0, 0.1);
 }
 
 // ================================================
@@ -93,7 +93,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesLongitudinalAccelFromCAN257) {
 
     ASSERT_TRUE(result.has_value());
     // Acceleration stored in g: 2.0 m/s^2 / 9.81 ≈ 0.204 g
-    EXPECT_NEAR(result->getAccelerationG(), 0.204, 0.01);
+    EXPECT_NEAR(result->getAccelerationG().value(), 0.204, 0.01);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesLongitudinalAccelDeceleration) {
@@ -106,7 +106,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesLongitudinalAccelDeceleration) {
 
     ASSERT_TRUE(result.has_value());
     // -5.0 m/s^2 / 9.81 ≈ -0.510 g
-    EXPECT_NEAR(result->getAccelerationG(), -0.510, 0.01);
+    EXPECT_NEAR(result->getAccelerationG().value(), -0.510, 0.01);
 }
 
 // ================================================
@@ -125,7 +125,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesBrakePressureFromCAN262) {
 
     ASSERT_TRUE(result.has_value());
     // Brake pressure > 30 bar means brake is pressed
-    EXPECT_GT(result->getBrakePercent(), 0.0);
+    EXPECT_GT(result->getBrakePercent().value(), 0.0);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesBrakePressureAtRest) {
@@ -139,7 +139,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesBrakePressureAtRest) {
 
     ASSERT_TRUE(result.has_value());
     // At 0 bar brake pressure, brake should be 0%
-    EXPECT_DOUBLE_EQ(result->getBrakePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(result->getBrakePercent().value(), 0.0);
 }
 
 // ================================================
@@ -156,7 +156,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesAcceleratorPedalFromCAN280) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 60.0, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 60.0, 0.5);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesAcceleratorPedalAtZero) {
@@ -165,7 +165,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesAcceleratorPedalAtZero) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getThrottlePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(result->getThrottlePercent().value(), 0.0);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesAcceleratorPedalAtFull) {
@@ -176,7 +176,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesAcceleratorPedalAtFull) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 100.0, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 100.0, 0.5);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesBrakePedalStateFromCAN280) {
@@ -188,7 +188,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesBrakePedalStateFromCAN280) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_GT(result->getBrakePercent(), 0.0);
+    EXPECT_GT(result->getBrakePercent().value(), 0.0);
 }
 
 // ================================================
@@ -206,7 +206,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesSteeringAngleFromCAN297AtCenter) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 0.0, 0.5);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 0.0, 0.5);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesSteeringAngleFromCAN297Positive) {
@@ -219,7 +219,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesSteeringAngleFromCAN297Positive) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 180.0, 1.0);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 180.0, 1.0);
 }
 
 TEST_F(AudiMLBTranslatorTest, DecodesSteeringAngleFromCAN297Negative) {
@@ -233,7 +233,7 @@ TEST_F(AudiMLBTranslatorTest, DecodesSteeringAngleFromCAN297Negative) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), -180.0, 1.0);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), -180.0, 1.0);
 }
 
 // ================================================
@@ -270,8 +270,8 @@ TEST_F(AudiMLBTranslatorTest, AccumulatesSpeedAndThrottleAcrossFrames) {
     auto r2 = translator.translate(frameWithId(280, accelFrame));
 
     ASSERT_TRUE(r2.has_value());
-    EXPECT_NEAR(r2->getSpeedKmh(), 100.0, 0.1);
-    EXPECT_NEAR(r2->getThrottlePercent(), 50.0, 0.5);
+    EXPECT_NEAR(r2->getSpeedKmh().value(), 100.0, 0.1);
+    EXPECT_NEAR(r2->getThrottlePercent().value(), 50.0, 0.5);
 }
 
 // ================================================

@@ -54,7 +54,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesAcceleratorPedalFromCAN280) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 75.0, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 75.0, 0.5);
 }
 
 TEST_F(TeslaCANTranslatorTest, DecodesAcceleratorPedalAtZero) {
@@ -62,7 +62,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesAcceleratorPedalAtZero) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getThrottlePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(result->getThrottlePercent().value(), 0.0);
 }
 
 TEST_F(TeslaCANTranslatorTest, DecodesAcceleratorPedalAtFull) {
@@ -73,7 +73,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesAcceleratorPedalAtFull) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 100.0, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 100.0, 0.5);
 }
 
 // ================================================
@@ -86,7 +86,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesBrakePedalNotPressed) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getBrakePercent(), 0.0);
+    EXPECT_DOUBLE_EQ(result->getBrakePercent().value(), 0.0);
 }
 
 TEST_F(TeslaCANTranslatorTest, DecodesBrakePedalPressed) {
@@ -98,7 +98,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesBrakePedalPressed) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_GT(result->getBrakePercent(), 0.0);
+    EXPECT_GT(result->getBrakePercent().value(), 0.0);
 }
 
 // ================================================
@@ -115,7 +115,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesSteeringAngleFromCAN297AtCenter) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 0.0, 0.5);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 0.0, 0.5);
 }
 
 TEST_F(TeslaCANTranslatorTest, DecodesSteeringAngleFromCAN297Right) {
@@ -127,7 +127,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesSteeringAngleFromCAN297Right) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 90.0, 0.1);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 90.0, 0.1);
 }
 
 TEST_F(TeslaCANTranslatorTest, DecodesSteeringAngleFromCAN297Left) {
@@ -139,7 +139,7 @@ TEST_F(TeslaCANTranslatorTest, DecodesSteeringAngleFromCAN297Left) {
     auto result = translator.translate(frame);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), -90.0, 0.1);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), -90.0, 0.1);
 }
 
 // ================================================
@@ -178,8 +178,8 @@ TEST_F(TeslaCANTranslatorTest, AccumulatesThrottleAndSteeringAcrossFrames) {
     auto r2 = translator.translate(frameWithId(297, steerFrame));
 
     ASSERT_TRUE(r2.has_value());
-    EXPECT_NEAR(r2->getThrottlePercent(), 50.0, 0.5);
-    EXPECT_NEAR(r2->getSteeringAngleDeg(), 45.0, 1.0);
+    EXPECT_NEAR(r2->getThrottlePercent().value(), 50.0, 0.5);
+    EXPECT_NEAR(r2->getSteeringAngleDeg().value(), 45.0, 1.0);
 }
 
 // ================================================

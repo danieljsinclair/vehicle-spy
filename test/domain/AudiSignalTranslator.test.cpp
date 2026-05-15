@@ -34,7 +34,7 @@ TEST_F(AudiSignalTranslatorTest, HandlesSpeedFromStandardPID) {
     auto result = translator.translate(response);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_DOUBLE_EQ(result->getSpeedKmh(), 100.0);
+    EXPECT_DOUBLE_EQ(result->getSpeedKmh().value(), 100.0);
 }
 
 TEST_F(AudiSignalTranslatorTest, HandlesThrottleFromStandardPID) {
@@ -44,7 +44,7 @@ TEST_F(AudiSignalTranslatorTest, HandlesThrottleFromStandardPID) {
     auto result = translator.translate(response);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getThrottlePercent(), 50.2, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 50.2, 0.5);
 }
 
 // ================================================
@@ -60,7 +60,7 @@ TEST_F(AudiSignalTranslatorTest, TranslatesBatterySOC) {
     // Base class default: unknown PIDs don't update specific fields
     // Audi override: SOC updates throttle field as proxy (or we'd add a dedicated field later)
     // For now, test that it's recognized and mapped
-    EXPECT_NEAR(result->getThrottlePercent(), 85.0, 0.1);  // SOC maps to throttle field
+    EXPECT_NEAR(result->getThrottlePercent().value(), 85.0, 0.1);  // SOC maps to throttle field
 }
 
 TEST_F(AudiSignalTranslatorTest, TranslatesHighVoltage) {
@@ -71,8 +71,8 @@ TEST_F(AudiSignalTranslatorTest, TranslatesHighVoltage) {
 
     ASSERT_TRUE(result.has_value());
     // NOTE: Voltage is stored in speedKmh field as a workaround.
-    // VehicleSignal clamps speed to [0, 300], so 500V is clamped.
-    EXPECT_DOUBLE_EQ(result->getSpeedKmh(), 300.0);
+    // VehicleSignal no longer clamps; values stored as-is.
+    EXPECT_DOUBLE_EQ(result->getSpeedKmh().value(), 500.0);
 }
 
 TEST_F(AudiSignalTranslatorTest, TranslatesChargingCurrent) {
@@ -84,7 +84,7 @@ TEST_F(AudiSignalTranslatorTest, TranslatesChargingCurrent) {
     ASSERT_TRUE(result.has_value());
     // Current affects acceleration (regen braking negative current = negative acceleration)
     // Positive charging current → acceleration positive
-    EXPECT_GT(result->getAccelerationG(), 0.0);
+    EXPECT_GT(result->getAccelerationG().value(), 0.0);
 }
 
 // ================================================

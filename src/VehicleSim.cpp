@@ -65,13 +65,13 @@ public:
             ? 20.0 + 10.0 * std::sin(t * 5.0)
             : 0.0;
 
-        // Store latest signal (VehicleSignal clamps values on construction)
+        // Store latest signal
         latestSignal_ = domain::VehicleSignal(
+            nowUtcMs(),
             throttle,
             speed_,
             acceleration,
-            brake,
-            nowUtcMs()
+            brake
         );
 
         // Fire callback if set
@@ -87,10 +87,10 @@ public:
     std::string getTelemetry() const {
         std::ostringstream json;
         json << "{"
-             << "\"throttle\":" << latestSignal_.getThrottlePercent() << ","
-             << "\"speed\":" << latestSignal_.getSpeedKmh() << ","
-             << "\"acceleration\":" << latestSignal_.getAccelerationG() << ","
-             << "\"brake\":" << latestSignal_.getBrakePercent()
+             << "\"throttle\":" << latestSignal_.getThrottlePercent().value_or(0.0) << ","
+             << "\"speed\":" << latestSignal_.getSpeedKmh().value_or(0.0) << ","
+             << "\"acceleration\":" << latestSignal_.getAccelerationG().value_or(0.0) << ","
+             << "\"brake\":" << latestSignal_.getBrakePercent().value_or(0.0)
              << "}";
         return json.str();
     }
@@ -112,7 +112,7 @@ private:
     int tick_;
     double speed_;
     double lastSpeed_;
-    domain::VehicleSignal latestSignal_{0.0, 0.0, 0.0, 0.0, 0};
+    domain::VehicleSignal latestSignal_{0, std::nullopt, std::nullopt, std::nullopt, std::nullopt};
     TelemetryCallback callback_;
 };
 

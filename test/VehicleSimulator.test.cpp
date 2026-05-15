@@ -32,10 +32,10 @@ TEST(VehicleSimulatorTest, UpdateWithoutStartIsNoop)
     VehicleSimulator sim;
     sim.update();
 
-    // Should return default zero signal
+    // Should return default nullopt signal
     auto signal = sim.getLatestSignal();
-    EXPECT_DOUBLE_EQ(signal.getThrottlePercent(), 0.0);
-    EXPECT_DOUBLE_EQ(signal.getSpeedKmh(), 0.0);
+    EXPECT_FALSE(signal.getThrottlePercent().has_value());
+    EXPECT_FALSE(signal.getSpeedKmh().has_value());
 }
 
 TEST(VehicleSimulatorTest, UpdateProducesChangingSpeed)
@@ -44,13 +44,13 @@ TEST(VehicleSimulatorTest, UpdateProducesChangingSpeed)
     sim.start();
 
     sim.update();
-    double speed1 = sim.getLatestSignal().getSpeedKmh();
+    double speed1 = sim.getLatestSignal().getSpeedKmh().value_or(0.0);
 
     // Run many ticks to allow speed to change
     for (int i = 0; i < 50; ++i) {
         sim.update();
     }
-    double speed2 = sim.getLatestSignal().getSpeedKmh();
+    double speed2 = sim.getLatestSignal().getSpeedKmh().value_or(0.0);
 
     // Speed should have changed after 50 ticks
     EXPECT_NE(speed1, speed2);
@@ -64,7 +64,7 @@ TEST(VehicleSimulatorTest, UpdateProducesChangingThrottle)
     std::vector<double> throttles;
     for (int i = 0; i < 100; ++i) {
         sim.update();
-        throttles.push_back(sim.getLatestSignal().getThrottlePercent());
+        throttles.push_back(sim.getLatestSignal().getThrottlePercent().value_or(0.0));
     }
 
     // Throttle should vary (sine wave), not be constant
@@ -81,15 +81,20 @@ TEST(VehicleSimulatorTest, GetLatestSignalReturnsValidVehicleSignal)
 
     auto signal = sim.getLatestSignal();
 
-    // All values should be within VehicleSignal clamped ranges
-    EXPECT_GE(signal.getThrottlePercent(), 0.0);
-    EXPECT_LE(signal.getThrottlePercent(), 100.0);
-    EXPECT_GE(signal.getSpeedKmh(), 0.0);
-    EXPECT_LE(signal.getSpeedKmh(), 300.0);
-    EXPECT_GE(signal.getAccelerationG(), -5.0);
-    EXPECT_LE(signal.getAccelerationG(), 5.0);
-    EXPECT_GE(signal.getBrakePercent(), 0.0);
-    EXPECT_LE(signal.getBrakePercent(), 100.0);
+    // All values should be present when simulator is running
+    ASSERT_TRUE(signal.getThrottlePercent().has_value());
+    ASSERT_TRUE(signal.getSpeedKmh().has_value());
+    ASSERT_TRUE(signal.getAccelerationG().has_value());
+    ASSERT_TRUE(signal.getBrakePercent().has_value());
+
+    // Values should be reasonable ranges
+    EXPECT_GE(signal.getThrottlePercent().value(), 0.0);
+    EXPECT_LE(signal.getThrottlePercent().value(), 100.0);
+    EXPECT_GE(signal.getSpeedKmh().value(), 0.0);
+    EXPECT_GE(signal.getAccelerationG().value(), -10.0);
+    EXPECT_LE(signal.getAccelerationG().value(), 10.0);
+    EXPECT_GE(signal.getBrakePercent().value(), 0.0);
+    EXPECT_LE(signal.getBrakePercent().value(), 100.0);
     // Timestamp should be non-zero (current UTC ms)
     EXPECT_GT(signal.getTimestampUtcMs(), 0ULL);
 }

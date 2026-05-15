@@ -3,14 +3,14 @@ import Combine
 
 class VehicleViewModel: ObservableObject {
     // MARK: - Signal Values
-    @Published var throttlePercent: Double = 0.0
-    @Published var speed: Double = 0.0
-    @Published var acceleration: Double = 0.0
-    @Published var brakePercent: Double = 0.0
-    @Published var motorRpm: Double = 0.0
-    @Published var motorTorqueNm: Double = 0.0
-    @Published var gearSelector: String = ""
-    @Published var steeringAngleDeg: Double = 0.0
+    @Published var throttlePercent: Double? = nil
+    @Published var speed: Double? = nil
+    @Published var acceleration: Double? = nil
+    @Published var brakePercent: Double? = nil
+    @Published var motorRpm: Double? = nil
+    @Published var motorTorqueNm: Double? = nil
+    @Published var gearSelector: String? = nil
+    @Published var steeringAngleDeg: Double? = nil
 
     // MARK: - Connection State
     @Published var isConnected: Bool = false
@@ -145,14 +145,14 @@ class VehicleViewModel: ObservableObject {
         connectionStatus = "Disconnected"
         stopUpdates()
 
-        throttlePercent = 0.0
-        speed = 0.0
-        acceleration = 0.0
-        brakePercent = 0.0
-        motorRpm = 0.0
-        motorTorqueNm = 0.0
-        gearSelector = ""
-        steeringAngleDeg = 0.0
+        throttlePercent = nil
+        speed = nil
+        acceleration = nil
+        brakePercent = nil
+        motorRpm = nil
+        motorTorqueNm = nil
+        gearSelector = nil
+        steeringAngleDeg = nil
     }
 
     // MARK: - Vehicle Switching
@@ -204,14 +204,14 @@ class VehicleViewModel: ObservableObject {
             wrapper.updateSimulator()
         }
 
-        throttlePercent = wrapper.throttlePercent
-        speed = wrapper.speedKmh
-        acceleration = wrapper.accelerationG
-        brakePercent = wrapper.brakePercent
-        motorRpm = wrapper.motorRpm
-        motorTorqueNm = wrapper.motorTorqueNm
-        gearSelector = wrapper.gearSelector ?? ""
-        steeringAngleDeg = wrapper.steeringAngleDeg
+        throttlePercent = wrapper.throttlePercent?.doubleValue
+        speed = wrapper.speedKmh?.doubleValue
+        acceleration = wrapper.accelerationG?.doubleValue
+        brakePercent = wrapper.brakePercent?.doubleValue
+        motorRpm = wrapper.motorRpm?.doubleValue
+        motorTorqueNm = wrapper.motorTorqueNm?.doubleValue
+        gearSelector = wrapper.gearSelector
+        steeringAngleDeg = wrapper.steeringAngleDeg?.doubleValue
     }
 
     // MARK: - Helpers

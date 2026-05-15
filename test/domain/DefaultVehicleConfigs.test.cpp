@@ -108,3 +108,38 @@ TEST_F(DefaultVehicleConfigsTest, RegisterAll_AudiConfigRetrievable) {
     ASSERT_NE(config, nullptr);
     EXPECT_EQ(config->vehicleName, "Audi MLB Evo");
 }
+
+TEST_F(DefaultVehicleConfigsTest, GearCodeMappings_DefaultIsEmpty) {
+    VehicleConfig config("test.dbc", "Test", {}, "", false);
+    EXPECT_TRUE(config.gearCodeMappings.empty());
+}
+
+TEST_F(DefaultVehicleConfigsTest, GearCodeMappings_CanBeConstructed) {
+    std::unordered_map<int, std::string> gearMappings = {
+        {0, "P"},
+        {1, "R"},
+        {2, "N"},
+        {3, "D"},
+        {4, "S"}
+    };
+    VehicleConfig config("test.dbc", "Test", {}, "", false, gearMappings);
+    EXPECT_EQ(config.gearCodeMappings.size(), 5);
+    EXPECT_EQ(config.gearCodeMappings[0], "P");
+    EXPECT_EQ(config.gearCodeMappings[1], "R");
+    EXPECT_EQ(config.gearCodeMappings[2], "N");
+    EXPECT_EQ(config.gearCodeMappings[3], "D");
+    EXPECT_EQ(config.gearCodeMappings[4], "S");
+}
+
+TEST_F(DefaultVehicleConfigsTest, GearCodeMappings_EqualityIncludesMappings) {
+    std::unordered_map<int, std::string> mappings1 = {{0, "P"}, {1, "R"}};
+    std::unordered_map<int, std::string> mappings2 = {{0, "P"}, {1, "R"}};
+    std::unordered_map<int, std::string> mappings3 = {{0, "P"}, {1, "N"}};
+
+    VehicleConfig config1("test.dbc", "Test", {}, "", false, mappings1);
+    VehicleConfig config2("test.dbc", "Test", {}, "", false, mappings2);
+    VehicleConfig config3("test.dbc", "Test", {}, "", false, mappings3);
+
+    EXPECT_EQ(config1, config2);
+    EXPECT_NE(config1, config3);
+}

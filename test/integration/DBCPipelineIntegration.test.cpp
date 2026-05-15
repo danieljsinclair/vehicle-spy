@@ -73,7 +73,7 @@ TEST_F(DBCPipelineIntegrationTest, TeslaFullPipeline) {
     };
     auto result264 = translator.translate(frame264);
     ASSERT_TRUE(result264.has_value()) << "Failed to translate CAN 264 frame";
-    EXPECT_EQ(result264->getMotorRpm(), 1000.0);
+    EXPECT_EQ(result264->getMotorRpm().value(), 1000.0);
 
     // Step 6: Feed CAN 280 frame with known accelPedalPos value
     // 75.2% throttle = raw 188 (75.2 / 0.4 = 188)
@@ -85,7 +85,7 @@ TEST_F(DBCPipelineIntegrationTest, TeslaFullPipeline) {
     };
     auto result280 = translator.translate(frame280);
     ASSERT_TRUE(result280.has_value()) << "Failed to translate CAN 280 frame";
-    EXPECT_NEAR(result280->getThrottlePercent(), 75.2, 0.1);
+    EXPECT_NEAR(result280->getThrottlePercent().value(), 75.2, 0.1);
 
     // Step 7: Feed CAN 297 frame with known steering angle value
     // 0 degrees center = raw 8192 = 0x2000 (offset -819.2, scale 0.1)
@@ -97,13 +97,13 @@ TEST_F(DBCPipelineIntegrationTest, TeslaFullPipeline) {
     };
     auto result297 = translator.translate(frame297);
     ASSERT_TRUE(result297.has_value()) << "Failed to translate CAN 297 frame";
-    EXPECT_NEAR(result297->getSteeringAngleDeg(), 0.0, 0.1);
+    EXPECT_NEAR(result297->getSteeringAngleDeg().value(), 0.0, 0.1);
 
     // Step 8: Verify all three fields populated in VehicleSignal
     // After processing all three frames, the final result should have all values
-    EXPECT_EQ(result297->getMotorRpm(), 1000.0);
-    EXPECT_NEAR(result297->getThrottlePercent(), 75.2, 0.1);
-    EXPECT_NEAR(result297->getSteeringAngleDeg(), 0.0, 0.1);
+    EXPECT_EQ(result297->getMotorRpm().value(), 1000.0);
+    EXPECT_NEAR(result297->getThrottlePercent().value(), 75.2, 0.1);
+    EXPECT_NEAR(result297->getSteeringAngleDeg().value(), 0.0, 0.1);
 }
 
 // ================================================
@@ -146,7 +146,7 @@ TEST_F(DBCPipelineIntegrationTest, AudiFullPipeline) {
 
     // Step 6: Verify speedKmh populated
     ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 256 frame";
-    EXPECT_NEAR(result->getSpeedKmh(), 100.0, 0.01);
+    EXPECT_NEAR(result->getSpeedKmh().value(), 100.0, 0.01);
 }
 
 // ================================================
@@ -244,7 +244,7 @@ TEST_F(DBCPipelineIntegrationTest, UnsupportedCANIdIgnored) {
 
     auto result = translator.translate(frame);
     EXPECT_TRUE(result.has_value()) << "Translator should return signal even for unknown CAN ID";
-    EXPECT_EQ(result->getMotorRpm(), 0.0) << "Unknown CAN ID should not modify signal values";
+    EXPECT_FALSE(result->getMotorRpm().has_value()) << "Unknown CAN ID should not modify signal values";
 }
 
 // ================================================
@@ -278,7 +278,7 @@ TEST_F(DBCPipelineIntegrationTest, ResetClearsAccumulatedState) {
     };
     auto result1 = translator.translate(frame264);
     ASSERT_TRUE(result1.has_value());
-    EXPECT_EQ(result1->getMotorRpm(), 1000.0);
+    EXPECT_EQ(result1->getMotorRpm().value(), 1000.0);
 
     // Reset translator
     translator.reset();
@@ -290,8 +290,8 @@ TEST_F(DBCPipelineIntegrationTest, ResetClearsAccumulatedState) {
     };
     auto result2 = translator.translate(frame280);
     ASSERT_TRUE(result2.has_value());
-    EXPECT_EQ(result2->getMotorRpm(), 0.0) << "Reset should clear accumulated state";
-    EXPECT_NEAR(result2->getThrottlePercent(), 75.2, 0.1);
+    EXPECT_FALSE(result2->getMotorRpm().has_value()) << "Reset should clear accumulated state";
+    EXPECT_NEAR(result2->getThrottlePercent().value(), 75.2, 0.1);
 }
 
 // ================================================
@@ -310,7 +310,7 @@ TEST_F(DBCPipelineIntegrationTest, MultipleFramesAccumulateState) {
     };
     auto r1 = translator.translate(frame264);
     ASSERT_TRUE(r1.has_value());
-    EXPECT_EQ(r1->getMotorRpm(), 1000.0);
+    EXPECT_EQ(r1->getMotorRpm().value(), 1000.0);
 
     // Feed CAN 280 — sets throttlePercent, motorRpm preserved from accumulation
     std::vector<std::uint8_t> frame280 = {
@@ -319,8 +319,8 @@ TEST_F(DBCPipelineIntegrationTest, MultipleFramesAccumulateState) {
     };
     auto r2 = translator.translate(frame280);
     ASSERT_TRUE(r2.has_value());
-    EXPECT_NEAR(r2->getThrottlePercent(), 75.2, 0.1);
-    EXPECT_EQ(r2->getMotorRpm(), 1000.0) << "motorRpm should persist from frame 264";
+    EXPECT_NEAR(r2->getThrottlePercent().value(), 75.2, 0.1);
+    EXPECT_EQ(r2->getMotorRpm().value(), 1000.0) << "motorRpm should persist from frame 264";
 
     // Feed CAN 297 — sets steeringAngleDeg, all three fields present
     std::vector<std::uint8_t> frame297 = {
@@ -329,9 +329,9 @@ TEST_F(DBCPipelineIntegrationTest, MultipleFramesAccumulateState) {
     };
     auto r3 = translator.translate(frame297);
     ASSERT_TRUE(r3.has_value());
-    EXPECT_NEAR(r3->getSteeringAngleDeg(), 0.0, 0.1);
-    EXPECT_EQ(r3->getMotorRpm(), 1000.0) << "motorRpm should persist from frame 264";
-    EXPECT_NEAR(r3->getThrottlePercent(), 75.2, 0.1) << "throttle should persist from frame 280";
+    EXPECT_NEAR(r3->getSteeringAngleDeg().value(), 0.0, 0.1);
+    EXPECT_EQ(r3->getMotorRpm().value(), 1000.0) << "motorRpm should persist from frame 264";
+    EXPECT_NEAR(r3->getThrottlePercent().value(), 75.2, 0.1) << "throttle should persist from frame 280";
 }
 
 // ================================================
@@ -353,7 +353,7 @@ TEST_F(DBCPipelineIntegrationTest, NegativeSteeringAngle) {
     };
     auto result = translator.translate(frame297);
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSteeringAngleDeg(), -409.6, 0.1);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), -409.6, 0.1);
 }
 
 // ================================================
@@ -373,5 +373,5 @@ TEST_F(DBCPipelineIntegrationTest, AudiSpeedAtMaxValue) {
     };
     auto result = translator.translate(frame256);
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getSpeedKmh(), 300.0, 0.01) << "Speed should be clamped to VehicleSignal max";
+    EXPECT_NEAR(result->getSpeedKmh().value(), 655.35, 0.01) << "Speed stored as-is (no clamping)";
 }

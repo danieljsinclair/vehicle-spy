@@ -58,11 +58,17 @@ std::optional<VehicleSignal> TeslaSignalTranslator::translate(
     const std::uint64_t timestampUtcMs = 0; // Placeholder
 
     return VehicleSignal(
+        timestampUtcMs,
         throttlePercent,
         speedKmh,
         accelerationG,
         brakePercent,
-        timestampUtcMs
+        std::nullopt,  // steeringAngleDeg
+        std::nullopt,  // motorRpm
+        std::nullopt,  // motorHvVoltage
+        std::nullopt,  // motorHvCurrent
+        std::nullopt,  // motorTorqueNm
+        std::nullopt   // gearSelector
     );
 }
 

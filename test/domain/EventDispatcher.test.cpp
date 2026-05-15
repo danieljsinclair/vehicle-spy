@@ -41,7 +41,7 @@ protected:
 TEST_F(EventDispatcherTest, SingleConsumerReceivesEvents) {
     // Arrange
     std::atomic<int> callCount{0};
-    VehicleSignal receivedSignal(0.0, 0.0, 0.0, 0.0, 0);
+    VehicleSignal receivedSignal(0);
 
     auto consumer = [&](const VehicleSignal& signal) {
         callCount++;
@@ -51,14 +51,14 @@ TEST_F(EventDispatcherTest, SingleConsumerReceivesEvents) {
     auto token = dispatcher->registerConsumer(consumer);
 
     // Act
-    VehicleSignal testSignal(50.0, 100.0, 0.5, 0.0, 12345);
+    VehicleSignal testSignal(12345, 50.0, 100.0, 0.5, 0.0);
     dispatcher->dispatch(testSignal);
 
     // Assert
     EXPECT_EQ(callCount.load(), 1);
-    EXPECT_DOUBLE_EQ(receivedSignal.getThrottlePercent(), 50.0);
-    EXPECT_DOUBLE_EQ(receivedSignal.getSpeedKmh(), 100.0);
-    EXPECT_DOUBLE_EQ(receivedSignal.getAccelerationG(), 0.5);
+    EXPECT_DOUBLE_EQ(receivedSignal.getThrottlePercent().value(), 50.0);
+    EXPECT_DOUBLE_EQ(receivedSignal.getSpeedKmh().value(), 100.0);
+    EXPECT_DOUBLE_EQ(receivedSignal.getAccelerationG().value(), 0.5);
 
     dispatcher->unregisterConsumer(token);
 }
@@ -84,7 +84,7 @@ TEST_F(EventDispatcherTest, MultipleConsumersReceiveSameEvent) {
     auto token3 = dispatcher->registerConsumer(consumer3);
 
     // Act
-    VehicleSignal testSignal(75.0, 120.0, 0.8, 10.0, 67890);
+    VehicleSignal testSignal(67890, 75.0, 120.0, 0.8, 10.0);
     dispatcher->dispatch(testSignal);
 
     // Assert
@@ -114,13 +114,13 @@ TEST_F(EventDispatcherTest, UnregisteredConsumerDoesNotReceiveEvents) {
     auto token = dispatcher->registerConsumer(consumer);
 
     // Act - First dispatch
-    dispatcher->dispatch(VehicleSignal(50.0, 100.0, 0.5, 0.0, 1));
+    dispatcher->dispatch(VehicleSignal(1, 50.0, 100.0, 0.5, 0.0));
 
     // Unregister
     dispatcher->unregisterConsumer(token);
 
     // Second dispatch
-    dispatcher->dispatch(VehicleSignal(60.0, 110.0, 0.6, 0.0, 2));
+    dispatcher->dispatch(VehicleSignal(2, 60.0, 110.0, 0.6, 0.0));
 
     // Assert
     EXPECT_EQ(callCount.load(), 1); // Only received first event
@@ -150,11 +150,11 @@ TEST_F(EventDispatcherTest, ConcurrentDispatchFromMultipleThreads) {
         threads.emplace_back([this, i, dispatchesPerThread]() {
             for (int j = 0; j < dispatchesPerThread; ++j) {
                 VehicleSignal signal(
+                    static_cast<std::uint64_t>(i * 1000 + j),
                     static_cast<double>(i * 10 + j),
                     static_cast<double>(i * 20 + j),
                     0.1 * (i + j),
-                    0.0,
-                    i * 1000 + j
+                    0.0
                 );
                 dispatcher->dispatch(signal);
             }
@@ -197,7 +197,7 @@ TEST_F(EventDispatcherTest, ConcurrentRegistrationDuringDispatch) {
 
     std::thread dispatchThread([&]() {
         for (int i = 0; i < dispatchesPerRound * numConsumers; ++i) {
-            VehicleSignal signal(50.0, 100.0, 0.5, 0.0, i);
+            VehicleSignal signal(static_cast<std::uint64_t>(i), 50.0, 100.0, 0.5, 0.0);
             dispatcher->dispatch(signal);
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -238,11 +238,11 @@ TEST_F(EventDispatcherTest, ThroughputExceeds10HzRequirement) {
 
     for (int i = 0; i < numDispatches; ++i) {
         VehicleSignal signal(
+            static_cast<std::uint64_t>(i),
             static_cast<double>(i),
             static_cast<double>(i * 2),
             0.1,
-            0.0,
-            static_cast<std::uint64_t>(i)
+            0.0
         );
         dispatcher->dispatch(signal);
     }
@@ -275,14 +275,14 @@ TEST_F(EventDispatcherTest, ThroughputExceeds10HzRequirement) {
 TEST_F(EventDispatcherTest, EventDataIntegrityPreserved) {
     // Arrange
     VehicleSignal originalSignal(
+        9876543210ULL, // timestamp
         85.5,  // throttle
         145.2, // speed
         0.75,  // acceleration
-        25.0,  // brake
-        9876543210ULL // timestamp
+        25.0   // brake
     );
 
-    VehicleSignal receivedSignal(0.0, 0.0, 0.0, 0.0, 0);
+    VehicleSignal receivedSignal(0);
     std::atomic<bool> signalReceived{false};
 
     auto consumer = [&](const VehicleSignal& signal) {
@@ -300,10 +300,10 @@ TEST_F(EventDispatcherTest, EventDataIntegrityPreserved) {
 
     // Assert
     EXPECT_TRUE(signalReceived.load());
-    EXPECT_DOUBLE_EQ(receivedSignal.getThrottlePercent(), originalSignal.getThrottlePercent());
-    EXPECT_DOUBLE_EQ(receivedSignal.getSpeedKmh(), originalSignal.getSpeedKmh());
-    EXPECT_DOUBLE_EQ(receivedSignal.getAccelerationG(), originalSignal.getAccelerationG());
-    EXPECT_DOUBLE_EQ(receivedSignal.getBrakePercent(), originalSignal.getBrakePercent());
+    EXPECT_DOUBLE_EQ(receivedSignal.getThrottlePercent().value(), originalSignal.getThrottlePercent().value());
+    EXPECT_DOUBLE_EQ(receivedSignal.getSpeedKmh().value(), originalSignal.getSpeedKmh().value());
+    EXPECT_DOUBLE_EQ(receivedSignal.getAccelerationG().value(), originalSignal.getAccelerationG().value());
+    EXPECT_DOUBLE_EQ(receivedSignal.getBrakePercent().value(), originalSignal.getBrakePercent().value());
     EXPECT_EQ(receivedSignal.getTimestampUtcMs(), originalSignal.getTimestampUtcMs());
 
     dispatcher->clear();
@@ -338,11 +338,11 @@ TEST_F(EventDispatcherTest, IntegrationWithSignalCallbackPattern) {
     // Act - Simulate parser generating signals
     for (int i = 0; i < 5; ++i) {
         VehicleSignal signal(
+            static_cast<std::uint64_t>(i),
             static_cast<double>(i * 10),
             static_cast<double>(i * 20),
             0.1 * i,
-            0.0,
-            i
+            0.0
         );
         parserCallback(signal); // Parser callback feeds dispatcher
     }
@@ -368,7 +368,7 @@ TEST_F(EventDispatcherTest, NoMemoryLeaksWithRapidRegistrationUnregistration) {
     for (int i = 0; i < iterations; ++i) {
         auto consumer = [&](const VehicleSignal& signal) {};
         auto token = dispatcher->registerConsumer(consumer);
-        dispatcher->dispatch(VehicleSignal(50.0, 100.0, 0.5, 0.0, i));
+        dispatcher->dispatch(VehicleSignal(static_cast<std::uint64_t>(i), 50.0, 100.0, 0.5, 0.0));
         dispatcher->unregisterConsumer(token);
     }
 
@@ -386,7 +386,7 @@ TEST_F(EventDispatcherTest, HandlesZeroConsumersGracefully) {
     // Arrange - No consumers registered
 
     // Act - Dispatch with no consumers
-    VehicleSignal signal(50.0, 100.0, 0.5, 0.0, 12345);
+    VehicleSignal signal(12345, 50.0, 100.0, 0.5, 0.0);
     EXPECT_NO_THROW(dispatcher->dispatch(signal));
 
     // Assert - No crash or error
@@ -406,14 +406,14 @@ TEST_F(EventDispatcherTest, SequentialDispatchMaintainsOrder) {
 
     auto consumer = [&](const VehicleSignal& signal) {
         std::lock_guard<std::mutex> lock(orderMutex);
-        receivedOrder.push_back(static_cast<int>(signal.getThrottlePercent()));
+        receivedOrder.push_back(static_cast<int>(signal.getThrottlePercent().value()));
     };
 
     dispatcher->registerConsumer(consumer);
 
     // Act
     for (int i = 0; i < 10; ++i) {
-        VehicleSignal signal(static_cast<double>(i), 0.0, 0.0, 0.0, i);
+        VehicleSignal signal(static_cast<std::uint64_t>(i), static_cast<double>(i), 0.0, 0.0, 0.0);
         dispatcher->dispatch(signal);
     }
 
@@ -450,8 +450,8 @@ TEST_F(EventDispatcherTest, MultipleDispatchersOperateIndependently) {
     dispatcher2->registerConsumer(consumer2);
 
     // Act
-    VehicleSignal signal1(50.0, 100.0, 0.5, 0.0, 1);
-    VehicleSignal signal2(60.0, 110.0, 0.6, 0.0, 2);
+    VehicleSignal signal1(1, 50.0, 100.0, 0.5, 0.0);
+    VehicleSignal signal2(2, 60.0, 110.0, 0.6, 0.0);
 
     dispatcher1->dispatch(signal1);
     dispatcher2->dispatch(signal2);

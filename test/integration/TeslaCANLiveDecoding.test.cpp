@@ -186,8 +186,8 @@ TEST(TeslaCANLiveDecoding, EndToEnd_CAN264_MotorRpmAndTorque) {
     auto result = service.processFrame(dbcFormat);
 
     ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 264 frame";
-    EXPECT_NEAR(result->getMotorRpm(), 1000.0, 0.1);
-    EXPECT_NEAR(result->getMotorTorqueNm(), 100.0, 0.5);
+    EXPECT_NEAR(result->getMotorRpm().value(), 1000.0, 0.1);
+    EXPECT_NEAR(result->getMotorTorqueNm().value(), 100.0, 0.5);
 }
 
 TEST(TeslaCANLiveDecoding, EndToEnd_CAN280_Throttle) {
@@ -218,7 +218,7 @@ TEST(TeslaCANLiveDecoding, EndToEnd_CAN280_Throttle) {
     auto result = service.processFrame(dbcFormat);
 
     ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 280 frame";
-    EXPECT_NEAR(result->getThrottlePercent(), 75.2, 0.1);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 75.2, 0.1);
 }
 
 TEST(TeslaCANLiveDecoding, EndToEnd_CAN297_SteeringAngle) {
@@ -249,7 +249,7 @@ TEST(TeslaCANLiveDecoding, EndToEnd_CAN297_SteeringAngle) {
     auto result = service.processFrame(dbcFormat);
 
     ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 297 frame";
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 45.0, 0.1);
+    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 45.0, 0.1);
 }
 
 // ================================================
@@ -281,27 +281,27 @@ TEST(TeslaCANLiveDecoding, MultiFrame_AllSignalsAccumulate) {
     ASSERT_TRUE(frame264.has_value());
     auto r1 = service.processFrame(canFrameToDBC(*frame264));
     ASSERT_TRUE(r1.has_value());
-    EXPECT_NEAR(r1->getMotorRpm(), 1000.0, 0.1);
-    EXPECT_NEAR(r1->getMotorTorqueNm(), 100.0, 0.5);
+    EXPECT_NEAR(r1->getMotorRpm().value(), 1000.0, 0.1);
+    EXPECT_NEAR(r1->getMotorTorqueNm().value(), 100.0, 0.5);
 
     // Feed CAN 280 - sets throttlePercent, preserves other signals
     auto frame280 = ELM327Transport::parseCANFrame("118 00 00 00 00 BC 00 00 00");
     ASSERT_TRUE(frame280.has_value());
     auto r2 = service.processFrame(canFrameToDBC(*frame280));
     ASSERT_TRUE(r2.has_value());
-    EXPECT_NEAR(r2->getThrottlePercent(), 75.2, 0.1);
-    EXPECT_NEAR(r2->getMotorRpm(), 1000.0, 0.1) << "RPM should persist";
-    EXPECT_NEAR(r2->getMotorTorqueNm(), 100.0, 0.5) << "Torque should persist";
+    EXPECT_NEAR(r2->getThrottlePercent().value(), 75.2, 0.1);
+    EXPECT_NEAR(r2->getMotorRpm().value(), 1000.0, 0.1) << "RPM should persist";
+    EXPECT_NEAR(r2->getMotorTorqueNm().value(), 100.0, 0.5) << "Torque should persist";
 
     // Feed CAN 297 - sets steeringAngleDeg, all fields present
     auto frame297 = ELM327Transport::parseCANFrame("129 00 00 00 20 00 00 00 00");
     ASSERT_TRUE(frame297.has_value());
     auto r3 = service.processFrame(canFrameToDBC(*frame297));
     ASSERT_TRUE(r3.has_value());
-    EXPECT_NEAR(r3->getSteeringAngleDeg(), 0.0, 0.1);
-    EXPECT_NEAR(r3->getMotorRpm(), 1000.0, 0.1) << "RPM should persist";
-    EXPECT_NEAR(r3->getMotorTorqueNm(), 100.0, 0.5) << "Torque should persist";
-    EXPECT_NEAR(r3->getThrottlePercent(), 75.2, 0.1) << "Throttle should persist";
+    EXPECT_NEAR(r3->getSteeringAngleDeg().value(), 0.0, 0.1);
+    EXPECT_NEAR(r3->getMotorRpm().value(), 1000.0, 0.1) << "RPM should persist";
+    EXPECT_NEAR(r3->getMotorTorqueNm().value(), 100.0, 0.5) << "Torque should persist";
+    EXPECT_NEAR(r3->getThrottlePercent().value(), 75.2, 0.1) << "Throttle should persist";
 }
 
 // ================================================
@@ -324,8 +324,8 @@ TEST(TeslaCANLiveDecoding, DefaultConfig_TeslaModel3_Works) {
     auto result = service.processFrame(dbcFormat);
 
     ASSERT_TRUE(result.has_value());
-    EXPECT_NEAR(result->getMotorRpm(), 1000.0, 0.1);
-    EXPECT_NEAR(result->getMotorTorqueNm(), 100.0, 0.5);
+    EXPECT_NEAR(result->getMotorRpm().value(), 1000.0, 0.1);
+    EXPECT_NEAR(result->getMotorTorqueNm().value(), 100.0, 0.5);
 }
 
 // ================================================
@@ -361,10 +361,10 @@ TEST(TeslaCANLiveDecoding, EdgeCase_UnknownCANIdReturnsDefaults) {
     auto result = service.processFrame(dbcFormat);
 
     EXPECT_TRUE(result.has_value()) << "Should return signal even for unknown CAN ID";
-    EXPECT_NEAR(result->getMotorRpm(), 0.0, 0.1);
-    EXPECT_NEAR(result->getMotorTorqueNm(), 0.0, 0.5);
-    EXPECT_NEAR(result->getThrottlePercent(), 0.0, 0.1);
-    EXPECT_NEAR(result->getSteeringAngleDeg(), 0.0, 0.1);
+    EXPECT_FALSE(result->getMotorRpm().has_value());
+    EXPECT_FALSE(result->getMotorTorqueNm().has_value());
+    EXPECT_FALSE(result->getThrottlePercent().has_value());
+    EXPECT_FALSE(result->getSteeringAngleDeg().has_value());
 }
 
 TEST(TeslaCANLiveDecoding, EdgeCase_ELM327PromptReturnsNullopt) {

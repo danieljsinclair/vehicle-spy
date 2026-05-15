@@ -33,13 +33,14 @@ TEST(ISignalTranslatorTest, TranslateReturnsOptionalVehicleSignal)
     std::vector<std::uint8_t> validData = {0xAA, 0x55};
 
     EXPECT_CALL(mock, translate(validData))
-        .WillOnce(Return(VehicleSignal(50.0, 100.0, 0.5, 0.0, 12345)));
+        .WillOnce(Return(VehicleSignal(12345, 50.0, 100.0, 0.5, 0.0)));
 
     auto result = mock.translate(validData);
 
     ASSERT_TRUE(result.has_value())
         << "Should return VehicleSignal for valid data";
-    EXPECT_DOUBLE_EQ(result->getThrottlePercent(), 50.0);
+    ASSERT_TRUE(result->getThrottlePercent().has_value());
+    EXPECT_DOUBLE_EQ(result->getThrottlePercent().value(), 50.0);
 }
 
 TEST(ISignalTranslatorTest, TranslateReturnsEmptyOptionalOnFailure)

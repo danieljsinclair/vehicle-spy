@@ -13,7 +13,8 @@ VehicleConfig DefaultVehicleConfigs::teslaModel3() {
             {"SteeringAngle129", "steeringAngleDeg"}
         },
         "",  // canBus
-        true // isCANProtocol
+        true, // isCANProtocol
+        {{0, "P"}, {1, "R"}, {2, "N"}, {3, "D"}, {4, "S"}}  // gearCodeMappings
     );
 }
 
