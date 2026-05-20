@@ -102,3 +102,4 @@ temp/
 *.log
 build-test/
 .claude/
+build-clean/

@@ -15,7 +15,7 @@ Connect a BLE OBD2 adapter to your Tesla's OBD-II port and see throttle position
 
 ```bash
 make            # Build native macOS binary
-make test       # Build and run all tests (88 passing)
+make test       # Build and run all tests
 make clean      # Clean build artifacts
 make help       # Show all targets
 ```
@@ -27,10 +27,10 @@ Binary: `build-native/vehicle-sim`
 ### 1. Demo (No Hardware)
 
 ```bash
-./build-native/vehicle-sim --simulate
+./build-native/vehicle-sim --source demo --vehicle tesla
 ```
 
-Displays mock Tesla telemetry at 10Hz. Good for verifying the display pipeline.
+Displays mock Tesla telemetry at 2Hz (default). Good for verifying the display pipeline.
 
 ### 2. Scan for BLE OBD2 Adapters
 
@@ -44,10 +44,10 @@ Scans for 10 seconds and lists all discoverable BLE devices. Your OBD2 adapter (
 
 ```bash
 # Use the UUID from --scan output
-./build-native/vehicle-sim --connect <device-uuid>
+./build-native/vehicle-sim --source ble --connect <device-uuid> --vehicle tesla
 
 # Faster polling (200ms intervals)
-./build-native/vehicle-sim --connect <device-uuid> --interval 200
+./build-native/vehicle-sim --source ble --connect <device-uuid> --vehicle tesla --interval 200
 ```
 
 On connection the CLI will:
@@ -74,12 +74,15 @@ On connection the CLI will:
 ## All CLI Options
 
 ```
+--source <type>    Telemetry source: demo or ble (required)
+--connect <addr>   BLE adapter address (required with --source ble)
+--vehicle <type>   Vehicle type: tesla, audi_mlb_evo, generic (required)
 --scan             Scan for BLE OBD2 adapters
---connect <addr>   Connect to adapter (use UUID from scan)
---list             List supported Tesla signals
---simulate         Demo mode with mock telemetry
+--list             List supported signals for each vehicle
 --format <fmt>     Output format: json, csv, plain (default: plain)
 --interval <ms>    Polling interval in ms (default: 500)
+--log-csv <file>   Log CSV telemetry to file
+--log-raw <file>   Log raw hex data to file
 --help             Show help
 ```
 
@@ -140,6 +143,7 @@ The iOS app shows live Tesla telemetry on your iPhone.
 | `make native` | Build C++ native libraries only |
 | `make test` | Run C++ unit tests |
 | `make scrub` | Full clean: DerivedData, caches, generated icons |
+| `make update-dbc` | Update DBC files from commaai/opendbc submodule |
 
 ### Notes
 
@@ -163,19 +167,33 @@ vehicle-sim-ios/VehicleSim/
 **Note**: The Xcode project references headers at `../../../include` — you must run `make ios` before building in Xcode.
 
 ```
-src/ble/
-  BLEManager.cpp              # Platform factory
-  BLEManagerBase.cpp          # OBD2 protocol (PIDs, parsing, ELM327 init)
-  platform/BLEManagerMacOS.mm # CoreBluetooth implementation
-  platform/BLEManagerMock.cpp # Mock for testing
+src/
+  cli/
+    CliOptions.cpp           # CLI parsing & validation
+    Orchestration.cpp        # Banner, early exit, vehicle resolution
+    TelemetryRunner.cpp      # Unified telemetry run loop
+    BLERunContext.cpp         # BLE execution flow
+    BLEConnectionManager.cpp # BLE connection lifecycle
+  domain/
+    DefaultVehicleConfigs.cpp # Vehicle DBC + signal mappings
+    SignalSourceFactory.cpp   # Factory for ISignalSource
+    VehicleConfigResolver.cpp # Vehicle config resolution
+    DemoSignalSource.cpp      # Demo signal generation
+    DBCTranslationService.cpp # DBC pipeline orchestration
 include/vehicle-sim/
-  domain/VehicleSignal.h      # Immutable telemetry value object
-  domain/TeslaSignalParser.h  # CAN bus signal parser
-  domain/EventDispatcher.h    # Thread-safe event routing
-  ble/BLEManagerBase.h        # OBD2 UUIDs, PID constants, shared logic
+  domain/
+    VehicleSignal.h          # Immutable telemetry value object
+    ISignalSource.h          # Abstract signal source interface
+    Gear.h                   # Canonical gear constants
+    DBCTranslationService.h  # DBC pipeline service
+  cli/
+    CliOptions.h             # CLI parsing declarations
+    Orchestration.h          # Orchestration helpers
+    TelemetryRunner.h        # Telemetry runner
 test/
-  ble/BLEManager.test.cpp     # Unit tests
-  integration/                # Integration tests (EventDispatcher, etc.)
+  cli/                       # CLI tests (Orchestration, TelemetryRunner, etc.)
+  domain/                    # Domain tests (SignalSourceFactory, VehicleConfigResolver, etc.)
+  integration/               # Integration tests (DBC pipeline, etc.)
 ```
 
 ## Important

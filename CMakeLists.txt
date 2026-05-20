@@ -73,8 +73,15 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/DemoSignalProvider.cpp
     src/domain/DemoSignalSource.cpp
     src/domain/BLESignalSource.cpp
+    src/domain/SimulationSignalSource.cpp
     src/domain/IDBCContentProvider.cpp
+    src/domain/VehicleConfigResolver.cpp
+    src/domain/SignalSourceFactory.cpp
     src/cli/CliOptions.cpp
+    src/cli/Orchestration.cpp
+    src/cli/BLEConnectionManager.cpp
+    src/cli/TelemetryRunner.cpp
+    src/cli/BLERunContext.cpp
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp
     src/boundary/OBD2Protocol.cpp

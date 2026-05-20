@@ -21,10 +21,15 @@ add_executable(vehicle-sim-tests
     domain/DBCTranslationService.test.cpp
     domain/DefaultVehicleConfigs.test.cpp
     domain/DemoSignalProvider.test.cpp
+    domain/SignalSourceFactory.test.cpp
+    domain/VehicleConfigResolver.test.cpp
+    domain/MockSignalSource.h
     ble/BLEManager.test.cpp
     presentation/TelemetryFormatter.test.cpp
     presentation/VehicleSignalFormatter.test.cpp
     cli/CliOptions.test.cpp
+    cli/TelemetryRunner.test.cpp
+    cli/Orchestration.test.cpp
     boundary/TeslaBLETransport.test.cpp
     boundary/OBD2Transport.test.cpp
     boundary/ELM327Protocol.test.cpp

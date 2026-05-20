@@ -34,14 +34,40 @@ VehicleConfig DefaultVehicleConfigs::vehicleName() {
 Register it in `registerAll()`:
 ```cpp
 void DefaultVehicleConfigs::registerAll(VehicleConfigRegistry& registry) {
-    registry.registerVehicle("tesla_model3", teslaModel3());
+    registry.registerVehicle("tesla", teslaModel3());
     registry.registerVehicle("audi_mlb_evo", audiMLBEvo());
     registry.registerVehicle("vehicle_name", vehicleName());  // Add this
 }
 ```
 
-### Step 3: That's It
-The DBC parser, signal factory, and display layer handle everything else automatically. No manual translator classes needed.
+### Step 3: Test
+Run the CLI with demo mode to verify:
+```bash
+vehicle-sim --source demo --vehicle vehicle_name
+```
+
+For live BLE data:
+```bash
+vehicle-sim --source ble --connect <address> --vehicle vehicle_name
+```
+
+## CLI Usage
+
+Refactored CLI uses `--source` flag to specify telemetry source:
+
+```bash
+# Demo mode (no hardware required)
+vehicle-sim --source demo --vehicle tesla
+
+# Live BLE data
+vehicle-sim --source ble --connect <address> --vehicle tesla
+
+# Scan for adapters
+vehicle-sim --scan
+
+# List available vehicles and signals
+vehicle-sim --list
+```
 
 ## Worked Example: Tesla Model 3
 
@@ -68,8 +94,12 @@ VehicleConfig DefaultVehicleConfigs::teslaModel3() {
 
 ## Troubleshooting
 
+**Vehicle not found error**: Verify the vehicle ID registered in `registerAll()` matches the `--vehicle` argument exactly (case-sensitive).
+
 **DBC not found**: Check the file path matches exactly between `VehicleConfig` constructor and `resources/dbc/`.
 
 **Signal not appearing**: Verify the signal name in the DBC matches the mapping key exactly (case-sensitive).
 
 **Gear showing wrong value**: Check the DBC VAL_ table format. It should use identifiers like `DI_GEAR_P`, `DI_GEAR_D`, etc., for automatic translation to `Gear::` constants.
+
+**CLI shows error about --source**: Make sure you're using `--source demo` or `--source ble --connect <address>` along with `--vehicle <name>`.
