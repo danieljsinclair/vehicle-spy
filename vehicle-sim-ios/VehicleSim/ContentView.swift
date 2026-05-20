@@ -80,6 +80,17 @@ struct ContentView: View {
     @State private var isReceiving = false
     private let receiveCheckTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
+    private var statusColor: Color {
+        switch viewModel.connectionState {
+        case .connected, .demo:
+            return .green
+        case .connecting:
+            return .orange
+        case .disconnected:
+            return .red
+        }
+    }
+
     var body: some View {
         NavigationView {
             Form {
@@ -91,9 +102,9 @@ struct ContentView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .disabled(viewModel.isDemoMode)
+                    .disabled(viewModel.connectionState == .demo)
                     .onChange(of: viewModel.selectedVehicle) {
-                        if viewModel.isConnected {
+                        if viewModel.connectionState == .connected {
                             viewModel.switchVehicleType(viewModel.selectedVehicle)
                         }
                     }
@@ -104,7 +115,7 @@ struct ContentView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
-                                if viewModel.isConnected {
+                                if viewModel.connectionState == .connected {
                                     Circle()
                                         .fill(isReceiving ? .green : .gray)
                                         .frame(width: 8, height: 8)
@@ -112,8 +123,8 @@ struct ContentView: View {
                                 }
                                 HStack(spacing: 0) {
                                     Text(viewModel.connectionStatus)
-                                        .foregroundColor(viewModel.isConnected || viewModel.isDemoMode ? .green : viewModel.isConnecting ? .orange : .red)
-                                    if viewModel.isConnecting {
+                                        .foregroundColor(statusColor)
+                                    if viewModel.connectionState == .connecting {
                                         ConnectingDotsView()
                                     }
                                 }
@@ -132,7 +143,7 @@ struct ContentView: View {
                         Spacer()
                     }
 
-                    if !viewModel.isConnected && !viewModel.isDemoMode && !viewModel.isConnecting {
+                    if viewModel.connectionState == .disconnected {
                         Button(action: { viewModel.scanForDevices() }) {
                             HStack {
                                 if viewModel.isScanning {
@@ -152,14 +163,14 @@ struct ContentView: View {
                         .foregroundColor(.blue)
                     }
 
-                    if viewModel.isDemoMode {
+                    if viewModel.connectionState == .demo {
                         Button("Stop Demo") {
-                            viewModel.stopDemo()
+                            viewModel.stop()
                         }
                         .foregroundColor(.red)
                     }
 
-                    if viewModel.isConnected {
+                    if viewModel.connectionState == .connected {
                         Button("Disconnect") {
                             viewModel.disconnect()
                         }
@@ -168,7 +179,7 @@ struct ContentView: View {
                 }
 
                 // MARK: - Discovered Devices
-                if !viewModel.discoveredDevices.isEmpty && !viewModel.isConnected && !viewModel.isConnecting {
+                if !viewModel.discoveredDevices.isEmpty && viewModel.connectionState == .disconnected {
                     Section(header: Text("Discovered Devices")) {
                         ForEach(viewModel.discoveredDevices) { device in
                             Button(action: { viewModel.connectToDevice(device) }) {
@@ -191,7 +202,7 @@ struct ContentView: View {
                 }
 
                 // MARK: - Detection
-                if viewModel.isConnected {
+                if viewModel.connectionState == .connected {
                     Section(header: Text("Vehicle Detection")) {
                         HStack {
                             Circle()
@@ -243,7 +254,8 @@ struct ContentView: View {
                             color: .blue
                         )
 
-                        if viewModel.isTeslaSelected {
+                        // Tesla-specific signals (motor RPM, torque, steering)
+                        if viewModel.selectedVehicle == "tesla_model3" {
                             TelemetryCardView(
                                 title: "Motor RPM",
                                 value: viewModel.motorRpm.map { String(format: "%.0f", $0) } ?? "--",

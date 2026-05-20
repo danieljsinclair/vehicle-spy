@@ -55,20 +55,20 @@ NS_ :
 
 BS_:
 
-BU_: DIR DI SCCM
+BU_: DI
 
-BO_ 264 DIR_torque: 8 DIR
- SG_ DIR_axleSpeed : 40|16@1- (0.1,0) [-2750|2750] "RPM" DIR
- SG_ DIR_torqueActual : 27|13@1- (2,0) [-7500|7500] "Nm" DIR
+BO_ 264 DI_torque1: 8 DI
+ SG_ DI_motorRPM : 32|16@1- (1,0) [-17000|17000] "RPM" DI
+ SG_ DI_torqueMotor : 16|13@1- (0.25,0) [-750|750] "Nm" DI
+ SG_ DI_pedalPos : 48|8@1+ (0.4,0) [0|100] "%" DI
 
-BO_ 280 DI_state: 8 DI
- SG_ DI_accelPedalPos : 32|8@1+ (0.4,0) [0|100] "%" DI
- SG_ DI_brakePedalState : 19|2@1+ (1,0) [0|2] "" DI
+VAL_ 264 DI_pedalPos 255 "SNA" ;
 
-BO_ 297 SCCM_steeringAngle: 5 SCCM
- SG_ SteeringAngle129 : 16|14@1+ (0.1,-819.2) [-819.2|819.1] "deg" SCCM
+BO_ 280 DI_torque2: 6 DI
+ SG_ DI_gear : 12|3@1+ (1,0) [0|0] "" DI
+ SG_ DI_vehicleSpeed : 16|12@1+ (0.05,-25) [-25|179.75] "MPH" DI
 
-VAL_ 280 DI_brakePedalState 0 "released" 1 "pressed" ;
+VAL_ 280 DI_gear 7 "DI_GEAR_SNA" 4 "DI_GEAR_D" 3 "DI_GEAR_N" 2 "DI_GEAR_R" 1 "DI_GEAR_P" 0 "DI_GEAR_INVALID" ;
 )DBC";
 
 } // namespace
@@ -80,48 +80,29 @@ VAL_ 280 DI_brakePedalState 0 "released" 1 "pressed" ;
 TEST(TeslaCANLiveDecoding, ParseCANFrame264_NoPrefix) {
     // ELM327 monitor mode output for CAN ID 264 (0x108 hex)
     // Tesla CAN ID 264 decimal = 0x108 hex
-    // RPM 1000: data[5]=0x10, data[6]=0x27 (raw 10000 * 0.1 = 1000 RPM)
-    // Torque 100 Nm: data[3]=0x90, data[4]=0x01 (raw 50 * 2 = 100 Nm)
-    auto frame = ELM327Transport::parseCANFrame("108 00 00 00 90 01 10 27 00");
+    // RPM 1000: data[4]=0xE8, data[5]=0x03 (raw 0x03E8 = 1000)
+    // Torque 100 Nm: data[2]=0x90, data[3]=0x01 (raw 400 * 0.25 = 100 Nm, 400 = 0x0190)
+    auto frame = ELM327Transport::parseCANFrame("108 00 00 90 01 E8 03 BC 00");
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->canId, 0x108); // 0x108 hex = 264 decimal
     EXPECT_EQ(frame->data.size(), 8);
     EXPECT_EQ(frame->data[0], 0x00);
     EXPECT_EQ(frame->data[1], 0x00);
-    EXPECT_EQ(frame->data[2], 0x00);
-    EXPECT_EQ(frame->data[3], 0x90);
-    EXPECT_EQ(frame->data[4], 0x01);
-    EXPECT_EQ(frame->data[5], 0x10);
-    EXPECT_EQ(frame->data[6], 0x27);
+    EXPECT_EQ(frame->data[2], 0x90);
+    EXPECT_EQ(frame->data[3], 0x01);
+    EXPECT_EQ(frame->data[4], 0xE8);
+    EXPECT_EQ(frame->data[5], 0x03);
+    EXPECT_EQ(frame->data[6], 0xBC);
     EXPECT_EQ(frame->data[7], 0x00);
 }
 
 TEST(TeslaCANLiveDecoding, ParseCANFrame264_WithTypePrefix) {
     // CAN frame with type byte (0x600 + type) for ELM327 monitor mode
     // Type 0x10 + 0x600 = 0x610, followed by CAN ID 0x108 and data
-    auto frame = ELM327Transport::parseCANFrame("610 108 00 00 00 90 01 10 27 00");
+    auto frame = ELM327Transport::parseCANFrame("610 108 00 00 32 00 E8 03 BC 00");
     ASSERT_TRUE(frame.has_value());
     EXPECT_EQ(frame->canId, 0x108);
     EXPECT_EQ(frame->data.size(), 8);
-}
-
-TEST(TeslaCANLiveDecoding, ParseCANFrame280_Throttle) {
-    // Tesla CAN ID 280 decimal = 0x118 hex
-    // Throttle 75.2%: data[4]=0xBC (raw 188 * 0.4 = 75.2%)
-    auto frame = ELM327Transport::parseCANFrame("118 00 00 00 00 BC 00 00 00");
-    ASSERT_TRUE(frame.has_value());
-    EXPECT_EQ(frame->canId, 0x118); // 0x118 hex = 280 decimal
-    EXPECT_EQ(frame->data[4], 0xBC);
-}
-
-TEST(TeslaCANLiveDecoding, ParseCANFrame297_Steering) {
-    // Tesla CAN ID 297 decimal = 0x129 hex
-    // Steering 0 deg: data[3]=0x20, data[2]=0x00 (raw 8192)
-    auto frame = ELM327Transport::parseCANFrame("129 00 00 00 20 00 00 00 00");
-    ASSERT_TRUE(frame.has_value());
-    EXPECT_EQ(frame->canId, 0x129); // 0x129 hex = 297 decimal
-    EXPECT_EQ(frame->data[2], 0x00);
-    EXPECT_EQ(frame->data[3], 0x20);
 }
 
 // ================================================
@@ -163,22 +144,22 @@ TEST(TeslaCANLiveDecoding, EndToEnd_CAN264_MotorRpmAndTorque) {
     // Create Tesla config with correct signal mappings
     VehicleConfig teslaConfig(
         "embedded_tesla.dbc",
+        "embedded_tesla.dbc",
         "Tesla Model 3",
         std::unordered_map<std::string, std::string>{
-            {"DIR_axleSpeed", "motorRpm"},
-            {"DIR_torqueActual", "motorTorqueNm"},
-            {"DI_accelPedalPos", "throttlePercent"},
-            {"SteeringAngle129", "steeringAngleDeg"}
+            {"DI_motorRPM", "motorRpm"},
+            {"DI_torqueMotor", "motorTorqueNm"},
+            {"DI_pedalPos", "throttlePercent"}
         },
         "",
         true // isCANProtocol
     );
-    registry.registerVehicle("tesla_model3", teslaConfig);
+    registry.registerVehicle("tesla", teslaConfig);
 
-    ASSERT_TRUE(service.loadVehicleWithContent("tesla_model3", VehicleProtocol::CAN, TESLA_DBC));
+    ASSERT_TRUE(service.loadVehicleWithContent("tesla", VehicleProtocol::CAN, TESLA_DBC));
 
     // Parse ELM327 output for CAN 264
-    auto frame = ELM327Transport::parseCANFrame("108 00 00 00 90 01 10 27 00");
+    auto frame = ELM327Transport::parseCANFrame("108 00 00 90 01 E8 03 BC 00");
     ASSERT_TRUE(frame.has_value());
 
     // Convert to DBC format and translate
@@ -190,66 +171,35 @@ TEST(TeslaCANLiveDecoding, EndToEnd_CAN264_MotorRpmAndTorque) {
     EXPECT_NEAR(result->getMotorTorqueNm().value(), 100.0, 0.5);
 }
 
-TEST(TeslaCANLiveDecoding, EndToEnd_CAN280_Throttle) {
+TEST(TeslaCANLiveDecoding, EndToEnd_CAN264_Throttle) {
     DBCTranslationService service;
     auto& registry = service.registry();
 
     VehicleConfig teslaConfig(
         "embedded_tesla.dbc",
+        "embedded_tesla.dbc",
         "Tesla Model 3",
         std::unordered_map<std::string, std::string>{
-            {"DIR_axleSpeed", "motorRpm"},
-            {"DIR_torqueActual", "motorTorqueNm"},
-            {"DI_accelPedalPos", "throttlePercent"},
-            {"SteeringAngle129", "steeringAngleDeg"}
+            {"DI_motorRPM", "motorRpm"},
+            {"DI_torqueMotor", "motorTorqueNm"},
+            {"DI_pedalPos", "throttlePercent"}
         },
         "",
         true
     );
-    registry.registerVehicle("tesla_model3", teslaConfig);
+    registry.registerVehicle("tesla", teslaConfig);
 
-    ASSERT_TRUE(service.loadVehicleWithContent("tesla_model3", VehicleProtocol::CAN, TESLA_DBC));
+    ASSERT_TRUE(service.loadVehicleWithContent("tesla", VehicleProtocol::CAN, TESLA_DBC));
 
-    // Parse ELM327 output for CAN 280
-    auto frame = ELM327Transport::parseCANFrame("118 00 00 00 00 BC 00 00 00");
+    // Parse ELM327 output for CAN 264 with throttle only
+    auto frame = ELM327Transport::parseCANFrame("108 00 00 00 00 00 00 BC 00");
     ASSERT_TRUE(frame.has_value());
 
     auto dbcFormat = canFrameToDBC(*frame);
     auto result = service.processFrame(dbcFormat);
 
-    ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 280 frame";
+    ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 264 frame";
     EXPECT_NEAR(result->getThrottlePercent().value(), 75.2, 0.1);
-}
-
-TEST(TeslaCANLiveDecoding, EndToEnd_CAN297_SteeringAngle) {
-    DBCTranslationService service;
-    auto& registry = service.registry();
-
-    VehicleConfig teslaConfig(
-        "embedded_tesla.dbc",
-        "Tesla Model 3",
-        std::unordered_map<std::string, std::string>{
-            {"DIR_axleSpeed", "motorRpm"},
-            {"DIR_torqueActual", "motorTorqueNm"},
-            {"DI_accelPedalPos", "throttlePercent"},
-            {"SteeringAngle129", "steeringAngleDeg"}
-        },
-        "",
-        true
-    );
-    registry.registerVehicle("tesla_model3", teslaConfig);
-
-    ASSERT_TRUE(service.loadVehicleWithContent("tesla_model3", VehicleProtocol::CAN, TESLA_DBC));
-
-    // Steering 45 deg right: raw 8642 = 0x21C2
-    auto frame = ELM327Transport::parseCANFrame("129 00 00 C2 21 00 00 00 00");
-    ASSERT_TRUE(frame.has_value());
-
-    auto dbcFormat = canFrameToDBC(*frame);
-    auto result = service.processFrame(dbcFormat);
-
-    ASSERT_TRUE(result.has_value()) << "Failed to translate CAN 297 frame";
-    EXPECT_NEAR(result->getSteeringAngleDeg().value(), 45.0, 0.1);
 }
 
 // ================================================
@@ -262,46 +212,28 @@ TEST(TeslaCANLiveDecoding, MultiFrame_AllSignalsAccumulate) {
 
     VehicleConfig teslaConfig(
         "embedded_tesla.dbc",
+        "embedded_tesla.dbc",
         "Tesla Model 3",
         std::unordered_map<std::string, std::string>{
-            {"DIR_axleSpeed", "motorRpm"},
-            {"DIR_torqueActual", "motorTorqueNm"},
-            {"DI_accelPedalPos", "throttlePercent"},
-            {"SteeringAngle129", "steeringAngleDeg"}
+            {"DI_motorRPM", "motorRpm"},
+            {"DI_torqueMotor", "motorTorqueNm"},
+            {"DI_pedalPos", "throttlePercent"}
         },
         "",
         true
     );
-    registry.registerVehicle("tesla_model3", teslaConfig);
+    registry.registerVehicle("tesla", teslaConfig);
 
-    ASSERT_TRUE(service.loadVehicleWithContent("tesla_model3", VehicleProtocol::CAN, TESLA_DBC));
+    ASSERT_TRUE(service.loadVehicleWithContent("tesla", VehicleProtocol::CAN, TESLA_DBC));
 
-    // Feed CAN 264 - sets motorRpm and motorTorqueNm
-    auto frame264 = ELM327Transport::parseCANFrame("108 00 00 00 90 01 10 27 00");
+    // Feed CAN 264 - sets all three signals
+    auto frame264 = ELM327Transport::parseCANFrame("108 00 00 90 01 E8 03 BC 00");
     ASSERT_TRUE(frame264.has_value());
-    auto r1 = service.processFrame(canFrameToDBC(*frame264));
-    ASSERT_TRUE(r1.has_value());
-    EXPECT_NEAR(r1->getMotorRpm().value(), 1000.0, 0.1);
-    EXPECT_NEAR(r1->getMotorTorqueNm().value(), 100.0, 0.5);
-
-    // Feed CAN 280 - sets throttlePercent, preserves other signals
-    auto frame280 = ELM327Transport::parseCANFrame("118 00 00 00 00 BC 00 00 00");
-    ASSERT_TRUE(frame280.has_value());
-    auto r2 = service.processFrame(canFrameToDBC(*frame280));
-    ASSERT_TRUE(r2.has_value());
-    EXPECT_NEAR(r2->getThrottlePercent().value(), 75.2, 0.1);
-    EXPECT_NEAR(r2->getMotorRpm().value(), 1000.0, 0.1) << "RPM should persist";
-    EXPECT_NEAR(r2->getMotorTorqueNm().value(), 100.0, 0.5) << "Torque should persist";
-
-    // Feed CAN 297 - sets steeringAngleDeg, all fields present
-    auto frame297 = ELM327Transport::parseCANFrame("129 00 00 00 20 00 00 00 00");
-    ASSERT_TRUE(frame297.has_value());
-    auto r3 = service.processFrame(canFrameToDBC(*frame297));
-    ASSERT_TRUE(r3.has_value());
-    EXPECT_NEAR(r3->getSteeringAngleDeg().value(), 0.0, 0.1);
-    EXPECT_NEAR(r3->getMotorRpm().value(), 1000.0, 0.1) << "RPM should persist";
-    EXPECT_NEAR(r3->getMotorTorqueNm().value(), 100.0, 0.5) << "Torque should persist";
-    EXPECT_NEAR(r3->getThrottlePercent().value(), 75.2, 0.1) << "Throttle should persist";
+    auto result = service.processFrame(canFrameToDBC(*frame264));
+    ASSERT_TRUE(result.has_value());
+    EXPECT_NEAR(result->getMotorRpm().value(), 1000.0, 0.1);
+    EXPECT_NEAR(result->getMotorTorqueNm().value(), 100.0, 0.5);
+    EXPECT_NEAR(result->getThrottlePercent().value(), 75.2, 0.1);
 }
 
 // ================================================
@@ -314,10 +246,10 @@ TEST(TeslaCANLiveDecoding, DefaultConfig_TeslaModel3_Works) {
     // Register default Tesla config
     DefaultVehicleConfigs::registerAll(service.registry());
 
-    ASSERT_TRUE(service.loadVehicleWithContent("tesla_model3", VehicleProtocol::CAN, TESLA_DBC));
+    ASSERT_TRUE(service.loadVehicleWithContent("tesla", VehicleProtocol::CAN, TESLA_DBC));
 
     // Parse and translate CAN 264 frame
-    auto frame = ELM327Transport::parseCANFrame("108 00 00 00 90 01 10 27 00");
+    auto frame = ELM327Transport::parseCANFrame("108 00 00 90 01 E8 03 BC 00");
     ASSERT_TRUE(frame.has_value());
 
     auto dbcFormat = canFrameToDBC(*frame);
@@ -338,19 +270,19 @@ TEST(TeslaCANLiveDecoding, EdgeCase_UnknownCANIdReturnsDefaults) {
 
     VehicleConfig teslaConfig(
         "embedded_tesla.dbc",
+        "embedded_tesla.dbc",
         "Tesla Model 3",
         std::unordered_map<std::string, std::string>{
-            {"DIR_axleSpeed", "motorRpm"},
-            {"DIR_torqueActual", "motorTorqueNm"},
-            {"DI_accelPedalPos", "throttlePercent"},
-            {"SteeringAngle129", "steeringAngleDeg"}
+            {"DI_motorRPM", "motorRpm"},
+            {"DI_torqueMotor", "motorTorqueNm"},
+            {"DI_pedalPos", "throttlePercent"}
         },
         "",
         true
     );
-    registry.registerVehicle("tesla_model3", teslaConfig);
+    registry.registerVehicle("tesla", teslaConfig);
 
-    ASSERT_TRUE(service.loadVehicleWithContent("tesla_model3", VehicleProtocol::CAN, TESLA_DBC));
+    ASSERT_TRUE(service.loadVehicleWithContent("tesla", VehicleProtocol::CAN, TESLA_DBC));
 
     // Unknown CAN ID (not in Tesla DBC)
     CANFrame unknownFrame;
@@ -364,7 +296,6 @@ TEST(TeslaCANLiveDecoding, EdgeCase_UnknownCANIdReturnsDefaults) {
     EXPECT_FALSE(result->getMotorRpm().has_value());
     EXPECT_FALSE(result->getMotorTorqueNm().has_value());
     EXPECT_FALSE(result->getThrottlePercent().has_value());
-    EXPECT_FALSE(result->getSteeringAngleDeg().has_value());
 }
 
 TEST(TeslaCANLiveDecoding, EdgeCase_ELM327PromptReturnsNullopt) {

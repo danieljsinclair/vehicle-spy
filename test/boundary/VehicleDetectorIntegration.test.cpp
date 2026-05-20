@@ -145,7 +145,7 @@ TEST(VehicleDetectorIntegration, FullFlow_TeslaEV_DetectsCorrectly)
     auto result = detector.getResult();
     EXPECT_EQ(VehicleMake::Tesla, result.make);
     EXPECT_TRUE(result.isElectric);
-    EXPECT_EQ("tesla_model3", result.suggestedVehicleId);
+    EXPECT_EQ("tesla", result.suggestedVehicleId);
 }
 
 TEST(VehicleDetectorIntegration, FullFlow_AudiEV_DetectsCorrectly)
@@ -262,7 +262,7 @@ TEST(VehicleDetectorIntegration, Reset_ClearsVINState)
 
 TEST(VehicleDetectorIntegration, ConfigID_Selection_FollowsBusinessRules)
 {
-    EXPECT_EQ("tesla_model3", VehicleDetector::makeToConfigId(VehicleMake::Tesla, true));
+    EXPECT_EQ("tesla", VehicleDetector::makeToConfigId(VehicleMake::Tesla, true));
     EXPECT_EQ("audi_mlb_evo", VehicleDetector::makeToConfigId(VehicleMake::Audi, true));
     EXPECT_EQ("generic", VehicleDetector::makeToConfigId(VehicleMake::Audi, false));
     EXPECT_EQ("audi_mlb_evo", VehicleDetector::makeToConfigId(VehicleMake::Volkswagen, true));

@@ -233,6 +233,7 @@ TEST_F(AudiOBD2LiveDecodingTest, AudiCAN_ESP_VehicleSpeed_DecodesCorrectly) {
     // Create a custom config with signal mapping for the DBC we're testing
     VehicleConfig audiConfig(
         "",
+        "",
         "Audi MLB Evo",
         std::unordered_map<std::string, std::string>{
             {"ESP_VehicleSpeed", "speedKmh"}
@@ -298,6 +299,7 @@ TEST_F(AudiOBD2LiveDecodingTest, AudiCAN_ESP_Bremsdruck_DecodesCorrectly) {
     // Create a custom config with signal mapping for DBC we're testing
     VehicleConfig audiConfig(
         "",
+        "",
         "Audi MLB Evo",
         std::unordered_map<std::string, std::string>{
             {"ESP_Bremsdruck", "brakePercent"}
@@ -362,6 +364,7 @@ BO_ 256 ESP_01: 8 ESP
 TEST_F(AudiOBD2LiveDecodingTest, AudiCAN_CombinedSpeedAndBrake) {
     // Create a custom config with signal mapping for DBC we're testing
     VehicleConfig audiConfig(
+        "",
         "",
         "Audi MLB Evo",
         std::unordered_map<std::string, std::string>{
@@ -466,6 +469,7 @@ TEST_F(AudiOBD2LiveDecodingTest, EdgeCase_SwitchingProtocols) {
 
     // Switch to CAN protocol
     VehicleConfig audiConfig(
+        "",
         "",
         "Audi MLB Evo",
         std::unordered_map<std::string, std::string>{

@@ -228,7 +228,7 @@ TEST_F(DemoSignalProviderTest, TimestampsIncreaseMonotonically) {
 TEST_F(DemoSignalProviderTest, GeneratesValidGearSelectorValues) {
     provider = std::make_unique<DemoSignalProvider>(5);
 
-    std::set<std::string> gearsSeen;
+    std::set<std::int32_t> gearsSeen;
 
     provider->start([&gearsSeen](const VehicleSignal& signal) {
         gearsSeen.insert(signal.getGearSelector().value());
@@ -238,9 +238,9 @@ TEST_F(DemoSignalProviderTest, GeneratesValidGearSelectorValues) {
 
     provider->stop();
 
-    EXPECT_TRUE(gearsSeen.count("P") || gearsSeen.count("R") ||
-                gearsSeen.count("N") || gearsSeen.count("D") ||
-                gearsSeen.count("S"));
+    EXPECT_TRUE(gearsSeen.count(-2) || gearsSeen.count(-1) ||
+                gearsSeen.count(0) || gearsSeen.count(4097) ||
+                gearsSeen.count(4098));
 }
 
 // ================================================

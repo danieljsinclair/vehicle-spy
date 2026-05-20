@@ -52,7 +52,7 @@ TEST(VehicleSignalEVTest, ConstructsWithExplicitEVFields)
         400.0,         // motorHvVoltage
         25.0,          // motorHvCurrent
         350.0,         // motorTorqueNm
-        "D"            // gearSelector
+        4097           // gearSelector
     );
 
     EXPECT_DOUBLE_EQ(signal.getSteeringAngleDeg().value(), 45.0);
@@ -60,7 +60,7 @@ TEST(VehicleSignalEVTest, ConstructsWithExplicitEVFields)
     EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage().value(), 400.0);
     EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent().value(), 25.0);
     EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), 350.0);
-    EXPECT_EQ(signal.getGearSelector().value(), "D");
+    EXPECT_EQ(signal.getGearSelector().value(), 4097);
 }
 
 // ================================================
@@ -119,8 +119,8 @@ TEST(VehicleSignalEVTest, NegativeTorqueRepresentsRegen)
 
 TEST(VehicleSignalEVTest, StoresAndRetrievesGearSelector)
 {
-    const VehicleSignal signal(0, {}, {}, {}, {}, {}, {}, {}, {}, {}, "D");
-    EXPECT_EQ(signal.getGearSelector().value(), "D");
+    const VehicleSignal signal(0, {}, {}, {}, {}, {}, {}, {}, {}, {}, 4097);
+    EXPECT_EQ(signal.getGearSelector().value(), 4097);
 }
 
 TEST(VehicleSignalEVTest, GearSelectorDefaultsToNullopt)
@@ -173,9 +173,9 @@ TEST(VehicleSignalEVTest, StoresMotorHvCurrentOutOfRange)
 
 TEST(VehicleSignalEVTest, EqualityIncludesAllEVFields)
 {
-    const VehicleSignal a(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, "D");
-    const VehicleSignal b(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, "D");
-    const VehicleSignal c(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, "R");
+    const VehicleSignal a(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, 4097);
+    const VehicleSignal b(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, 4097);
+    const VehicleSignal c(12345, 50.0, 100.0, 0.5, 25.0, 45.0, 5000.0, 400.0, 25.0, 350.0, -1);
 
     EXPECT_EQ(a, b);
     EXPECT_NE(a, c);
@@ -206,14 +206,14 @@ TEST(VehicleSignalEVTest, RepresentsEVTelemetryUnderAcceleration)
         380.0,         // 380V bus voltage
         35.0,          // 35A current draw
         350.0,         // positive torque (motoring)
-        "D"            // drive
+        4097           // drive
     );
 
     EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 6000.0);
     EXPECT_DOUBLE_EQ(signal.getMotorHvVoltage().value(), 380.0);
     EXPECT_DOUBLE_EQ(signal.getMotorHvCurrent().value(), 35.0);
     EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), 350.0);
-    EXPECT_EQ(signal.getGearSelector().value(), "D");
+    EXPECT_EQ(signal.getGearSelector().value(), 4097);
 }
 
 TEST(VehicleSignalEVTest, RepresentsEVTelemetryUnderRegen)
@@ -228,10 +228,10 @@ TEST(VehicleSignalEVTest, RepresentsEVTelemetryUnderRegen)
         4000.0,        // motor at 4000 RPM
         0.0, 0.0,      // HV readings not available
         -200.0,        // negative torque (regen)
-        "D"
+        4097
     );
 
     EXPECT_DOUBLE_EQ(signal.getMotorRpm().value(), 4000.0);
     EXPECT_DOUBLE_EQ(signal.getMotorTorqueNm().value(), -200.0);
-    EXPECT_EQ(signal.getGearSelector().value(), "D");
+    EXPECT_EQ(signal.getGearSelector().value(), 4097);
 }

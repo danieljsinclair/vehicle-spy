@@ -420,6 +420,12 @@ int main(int argc, char* argv[]) {
     const auto* activeConfig = translationService.registry().getConfig(vehicleType);
     if (!activeConfig) {
         std::cerr << "Vehicle config not found: " << vehicleType << "\n";
+        auto vehicles = translationService.registry().getRegisteredVehicles();
+        std::cerr << "Available vehicles: ";
+        for (const auto& v : vehicles) {
+            std::cerr << v << " ";
+        }
+        std::cerr << "\n";
         return 1;
     }
 
@@ -439,6 +445,15 @@ int main(int argc, char* argv[]) {
     }
 
     if (opts.connect_demo) {
+        if (opts.vehicle_type.empty()) {
+            std::cerr << "No vehicle specified. Use --vehicle <name>. Available: ";
+            auto vehicles = translationService.registry().getRegisteredVehicles();
+            for (const auto& v : vehicles) {
+                std::cerr << v << " ";
+            }
+            std::cerr << "\n";
+            return 1;
+        }
         return runConnectDemo(vehicleType, activeConfig, opts.update_interval_ms, opts.log_csv, opts.log_raw);
     }
 

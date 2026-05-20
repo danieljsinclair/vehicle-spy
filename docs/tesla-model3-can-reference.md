@@ -505,7 +505,7 @@ Tesla provides a cloud-based Fleet API for vehicle data.
 
 ### Strategy
 
-The plan is to use **DBC files** as the signal definition source, matching the approach used by every commercial Tesla product (tesLAX imports DBC files, Scan My Tesla uses them, openpilot is built on them). This is a data-driven approach — the DBC file defines all CAN IDs, signal names, bit positions, scaling, and offsets. Our `TeslaCANTranslator` reads these definitions and extracts signal values from raw CAN frames.
+The plan is to use **DBC files** as the signal definition source, matching the approach used by every commercial Tesla product (tesLAX imports DBC files, Scan My Tesla uses them, openpilot is built on them). This is a data-driven approach — the DBC file defines all CAN IDs, signal names, bit positions, scaling, and offsets. Our `DBCSignalTranslator` reads these definitions and extracts signal values from raw CAN frames.
 
 ### DBC Sources
 
@@ -515,7 +515,7 @@ The plan is to use **DBC files** as the signal definition source, matching the a
 | `model3dbc` | [joshwardell/model3dbc](https://github.com/joshwardell/model3dbc) | All three buses | BMS, HVAC, doors, UI, GPS — more comprehensive |
 
 ### Current State
-- `TeslaCANTranslator` already decodes CAN IDs 0x108 (DI_torque) and 0x129 (SCCM_steeringAngleSensor)
+- `DBCSignalTranslator` already decodes CAN IDs 0x108 (DI_torque) and 0x129 (SCCM_steeringAngleSensor)
 - `initializeCANMonitor()` puts ELM327 in ATMA mode for raw CAN frame streaming
 - `parseCANFrame()` in ELM327Transport extracts CAN ID + 8 data bytes from ELM327 text output
 - `DBCTranslationService` already loads DBC-based vehicle configs
@@ -543,7 +543,7 @@ Tesla 26-pin diagnostic connector (behind rear center console)
     → OBD2 dongle (ELM327 ATMA or ESP32 + CAN)
       → Raw CAN frames via BLE notification
         → vehicle-sim BLEManager (invokeDataCallback)
-          → TeslaCANTranslator (DBC signal extraction per tesla_model3_party.dbc)
+          → DBCSignalTranslator (DBC signal extraction per tesla_model3_party.dbc)
             → VehicleSim (telemetry state model)
 ```
 

@@ -15,6 +15,7 @@ protected:
     VehicleConfig createTeslaConfig() {
         return VehicleConfig(
             "embedded_tesla.dbc",
+            "embedded_tesla.dbc",
             "Tesla Model 3",
             std::unordered_map<std::string, std::string>{
                 {"DIR_axleSpeed", "motorRpm"},
@@ -30,6 +31,7 @@ protected:
     // Helper to create Audi config
     VehicleConfig createAudiConfig() {
         return VehicleConfig(
+            "embedded_audi.dbc",
             "embedded_audi.dbc",
             "Audi MLB Evo",
             std::unordered_map<std::string, std::string>{

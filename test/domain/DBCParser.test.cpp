@@ -543,6 +543,7 @@ TEST_F(DBCSignalMapperTest, MapsSignalByCanIdAndName) {
 TEST(VehicleConfigTest, ConstructsMinimalConfig) {
     VehicleConfig config(
         "tesla_model3.dbc",
+        "tesla_model3.dbc",
         "Tesla Model Y",
         {
             {"DIR_axleSpeed", "motorRpm"},
@@ -559,6 +560,7 @@ TEST(VehicleConfigTest, ConstructsMinimalConfig) {
 TEST(VehicleConfigTest, GetsFieldForSignal) {
     VehicleConfig config(
         "tesla_model3.dbc",
+        "tesla_model3.dbc",
         "Tesla Model Y",
         {
             {"DIR_axleSpeed", "motorRpm"},
@@ -574,6 +576,7 @@ TEST(VehicleConfigTest, GetsFieldForSignal) {
 TEST(VehicleConfigTest, HasMappingWorks) {
     VehicleConfig config(
         "tesla_model3.dbc",
+        "tesla_model3.dbc",
         "Tesla Model Y",
         {
             {"DIR_axleSpeed", "motorRpm"}
@@ -587,11 +590,13 @@ TEST(VehicleConfigTest, HasMappingWorks) {
 TEST(VehicleConfigTest, EqualityWorks) {
     VehicleConfig config1(
         "tesla_model3.dbc",
+        "tesla_model3.dbc",
         "Tesla Model Y",
         {{"DIR_axleSpeed", "motorRpm"}}
     );
 
     VehicleConfig config2(
+        "tesla_model3.dbc",
         "tesla_model3.dbc",
         "Tesla Model Y",
         {{"DIR_axleSpeed", "motorRpm"}}
@@ -603,11 +608,13 @@ TEST(VehicleConfigTest, EqualityWorks) {
 TEST(VehicleConfigTest, InequalityWorks) {
     VehicleConfig config1(
         "tesla_model3.dbc",
+        "tesla_model3.dbc",
         "Tesla Model Y",
         {{"DIR_axleSpeed", "motorRpm"}}
     );
 
     VehicleConfig config2(
+        "audi_etron.dbc",
         "audi_etron.dbc",
         "Audi e-tron",
         {{"ESP_v_Signal", "speedKmh"}}
@@ -628,6 +635,7 @@ protected:
 
 TEST_F(VehicleConfigRegistryTest, RegistersAndRetrievesConfig) {
     VehicleConfig teslaConfig(
+        "tesla_model3.dbc",
         "tesla_model3.dbc",
         "Tesla Model Y",
         {{"DIR_axleSpeed", "motorRpm"}}
@@ -651,6 +659,7 @@ TEST_F(VehicleConfigRegistryTest, ReturnsNullptrForUnknownVehicle) {
 TEST_F(VehicleConfigRegistryTest, HasConfigWorks) {
     VehicleConfig config(
         "tesla_model3.dbc",
+        "tesla_model3.dbc",
         "Tesla Model Y",
         {}
     );
@@ -663,9 +672,9 @@ TEST_F(VehicleConfigRegistryTest, HasConfigWorks) {
 
 TEST_F(VehicleConfigRegistryTest, ReturnsRegisteredVehicleIds) {
     registry.registerVehicle("tesla_model_y",
-        VehicleConfig("tesla_model3.dbc", "Tesla Model Y", {}));
+        VehicleConfig("tesla_model3.dbc", "tesla_model3.dbc", "Tesla Model Y", {}));
     registry.registerVehicle("audi_etron",
-        VehicleConfig("vw_mlb.dbc", "Audi e-tron", {}));
+        VehicleConfig("vw_mlb.dbc", "vw_mlb.dbc", "Audi e-tron", {}));
 
     auto vehicleIds = registry.getRegisteredVehicles();
 
@@ -676,11 +685,11 @@ TEST_F(VehicleConfigRegistryTest, ReturnsRegisteredVehicleIds) {
 
 TEST_F(VehicleConfigRegistryTest, MultipleConfigsCanCoexist) {
     registry.registerVehicle("tesla_model_y",
-        VehicleConfig("tesla_model3.dbc", "Tesla Model Y",
+        VehicleConfig("tesla_model3.dbc", "tesla_model3.dbc", "Tesla Model Y",
             {{"DIR_axleSpeed", "motorRpm"}}));
 
     registry.registerVehicle("audi_etron",
-        VehicleConfig("vw_mlb.dbc", "Audi e-tron",
+        VehicleConfig("vw_mlb.dbc", "vw_mlb.dbc", "Audi e-tron",
             {{"ESP_v_Signal", "speedKmh"}}));
 
     const auto* tesla = registry.getConfig("tesla_model_y");
@@ -698,6 +707,7 @@ TEST_F(VehicleConfigRegistryTest, MultipleConfigsCanCoexist) {
 
 TEST_F(VehicleConfigRegistryTest, RegistersMultipleSignals) {
     VehicleConfig config(
+        "tesla_model3.dbc",
         "tesla_model3.dbc",
         "Tesla Model Y",
         {

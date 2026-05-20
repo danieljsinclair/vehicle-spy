@@ -42,15 +42,15 @@ CliOptions parseArgs(int argc, char* argv[]) {
 
         // --vehicle is required for --connect
         if (opts.connect_mode && opts.vehicle_type.empty()) {
-            throw CLI::ValidationError("Vehicle type required with --connect. Supported: tesla_model3, audi_mlb_evo, generic");
+            throw CLI::ValidationError("Vehicle type required with --connect. Supported: tesla, audi_mlb_evo, generic");
         }
 
         // Validate vehicle type if specified
         if (!opts.vehicle_type.empty()) {
-            const std::vector<std::string> supported = {"tesla_model3", "audi_mlb_evo", "generic"};
+            const std::vector<std::string> supported = {"tesla", "audi_mlb_evo", "generic"};
             bool isValid = std::find(supported.begin(), supported.end(), opts.vehicle_type) != supported.end();
             if (!isValid) {
-                throw CLI::ValidationError("Unsupported vehicle type '" + opts.vehicle_type + "'. Supported: tesla_model3, audi_mlb_evo, generic");
+                throw CLI::ValidationError("Unsupported vehicle type '" + opts.vehicle_type + "'. Supported: tesla, audi_mlb_evo, generic");
             }
         }
     });
@@ -98,12 +98,12 @@ void printHelp(std::ostream& out, const domain::VehicleConfigRegistry& registry)
     out << "EXAMPLES:\n"
         << "  vehicle-sim --simulate\n"
         << "  vehicle-sim --scan\n"
-        << "  vehicle-sim --connect <addr> --vehicle tesla_model3\n"
+        << "  vehicle-sim --connect <addr> --vehicle tesla\n"
         << "  vehicle-sim --connect <addr> --vehicle audi_mlb_evo\n"
         << "  vehicle-sim --connect <addr> --vehicle generic\n\n"
         << "NOTES:\n"
         << "  --vehicle is required when using --connect\n"
-        << "  tesla_model3 and audi_mlb_evo use CAN monitor mode (DBC decoding)\n"
+        << "  tesla and audi_mlb_evo use CAN monitor mode (DBC decoding)\n"
         << "  generic uses standard OBD2 PID polling\n\n"
         << "REQUIREMENTS:\n"
         << "  For real data: Connect a BLE OBD2 adapter to your vehicle's OBD-II port.\n";

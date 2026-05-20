@@ -27,28 +27,28 @@ TEST_F(DefaultVehicleConfigsTest, TeslaConfig_HasSignalMappings) {
     EXPECT_GE(teslaConfig_->signalMappings.size(), 4u);
 }
 
-TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsAxleSpeedToMotorRpm) {
-    auto it = teslaConfig_->signalMappings.find("DIR_axleSpeed");
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsMotorRPM) {
+    auto it = teslaConfig_->signalMappings.find("DI_motorRPM");
     ASSERT_NE(it, teslaConfig_->signalMappings.end());
     EXPECT_EQ(it->second, "motorRpm");
 }
 
-TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsTorqueActual) {
-    auto it = teslaConfig_->signalMappings.find("DIR_torqueActual");
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsMotorTorque) {
+    auto it = teslaConfig_->signalMappings.find("DI_torqueMotor");
     ASSERT_NE(it, teslaConfig_->signalMappings.end());
     EXPECT_EQ(it->second, "motorTorqueNm");
 }
 
-TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsAccelPedalToThrottle) {
-    auto it = teslaConfig_->signalMappings.find("DI_accelPedalPos");
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsPedalPosToThrottle) {
+    auto it = teslaConfig_->signalMappings.find("DI_pedalPos");
     ASSERT_NE(it, teslaConfig_->signalMappings.end());
     EXPECT_EQ(it->second, "throttlePercent");
 }
 
-TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsSteeringAngle) {
-    auto it = teslaConfig_->signalMappings.find("SteeringAngle129");
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsVehicleSpeed) {
+    auto it = teslaConfig_->signalMappings.find("DI_vehicleSpeed");
     ASSERT_NE(it, teslaConfig_->signalMappings.end());
-    EXPECT_EQ(it->second, "steeringAngleDeg");
+    EXPECT_EQ(it->second, "speedKmh");
 }
 
 TEST_F(DefaultVehicleConfigsTest, AudiConfig_HasCorrectDBCPath) {
@@ -82,21 +82,21 @@ TEST_F(DefaultVehicleConfigsTest, AudiConfig_MapsBrakePressure) {
 }
 
 TEST_F(DefaultVehicleConfigsTest, AudiConfig_DoesNotHaveTeslaSignals) {
-    EXPECT_EQ(audiConfig_->signalMappings.find("DI_accelPedalPos"), audiConfig_->signalMappings.end());
-    EXPECT_EQ(audiConfig_->signalMappings.find("SteeringAngle129"), audiConfig_->signalMappings.end());
+    EXPECT_EQ(audiConfig_->signalMappings.find("DI_pedalPos"), audiConfig_->signalMappings.end());
+    EXPECT_EQ(audiConfig_->signalMappings.find("DI_motorRPM"), audiConfig_->signalMappings.end());
 }
 
 TEST_F(DefaultVehicleConfigsTest, RegisterAll_PopulatesRegistry) {
     VehicleConfigRegistry registry;
     DefaultVehicleConfigs::registerAll(registry);
-    EXPECT_TRUE(registry.hasConfig("tesla_model3"));
+    EXPECT_TRUE(registry.hasConfig("tesla"));
     EXPECT_TRUE(registry.hasConfig("audi_mlb_evo"));
 }
 
 TEST_F(DefaultVehicleConfigsTest, RegisterAll_TeslaConfigRetrievable) {
     VehicleConfigRegistry registry;
     DefaultVehicleConfigs::registerAll(registry);
-    const VehicleConfig* config = registry.getConfig("tesla_model3");
+    const VehicleConfig* config = registry.getConfig("tesla");
     ASSERT_NE(config, nullptr);
     EXPECT_EQ(config->vehicleName, "Tesla Model 3");
 }
@@ -109,37 +109,31 @@ TEST_F(DefaultVehicleConfigsTest, RegisterAll_AudiConfigRetrievable) {
     EXPECT_EQ(config->vehicleName, "Audi MLB Evo");
 }
 
-TEST_F(DefaultVehicleConfigsTest, GearCodeMappings_DefaultIsEmpty) {
-    VehicleConfig config("test.dbc", "Test", {}, "", false);
-    EXPECT_TRUE(config.gearCodeMappings.empty());
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_HasExactlySevenSignalMappings) {
+    EXPECT_EQ(teslaConfig_->signalMappings.size(), 7u);
 }
 
-TEST_F(DefaultVehicleConfigsTest, GearCodeMappings_CanBeConstructed) {
-    std::unordered_map<int, std::string> gearMappings = {
-        {0, "P"},
-        {1, "R"},
-        {2, "N"},
-        {3, "D"},
-        {4, "S"}
-    };
-    VehicleConfig config("test.dbc", "Test", {}, "", false, gearMappings);
-    EXPECT_EQ(config.gearCodeMappings.size(), 5);
-    EXPECT_EQ(config.gearCodeMappings[0], "P");
-    EXPECT_EQ(config.gearCodeMappings[1], "R");
-    EXPECT_EQ(config.gearCodeMappings[2], "N");
-    EXPECT_EQ(config.gearCodeMappings[3], "D");
-    EXPECT_EQ(config.gearCodeMappings[4], "S");
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsDIGearToGearSelector) {
+    auto it = teslaConfig_->signalMappings.find("DI_gear");
+    ASSERT_NE(it, teslaConfig_->signalMappings.end());
+    EXPECT_EQ(it->second, "gearSelector");
 }
 
-TEST_F(DefaultVehicleConfigsTest, GearCodeMappings_EqualityIncludesMappings) {
-    std::unordered_map<int, std::string> mappings1 = {{0, "P"}, {1, "R"}};
-    std::unordered_map<int, std::string> mappings2 = {{0, "P"}, {1, "R"}};
-    std::unordered_map<int, std::string> mappings3 = {{0, "P"}, {1, "N"}};
-
-    VehicleConfig config1("test.dbc", "Test", {}, "", false, mappings1);
-    VehicleConfig config2("test.dbc", "Test", {}, "", false, mappings2);
-    VehicleConfig config3("test.dbc", "Test", {}, "", false, mappings3);
-
-    EXPECT_EQ(config1, config2);
-    EXPECT_NE(config1, config3);
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsDIGearRequestToGearRequested) {
+    auto it = teslaConfig_->signalMappings.find("DI_gearRequest");
+    ASSERT_NE(it, teslaConfig_->signalMappings.end());
+    EXPECT_EQ(it->second, "gearRequested");
 }
+
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsVehicleSpeedToSpeedKmh) {
+    auto it = teslaConfig_->signalMappings.find("DI_vehicleSpeed");
+    ASSERT_NE(it, teslaConfig_->signalMappings.end());
+    EXPECT_EQ(it->second, "speedKmh");
+}
+
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_DoesNotHaveGearCodeMappings) {
+    EXPECT_EQ(teslaConfig_->signalMappings.find("gearCode"), teslaConfig_->signalMappings.end());
+    EXPECT_EQ(teslaConfig_->signalMappings.find("DI_gearCode"), teslaConfig_->signalMappings.end());
+}
+
+// Gear code mappings removed - DBC VAL_ table is now single source of truth

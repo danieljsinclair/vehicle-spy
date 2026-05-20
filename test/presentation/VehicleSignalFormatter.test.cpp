@@ -14,7 +14,7 @@ protected:
     }
 
     VehicleConfig makeConfig(const std::string& name) {
-        return VehicleConfig("test.dbc", name, {}, "", false);
+        return VehicleConfig("test.dbc", "test.dbc", name, {}, "", false);
     }
 };
 
@@ -28,48 +28,33 @@ TEST_F(VehicleSignalFormatterTest, FormatRowContainsAllFields) {
     EXPECT_NE(row.find("Accel"), std::string::npos);
 }
 
-TEST_F(VehicleSignalFormatterTest, FormatRowOutputsTwoLines) {
+TEST_F(VehicleSignalFormatterTest, FormatRowOutputsSingleLine) {
     auto signal = makeSignal(55.5, 120.3, 0.25, 10.0);
     std::string row = formatTelemetryRow(signal, 1);
 
-    // Count newlines - should be 2 (one at end of first line, one at end of second)
+    // Count newlines - should be 1 (only at end of the line)
     int newlineCount = 0;
     for (char c : row) {
         if (c == '\n') newlineCount++;
     }
-    EXPECT_EQ(newlineCount, 2);
+    EXPECT_EQ(newlineCount, 1);
 }
 
-TEST_F(VehicleSignalFormatterTest, FormatRowFirstLineContainsPrimaryFields) {
+TEST_F(VehicleSignalFormatterTest, FormatRowContainsAllFieldsOnSingleLine) {
     auto signal = makeSignal(55.5, 120.3, 0.25, 10.0);
     std::string row = formatTelemetryRow(signal, 1);
 
-    // First line should contain: Throttle, Speed, Brake, Accel, Gear
-    size_t firstNewline = row.find('\n');
-    ASSERT_NE(firstNewline, std::string::npos);
-    std::string firstLine = row.substr(0, firstNewline);
-
-    EXPECT_NE(firstLine.find("Throttle"), std::string::npos);
-    EXPECT_NE(firstLine.find("Speed"), std::string::npos);
-    EXPECT_NE(firstLine.find("Brake"), std::string::npos);
-    EXPECT_NE(firstLine.find("Accel"), std::string::npos);
-    EXPECT_NE(firstLine.find("Gear"), std::string::npos);
-}
-
-TEST_F(VehicleSignalFormatterTest, FormatRowSecondLineContainsSecondaryFields) {
-    auto signal = makeSignal(55.5, 120.3, 0.25, 10.0);
-    std::string row = formatTelemetryRow(signal, 1);
-
-    // Second line should contain: Steer, Motor, HV, Curr, Trq
-    size_t firstNewline = row.find('\n');
-    ASSERT_NE(firstNewline, std::string::npos);
-    std::string secondLine = row.substr(firstNewline + 1);
-
-    EXPECT_NE(secondLine.find("Steer"), std::string::npos);
-    EXPECT_NE(secondLine.find("Motor"), std::string::npos);
-    EXPECT_NE(secondLine.find("HV"), std::string::npos);
-    EXPECT_NE(secondLine.find("Curr"), std::string::npos);
-    EXPECT_NE(secondLine.find("Trq"), std::string::npos);
+    // Single line should contain all fields: Throttle, Speed, Brake, Accel, Gear, Steer, Motor, HV, Curr, Trq
+    EXPECT_NE(row.find("Throttle"), std::string::npos);
+    EXPECT_NE(row.find("Speed"), std::string::npos);
+    EXPECT_NE(row.find("Brake"), std::string::npos);
+    EXPECT_NE(row.find("Accel"), std::string::npos);
+    EXPECT_NE(row.find("Gear"), std::string::npos);
+    EXPECT_NE(row.find("Steer"), std::string::npos);
+    EXPECT_NE(row.find("Motor"), std::string::npos);
+    EXPECT_NE(row.find("HV"), std::string::npos);
+    EXPECT_NE(row.find("Curr"), std::string::npos);
+    EXPECT_NE(row.find("Trq"), std::string::npos);
 }
 
 TEST_F(VehicleSignalFormatterTest, FormatRowStartsWithCount) {

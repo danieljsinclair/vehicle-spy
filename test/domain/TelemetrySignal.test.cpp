@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "vehicle-sim/domain/TelemetrySignal.h"
+#include "vehicle-sim/domain/Gear.h"
 
 using namespace vehicle_sim::domain;
 
@@ -29,8 +30,8 @@ TEST(TelemetrySignalTest, ClampsRpmToValidRange)
 
 TEST(TelemetrySignalTest, ClampsGearToValidRange)
 {
-    EXPECT_EQ(TelemetrySignal(0, -2, 0, 0, 0, 1000).getGear(), -1);
-    EXPECT_EQ(TelemetrySignal(0, 10, 0, 0, 0, 1000).getGear(), 9);
+    EXPECT_EQ(TelemetrySignal(0, -3, 0, 0, 0, 1000).getGear(), Gear::REVERSE);
+    EXPECT_EQ(TelemetrySignal(0, 10, 0, 0, 0, 1000).getGear(), Gear::GEAR_6);
 }
 
 TEST(TelemetrySignalTest, ClampsTorqueToValidRange)

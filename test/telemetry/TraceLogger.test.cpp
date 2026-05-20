@@ -52,7 +52,7 @@ TEST_F(TraceLoggerTest, WritesHeaderOnConstruction) {
 
 TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.5, 25.0, -12.5, 3500.5, 400.0, 25.3, 150.0, "D");
+    VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.5, 25.0, -12.5, 3500.5, 400.0, 25.3, 150.0, 4097);
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -64,13 +64,13 @@ TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     }
 
     ASSERT_EQ(lines.size(), 2); // header + 1 row
-    EXPECT_EQ(lines[1], "123456789,50.00,100.00,0.50,25.00,-12.50,3500.50,400.00,25.30,D,150.00");
+    EXPECT_EQ(lines[1], "123456789,50.00,100.00,0.50,25.00,-12.50,3500.50,400.00,25.30,4097,150.00");
 }
 
 TEST_F(TraceLoggerTest, WritesMultipleRows) {
     TraceLogger logger(testFile);
-    VehicleSignal signal1(1000ULL, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, "P");
-    VehicleSignal signal2(2000ULL, 100.0, 200.0, 2.0, 80.0, {}, 5000.0, 380.5, 25.2, 300.0, "N");
+    VehicleSignal signal1(1000ULL, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -2);
+    VehicleSignal signal2(2000ULL, 100.0, 200.0, 2.0, 80.0, {}, 5000.0, 380.5, 25.2, 300.0, 0);
 
     logger(signal1);
     logger(signal2);
@@ -84,8 +84,8 @@ TEST_F(TraceLoggerTest, WritesMultipleRows) {
     }
 
     ASSERT_EQ(lines.size(), 3); // header + 2 rows
-    EXPECT_EQ(lines[1], "1000,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,P,0.00"); // explicit zeros formatted
-    EXPECT_EQ(lines[2], "2000,100.00,200.00,2.00,80.00,,5000.00,380.50,25.20,N,300.00");
+    EXPECT_EQ(lines[1], "1000,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,-2,0.00"); // explicit zeros formatted
+    EXPECT_EQ(lines[2], "2000,100.00,200.00,2.00,80.00,,5000.00,380.50,25.20,0,300.00");
 }
 
 TEST_F(TraceLoggerTest, LeavesEmptyCellsForNulloptValues) {
@@ -126,7 +126,7 @@ TEST_F(TraceLoggerTest, LeavesEmptyCellForNulloptGearSelector) {
 
 TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(12345ULL, {}, 50.0, -2.5, {}, -180.0, {}, {}, {}, -500.0, "R");
+    VehicleSignal signal(12345ULL, {}, 50.0, -2.5, {}, -180.0, {}, {}, {}, -500.0, -1);
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -138,12 +138,12 @@ TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,,50.00,-2.50,,-180.00,,,,R,-500.00"); // nullopt values are empty, negative values preserved
+    EXPECT_EQ(lines[1], "12345,,50.00,-2.50,,-180.00,,,,-1,-500.00"); // nullopt values are empty, negative values preserved
 }
 
 TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     TraceLogger logger1(testFile);
-    VehicleSignal signal(12345ULL, 50.0, 100.0, 0.5, 25.0, {}, 3500.0, {}, {}, 150.0, "D");
+    VehicleSignal signal(12345ULL, 50.0, 100.0, 0.5, 25.0, {}, 3500.0, {}, {}, 150.0, 4097);
 
     TraceLogger logger2(std::move(logger1));
     logger2(signal);
@@ -157,12 +157,12 @@ TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,50.00,100.00,0.50,25.00,,3500.00,,,D,150.00");
+    EXPECT_EQ(lines[1], "12345,50.00,100.00,0.50,25.00,,3500.00,,,4097,150.00");
 }
 
 TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(54321ULL, 75.0, 150.0, 1.0, 50.0, {}, 4000.0, {}, {}, 200.0, "S");
+    VehicleSignal signal(54321ULL, 75.0, 150.0, 1.0, 50.0, {}, 4000.0, {}, {}, 200.0, 4098);
 
     logger(signal);
 
@@ -175,7 +175,7 @@ TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "54321,75.00,150.00,1.00,50.00,,4000.00,,,S,200.00");
+    EXPECT_EQ(lines[1], "54321,75.00,150.00,1.00,50.00,,4000.00,,,4098,200.00");
 }
 
 // ================================================

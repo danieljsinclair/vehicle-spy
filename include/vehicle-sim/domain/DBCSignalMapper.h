@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include "vehicle-sim/domain/DBCSignalDefinition.h"
+#include "vehicle-sim/domain/Gear.h"
 
 namespace vehicle_sim::domain {
 
@@ -55,6 +56,31 @@ public:
      * @return Physical value, or nullopt if not found or extraction fails
      */
     [[nodiscard]] static std::optional<double> mapSignal(
+        const std::vector<std::uint8_t>& frame,
+        std::uint16_t canId,
+        const std::string& signalName,
+        const std::unordered_map<std::uint16_t,
+            std::vector<DBCSignalDefinition>>& definitions
+    ) noexcept;
+
+    /**
+     * Map raw CAN bytes to a Gear constant using DBC VAL_ table.
+     *
+     * For Tesla Model 3/Y DI_gear signal:
+     * - 0 (INVALID) → nullopt
+     * - 1 (DI_GEAR_P) → Gear::PARK (-2)
+     * - 2 (DI_GEAR_R) → Gear::REVERSE (-1)
+     * - 3 (DI_GEAR_N) → Gear::NEUTRAL (0)
+     * - 4 (DI_GEAR_D) → Gear::AUTO_1 (0x1001)
+     * - 7 (DI_GEAR_SNA) → nullopt
+     *
+     * @param frame       Raw CAN data frame bytes
+     * @param canId       CAN message ID
+     * @param signalName  Name of signal to extract
+     * @param definitions Map of ID → signal definitions
+     * @return Gear constant, or nullopt if invalid/unknown/SNA
+     */
+    [[nodiscard]] static std::optional<std::int32_t> mapGearSignal(
         const std::vector<std::uint8_t>& frame,
         std::uint16_t canId,
         const std::string& signalName,

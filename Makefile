@@ -1,4 +1,4 @@
-.PHONY: all clean test help ios ios-signed xcode native deploy run install-deps ios-icons app-icons scrub
+.PHONY: all clean test help ios ios-signed xcode native deploy run install-deps ios-icons app-icons scrub update-dbc
 
 # Device ID (first connected/available device, excluding unavailable)
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/unavailable/ && match($$0, /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/) { print substr($$0, RSTART, RLENGTH); exit }')
@@ -11,6 +11,14 @@ clean: clean-icons
 	rm -rf build-native build-ios
 	rm -rf ~/Library/Developer/Xcode/DerivedData/VehicleSimApp-*
 	rm -rf vehicle-sim-ios/VehicleSim/build
+
+# Update DBC files from commaai/opendbc submodule
+update-dbc:
+	@echo "Updating DBC files from commaai/opendbc submodule..."
+	@cd external/opendbc && git checkout master && git pull
+	@cp external/opendbc/opendbc/dbc/tesla_can.dbc resources/dbc/Model3CAN.dbc
+	@cp external/opendbc/opendbc/dbc/vw_mlb.dbc resources/dbc/vw_mlb.dbc
+	@echo "DBC files updated."
 
 # Full scrub: clean + Xcode caches + generated icons (keeps Contents.json)
 scrub: clean
@@ -130,6 +138,7 @@ help:
 	@echo "  xcode      - Build native + icons, then open Xcode project"
 	@echo "  app-icons  - Generate iOS app icons (light + dark variants)"
 	@echo "  install-deps - Install ImageMagick, cmake via Homebrew"
+	@echo "  update-dbc - Update DBC files from commaai/opendbc submodule"
 	@echo "  clean      - Clean build artifacts (keeps generated icons)"
 	@echo "  scrub      - Full clean: DerivedData, caches, and generated icons"
 	@echo "  help       - Show this help message"

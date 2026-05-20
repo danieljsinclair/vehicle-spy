@@ -67,7 +67,7 @@ TEST(VehicleDetector, DecodeWMI_Generic) {
 // ================================================
 
 TEST(VehicleDetector, MakeToConfigId_TeslaElectric) {
-    EXPECT_EQ(VehicleDetector::makeToConfigId(VehicleMake::Tesla, true), "tesla_model3");
+    EXPECT_EQ(VehicleDetector::makeToConfigId(VehicleMake::Tesla, true), "tesla");
 }
 
 TEST(VehicleDetector, MakeToConfigId_AudiElectric) {
@@ -166,7 +166,7 @@ TEST(VehicleDetector, TeslaDetection_HighConfidence_AllThreeIds) {
     detector.observeFrame(canFrame(0x118));
     detector.observeFrame(canFrame(0x129));
     auto result = detector.getResult();
-    EXPECT_EQ("tesla_model3", result.suggestedVehicleId);
+    EXPECT_EQ("tesla", result.suggestedVehicleId);
     EXPECT_EQ(VehicleMake::Tesla, result.make);
     EXPECT_EQ(DetectionConfidence::High, result.confidence);
 }
@@ -176,7 +176,7 @@ TEST(VehicleDetector, TeslaDetection_MediumConfidence_TwoIds) {
     detector.observeFrame(canFrame(0x108));
     detector.observeFrame(canFrame(0x118));
     auto result = detector.getResult();
-    EXPECT_EQ("tesla_model3", result.suggestedVehicleId);
+    EXPECT_EQ("tesla", result.suggestedVehicleId);
     EXPECT_EQ(DetectionConfidence::Medium, result.confidence);
 }
 
@@ -184,7 +184,7 @@ TEST(VehicleDetector, TeslaDetection_LowConfidence_OneId) {
     VehicleDetector detector;
     detector.observeFrame(canFrame(0x108));
     auto result = detector.getResult();
-    EXPECT_EQ("tesla_model3", result.suggestedVehicleId);
+    EXPECT_EQ("tesla", result.suggestedVehicleId);
     EXPECT_EQ(DetectionConfidence::Low, result.confidence);
 }
 
@@ -343,7 +343,7 @@ TEST(VehicleDetector, RealisticTeslaStream) {
     }
 
     auto result = detector.getResult();
-    EXPECT_EQ("tesla_model3", result.suggestedVehicleId);
+    EXPECT_EQ("tesla", result.suggestedVehicleId);
     EXPECT_EQ(DetectionConfidence::High, result.confidence);
     EXPECT_EQ(25, result.frameCount);
     EXPECT_EQ(3u, result.observedCanIds.size());

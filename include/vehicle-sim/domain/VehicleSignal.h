@@ -32,7 +32,7 @@ public:
         std::optional<double> motorHvVoltage = std::nullopt,
         std::optional<double> motorHvCurrent = std::nullopt,
         std::optional<double> motorTorqueNm = std::nullopt,
-        std::optional<std::string> gearSelector = std::nullopt
+        std::optional<std::int32_t> gearSelector = std::nullopt
     ) noexcept;
 
     // Default copy / move
@@ -52,7 +52,7 @@ public:
     [[nodiscard]] const std::optional<double>& getMotorHvVoltage() const noexcept;
     [[nodiscard]] const std::optional<double>& getMotorHvCurrent() const noexcept;
     [[nodiscard]] const std::optional<double>& getMotorTorqueNm() const noexcept;
-    [[nodiscard]] const std::optional<std::string>& getGearSelector() const noexcept;
+    [[nodiscard]] const std::optional<std::int32_t>& getGearSelector() const noexcept;
     [[nodiscard]] std::uint64_t getTimestampUtcMs() const noexcept;
 
     // Convenience accessors - return value or default
@@ -65,7 +65,7 @@ public:
     [[nodiscard]] double motorHvVoltageOr(double defaultVal = 0.0) const noexcept;
     [[nodiscard]] double motorHvCurrentOr(double defaultVal = 0.0) const noexcept;
     [[nodiscard]] double motorTorqueNmOr(double defaultVal = 0.0) const noexcept;
-    [[nodiscard]] std::string gearSelectorOr(std::string defaultVal = "") const noexcept;
+    [[nodiscard]] std::int32_t gearSelectorOr(std::int32_t defaultVal = 0) const noexcept;
 
     // Equality comparison (member-wise, uses optional's ==)
     [[nodiscard]] bool operator==(const VehicleSignal& other) const noexcept;
@@ -103,7 +103,7 @@ private:
     std::optional<double>      m_motorHvVoltage;
     std::optional<double>      m_motorHvCurrent;
     std::optional<double>      m_motorTorqueNm;
-    std::optional<std::string> m_gearSelector;
+    std::optional<std::int32_t> m_gearSelector;
     std::uint64_t              m_timestampUtcMs;
 };
 

@@ -16,7 +16,7 @@ namespace vehicle_sim::domain {
  * No code changes required (Open/Closed Principle).
  *
  * Example for Tesla Model Y:
- *   - DBC file: "tesla_model3.dbc"
+ *   - DBC file: "tesla.dbc"
  *   - Signal mappings:
  *     - "DIR_axleSpeed" → "motorRpm"
  *     - "DIR_torqueActual" → "motorTorque"
@@ -29,6 +29,14 @@ struct VehicleConfig final {
      * Relative or absolute path. Will be resolved by DBCParser.
      */
     std::string dbcFilePath;
+
+    /**
+     * Bundle filename for iOS (filename only, no path).
+     *
+     * For iOS builds, the DBC is loaded from the app bundle using this filename.
+     * Example: "Model3CAN.dbc", "vw_mlb.dbc"
+     */
+    std::string dbcBundleFileName;
 
     /**
      * Human-readable vehicle identifier.
@@ -58,30 +66,22 @@ struct VehicleConfig final {
     bool isCANProtocol = false;
 
     /**
-     * Map of gear codes to human-readable gear labels.
-     *
-     * The key is the numeric gear code from the vehicle.
-     * The value is the display label (e.g., "P", "R", "N", "D", "S").
-     */
-    std::unordered_map<int, std::string> gearCodeMappings;
-
-    /**
      * Construct a vehicle config.
      *
-     * @param dbcFilePath      Path to DBC file
-     * @param vehicleName      Human-readable vehicle name
-     * @param signalMappings   Map of DBC signal → VehicleSignal field
-     * @param canBus           Optional CAN bus name
-     * @param isCANProtocol    True for CAN/DBC vehicles, false for OBD2
-     * @param gearCodeMappings Map of gear codes to display labels
+     * @param dbcFilePath          Path to DBC file (native builds)
+     * @param dbcBundleFileName    Bundle filename for iOS (filename only)
+     * @param vehicleName          Human-readable vehicle name
+     * @param signalMappings       Map of DBC signal → VehicleSignal field
+     * @param canBus               Optional CAN bus name
+     * @param isCANProtocol        True for CAN/DBC vehicles, false for OBD2
      */
     VehicleConfig(
         std::string dbcFilePath,
+        std::string dbcBundleFileName,
         std::string vehicleName,
         std::unordered_map<std::string, std::string> signalMappings,
         std::string canBus = "",
-        bool isCANProtocol = false,
-        std::unordered_map<int, std::string> gearCodeMappings = {}
+        bool isCANProtocol = false
     ) noexcept;
 
     // Default copy/move
@@ -159,6 +159,31 @@ public:
      * Get all registered vehicle IDs.
      */
     [[nodiscard]] std::vector<std::string> getRegisteredVehicles() const noexcept;
+
+    /**
+     * Get the DBC bundle filename for a vehicle (for iOS).
+     *
+     * @param vehicleId Vehicle identifier
+     * @return Bundle filename (e.g., "Model3CAN.dbc"), or empty string if not found
+     */
+    [[nodiscard]] std::string getDbcBundleFileName(
+        const std::string& vehicleId
+    ) const noexcept;
+
+    /**
+     * Vehicle option for UI display.
+     */
+    struct VehicleOption {
+        std::string id;        // e.g., "tesla"
+        std::string displayName; // e.g., "Tesla Model 3"
+    };
+
+    /**
+     * Get all registered vehicles with their display names for UI.
+     *
+     * @return Vector of vehicle options (id, displayName)
+     */
+    [[nodiscard]] std::vector<VehicleOption> getVehicleOptions() const noexcept;
 
 private:
     std::unordered_map<std::string, VehicleConfig> configs_;

@@ -36,6 +36,7 @@ TEST_F(DBCTranslationServiceTest, IsLoadedBeforeLoad_ReturnsFalse) {
 TEST_F(DBCTranslationServiceTest, RegisterAndLoadCANVehicle) {
     VehicleConfig config(
         "test_vehicle.dbc",
+        "test_vehicle.dbc",
         "Test Vehicle",
         std::unordered_map<std::string, std::string>{{"DIR_axleSpeed", "motorRpm"}}
     );
@@ -50,6 +51,7 @@ TEST_F(DBCTranslationServiceTest, RegisterAndLoadCANVehicle) {
 TEST_F(DBCTranslationServiceTest, LoadOBD2Vehicle) {
     VehicleConfig config(
         "",  // Empty DBC path for OBD2
+        "",  // Empty bundle filename for OBD2
         "OBD2 Vehicle",
         std::unordered_map<std::string, std::string>{}
     );
@@ -63,6 +65,7 @@ TEST_F(DBCTranslationServiceTest, LoadOBD2Vehicle) {
 
 TEST_F(DBCTranslationServiceTest, ProcessOBD2Frame_ReturnsSignal) {
     VehicleConfig config(
+        "",
         "",
         "OBD2 Vehicle",
         std::unordered_map<std::string, std::string>{}
@@ -81,7 +84,7 @@ TEST_F(DBCTranslationServiceTest, ProcessOBD2Frame_ReturnsSignal) {
 }
 
 TEST_F(DBCTranslationServiceTest, GetProtocol_ReturnsCorrectProtocol) {
-    VehicleConfig config("", "OBD2 Vehicle", std::unordered_map<std::string, std::string>{});
+    VehicleConfig config("", "", "OBD2 Vehicle", std::unordered_map<std::string, std::string>{});
     service_->registry().registerVehicle("obd2_vehicle", std::move(config));
 
     service_->loadVehicle("obd2_vehicle", VehicleProtocol::OBD2);
@@ -90,7 +93,7 @@ TEST_F(DBCTranslationServiceTest, GetProtocol_ReturnsCorrectProtocol) {
 }
 
 TEST_F(DBCTranslationServiceTest, GetVehicleId_ReturnsLoadedId) {
-    VehicleConfig config("", "OBD2 Vehicle", std::unordered_map<std::string, std::string>{});
+    VehicleConfig config("", "", "OBD2 Vehicle", std::unordered_map<std::string, std::string>{});
     service_->registry().registerVehicle("obd2_vehicle", std::move(config));
 
     service_->loadVehicle("obd2_vehicle", VehicleProtocol::OBD2);
@@ -99,14 +102,14 @@ TEST_F(DBCTranslationServiceTest, GetVehicleId_ReturnsLoadedId) {
 }
 
 TEST_F(DBCTranslationServiceTest, RegistryReturnsCorrectRegistry) {
-    VehicleConfig config("", "Test", std::unordered_map<std::string, std::string>{});
+    VehicleConfig config("", "", "Test", std::unordered_map<std::string, std::string>{});
     service_->registry().registerVehicle("test", std::move(config));
 
     EXPECT_TRUE(service_->registry().hasConfig("test"));
 }
 
 TEST_F(DBCTranslationServiceTest, ConstRegistryReturnsSameRegistry) {
-    VehicleConfig config("", "Test", std::unordered_map<std::string, std::string>{});
+    VehicleConfig config("", "", "Test", std::unordered_map<std::string, std::string>{});
     service_->registry().registerVehicle("test", std::move(config));
 
     const auto& constService = *service_;

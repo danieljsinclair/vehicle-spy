@@ -8,17 +8,10 @@ add_executable(vehicle-sim-tests
     domain/VehicleSignal.test.cpp
     domain/TelemetrySignal.test.cpp
     domain/ISignalTranslator.test.cpp
-    domain/TeslaSignalParser.test.cpp
     domain/OBD2SignalTranslator.test.cpp
-    domain/AudiSignalTranslator.test.cpp
-    domain/SignalTranslatorFactory.test.cpp
     domain/CANDecoder.test.cpp
-    domain/AudiMLBTranslator.test.cpp
-    domain/TeslaCANTranslator.test.cpp
-    domain/CANTranslatorBase.test.cpp
     domain/VehicleSignalEV.test.cpp
     domain/CANSignalDecoderShared.test.cpp
-    domain/CANSignalDecoderBase.test.cpp
     domain/DBCParser.test.cpp
     domain/DBCFileParser.test.cpp
     domain/VehicleSignalFactory.test.cpp
@@ -38,7 +31,6 @@ add_executable(vehicle-sim-tests
     boundary/ELM327Transport.test.cpp
     boundary/OBD2EndToEnd.test.cpp
     boundary/VehicleDetectorIntegration.test.cpp
-    integration/EventDispatcherIntegration.test.cpp
     integration/DBCPipelineIntegration.test.cpp
     integration/DBCLiveDecoding.test.cpp
     integration/TeslaCANLiveDecoding.test.cpp

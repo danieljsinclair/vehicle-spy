@@ -1,5 +1,6 @@
 #include "vehicle-sim/domain/VehicleSignalFactory.h"
 #include "vehicle-sim/domain/DBCSignalMapper.h"
+#include "vehicle-sim/domain/Gear.h"
 
 namespace vehicle_sim::domain {
 
@@ -25,7 +26,7 @@ VehicleSignal VehicleSignalFactory::build(
     std::optional<double> motorHvVoltage;
     std::optional<double> motorHvCurrent;
     std::optional<double> motorTorqueNm;
-    std::optional<std::string> gearSelector;
+    std::optional<std::int32_t> gearSelector;
 
     for (const auto& [signalName, fieldName] : config_.signalMappings) {
         std::optional<double>* targetField = nullptr;
@@ -43,18 +44,14 @@ VehicleSignal VehicleSignalFactory::build(
         if (!targetField) {
             if (fieldName == "gearSelector") {
                 for (const auto& [canId, frame] : frames) {
-                    auto value = DBCSignalMapper::mapSignal(
+                    auto gearValue = DBCSignalMapper::mapGearSignal(
                         frame,
                         canId,
                         signalName,
                         parseResult_.signalsByCanId
                     );
-                    if (value) {
-                        int gearCode = static_cast<int>(*value);
-                        auto it = config_.gearCodeMappings.find(gearCode);
-                        if (it != config_.gearCodeMappings.end()) {
-                            gearSelector = it->second;
-                        }
+                    if (gearValue) {
+                        gearSelector = *gearValue;
                         break;
                     }
                 }

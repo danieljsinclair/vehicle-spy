@@ -130,7 +130,7 @@ Tesla CAN Bus (500kbps, Party CAN or Bus 6 via X179)
   → BLE GATT server (notify characteristic)
   → iOS/macOS CoreBluetooth
   → vehicle-sim BLEManager (invokeDataCallback)
-  → TeslaCANTranslator (DBC signal extraction)
+  → DBCSignalTranslator (DBC signal extraction via Model3CAN.dbc)
   → VehicleSim (telemetry state model)
 ```
 
@@ -167,11 +167,10 @@ BLEManagerBase (abstract)
 ### Signal Decoder Abstraction
 
 ```
-CANTranslatorBase (abstract)
-  ├── OBD2SignalTranslator   → Mode 01 PID value extraction
-  ├── TeslaCANTranslator     → DBC-based bit extraction (0x108, 0x257, etc.)
-  ├── AudiMLBCANTranslator   → DBC-based bit extraction (vw_meb.dbc)
-  └── GenericCANTranslator   → User-defined DBC import
+DBCSignalTranslator (generic DBC-driven)
+  ├── DBCParser              → Parses DBC files
+  ├── DBCSignalMapper        → Translates CAN values
+  └── VehicleSignalFactory    → Builds VehicleSignal from extracted values
 ```
 
 ### Connection Points by Vehicle
@@ -179,8 +178,8 @@ CANTranslatorBase (abstract)
 | Vehicle | Connection | Transport | Decoder |
 |---------|------------|-----------|---------|
 | Toyota Aygo | OBD2 port (under dash) | ELM327 (OBD2 PIDs) | OBD2SignalTranslator |
-| Audi e-tron | OBD2 port (under dash) | OBDeleven (UDS) | AudiMLBCANTranslator |
-| Tesla Model 3/Y | 26-pin harness → OBD2 (behind console) | ELM327 ATMA or OBDLink (raw CAN) | TeslaCANTranslator (DBC) |
+| Audi e-tron | OBD2 port (under dash) | OBDeleven (UDS) | DBCSignalTranslator (vw_mlb.dbc) |
+| Tesla Model 3/Y | 26-pin harness → OBD2 (behind console) | ELM327 ATMA or OBDLink (raw CAN) | DBCSignalTranslator (Model3CAN.dbc) |
 | Generic OBD2 | OBD2 port (under dash) | ELM327 (OBD2 PIDs) | OBD2SignalTranslator |
 
 ---

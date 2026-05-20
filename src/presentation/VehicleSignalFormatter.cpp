@@ -1,6 +1,7 @@
 #include "vehicle-sim/presentation/VehicleSignalFormatter.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
+#include "vehicle-sim/domain/Gear.h"
 
 #include <iomanip>
 #include <sstream>
@@ -30,9 +31,10 @@ void printTelemetryRow(std::ostream& out, const domain::VehicleSignal& signal, i
         << signal.getBrakePercent().value_or(0.0) << "%  ";
     out << "Accel: " << std::setw(5) << std::fixed << std::setprecision(2)
         << signal.getAccelerationG().value_or(0.0) << " G  ";
-    out << "Gear: " << std::setw(1) << signal.getGearSelector().value_or("") << "\n";
 
-    out << "        ";
+    auto gearVal = signal.getGearSelector();
+    out << "Gear: " << std::setw(1)
+        << (gearVal ? (domain::Gear::label(*gearVal) ? domain::Gear::label(*gearVal) : "?") : "-") << "  ";
     out << "Steer: " << std::setw(6) << std::fixed << std::setprecision(1)
         << signal.getSteeringAngleDeg().value_or(0.0) << "°  ";
     out << "Motor: " << std::setw(5) << std::fixed << std::setprecision(0)

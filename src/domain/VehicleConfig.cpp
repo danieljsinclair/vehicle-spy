@@ -4,29 +4,29 @@ namespace vehicle_sim::domain {
 
 VehicleConfig::VehicleConfig(
     std::string dbcFilePath,
+    std::string dbcBundleFileName,
     std::string vehicleName,
     std::unordered_map<std::string, std::string> signalMappings,
     std::string canBus,
-    bool isCANProtocol,
-    std::unordered_map<int, std::string> gearCodeMappings
+    bool isCANProtocol
 ) noexcept
     : dbcFilePath(std::move(dbcFilePath))
+    , dbcBundleFileName(std::move(dbcBundleFileName))
     , vehicleName(std::move(vehicleName))
     , signalMappings(std::move(signalMappings))
     , canBus(std::move(canBus))
     , isCANProtocol(isCANProtocol)
-    , gearCodeMappings(std::move(gearCodeMappings))
 {}
 
 bool VehicleConfig::operator==(
     const VehicleConfig& other
 ) const noexcept {
     return dbcFilePath == other.dbcFilePath
+        && dbcBundleFileName == other.dbcBundleFileName
         && vehicleName == other.vehicleName
         && signalMappings == other.signalMappings
         && canBus == other.canBus
-        && isCANProtocol == other.isCANProtocol
-        && gearCodeMappings == other.gearCodeMappings;
+        && isCANProtocol == other.isCANProtocol;
 }
 
 bool VehicleConfig::operator!=(
@@ -75,6 +75,22 @@ std::vector<std::string> VehicleConfigRegistry::getRegisteredVehicles() const no
         ids.push_back(id);
     }
     return ids;
+}
+
+std::string VehicleConfigRegistry::getDbcBundleFileName(
+    const std::string& vehicleId
+) const noexcept {
+    const auto* config = getConfig(vehicleId);
+    return config ? config->dbcBundleFileName : "";
+}
+
+std::vector<VehicleConfigRegistry::VehicleOption> VehicleConfigRegistry::getVehicleOptions() const noexcept {
+    std::vector<VehicleOption> options;
+    options.reserve(configs_.size());
+    for (const auto& [id, config] : configs_) {
+        options.push_back({id, config.vehicleName});
+    }
+    return options;
 }
 
 } // namespace vehicle_sim::domain

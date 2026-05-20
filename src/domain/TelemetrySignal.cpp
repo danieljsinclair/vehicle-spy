@@ -1,4 +1,5 @@
 #include "vehicle-sim/domain/TelemetrySignal.h"
+#include "vehicle-sim/domain/Gear.h"
 
 #include <algorithm>
 
@@ -13,7 +14,7 @@ TelemetrySignal::TelemetrySignal(
     std::uint64_t timestampUtcMs
 ) noexcept
     : m_rpm(std::clamp(rpm, 0.0, 12000.0))
-    , m_gear(std::clamp(gear, -1, 9))
+    , m_gear(std::clamp(gear, Gear::REVERSE, Gear::GEAR_6))
     , m_torqueNm(std::clamp(torqueNm, 0.0, 1500.0))
     , m_speedKmh(std::clamp(speedKmh, 0.0, 400.0))
     , m_throttlePercent(std::clamp(throttlePercent, 0.0, 100.0))

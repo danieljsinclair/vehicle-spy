@@ -13,6 +13,7 @@ protected:
         // Construct VehicleConfig with mappings matching real Model3CAN.dbc
         config_ = std::make_unique<VehicleConfig>(
             "tesla_model3.dbc",
+            "tesla_model3.dbc",
             "Tesla Model Y",
             std::unordered_map<std::string, std::string>{
                 {"DIR_axleSpeed", "motorRpm"},

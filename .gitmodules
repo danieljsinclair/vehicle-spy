@@ -6,3 +6,6 @@
 #     path = external/lib-name
 #     url = https://github.com/username/lib-name.git
 #     branch = main
+[submodule "external/opendbc"]
+	path = external/opendbc
+	url = https://github.com/commaai/opendbc.git

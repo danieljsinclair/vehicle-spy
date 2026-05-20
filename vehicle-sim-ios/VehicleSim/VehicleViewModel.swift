@@ -13,8 +13,7 @@ class VehicleViewModel: ObservableObject {
     @Published var steeringAngleDeg: Double? = nil
 
     // MARK: - Connection State
-    @Published var isConnected: Bool = false
-    @Published var isDemoMode: Bool = false
+    @Published var connectionState: ConnectionState = .disconnected
     @Published var connectionStatus: String = "Disconnected"
     @Published var connectedDeviceName: String?
     @Published var connectedDeviceAddress: String?
@@ -25,13 +24,17 @@ class VehicleViewModel: ObservableObject {
     @Published var discoveredDevices: [DeviceEntry] = []
 
     // MARK: - Vehicle Selection
-    @Published var selectedVehicle: String = "tesla_model3"
+    @Published var selectedVehicle: String = ""
 
-    let vehicleOptions = [
-        ("tesla_model3", "Tesla Model 3/Y"),
-        ("audi_mlb_evo", "Audi e-tron (MLB)"),
-        ("generic", "Generic OBD2")
-    ]
+    var vehicleOptions: [(String, String)] {
+        guard let wrapper = wrapper else { return [] }
+        let options = wrapper.getVehicleOptions()
+        // Initialize selectedVehicle with first available option if not set
+        if selectedVehicle.isEmpty && !options.isEmpty {
+            selectedVehicle = options[0]["id"]!
+        }
+        return options.map { ($0["id"]!, $0["displayName"]!) }
+    }
 
     // MARK: - Private
     private var wrapper: VehicleSimWrapper?
@@ -52,16 +55,15 @@ class VehicleViewModel: ObservableObject {
 
     deinit {
         stopUpdates()
-        wrapper?.disconnect()
+        wrapper?.stop()
     }
 
-    // MARK: - Demo Mode
+    // MARK: - Connection Control
 
     func startDemo() {
         guard wrapper != nil else { return }
         wrapper?.startDemo()
-        isDemoMode = true
-        isConnected = false
+        connectionState = .demo
         connectedDeviceName = nil
         connectedDeviceAddress = nil
         discoveredDevices = []
@@ -70,11 +72,29 @@ class VehicleViewModel: ObservableObject {
         startPolling()
     }
 
-    func stopDemo() {
-        wrapper?.stopDemo()
-        isDemoMode = false
+    func startBLE() {
+        guard wrapper != nil else { return }
+        wrapper?.startBLE()
+        connectionState = .connecting
+        connectionStatus = "Scanning"
+    }
+
+    func stop() {
+        wrapper?.stop()
+        connectionState = .disconnected
+        connectedDeviceName = nil
+        connectedDeviceAddress = nil
         connectionStatus = "Disconnected"
         stopUpdates()
+
+        throttlePercent = nil
+        speed = nil
+        acceleration = nil
+        brakePercent = nil
+        motorRpm = nil
+        motorTorqueNm = nil
+        gearSelector = nil
+        steeringAngleDeg = nil
     }
 
     // MARK: - BLE Scanning
@@ -116,21 +136,19 @@ class VehicleViewModel: ObservableObject {
             guard let self = self, let wrapper = self.wrapper else { return }
 
             let success = wrapper.connect(toDevice: device.address,
-                                          deviceName: device.name,
-                                          vehicleType: self.selectedVehicle)
+                                          deviceName: device.name)
 
             DispatchQueue.main.async {
                 self.isConnecting = false
                 if success {
-                    self.isConnected = true
-                    self.isDemoMode = false
+                    self.connectionState = .connected
                     self.connectedDeviceName = wrapper.connectedDeviceName
                     self.connectedDeviceAddress = wrapper.connectedDeviceAddress
                     self.discoveredDevices = []
                     self.connectionStatus = "Connected"
                     self.startPolling()
                 } else {
-                    self.isConnected = false
+                    self.connectionState = .disconnected
                     self.connectionStatus = "Connection Failed"
                 }
             }
@@ -139,7 +157,7 @@ class VehicleViewModel: ObservableObject {
 
     func disconnect() {
         wrapper?.disconnect()
-        isConnected = false
+        connectionState = .disconnected
         connectedDeviceName = nil
         connectedDeviceAddress = nil
         connectionStatus = "Disconnected"
@@ -158,7 +176,7 @@ class VehicleViewModel: ObservableObject {
     // MARK: - Vehicle Switching
 
     func switchVehicleType(_ newType: String) {
-        guard let wrapper = wrapper, isConnected else { return }
+        guard let wrapper = wrapper, connectionState == .connected else { return }
         let success = wrapper.switchVehicleType(newType)
         if success {
             selectedVehicle = newType
@@ -200,10 +218,6 @@ class VehicleViewModel: ObservableObject {
     private func updateTelemetry() {
         guard let wrapper = wrapper else { return }
 
-        if isDemoMode {
-            wrapper.updateSimulator()
-        }
-
         throttlePercent = wrapper.throttlePercent?.doubleValue
         speed = wrapper.speedKmh?.doubleValue
         acceleration = wrapper.accelerationG?.doubleValue
@@ -219,7 +233,13 @@ class VehicleViewModel: ObservableObject {
     func vehicleDisplayName(_ id: String) -> String {
         vehicleOptions.first { $0.0 == id }?.1 ?? id
     }
+}
 
-    var isTeslaSelected: Bool { selectedVehicle == "tesla_model3" }
-    var isAudiSelected: Bool { selectedVehicle == "audi_mlb_evo" }
+// MARK: - Connection State Enum
+
+enum ConnectionState {
+    case disconnected
+    case connecting
+    case connected
+    case demo
 }

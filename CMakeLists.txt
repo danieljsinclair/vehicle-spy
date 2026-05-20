@@ -55,22 +55,14 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/config/ConfigLoader.cpp
     src/domain/VehicleSignal.cpp
     src/domain/TelemetrySignal.cpp
-    src/domain/TeslaSignalTranslator.cpp
-    src/domain/TeslaSignalParser.cpp
     src/domain/OBD2SignalTranslator.cpp
     src/domain/OBD2SignalTranslatorBase.cpp
-    src/domain/AudiSignalTranslator.cpp
-    src/domain/AudiMLBTranslator.cpp
-    src/domain/TeslaCANTranslator.cpp
-    src/domain/CANTranslatorBase.cpp
     src/domain/CANDecoder.cpp
-    src/domain/CANSignalDecoderBase.cpp
     src/domain/ITimeProvider.cpp
     src/domain/DBCSignalDefinition.cpp
     src/domain/DBCSignalMapper.cpp
     src/domain/DBCFileParser.cpp
     src/domain/VehicleConfig.cpp
-    src/domain/SignalTranslatorFactory.cpp
     src/domain/VehicleSignalFactory.cpp
     src/domain/EventDispatcher.cpp
     src/ble/OBD2Transport.cpp
@@ -79,6 +71,9 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/DBCTranslationService.cpp
     src/domain/DefaultVehicleConfigs.cpp
     src/domain/DemoSignalProvider.cpp
+    src/domain/DemoSignalSource.cpp
+    src/domain/BLESignalSource.cpp
+    src/domain/IDBCContentProvider.cpp
     src/cli/CliOptions.cpp
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp

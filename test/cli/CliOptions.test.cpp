@@ -106,10 +106,10 @@ TEST_F(CliOptionsTest, ConnectWithoutAddressReturnsError) {
 }
 
 TEST_F(CliOptionsTest, VehicleType) {
-    Args args({"vehicle-sim", "--vehicle", "tesla_model3"});
+    Args args({"vehicle-sim", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
-    EXPECT_EQ(opts.vehicle_type, "tesla_model3");
+    EXPECT_EQ(opts.vehicle_type, "tesla");
 }
 
 TEST_F(CliOptionsTest, VehicleWithoutTypeReturnsError) {
@@ -173,11 +173,11 @@ TEST_F(CliOptionsTest, UnknownArgReturnsError) {
 }
 
 TEST_F(CliOptionsTest, MultipleFlagsCombined) {
-    Args args({"vehicle-sim", "--simulate", "--vehicle", "tesla_model3", "--interval", "100"});
+    Args args({"vehicle-sim", "--simulate", "--vehicle", "tesla", "--interval", "100"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.simulate_mode);
-    EXPECT_EQ(opts.vehicle_type, "tesla_model3");
+    EXPECT_EQ(opts.vehicle_type, "tesla");
     EXPECT_EQ(opts.update_interval_ms, 100);
     EXPECT_TRUE(opts.error_message.empty());
 }
@@ -199,17 +199,17 @@ TEST_F(CliOptionsTest, ConnectWithInvalidVehicleReturnsError) {
     EXPECT_TRUE(opts.connect_mode);
     EXPECT_FALSE(opts.error_message.empty());
     EXPECT_NE(opts.error_message.find("foobar"), std::string::npos);
-    EXPECT_NE(opts.error_message.find("tesla_model3"), std::string::npos);
+    EXPECT_NE(opts.error_message.find("tesla"), std::string::npos);
     EXPECT_NE(opts.error_message.find("audi_mlb_evo"), std::string::npos);
     EXPECT_NE(opts.error_message.find("generic"), std::string::npos);
 }
 
 TEST_F(CliOptionsTest, ConnectWithValidTeslaVehicleNoError) {
-    Args args({"vehicle-sim", "--connect", "AA:BB:CC:DD:EE:FF", "--vehicle", "tesla_model3"});
+    Args args({"vehicle-sim", "--connect", "AA:BB:CC:DD:EE:FF", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.connect_mode);
-    EXPECT_EQ(opts.vehicle_type, "tesla_model3");
+    EXPECT_EQ(opts.vehicle_type, "tesla");
     EXPECT_TRUE(opts.error_message.empty());
 }
 

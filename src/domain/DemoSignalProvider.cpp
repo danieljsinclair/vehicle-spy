@@ -1,4 +1,5 @@
 #include "vehicle-sim/domain/DemoSignalProvider.h"
+#include "vehicle-sim/domain/Gear.h"
 #include <chrono>
 #include <cmath>
 
@@ -78,14 +79,20 @@ private:
         double baseRpm = 1000.0 + (cycle * 6000.0);
         double motorRpm = baseRpm;
 
-        // Gear: cycles through P, R, N, D, S based on phase
-        const char* gears[] = {"P", "R", "N", "D", "S"};
+        // Gear: cycles through P, R, N, D based on phase using canonical constants
+        const std::int32_t gears[] = {
+            Gear::PARK,
+            Gear::REVERSE,
+            Gear::NEUTRAL,
+            Gear::AUTO_1,
+            Gear::AUTO_2
+        };
         int newGearIndex = static_cast<int>(cycle * 5.0);
         if (newGearIndex > 4) newGearIndex = 4;
         if (newGearIndex != gearIndex_) {
             gearIndex_ = newGearIndex;
         }
-        std::string gearSelector = gears[gearIndex_];
+        std::int32_t gearSelector = gears[gearIndex_];
 
         // Torque: positive for acceleration, negative for regen
         double motorTorqueNm;
@@ -117,7 +124,7 @@ private:
             motorHvVoltage,
             motorHvCurrent,
             motorTorqueNm,
-            std::optional<std::string>(gearSelector)
+            std::optional<std::int32_t>(gearSelector)
         );
     }
 

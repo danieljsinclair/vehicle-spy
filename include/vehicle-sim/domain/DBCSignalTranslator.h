@@ -9,7 +9,6 @@
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/DBCParser.h"
 #include "vehicle-sim/domain/VehicleSignalFactory.h"
-#include "vehicle-sim/domain/CANSignalDecoderBase.h"
 
 namespace vehicle_sim::domain {
 

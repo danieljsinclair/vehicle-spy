@@ -20,19 +20,13 @@
 		B1000016 /* ConfigLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000016 /* ConfigLoader.cpp */; };
 		B1000017 /* VehicleSignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000017 /* VehicleSignal.cpp */; };
 		B1000018 /* TelemetrySignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000018 /* TelemetrySignal.cpp */; };
-		B1000019 /* TeslaSignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000019 /* TeslaSignalTranslator.cpp */; };
-		B1000020 /* TeslaSignalParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000020 /* TeslaSignalParser.cpp */; };
 		B1000021 /* EventDispatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000021 /* EventDispatcher.cpp */; };
 		B1000022 /* BLEManageriOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000022 /* BLEManageriOS.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 		B1000023 /* OBD2SignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000023 /* OBD2SignalTranslator.cpp */; };
-		B1000024 /* SignalTranslatorFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000024 /* SignalTranslatorFactory.cpp */; };
 		B1000025 /* OBD2Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000025 /* OBD2Transport.cpp */; };
-		B1000026 /* AudiSignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000026 /* AudiSignalTranslator.cpp */; };
-		B1000028 /* AudiSignalTranslator.h in Sources */ = {isa = PBXBuildFile; fileRef = B2000028 /* AudiSignalTranslator.h */; };
 		B1000030 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B2000030 /* CoreBluetooth.framework */; };
 		B1000032 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000032 /* Assets.xcassets */; };
 		B1A00000 /* CANDecoder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00000 /* CANDecoder.cpp */; };
-		B1A00001 /* CANSignalDecoderBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00001 /* CANSignalDecoderBase.cpp */; };
 		B1A00002 /* DBCFileParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00002 /* DBCFileParser.cpp */; };
 		B1A00003 /* DBCSignalDefinition.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00003 /* DBCSignalDefinition.cpp */; };
 		B1A00004 /* DBCSignalMapper.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00004 /* DBCSignalMapper.cpp */; };
@@ -41,15 +35,19 @@
 		B1A00007 /* DefaultVehicleConfigs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00007 /* DefaultVehicleConfigs.cpp */; };
 		B1A00008 /* ITimeProvider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00008 /* ITimeProvider.cpp */; };
 		B1A00009 /* OBD2SignalTranslatorBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00009 /* OBD2SignalTranslatorBase.cpp */; };
-		B1A0000A /* TeslaCANTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000A /* TeslaCANTranslator.cpp */; };
 		B1A0000B /* VehicleConfig.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000B /* VehicleConfig.cpp */; };
 		B1A0000C /* VehicleDetector.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000C /* VehicleDetector.cpp */; };
 		B1A0000D /* VehicleSignalFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000D /* VehicleSignalFactory.cpp */; };
-		B1A0000E /* AudiMLBTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000E /* AudiMLBTranslator.cpp */; };
 		B1A0000F /* VehicleSignalFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000F /* VehicleSignalFormatter.cpp */; };
 		B1A00011 /* ELM327Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00011 /* ELM327Transport.cpp */; };
 		B1A00012 /* OBD2Protocol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00012 /* OBD2Protocol.cpp */; };
-		B1A00013 /* CANTranslatorBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00013 /* CANTranslatorBase.cpp */; };
+		B1A00014 /* Gear.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A00014 /* Gear.h */; };
+		B1A00015 /* ISignalSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A00015 /* ISignalSource.h */; };
+		B1A00016 /* DemoSignalSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A00016 /* DemoSignalSource.h */; };
+		B1A00017 /* DemoSignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00017 /* DemoSignalSource.cpp */; };
+		B1A00018 /* BLESignalSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A00018 /* BLESignalSource.h */; };
+		B1A00019 /* BLESignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00019 /* BLESignalSource.cpp */; };
+		B1A0001A /* IOSDBCContentProvider.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001A /* IOSDBCContentProvider.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -69,20 +67,14 @@
 		B2000016 /* ConfigLoader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ConfigLoader.cpp; path = ../../src/config/ConfigLoader.cpp; sourceTree = "<group>"; };
 		B2000017 /* VehicleSignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignal.cpp; path = ../../src/domain/VehicleSignal.cpp; sourceTree = "<group>"; };
 		B2000018 /* TelemetrySignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetrySignal.cpp; path = ../../src/domain/TelemetrySignal.cpp; sourceTree = "<group>"; };
-		B2000019 /* TeslaSignalTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaSignalTranslator.cpp; path = ../../src/domain/TeslaSignalTranslator.cpp; sourceTree = "<group>"; };
-		B2000020 /* TeslaSignalParser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaSignalParser.cpp; path = ../../src/domain/TeslaSignalParser.cpp; sourceTree = "<group>"; };
 		B2000021 /* EventDispatcher.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = EventDispatcher.cpp; path = ../../src/domain/EventDispatcher.cpp; sourceTree = "<group>"; };
 		B2000022 /* BLEManageriOS.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = BLEManageriOS.mm; path = ../../src/ble/platform/BLEManageriOS.mm; sourceTree = "<group>"; };
 		B2000023 /* OBD2SignalTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2SignalTranslator.cpp; path = ../../src/domain/OBD2SignalTranslator.cpp; sourceTree = "<group>"; };
-		B2000024 /* SignalTranslatorFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SignalTranslatorFactory.cpp; path = ../../src/domain/SignalTranslatorFactory.cpp; sourceTree = "<group>"; };
 		B2000025 /* OBD2Transport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2Transport.cpp; path = ../../src/ble/OBD2Transport.cpp; sourceTree = "<group>"; };
-		B2000026 /* AudiSignalTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = AudiSignalTranslator.cpp; path = ../../src/domain/AudiSignalTranslator.cpp; sourceTree = "<group>"; };
-		B2000028 /* AudiSignalTranslator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = AudiSignalTranslator.h; path = ../../src/domain/AudiSignalTranslator.h; sourceTree = "<group>"; };
 		B2000030 /* CoreBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
 		B2000032 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B2000080 /* VehicleSimApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VehicleSimApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2A00000 /* CANDecoder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CANDecoder.cpp; path = ../../src/domain/CANDecoder.cpp; sourceTree = "<group>"; };
-		B2A00001 /* CANSignalDecoderBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CANSignalDecoderBase.cpp; path = ../../src/domain/CANSignalDecoderBase.cpp; sourceTree = "<group>"; };
 		B2A00002 /* DBCFileParser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DBCFileParser.cpp; path = ../../src/domain/DBCFileParser.cpp; sourceTree = "<group>"; };
 		B2A00003 /* DBCSignalDefinition.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DBCSignalDefinition.cpp; path = ../../src/domain/DBCSignalDefinition.cpp; sourceTree = "<group>"; };
 		B2A00004 /* DBCSignalMapper.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DBCSignalMapper.cpp; path = ../../src/domain/DBCSignalMapper.cpp; sourceTree = "<group>"; };
@@ -91,15 +83,19 @@
 		B2A00007 /* DefaultVehicleConfigs.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DefaultVehicleConfigs.cpp; path = ../../src/domain/DefaultVehicleConfigs.cpp; sourceTree = "<group>"; };
 		B2A00008 /* ITimeProvider.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITimeProvider.cpp; path = ../../src/domain/ITimeProvider.cpp; sourceTree = "<group>"; };
 		B2A00009 /* OBD2SignalTranslatorBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2SignalTranslatorBase.cpp; path = ../../src/domain/OBD2SignalTranslatorBase.cpp; sourceTree = "<group>"; };
-		B2A0000A /* TeslaCANTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaCANTranslator.cpp; path = ../../src/domain/TeslaCANTranslator.cpp; sourceTree = "<group>"; };
 		B2A0000B /* VehicleConfig.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleConfig.cpp; path = ../../src/domain/VehicleConfig.cpp; sourceTree = "<group>"; };
 		B2A0000C /* VehicleDetector.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleDetector.cpp; path = ../../src/domain/VehicleDetector.cpp; sourceTree = "<group>"; };
 		B2A0000D /* VehicleSignalFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignalFactory.cpp; path = ../../src/domain/VehicleSignalFactory.cpp; sourceTree = "<group>"; };
-		B2A0000E /* AudiMLBTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = AudiMLBTranslator.cpp; path = ../../src/domain/AudiMLBTranslator.cpp; sourceTree = "<group>"; };
 		B2A0000F /* VehicleSignalFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignalFormatter.cpp; path = ../../src/presentation/VehicleSignalFormatter.cpp; sourceTree = "<group>"; };
 		B2A00011 /* ELM327Transport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ELM327Transport.cpp; path = ../../src/boundary/ELM327Transport.cpp; sourceTree = "<group>"; };
 		B2A00012 /* OBD2Protocol.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2Protocol.cpp; path = ../../src/boundary/OBD2Protocol.cpp; sourceTree = "<group>"; };
-		B2A00013 /* CANTranslatorBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CANTranslatorBase.cpp; path = ../../src/domain/CANTranslatorBase.cpp; sourceTree = "<group>"; };
+		B2A00014 /* Gear.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Gear.h; path = ../../include/vehicle-sim/domain/Gear.h; sourceTree = "<group>"; };
+		B2A00015 /* ISignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ISignalSource.h; path = ../../include/vehicle-sim/domain/ISignalSource.h; sourceTree = "<group>"; };
+		B2A00016 /* DemoSignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DemoSignalSource.h; path = ../../include/vehicle-sim/domain/DemoSignalSource.h; sourceTree = "<group>"; };
+		B2A00017 /* DemoSignalSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DemoSignalSource.cpp; path = ../../src/domain/DemoSignalSource.cpp; sourceTree = "<group>"; };
+		B2A00018 /* BLESignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BLESignalSource.h; path = ../../include/vehicle-sim/domain/BLESignalSource.h; sourceTree = "<group>"; };
+		B2A00019 /* BLESignalSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLESignalSource.cpp; path = ../../src/domain/BLESignalSource.cpp; sourceTree = "<group>"; };
+		B2A0001A /* IOSDBCContentProvider.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = IOSDBCContentProvider.mm; path = ../../src/domain/IOSDBCContentProvider.mm; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -166,17 +162,11 @@
 				B2000016 /* ConfigLoader.cpp */,
 				B2000017 /* VehicleSignal.cpp */,
 				B2000018 /* TelemetrySignal.cpp */,
-				B2000019 /* TeslaSignalTranslator.cpp */,
-				B2000020 /* TeslaSignalParser.cpp */,
 				B2000021 /* EventDispatcher.cpp */,
 				B2000022 /* BLEManageriOS.mm */,
 				B2000023 /* OBD2SignalTranslator.cpp */,
-				B2000024 /* SignalTranslatorFactory.cpp */,
 				B2000025 /* OBD2Transport.cpp */,
-				B2000026 /* AudiSignalTranslator.cpp */,
-				B2000028 /* AudiSignalTranslator.h */,
 				B2A00000 /* CANDecoder.cpp */,
-				B2A00001 /* CANSignalDecoderBase.cpp */,
 				B2A00002 /* DBCFileParser.cpp */,
 				B2A00003 /* DBCSignalDefinition.cpp */,
 				B2A00004 /* DBCSignalMapper.cpp */,
@@ -185,15 +175,19 @@
 				B2A00007 /* DefaultVehicleConfigs.cpp */,
 				B2A00008 /* ITimeProvider.cpp */,
 				B2A00009 /* OBD2SignalTranslatorBase.cpp */,
-				B2A0000A /* TeslaCANTranslator.cpp */,
 				B2A0000B /* VehicleConfig.cpp */,
 				B2A0000C /* VehicleDetector.cpp */,
 				B2A0000D /* VehicleSignalFactory.cpp */,
-				B2A0000E /* AudiMLBTranslator.cpp */,
 				B2A0000F /* VehicleSignalFormatter.cpp */,
 				B2A00011 /* ELM327Transport.cpp */,
 				B2A00012 /* OBD2Protocol.cpp */,
-				B2A00013 /* CANTranslatorBase.cpp */,
+				B2A00014 /* Gear.h */,
+				B2A00015 /* ISignalSource.h */,
+				B2A00016 /* DemoSignalSource.h */,
+				B2A00017 /* DemoSignalSource.cpp */,
+				B2A00018 /* BLESignalSource.h */,
+				B2A00019 /* BLESignalSource.cpp */,
+				B2A0001A /* IOSDBCContentProvider.mm */,
 			);
 			name = "Core (C++)";
 			sourceTree = "<group>";
@@ -280,17 +274,11 @@
 				B1000016 /* ConfigLoader.cpp in Sources */,
 				B1000017 /* VehicleSignal.cpp in Sources */,
 				B1000018 /* TelemetrySignal.cpp in Sources */,
-				B1000019 /* TeslaSignalTranslator.cpp in Sources */,
-				B1000020 /* TeslaSignalParser.cpp in Sources */,
 				B1000021 /* EventDispatcher.cpp in Sources */,
 				B1000022 /* BLEManageriOS.mm in Sources */,
 				B1000023 /* OBD2SignalTranslator.cpp in Sources */,
-				B1000024 /* SignalTranslatorFactory.cpp in Sources */,
 				B1000025 /* OBD2Transport.cpp in Sources */,
-				B1000026 /* AudiSignalTranslator.cpp in Sources */,
-				B1000028 /* AudiSignalTranslator.h in Sources */,
 				B1A00000 /* CANDecoder.cpp in Sources */,
-				B1A00001 /* CANSignalDecoderBase.cpp in Sources */,
 				B1A00002 /* DBCFileParser.cpp in Sources */,
 				B1A00003 /* DBCSignalDefinition.cpp in Sources */,
 				B1A00004 /* DBCSignalMapper.cpp in Sources */,
@@ -299,15 +287,19 @@
 				B1A00007 /* DefaultVehicleConfigs.cpp in Sources */,
 				B1A00008 /* ITimeProvider.cpp in Sources */,
 				B1A00009 /* OBD2SignalTranslatorBase.cpp in Sources */,
-				B1A0000A /* TeslaCANTranslator.cpp in Sources */,
 				B1A0000B /* VehicleConfig.cpp in Sources */,
 				B1A0000C /* VehicleDetector.cpp in Sources */,
 				B1A0000D /* VehicleSignalFactory.cpp in Sources */,
-				B1A0000E /* AudiMLBTranslator.cpp in Sources */,
 				B1A0000F /* VehicleSignalFormatter.cpp in Sources */,
 			B1A00011 /* ELM327Transport.cpp in Sources */,
 			B1A00012 /* OBD2Protocol.cpp in Sources */,
-			B1A00013 /* CANTranslatorBase.cpp in Sources */,
+				B1A00014 /* Gear.h in Sources */,
+				B1A00015 /* ISignalSource.h in Sources */,
+				B1A00016 /* DemoSignalSource.h in Sources */,
+				B1A00017 /* DemoSignalSource.cpp in Sources */,
+				B1A00018 /* BLESignalSource.h in Sources */,
+				B1A00019 /* BLESignalSource.cpp in Sources */,
+				B1A0001A /* IOSDBCContentProvider.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

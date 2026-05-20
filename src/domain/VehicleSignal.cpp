@@ -13,7 +13,7 @@ VehicleSignal::VehicleSignal(
     std::optional<double> motorHvVoltage,
     std::optional<double> motorHvCurrent,
     std::optional<double> motorTorqueNm,
-    std::optional<std::string> gearSelector
+    std::optional<std::int32_t> gearSelector
 ) noexcept
     : m_throttlePercent(std::move(throttlePercent))
     , m_speedKmh(std::move(speedKmh))
@@ -24,7 +24,7 @@ VehicleSignal::VehicleSignal(
     , m_motorHvVoltage(std::move(motorHvVoltage))
     , m_motorHvCurrent(std::move(motorHvCurrent))
     , m_motorTorqueNm(std::move(motorTorqueNm))
-    , m_gearSelector(std::move(gearSelector))
+    , m_gearSelector(gearSelector)
     , m_timestampUtcMs(timestampUtcMs)
 {
 }
@@ -74,7 +74,7 @@ const std::optional<double>& VehicleSignal::getMotorTorqueNm() const noexcept
     return m_motorTorqueNm;
 }
 
-const std::optional<std::string>& VehicleSignal::getGearSelector() const noexcept
+const std::optional<std::int32_t>& VehicleSignal::getGearSelector() const noexcept
 {
     return m_gearSelector;
 }
@@ -113,6 +113,6 @@ double VehicleSignal::motorRpmOr(double defaultVal) const noexcept { return m_mo
 double VehicleSignal::motorHvVoltageOr(double defaultVal) const noexcept { return m_motorHvVoltage.value_or(defaultVal); }
 double VehicleSignal::motorHvCurrentOr(double defaultVal) const noexcept { return m_motorHvCurrent.value_or(defaultVal); }
 double VehicleSignal::motorTorqueNmOr(double defaultVal) const noexcept { return m_motorTorqueNm.value_or(defaultVal); }
-std::string VehicleSignal::gearSelectorOr(std::string defaultVal) const noexcept { return m_gearSelector.value_or(std::move(defaultVal)); }
+std::int32_t VehicleSignal::gearSelectorOr(std::int32_t defaultVal) const noexcept { return m_gearSelector.value_or(defaultVal); }
 
 } // namespace vehicle_sim::domain

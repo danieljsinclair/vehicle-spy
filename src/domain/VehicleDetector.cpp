@@ -8,9 +8,9 @@ namespace vehicle_sim::domain {
 // To add a new vehicle: add entries here. No conditional chains to modify (OCP).
 
 const std::unordered_map<uint16_t, VehicleFingerprint> VehicleDetector::canIdRegistry_ = {
-    {0x108, {VehicleMake::Tesla,  "tesla_model3", "Tesla signals"}},
-    {0x118, {VehicleMake::Tesla,  "tesla_model3", "Tesla signals"}},
-    {0x129, {VehicleMake::Tesla,  "tesla_model3", "Tesla signals"}},
+    {0x108, {VehicleMake::Tesla,  "tesla", "Tesla signals"}},
+    {0x118, {VehicleMake::Tesla,  "tesla", "Tesla signals"}},
+    {0x129, {VehicleMake::Tesla,  "tesla", "Tesla signals"}},
     {0x100, {VehicleMake::Audi,   "audi_mlb_evo", "Audi MLB signals"}},
 };
 
@@ -289,7 +289,7 @@ VehicleMake VehicleDetector::decodeWMI(const std::string& wmi) {
 
 std::string VehicleDetector::makeToConfigId(VehicleMake make, bool isElectric) {
     switch (make) {
-        case VehicleMake::Tesla: return "tesla_model3";
+        case VehicleMake::Tesla: return "tesla";
         case VehicleMake::Audi: return isElectric ? "audi_mlb_evo" : "generic";
         case VehicleMake::Volkswagen: return isElectric ? "audi_mlb_evo" : "generic";
         case VehicleMake::BMW:

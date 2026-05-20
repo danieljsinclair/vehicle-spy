@@ -63,11 +63,11 @@ std::string TraceLogger::formatOptional(std::optional<double> value) {
     return oss.str();
 }
 
-std::string TraceLogger::formatOptional(std::optional<std::string> value) {
+std::string TraceLogger::formatOptional(std::optional<std::int32_t> value) {
     if (!value.has_value()) {
         return "";
     }
-    return *value;
+    return std::to_string(*value);
 }
 
 TraceLogger::TraceLogger(TraceLogger&& other) noexcept

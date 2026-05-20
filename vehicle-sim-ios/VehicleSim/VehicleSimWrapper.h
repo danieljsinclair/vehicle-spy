@@ -2,6 +2,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+/// Connection state enumeration for the vehicle simulation
+typedef NS_ENUM(NSInteger, ConnectionState) {
+    ConnectionStateDisconnected = 0,
+    ConnectionStateConnecting,
+    ConnectionStateConnected,
+    ConnectionStateDemo
+};
+
 /// BLE device information for Swift
 @interface VehicleSimDevice : NSObject
 @property (nonatomic, strong) NSString *name;
@@ -13,15 +21,31 @@ NS_ASSUME_NONNULL_BEGIN
 /// Supports both demo simulation mode and live BLE data mode
 @interface VehicleSimWrapper : NSObject
 
-// MARK: - Demo Mode
+// MARK: - Initialization
+
+/// Initialize with optional vehicle type
+/// @param vehicleType Vehicle type (e.g., "tesla_model3", "audi_mlb_evo", "generic")
+- (instancetype)initWithVehicleType:(nullable NSString *)vehicleType;
+
+/// Initialize with default vehicle type
+- (instancetype)init;
+
+// MARK: - Vehicle Configuration
+
+/// Get available vehicle options from the registry
+/// @return Array of dictionaries with "id" and "displayName" keys
+- (NSArray<NSDictionary<NSString*, NSString*>*> *)getVehicleOptions;
+
+// MARK: - Connection Control
 
 /// Start demo simulation
 - (void)startDemo;
 
-/// Stop demo simulation
-- (void)stopDemo;
+/// Start BLE live mode
+- (void)startBLE;
 
-// MARK: - BLE Live Mode
+/// Stop current connection (demo or BLE)
+- (void)stop;
 
 /// Scan for BLE devices
 /// @param timeout Duration to scan in seconds
@@ -31,20 +55,16 @@ NS_ASSUME_NONNULL_BEGIN
 /// Connect to a BLE device
 /// @param address Device address to connect to
 /// @param deviceName Display name of the BLE device
-/// @param vehicleType Vehicle type (e.g., "tesla_model3", "audi_mlb_evo", "generic")
 /// @return YES if connection initiated successfully
-- (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName vehicleType:(NSString *)vehicleType;
+- (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName;
 
 /// Disconnect from current BLE device
 - (void)disconnect;
 
-/// Switch vehicle interpreter while connected
+/// Switch vehicle type while connected
 /// @param vehicleType New vehicle type (e.g., "tesla_model3", "audi_mlb_evo", "generic")
 /// @return YES if switch succeeded
 - (BOOL)switchVehicleType:(NSString *)vehicleType;
-
-/// Advance demo simulation by one tick
-- (void)updateSimulator;
 
 // MARK: - Signal Values
 
@@ -74,11 +94,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 // MARK: - State
 
-/// YES if connected to BLE device
-@property (nonatomic, readonly) BOOL isConnected;
-
-/// YES if demo mode is active
-@property (nonatomic, readonly) BOOL isDemoMode;
+/// Current connection state
+@property (nonatomic, readonly) ConnectionState connectionState;
 
 /// YES if BLE is ready for connections
 @property (nonatomic, readonly) BOOL isBluetoothReady;
