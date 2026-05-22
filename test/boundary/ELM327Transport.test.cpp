@@ -106,14 +106,16 @@ TEST(ELM327Transport, BuildCANMonitorInitSequence_GeneratesCorrectCommands)
 {
     auto commands = ELM327Transport::buildCANMonitorInitSequence();
 
-    // Should have 5 commands: ATZ, AT E0, AT SP 6, AT H 1, AT MA
-    EXPECT_EQ(commands.size(), 5);
+    // ATZ, ATE0, ATL0, ATSP6, ATH1, ATCSM1, ATMA
+    EXPECT_EQ(commands.size(), 7);
 
     EXPECT_EQ(commands[0].command, "ATZ\r");
     EXPECT_EQ(commands[1].command, "ATE0\r");
-    EXPECT_EQ(commands[2].command, "ATSP6\r");
-    EXPECT_EQ(commands[3].command, "ATH1\r");
-    EXPECT_EQ(commands[4].command, "ATMA\r");
+    EXPECT_EQ(commands[2].command, "ATL0\r");
+    EXPECT_EQ(commands[3].command, "ATSP6\r");
+    EXPECT_EQ(commands[4].command, "ATH1\r");
+    EXPECT_EQ(commands[5].command, "ATCSM1\r");
+    EXPECT_EQ(commands[6].command, "ATMA\r");
 }
 
 TEST(ELM327Transport, BuildCANMonitorInitSequence_HasExpectedDelays)
