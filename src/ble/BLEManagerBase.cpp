@@ -211,6 +211,40 @@ bool BLEManagerBase::initializeCANMonitor() {
     return true;
 }
 
+bool BLEManagerBase::initializeForVINQuery() {
+    std::cout << "[BLEManagerBase] Initializing ELM327 for VIN query..." << std::endl;
+
+    can_mode_ = false;
+    vehicle_detector_->reset();
+
+    sendPromptDrivenSequence(boundary::ELM327Transport::buildVINQueryInitSequence());
+
+    std::cout << "[BLEManagerBase] VIN query initialization complete" << std::endl;
+    return true;
+}
+
+std::optional<std::string> BLEManagerBase::queryVIN(int timeout_ms) {
+    std::cout << "[BLEManagerBase] Querying VIN (09 02)..." << std::endl;
+
+    can_mode_ = false;
+
+    sendASCII(boundary::ELM327Transport::buildOBD2Query(0x09, 0x02));
+
+    if (!waitForPrompt(timeout_ms)) {
+        std::cout << "[BLEManagerBase] VIN query timed out" << std::endl;
+        return std::nullopt;
+    }
+
+    auto result = vehicle_detector_->getResult();
+    if (!result.vin.empty()) {
+        std::cout << "[BLEManagerBase] VIN received: " << result.vin << std::endl;
+        return result.vin;
+    }
+
+    std::cout << "[BLEManagerBase] No VIN in response" << std::endl;
+    return std::nullopt;
+}
+
 void BLEManagerBase::startCANMonitor(int interval_ms) {
     // CAN monitor mode doesn't need a polling thread.
     // ELM327 streams CAN frames continuously after ATMA command.

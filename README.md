@@ -27,7 +27,7 @@ Binary: `build-native/vehicle-sim`
 ### 1. Demo (No Hardware)
 
 ```bash
-./build-native/vehicle-sim --source demo --vehicle tesla
+./build-native/vehicle-sim --connect demo --vehicle tesla
 ```
 
 Displays mock Tesla telemetry at 2Hz (default). Good for verifying the display pipeline.
@@ -44,10 +44,10 @@ Scans for 10 seconds and lists all discoverable BLE devices. Your OBD2 adapter (
 
 ```bash
 # Use the UUID from --scan output
-./build-native/vehicle-sim --source ble --connect <device-uuid> --vehicle tesla
+./build-native/vehicle-sim --connect <device-uuid> --vehicle tesla
 
 # Faster polling (200ms intervals)
-./build-native/vehicle-sim --source ble --connect <device-uuid> --vehicle tesla --interval 200
+./build-native/vehicle-sim --connect <device-uuid> --vehicle tesla --interval 200
 ```
 
 On connection the CLI will:
@@ -74,9 +74,8 @@ On connection the CLI will:
 ## All CLI Options
 
 ```
---source <type>    Telemetry source: demo or ble (required)
---connect <addr>   BLE adapter address (required with --source ble)
---vehicle <type>   Vehicle type: tesla, audi_mlb_evo, generic (required)
+--connect <target> Connect target: 'demo' or BLE adapter address (required)
+--vehicle <type>   Vehicle type: tesla, audi_mlb_evo, generic, auto (required)
 --scan             Scan for BLE OBD2 adapters
 --list             List supported signals for each vehicle
 --format <fmt>     Output format: json, csv, plain (default: plain)

@@ -132,6 +132,16 @@ bool BLEManager::initializeCANMonitor() {
     return false;
 }
 
+bool BLEManager::initializeForVINQuery() {
+    if (platform_) return platform_->initializeForVINQuery();
+    return false;
+}
+
+std::optional<std::string> BLEManager::queryVIN(int timeout_ms) {
+    if (platform_) return platform_->queryVIN(timeout_ms);
+    return std::nullopt;
+}
+
 void BLEManager::startCANMonitor(int interval_ms) {
     if (platform_) platform_->startCANMonitor(interval_ms);
 }

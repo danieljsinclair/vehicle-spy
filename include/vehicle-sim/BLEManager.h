@@ -87,6 +87,12 @@ public:
     // Initialize ELM327 for CAN monitor mode
     bool initializeCANMonitor();
 
+    // Initialize ELM327 for VIN query (safe, no protocol probing)
+    bool initializeForVINQuery();
+
+    // Query vehicle VIN via OBD2 Mode 09 PID 02 (blocks until response or timeout)
+    std::optional<std::string> queryVIN(int timeout_ms = 5000);
+
     // Start CAN monitor mode (no polling thread needed)
     void startCANMonitor(int interval_ms = 200);
 

@@ -198,6 +198,22 @@ public:
     bool initializeCANMonitor();
 
     /**
+     * Initialize ELM327 for VIN query (safe, no protocol probing).
+     * Uses ATSP6 (specific CAN protocol) instead of ATSP0 (auto-probe).
+     * @return true if initialization commands sent
+     */
+    bool initializeForVINQuery();
+
+    /**
+     * Query vehicle VIN via OBD2 Mode 09 PID 02.
+     * Must call initializeForVINQuery() first.
+     * Blocks until VIN response received or timeout.
+     * @param timeout_ms Maximum wait for response (default 5000ms)
+     * @return VIN string (17 chars) if received, nullopt otherwise
+     */
+    std::optional<std::string> queryVIN(int timeout_ms = 5000);
+
+    /**
      * Start CAN monitor mode.
      * In CAN mode, ELM327 continuously streams CAN frames after ATMA.
      * No polling loop needed — data arrives via BLE notifications.

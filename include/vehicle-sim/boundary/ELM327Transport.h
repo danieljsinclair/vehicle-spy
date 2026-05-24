@@ -72,6 +72,9 @@ public:
      */
     static std::vector<ATCommand> buildInitSequence();
 
+    /** Init sequence for VIN query — uses ATSP6 (specific protocol) instead of ATSP0. */
+    static std::vector<ATCommand> buildVINQueryInitSequence();
+
     /**
      * @brief Remove ELM327 prompt character if present.
      * @param response Response possibly containing trailing '>' prompt

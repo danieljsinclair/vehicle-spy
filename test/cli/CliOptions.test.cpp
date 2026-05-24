@@ -8,7 +8,6 @@ using namespace vehicle_sim::domain;
 
 class CliOptionsTest : public ::testing::Test {
 protected:
-    // Helper to build argc/argv from a list of strings
     struct Args {
         std::vector<std::string> strings;
         std::vector<char*> ptrs;
@@ -35,7 +34,7 @@ TEST_F(CliOptionsTest, DefaultsWhenNoArgs) {
     EXPECT_TRUE(opts.error_message.empty());
     EXPECT_EQ(opts.update_interval_ms, DEFAULT_UPDATE_INTERVAL_MS);
     EXPECT_EQ(opts.format, DEFAULT_FORMAT);
-    EXPECT_TRUE(opts.source_type.empty());
+    EXPECT_TRUE(opts.connect_target.empty());
     EXPECT_TRUE(opts.vehicle_type.empty());
 }
 
@@ -67,99 +66,97 @@ TEST_F(CliOptionsTest, ScanShortFlag) {
     EXPECT_TRUE(opts.scan_mode);
 }
 
-TEST_F(CliOptionsTest, SourceDemoRequiresVehicle) {
-    Args args({"vehicle-sim", "--source", "demo"});
+TEST_F(CliOptionsTest, ConnectDemo) {
+    Args args({"vehicle-sim", "--connect", "demo"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.error_message.empty());
-    EXPECT_EQ(opts.source_type, "demo");
-    EXPECT_TRUE(opts.vehicle_type.empty());
+    EXPECT_EQ(opts.connect_target, "demo");
+    EXPECT_TRUE(opts.isDemo());
+    EXPECT_FALSE(opts.isBLE());
 }
 
-TEST_F(CliOptionsTest, SourceBleRequiresConnectAddress) {
-    Args args({"vehicle-sim", "--source", "ble", "--vehicle", "tesla"});
+TEST_F(CliOptionsTest, ConnectDemoShortFlag) {
+    Args args({"vehicle-sim", "-c", "demo"});
     auto opts = parseArgs(args.argc(), args.argv());
 
-    EXPECT_TRUE(opts.error_message.empty());
-    EXPECT_EQ(opts.source_type, "ble");
-    EXPECT_EQ(opts.vehicle_type, "tesla");
-    EXPECT_TRUE(opts.connect_address.empty());
+    EXPECT_EQ(opts.connect_target, "demo");
+    EXPECT_TRUE(opts.isDemo());
 }
 
-TEST_F(CliOptionsTest, SourceDemoWithVehicleParses) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla"});
+TEST_F(CliOptionsTest, ConnectBLEAddress) {
+    Args args({"vehicle-sim", "--connect", "AA:BB:CC:DD:EE:FF", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.error_message.empty());
-    EXPECT_EQ(opts.source_type, "demo");
-    EXPECT_EQ(opts.vehicle_type, "tesla");
-}
-
-TEST_F(CliOptionsTest, SourceBleWithConnectParses) {
-    Args args({"vehicle-sim", "--source", "ble", "--connect", "AA:BB:CC:DD:EE:FF", "--vehicle", "tesla"});
-    auto opts = parseArgs(args.argc(), args.argv());
-
-    EXPECT_TRUE(opts.error_message.empty());
-    EXPECT_EQ(opts.source_type, "ble");
-    EXPECT_EQ(opts.connect_address, "AA:BB:CC:DD:EE:FF");
+    EXPECT_EQ(opts.connect_target, "AA:BB:CC:DD:EE:FF");
+    EXPECT_FALSE(opts.isDemo());
+    EXPECT_TRUE(opts.isBLE());
     EXPECT_EQ(opts.vehicle_type, "tesla");
 }
 
-TEST_F(CliOptionsTest, InvalidVehicleTypeReturnsError) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "invalid"});
+TEST_F(CliOptionsTest, ConnectDemoWithVehicle) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
-    // parseArgs succeeds - validation is separate
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.connect_target, "demo");
+    EXPECT_EQ(opts.vehicle_type, "tesla");
+}
+
+TEST_F(CliOptionsTest, InvalidVehicleTypeParsesWithoutError) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "invalid"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
     EXPECT_TRUE(opts.error_message.empty());
     EXPECT_EQ(opts.vehicle_type, "invalid");
 }
 
-TEST_F(CliOptionsTest, InvalidSourceTypeReturnsError) {
-    Args args({"vehicle-sim", "--source", "invalid", "--vehicle", "tesla"});
+TEST_F(CliOptionsTest, ConnectWithoutValueReturnsError) {
+    Args args({"vehicle-sim", "--connect"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_FALSE(opts.error_message.empty());
 }
 
-TEST_F(CliOptionsTest, VehicleWithoutSourceReturnsError) {
+TEST_F(CliOptionsTest, VehicleWithoutConnectParses) {
     Args args({"vehicle-sim", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
-    // parseArgs succeeds - validation is separate
     EXPECT_TRUE(opts.error_message.empty());
-    EXPECT_TRUE(opts.source_type.empty());
+    EXPECT_TRUE(opts.connect_target.empty());
 }
 
 TEST_F(CliOptionsTest, IntervalOverride) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--interval", "250"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--interval", "250"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.update_interval_ms, 250);
 }
 
 TEST_F(CliOptionsTest, IntervalShortFlag) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "-i", "100"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "-i", "100"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.update_interval_ms, 100);
 }
 
 TEST_F(CliOptionsTest, IntervalWithoutValueReturnsError) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--interval"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--interval"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_FALSE(opts.error_message.empty());
 }
 
 TEST_F(CliOptionsTest, FormatOverride) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--format", "json"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--format", "json"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.format, "json");
 }
 
 TEST_F(CliOptionsTest, FormatWithoutValueReturnsError) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--format"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--format"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_FALSE(opts.error_message.empty());
@@ -180,7 +177,7 @@ TEST_F(CliOptionsTest, UnknownArgReturnsError) {
 }
 
 TEST_F(CliOptionsTest, ValidTeslaVehicleType) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.error_message.empty());
@@ -188,7 +185,7 @@ TEST_F(CliOptionsTest, ValidTeslaVehicleType) {
 }
 
 TEST_F(CliOptionsTest, ValidAudiVehicleType) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "audi_mlb_evo"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "audi_mlb_evo"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.error_message.empty());
@@ -196,7 +193,7 @@ TEST_F(CliOptionsTest, ValidAudiVehicleType) {
 }
 
 TEST_F(CliOptionsTest, ValidGenericVehicleType) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "generic"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "generic"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.error_message.empty());
@@ -204,7 +201,7 @@ TEST_F(CliOptionsTest, ValidGenericVehicleType) {
 }
 
 TEST_F(CliOptionsTest, LogCsvFlag) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--log-csv", "trace.csv"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-csv", "trace.csv"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.log_csv, "trace.csv");
@@ -212,7 +209,7 @@ TEST_F(CliOptionsTest, LogCsvFlag) {
 }
 
 TEST_F(CliOptionsTest, LogRawFlag) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--log-raw", "raw.log"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-raw", "raw.log"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.log_raw, "raw.log");
@@ -220,7 +217,7 @@ TEST_F(CliOptionsTest, LogRawFlag) {
 }
 
 TEST_F(CliOptionsTest, BothLogFlags) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--log-csv", "trace.csv", "--log-raw", "raw.log"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-csv", "trace.csv", "--log-raw", "raw.log"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.log_csv, "trace.csv");
@@ -229,35 +226,35 @@ TEST_F(CliOptionsTest, BothLogFlags) {
 }
 
 TEST_F(CliOptionsTest, LogCsvWithoutValueReturnsError) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--log-csv"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-csv"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_FALSE(opts.error_message.empty());
 }
 
 TEST_F(CliOptionsTest, LogRawWithoutValueReturnsError) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla", "--log-raw"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-raw"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_FALSE(opts.error_message.empty());
 }
 
-TEST_F(CliOptionsTest, ScanWithoutSourceNoError) {
+TEST_F(CliOptionsTest, ScanWithoutConnectNoError) {
     Args args({"vehicle-sim", "--scan"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.scan_mode);
-    EXPECT_TRUE(opts.source_type.empty());
+    EXPECT_TRUE(opts.connect_target.empty());
     EXPECT_TRUE(opts.vehicle_type.empty());
     EXPECT_TRUE(opts.error_message.empty());
 }
 
-TEST_F(CliOptionsTest, ListWithoutSourceNoError) {
+TEST_F(CliOptionsTest, ListWithoutConnectNoError) {
     Args args({"vehicle-sim", "--list"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.list_signals);
-    EXPECT_TRUE(opts.source_type.empty());
+    EXPECT_TRUE(opts.connect_target.empty());
     EXPECT_TRUE(opts.vehicle_type.empty());
     EXPECT_TRUE(opts.error_message.empty());
 }
@@ -287,17 +284,17 @@ protected:
     DBCTranslationService service_;
 };
 
-TEST_F(CliValidationTest, ValidateWithoutSource_ReturnsError) {
+TEST_F(CliValidationTest, ValidateWithoutConnect_ReturnsError) {
     Args args({"vehicle-sim", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     auto error = validateOptions(opts, service_);
     EXPECT_FALSE(error.empty());
-    EXPECT_NE(error.find("--source"), std::string::npos);
+    EXPECT_NE(error.find("--connect"), std::string::npos);
 }
 
 TEST_F(CliValidationTest, ValidateWithoutVehicle_ReturnsErrorWithAvailable) {
-    Args args({"vehicle-sim", "--source", "demo"});
+    Args args({"vehicle-sim", "--connect", "demo"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     auto error = validateOptions(opts, service_);
@@ -308,7 +305,7 @@ TEST_F(CliValidationTest, ValidateWithoutVehicle_ReturnsErrorWithAvailable) {
 }
 
 TEST_F(CliValidationTest, ValidateInvalidVehicle_ReturnsErrorWithAvailable) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "invalid"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "invalid"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     auto error = validateOptions(opts, service_);
@@ -317,8 +314,25 @@ TEST_F(CliValidationTest, ValidateInvalidVehicle_ReturnsErrorWithAvailable) {
     EXPECT_NE(error.find("Available:"), std::string::npos);
 }
 
+TEST_F(CliValidationTest, ValidateVehicleAuto_NoError) {
+    Args args({"vehicle-sim", "--connect", "AA:BB:CC:DD:EE:FF", "--vehicle", "auto"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    auto error = validateOptions(opts, service_);
+    EXPECT_TRUE(error.empty());
+}
+
+TEST_F(CliValidationTest, ValidateVehicleAuto_DemoConnect_ReturnsError) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "auto"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    auto error = validateOptions(opts, service_);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("auto requires a BLE connection"), std::string::npos);
+}
+
 TEST_F(CliValidationTest, ValidateValidVehicle_NoError) {
-    Args args({"vehicle-sim", "--source", "demo", "--vehicle", "tesla"});
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     auto error = validateOptions(opts, service_);

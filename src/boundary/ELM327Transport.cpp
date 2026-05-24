@@ -193,6 +193,18 @@ std::vector<ATCommand> ELM327Transport::buildInitSequence() {
     };
 }
 
+std::vector<ATCommand> ELM327Transport::buildVINQueryInitSequence() {
+    return {
+        {"ATZ\r", 3000},    // Full reset - ELM327 can take 2+ seconds
+        {"ATE0\r", 100},    // Echo off
+        {"ATH0\r", 100},    // Headers off
+        {"ATL0\r", 100},    // Linefeeds off
+        {"ATSP6\r", 100},   // ISO 15765-4 CAN 500kbps 11-bit (no probing)
+        {"ATS0\r", 100},    // Spaces off
+        {"ATSTFF\r", 100}   // Maximum timeout
+    };
+}
+
 // ================================================
 // Prompt Extraction
 // ================================================

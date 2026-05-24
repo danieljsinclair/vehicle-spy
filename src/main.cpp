@@ -32,7 +32,7 @@ int runScan(vehicle_sim::BLEManager& bleManager) {
     }
 
     std::cout << "\nFound " << devices.size() << " BLE device(s).\n";
-    std::cout << "To connect: vehicle-sim --source ble --connect <address> --vehicle <type>\n\n";
+    std::cout << "To connect: vehicle-sim --connect <address> --vehicle <type>\n\n";
     return 0;
 }
 
@@ -76,14 +76,14 @@ int main(int argc, char* argv[]) {
         return runScan(*bleManager);
     }
 
-    auto vehicleContext = cli::resolveVehicleContext(opts.vehicle_type, translationService);
-
-    if (opts.source_type == "ble") {
-        return cli::BLERunContext::run(opts.connect_address, vehicleContext.protocol,
+    if (opts.isBLE()) {
+        return cli::BLERunContext::run(opts.connect_target, opts.vehicle_type,
                                       translationService);
     }
 
-    auto source = domain::SignalSourceFactory::create(opts.source_type,
+    auto vehicleContext = cli::resolveVehicleContext(opts.vehicle_type, translationService);
+
+    auto source = domain::SignalSourceFactory::create("demo",
                                                        opts.update_interval_ms);
     return cli::TelemetryRunner::run(std::move(source), vehicleContext.config,
                                       opts.log_csv, opts.log_raw,

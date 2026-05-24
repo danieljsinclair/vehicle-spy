@@ -9,7 +9,7 @@ CLI args → parseArgs → validateOptions → handleEarlyExit → resolveVehicl
   → TelemetryRunner::run() → EventDispatcher → TraceLogger + stdout
 ```
 
-### BLE Data Flow (when --source ble)
+### BLE Data Flow (when --connect <address>)
 ```
 BLE → BLERunContext::run() → BLEConnectionManager → DBCTranslationService → DBCSignalTranslator
   → VehicleSignalFactory → EventDispatcher → TraceLogger + stdout
@@ -28,7 +28,7 @@ ISignalSource (Strategy pattern) → VehicleSimWrapper (thin bridge) → SwiftUI
 ### CLI Orchestration Components
 - `Orchestration`: `printBanner()`, `handleEarlyExit()`, `registerSignalHandlers()`, `resolveVehicleContext()`
 - `CliOptions`: `parseArgs()`, `validateOptions()`, `printHelp()`, `printSupportedSignals()`
-- `SignalSourceFactory`: Factory returning ISignalSource based on `--source` flag
+- `SignalSourceFactory`: Factory returning ISignalSource for demo mode
 - `VehicleConfigResolver`: Centralizes vehicle type validation, config lookup, protocol determination, DBC loading
 - `TelemetryRunner`: Unified `run()` function taking ISignalSource via DI
 - `BLERunContext`: Complete BLE execution flow including health monitoring loop
