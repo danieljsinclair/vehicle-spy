@@ -43,24 +43,25 @@ void DefaultVehicleConfigs::registerAll(VehicleConfigRegistry& registry) {
 ### Step 3: Test
 Run the CLI with demo mode to verify:
 ```bash
-vehicle-sim --source demo --vehicle vehicle_name
+vehicle-sim --connect demo --vehicle vehicle_name
 ```
 
 For live BLE data:
 ```bash
-vehicle-sim --source ble --connect <address> --vehicle vehicle_name
+vehicle-sim --connect <address> --vehicle vehicle_name
 ```
 
 ## CLI Usage
 
-Refactored CLI uses `--source` flag to specify telemetry source:
-
 ```bash
 # Demo mode (no hardware required)
-vehicle-sim --source demo --vehicle tesla
+vehicle-sim --connect demo --vehicle tesla
 
 # Live BLE data
-vehicle-sim --source ble --connect <address> --vehicle tesla
+vehicle-sim --connect <address> --vehicle tesla
+
+# Auto-detect vehicle (BLE only)
+vehicle-sim --connect <address> --vehicle auto
 
 # Scan for adapters
 vehicle-sim --scan
@@ -102,4 +103,4 @@ VehicleConfig DefaultVehicleConfigs::teslaModel3() {
 
 **Gear showing wrong value**: Check the DBC VAL_ table format. It should use identifiers like `DI_GEAR_P`, `DI_GEAR_D`, etc., for automatic translation to `Gear::` constants.
 
-**CLI shows error about --source**: Make sure you're using `--source demo` or `--source ble --connect <address>` along with `--vehicle <name>`.
+**CLI shows error about --connect**: Make sure you're using `--connect demo` or `--connect <address>` along with `--vehicle <name>`.

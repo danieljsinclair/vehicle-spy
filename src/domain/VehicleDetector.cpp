@@ -36,8 +36,23 @@ void VehicleDetector::feedCANFrame(uint16_t canId) {
     canIdCounts_[canId]++;
 }
 
-void VehicleDetector::feedOBD2Frame(const std::vector<std::uint8_t>& /*data*/) {
+void VehicleDetector::feedOBD2Frame(const std::vector<std::uint8_t>& data) {
     obd2ResponseCount_++;
+
+    // VIN response (Mode 09 PID 02): 0x49 0x02 <data>
+    if (data.size() >= 8 && data[0] == 0x49 && data[1] == 0x02) {
+        size_t start = 3;
+        while (start < data.size() && data[start] == 0x00) start++;
+        for (size_t i = start; i < data.size(); ++i) {
+            if (data[i] != 0x00) vin_ += static_cast<char>(data[i]);
+        }
+        if (vin_.length() >= 17) vin_ = vin_.substr(0, 17);
+    }
+
+    // Fuel type response (Mode 01 PID 51): 0x41 0x51 <type>
+    if (data.size() >= 3 && data[0] == 0x41 && data[1] == 0x51) {
+        isElectric_ = (data[2] == 0x08);
+    }
 }
 
 // --- Evidence Gathering ---

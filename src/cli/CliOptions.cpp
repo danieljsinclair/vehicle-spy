@@ -6,7 +6,6 @@
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <algorithm>
 #include <vector>
 
 namespace vehicle_sim::cli {
@@ -19,10 +18,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("-s,--scan", opts.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.list_signals, "List supported signals for each vehicle");
 
-    app.add_option("--source", opts.source_type, "Telemetry source: demo or ble (required)")
-        ->expected(1)
-        ->check(CLI::IsMember({"demo", "ble"}));
-    app.add_option("-c,--connect", opts.connect_address, "BLE adapter address (required with --source ble)")
+    app.add_option("-c,--connect", opts.connect_target, "Connect target: 'demo' for simulation, or BLE adapter address")
         ->expected(1);
     app.add_option("-v,--vehicle", opts.vehicle_type, "Vehicle type (required)")
         ->expected(1);
@@ -55,16 +51,15 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "USAGE:\n"
         << "  vehicle-sim [OPTIONS]\n\n"
         << "OPTIONS:\n"
-        << "  --source <type>    Telemetry source: demo or ble (required)\n"
-        << "  -c,--connect <addr> BLE adapter address (required with --source ble)\n"
-        << "  -v,--vehicle <type> Vehicle type (required)\n"
-        << "  -s,--scan           Scan for BLE OBD2 adapters\n"
-        << "  -l,--list           List supported signals for each vehicle\n"
-        << "  -f,--format <fmt>   Output format: json, csv, or plain (default: plain)\n"
-        << "  -i,--interval <ms>  Update interval in milliseconds (default: 500)\n"
-        << "  --log-csv <file>    Log CSV telemetry to file\n"
-        << "  --log-raw <file>    Log raw hex data to file\n"
-        << "  --help              Show this help message\n\n";
+        << "  -c,--connect <target> Connect target: 'demo' or BLE adapter address (required)\n"
+        << "  -v,--vehicle <type>   Vehicle type (required, or 'auto' to detect)\n"
+        << "  -s,--scan             Scan for BLE OBD2 adapters\n"
+        << "  -l,--list             List supported signals for each vehicle\n"
+        << "  -f,--format <fmt>     Output format: json, csv, or plain (default: plain)\n"
+        << "  -i,--interval <ms>    Update interval in milliseconds (default: 500)\n"
+        << "  --log-csv <file>      Log CSV telemetry to file\n"
+        << "  --log-raw <file>      Log raw hex data to file\n"
+        << "  --help                Show this help message\n\n";
 
     auto vehicles = registry.getRegisteredVehicles();
     if (!vehicles.empty()) {
@@ -79,14 +74,16 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
     }
 
     out << "EXAMPLES:\n"
-        << "  vehicle-sim --source demo --vehicle tesla\n"
-        << "  vehicle-sim --source ble --connect <addr> --vehicle tesla\n"
+        << "  vehicle-sim --connect demo --vehicle tesla\n"
+        << "  vehicle-sim --connect <addr> --vehicle tesla\n"
+        << "  vehicle-sim --connect <addr> --vehicle auto\n"
         << "  vehicle-sim --scan\n"
         << "  vehicle-sim --list\n\n"
         << "NOTES:\n"
-        << "  --source and --vehicle are required for telemetry\n"
+        << "  --connect and --vehicle are required for telemetry\n"
         << "  tesla and audi_mlb_evo use CAN monitor mode (DBC decoding)\n"
-        << "  generic uses standard OBD2 PID polling\n\n"
+        << "  generic uses standard OBD2 PID polling\n"
+        << "  CAN monitor mode is read-only (ATCSM1: no ACK bits on bus)\n\n"
         << "REQUIREMENTS:\n"
         << "  For real data: Connect a BLE OBD2 adapter to your vehicle's OBD-II port.\n";
 }
@@ -114,14 +111,9 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
         return "";
     }
 
-    // --source is required for telemetry
-    if (opts.source_type.empty()) {
-        return "--source is required. Use --source demo or --source ble";
-    }
-
-    // --connect is required with --source ble
-    if (opts.source_type == "ble" && opts.connect_address.empty()) {
-        return "--connect address is required with --source ble";
+    // --connect is required for telemetry
+    if (opts.connect_target.empty()) {
+        return "--connect is required. Use --connect demo or --connect <address>";
     }
 
     // --vehicle is required
@@ -133,6 +125,14 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
             oss << v << " ";
         }
         return oss.str();
+    }
+
+    // "auto" is valid — resolved at runtime via VIN detection (BLE only)
+    if (opts.vehicle_type == "auto") {
+        if (opts.isDemo()) {
+            return "--vehicle auto requires a BLE connection. Use --connect <address> --vehicle auto";
+        }
+        return "";
     }
 
     // Validate vehicle type against registry

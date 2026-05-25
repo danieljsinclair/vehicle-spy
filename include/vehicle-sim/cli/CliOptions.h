@@ -25,16 +25,18 @@ struct CliOptions {
     bool scan_mode = false;
     bool list_signals = false;
     bool help_requested = false;
-    std::string connect_address;
+    std::string connect_target;  // "demo" or BLE address/UUID
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
-    std::string source_type;  // "demo" or "ble"
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
     std::string log_csv;
     std::string log_raw;
 
     // Set on parse error — caller should print and exit(1).
     std::string error_message;
+
+    [[nodiscard]] bool isDemo() const { return connect_target == "demo"; }
+    [[nodiscard]] bool isBLE() const { return !connect_target.empty() && !isDemo(); }
 };
 
 // Parse command-line arguments into a structured result.

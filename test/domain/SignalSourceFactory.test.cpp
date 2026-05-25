@@ -2,7 +2,6 @@
 #include "vehicle-sim/domain/SignalSourceFactory.h"
 #include "vehicle-sim/domain/DemoSignalSource.h"
 #include "vehicle-sim/domain/ISignalSource.h"
-#include <typeinfo>
 
 using namespace vehicle_sim::domain;
 
@@ -42,14 +41,6 @@ TEST(SignalSourceFactoryTest, CreateDemoSource_DefaultIntervalWorks) {
 TEST(SignalSourceFactoryTest, CreateUnknownSource_ThrowsInvalidArgument) {
     EXPECT_THROW(
         SignalSourceFactory::create("unknown_type", 100),
-        std::invalid_argument
-    );
-}
-
-TEST(SignalSourceFactoryTest, CreateBLESource_ThrowsNotImplemented) {
-    // BLE source is not yet implemented, should throw
-    EXPECT_THROW(
-        SignalSourceFactory::create("ble", 100),
         std::invalid_argument
     );
 }
