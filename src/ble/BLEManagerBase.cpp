@@ -204,7 +204,11 @@ void BLEManagerBase::notifyPrompt() {
 bool BLEManagerBase::initializeCANMonitor() {
     std::cout << "[BLEManagerBase] Initializing ELM327 for CAN monitor mode..." << std::endl;
 
-    sendPromptDrivenSequence(boundary::ELM327Transport::buildCANMonitorInitSequence());
+    auto commands = boundary::ELM327Transport::buildCANMonitorInitSequence();
+    for (const auto& cmd : commands) {
+        sendASCII(cmd.command);
+        std::this_thread::sleep_for(std::chrono::milliseconds(cmd.delayMs));
+    }
 
     can_mode_ = true;
     std::cout << "[BLEManagerBase] CAN monitor mode initialized" << std::endl;
@@ -221,7 +225,7 @@ void BLEManagerBase::startCANMonitor(int interval_ms) {
 
 void BLEManagerBase::stopCANMonitor() {
     can_mode_ = false;
-    sendASCII(" \r");
+    sendASCII("ATMA\r");
     std::cout << "[BLEManagerBase] CAN monitor mode stopped" << std::endl;
 }
 

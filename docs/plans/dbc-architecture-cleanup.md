@@ -1,6 +1,6 @@
 # DBC-Driven Architecture Cleanup — Implementation Plan
 
-**Status**: Ready for another team to execute in a separate worktree
+**Status**: Ready to execute
 **Branch base**: `mvp`
 **Do NOT push until user approves**
 
@@ -100,6 +100,20 @@ LEGACY PATH (DEAD — never reached from --connect or iOS):
 
 The legacy files compile and link but are unreachable. They increase binary size and maintenance surface.
 
+### isDemoMode — OCP violation in the iOS bridge
+
+`isDemoMode` does NOT exist in C++ production code. It exists only in the iOS bridge, where every
+signal getter branches on a boolean:
+
+| File | What it controls |
+|------|-----------------|
+| `VehicleSimWrapper.h` | `@property BOOL isDemoMode` — public API |
+| `VehicleSimWrapper.mm` | Every signal getter branches on `_isDemoMode` |
+| `VehicleViewModel.swift` | Gates picker, status text, buttons |
+| `ContentView.swift` | Picker disabled, status color, demo/stop buttons |
+
+This is an OCP violation: adding a new data source requires touching every getter plus the UI.
+
 ### The acid-test gap
 
 `resources/dbc/Model3CAN.dbc` is currently an 886-byte hand-crafted 3-signal stub (already replaced on disk with the full opendbc file — see §1.5). The full `tesla_can.dbc` from commaai/opendbc has **28 CAN messages** including `DI_gear` (gear selector) and `DI_analogSpeed` (road speed) — both missing from the old stub.
@@ -183,17 +197,13 @@ namespace Gear {
 
 **Why AUTO_1 for Tesla Drive?** Tesla has a single-speed reduction gearbox. "D" means "Drive in automatic mode, gear 1". Using `AUTO_1` (0x1001) rather than plain `GEAR_1` (1) distinguishes automatic from manual gear selection. This matters for vehicles that support both modes.
 
-**For other vehicles**: If a vehicle's DBC defines gear 1=First, 2=Second, etc., the factory emits `Gear::GEAR_1` (1), `Gear::GEAR_2` (2), etc. If the vehicle has auto mode, the factory emits `Gear::AUTO_1` (0x1001), etc.
+**For other vehicles**: If a vehicle's DBC defines gear 1=First, 2=Second, etc., the mapping layer emits `Gear::GEAR_1` (1), `Gear::GEAR_2` (2), etc. If the vehicle has auto mode, the mapping layer emits `Gear::AUTO_1` (0x1001), etc. The API always emits the same canonical integers regardless of vehicle.
 
 **DI_gear vs DI_gearRequest**: Both signals use the same VAL_TABLE. The API exposes both — `gearSelector` (actual/current) and `gearRequested` (what driver/autopilot wants). UI can show "D" when driver selects Drive even before transmission engages.
 
-**Why AUTO_1 for Drive?** Tesla has a single forward gear. When the DBC says "D", it means "Drive in automatic mode, gear 1". Using `AUTO_1` (0x1001) rather than plain `GEAR_1` (1) distinguishes automatic from manual gear selection. This matters for vehicles that support both modes.
+**Translation boundary**: The DBC VAL_ table is the single source of truth. `DBCSignalMapper` reads the parsed value table from `DBCSignalDefinition` and performs the raw-CAN-to-Gear-constant translation. No separate `gearCodeMappings` config exist anywhere in the stack.
 
-**For other vehicles with manual gears**: If a vehicle's DBC defines gear 1=First, 2=Second, etc., the factory emits `Gear::GEAR_1` (1), `Gear::GEAR_2` (2), etc. If the vehicle also has auto mode, the factory emits `Gear::AUTO_1` (0x1001), etc.
-
-**Translation boundary**: The DBC VAL_ table is the single source of truth. The `DBCSignalMapper` reads the parsed value table and translates raw CAN values to API gear constants. No separate `gearCodeMappings` config. The API always emits the same canonical numbers regardless of vehicle.
-
-**DI_gear vs DI_gearRequest**: Both signals use the same VAL_TABLE. The API should expose both — `gearSelector` (actual) and `gearRequested` (requested). This allows the UI to show "D" when the driver selects Drive, even before the transmission engages.
+**DI_gear vs DI_gearRequest**: Both signals use the same VAL_TABLE. The API exposes both — `gearSelector` (actual/current) and `gearRequested` (what driver/autopilot wants). UI can show "D" when driver selects Drive even before transmission engages. Both must be added to the signal mappings in `DefaultVehicleConfigs.cpp`.
 
 ### 1.3 Tesla Road Speed — DI_analogSpeed
 
