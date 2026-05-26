@@ -6,9 +6,7 @@
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/Gear.h"
 #include "vehicle-sim/domain/ISignalSource.h"
-#include "vehicle-sim/domain/DemoSignalSource.h"
 #include "vehicle-sim/domain/BLESignalSource.h"
-#include "vehicle-sim/domain/IOSDBCContentProvider.h"
 #include <memory>
 #include <atomic>
 #include <mutex>
@@ -63,22 +61,6 @@ using namespace vehicle_sim::domain;
 }
 
 // MARK: - Connection Control
-
-- (void)startDemo {
-    // Stop any existing signal source
-    if (_signalSource) {
-        _signalSource->stop();
-        _signalSource.reset();
-    }
-
-    // Clear device info
-    _connectedDeviceName = nil;
-    _connectedDeviceAddress = nil;
-
-    // Create and start demo signal source
-    _signalSource = std::make_unique<DemoSignalSource>(50); // 50ms = 20Hz
-    _signalSource->start();
-}
 
 - (void)startBLE {
     // Stop any existing signal source
@@ -207,11 +189,20 @@ using namespace vehicle_sim::domain;
     // Determine protocol from config
     _protocol = config->isCANProtocol ? VehicleProtocol::CAN : VehicleProtocol::OBD2;
 
-    // Load DBC content using domain-provided iOS-specific loader (thin veneer: no file reading in bridge)
-    IOSDBCContentProvider dbcLoader;
-    std::string fileName = _translationService->registry().getDbcBundleFileName(vehicleTypeStr);
-    std::string dbcContent = fileName.empty() ? "" : dbcLoader.loadContent(fileName);
-    bool loaded = _translationService->loadVehicleWithContent(vehicleTypeStr, _protocol, dbcContent);
+    bool loaded = false;
+
+    if (config->isCANProtocol && !config->dbcBundleFileName.empty()) {
+        // Resolve DBC file path from the app bundle
+        NSString *nsFileName = [NSString stringWithUTF8String:config->dbcBundleFileName.c_str()];
+        NSString *bundlePath = [[NSBundle mainBundle] pathForResource:nsFileName ofType:nil];
+        if (bundlePath) {
+            std::string absPath = std::string([bundlePath UTF8String]);
+            loaded = _translationService->loadVehicleFromPath(vehicleTypeStr, _protocol, absPath);
+        }
+    } else {
+        // OBD2 or no DBC needed
+        loaded = _translationService->loadVehicleFromPath(vehicleTypeStr, _protocol, "");
+    }
 
     // Reset detector when switching vehicles
     if (_bleManager && _bleManager->vehicleDetector()) {
@@ -288,11 +279,6 @@ using namespace vehicle_sim::domain;
 - (ConnectionState)connectionState {
     if (!_signalSource) {
         return ConnectionStateDisconnected;
-    }
-
-    // Check if it's a demo source by type checking
-    if (dynamic_cast<DemoSignalSource*>(_signalSource.get())) {
-        return ConnectionStateDemo;
     }
 
     // Check BLE connection status

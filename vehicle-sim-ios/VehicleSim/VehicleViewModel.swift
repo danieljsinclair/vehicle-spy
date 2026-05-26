@@ -60,18 +60,6 @@ class VehicleViewModel: ObservableObject {
 
     // MARK: - Connection Control
 
-    func startDemo() {
-        guard wrapper != nil else { return }
-        wrapper?.startDemo()
-        connectionState = .demo
-        connectedDeviceName = nil
-        connectedDeviceAddress = nil
-        discoveredDevices = []
-        connectionStatus = "Demo Mode"
-
-        startPolling()
-    }
-
     func startBLE() {
         guard wrapper != nil else { return }
         wrapper?.startBLE()
@@ -241,5 +229,4 @@ enum ConnectionState {
     case disconnected
     case connecting
     case connected
-    case demo
 }

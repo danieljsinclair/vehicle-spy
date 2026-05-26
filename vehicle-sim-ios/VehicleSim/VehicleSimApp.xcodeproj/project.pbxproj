@@ -48,6 +48,8 @@
 		B1A00018 /* BLESignalSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A00018 /* BLESignalSource.h */; };
 		B1A00019 /* BLESignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00019 /* BLESignalSource.cpp */; };
 		B1A0001A /* IOSDBCContentProvider.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001A /* IOSDBCContentProvider.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
+		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
+		B1D00002 /* vw_mlb.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00002 /* vw_mlb.dbc */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -96,6 +98,8 @@
 		B2A00018 /* BLESignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BLESignalSource.h; path = ../../include/vehicle-sim/domain/BLESignalSource.h; sourceTree = "<group>"; };
 		B2A00019 /* BLESignalSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLESignalSource.cpp; path = ../../src/domain/BLESignalSource.cpp; sourceTree = "<group>"; };
 		B2A0001A /* IOSDBCContentProvider.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = IOSDBCContentProvider.mm; path = ../../src/domain/IOSDBCContentProvider.mm; sourceTree = "<group>"; };
+		B2D00001 /* Model3CAN.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = Model3CAN.dbc; path = ../../resources/dbc/Model3CAN.dbc; sourceTree = "<group>"; };
+		B2D00002 /* vw_mlb.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = vw_mlb.dbc; path = ../../resources/dbc/vw_mlb.dbc; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,6 +129,7 @@
 				B4000002,
 				B4000004 /* Core (C++) */,
 				B4000003 /* Products */,
+				B4D00001 /* DBC Resources */,
 				62BAA8EC2FA20D550073A3EE /* Recovered References */,
 			);
 			sourceTree = "<group>";
@@ -192,6 +197,15 @@
 			name = "Core (C++)";
 			sourceTree = "<group>";
 		};
+		B4D00001 /* DBC Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B2D00001 /* Model3CAN.dbc */,
+				B2D00002 /* vw_mlb.dbc */,
+			);
+			name = "DBC Resources";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -251,6 +265,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				B1000032 /* Assets.xcassets in Resources */,
+				B1D00001 /* Model3CAN.dbc in Resources */,
+				B1D00002 /* vw_mlb.dbc in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

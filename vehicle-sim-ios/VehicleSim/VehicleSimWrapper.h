@@ -6,8 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 typedef NS_ENUM(NSInteger, ConnectionState) {
     ConnectionStateDisconnected = 0,
     ConnectionStateConnecting,
-    ConnectionStateConnected,
-    ConnectionStateDemo
+    ConnectionStateConnected
 };
 
 /// BLE device information for Swift
@@ -37,9 +36,6 @@ typedef NS_ENUM(NSInteger, ConnectionState) {
 - (NSArray<NSDictionary<NSString*, NSString*>*> *)getVehicleOptions;
 
 // MARK: - Connection Control
-
-/// Start demo simulation
-- (void)startDemo;
 
 /// Start BLE live mode
 - (void)startBLE;

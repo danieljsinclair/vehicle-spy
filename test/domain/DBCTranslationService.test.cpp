@@ -115,3 +115,80 @@ TEST_F(DBCTranslationServiceTest, ConstRegistryReturnsSameRegistry) {
     const auto& constService = *service_;
     EXPECT_TRUE(constService.registry().hasConfig("test"));
 }
+
+// --- loadVehicleFromPath tests ---
+
+TEST_F(DBCTranslationServiceTest, LoadFromPath_NonexistentFile_ReturnsFalse) {
+    VehicleConfig config(
+        "nonexistent.dbc",
+        "nonexistent.dbc",
+        "Test Vehicle",
+        std::unordered_map<std::string, std::string>{{"DI_motorRPM", "motorRpm"}},
+        "",
+        true
+    );
+    service_->registry().registerVehicle("test_path", std::move(config));
+
+    bool result = service_->loadVehicleFromPath("test_path", VehicleProtocol::CAN, "/nonexistent/path/to/file.dbc");
+
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(service_->isLoaded());
+}
+
+TEST_F(DBCTranslationServiceTest, LoadFromPath_NonexistentVehicle_ReturnsFalse) {
+    bool result = service_->loadVehicleFromPath("nonexistent", VehicleProtocol::CAN, "resources/dbc/Model3CAN.dbc");
+
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(service_->isLoaded());
+}
+
+TEST_F(DBCTranslationServiceTest, LoadFromPath_OBD2Vehicle_SucceedsWithoutPath) {
+    VehicleConfig config(
+        "",
+        "",
+        "OBD2 Vehicle",
+        std::unordered_map<std::string, std::string>{}
+    );
+    service_->registry().registerVehicle("obd2_path", std::move(config));
+
+    bool result = service_->loadVehicleFromPath("obd2_path", VehicleProtocol::OBD2, "");
+
+    EXPECT_TRUE(result);
+    EXPECT_TRUE(service_->isLoaded());
+    EXPECT_EQ(service_->getProtocol(), VehicleProtocol::OBD2);
+}
+
+TEST_F(DBCTranslationServiceTest, LoadFromPath_ValidTeslaDBCFile_ReturnsTrue) {
+    VehicleConfig config(
+        "Model3CAN.dbc",
+        "Model3CAN.dbc",
+        "Tesla Model 3",
+        std::unordered_map<std::string, std::string>{{"DI_motorRPM", "motorRpm"}},
+        "",
+        true
+    );
+    service_->registry().registerVehicle("tesla_path", std::move(config));
+
+    bool result = service_->loadVehicleFromPath("tesla_path", VehicleProtocol::CAN, "resources/dbc/Model3CAN.dbc");
+
+    EXPECT_TRUE(result);
+    EXPECT_TRUE(service_->isLoaded());
+    EXPECT_EQ(service_->getProtocol(), VehicleProtocol::CAN);
+    EXPECT_EQ(service_->getVehicleId(), "tesla_path");
+}
+
+TEST_F(DBCTranslationServiceTest, LoadFromPath_EmptyDBCFile_ReturnsFalse) {
+    VehicleConfig config(
+        "empty.dbc",
+        "empty.dbc",
+        "Empty DBC Vehicle",
+        std::unordered_map<std::string, std::string>{{"signal", "field"}},
+        "",
+        true
+    );
+    service_->registry().registerVehicle("empty_dbc", std::move(config));
+
+    bool result = service_->loadVehicleFromPath("empty_dbc", VehicleProtocol::CAN, "/dev/null");
+
+    EXPECT_FALSE(result);
+}

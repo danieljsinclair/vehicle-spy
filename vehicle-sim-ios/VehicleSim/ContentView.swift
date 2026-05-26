@@ -82,7 +82,7 @@ struct ContentView: View {
 
     private var statusColor: Color {
         switch viewModel.connectionState {
-        case .connected, .demo:
+        case .connected:
             return .green
         case .connecting:
             return .orange
@@ -102,7 +102,6 @@ struct ContentView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .disabled(viewModel.connectionState == .demo)
                     .onChange(of: viewModel.selectedVehicle) {
                         if viewModel.connectionState == .connected {
                             viewModel.switchVehicleType(viewModel.selectedVehicle)
@@ -156,18 +155,6 @@ struct ContentView: View {
                             }
                         }
                         .disabled(viewModel.isScanning)
-
-                        Button("Start Demo Mode") {
-                            viewModel.startDemo()
-                        }
-                        .foregroundColor(.blue)
-                    }
-
-                    if viewModel.connectionState == .demo {
-                        Button("Stop Demo") {
-                            viewModel.stop()
-                        }
-                        .foregroundColor(.red)
                     }
 
                     if viewModel.connectionState == .connected {

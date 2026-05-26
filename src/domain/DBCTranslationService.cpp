@@ -85,6 +85,36 @@ bool DBCTranslationService::loadVehicleWithContent(const std::string& vehicleId,
     return true;
 }
 
+bool DBCTranslationService::loadVehicleFromPath(const std::string& vehicleId, VehicleProtocol protocol, const std::string& dbcAbsolutePath) {
+    const VehicleConfig* config = pImpl->registry_.getConfig(vehicleId);
+
+    const bool useCAN = (protocol == VehicleProtocol::CAN) ||
+                        (config && config->isCANProtocol && protocol != VehicleProtocol::OBD2);
+
+    if (useCAN) {
+        if (!config) {
+            return false;
+        }
+        pImpl->parseResult_ = pImpl->parser_.parseFile(dbcAbsolutePath);
+        if (pImpl->parseResult_.signalsByCanId.empty()) {
+            return false;
+        }
+        pImpl->translator_ = std::make_unique<DBCSignalTranslator>(*config, pImpl->parseResult_);
+        pImpl->protocol_ = VehicleProtocol::CAN;
+    } else if (protocol == VehicleProtocol::OBD2 || !config || !config->isCANProtocol) {
+        pImpl->translator_ = std::make_unique<OBD2SignalTranslator>();
+        pImpl->protocol_ = VehicleProtocol::OBD2;
+    } else {
+        pImpl->translator_ = nullptr;
+        pImpl->protocol_ = protocol;
+    }
+
+    pImpl->loaded_ = true;
+    pImpl->vehicleId_ = vehicleId;
+
+    return true;
+}
+
 std::optional<VehicleSignal> DBCTranslationService::processFrame(const std::vector<std::uint8_t>& rawData) const noexcept {
     if (!pImpl->loaded_ || !pImpl->translator_) {
         return std::nullopt;

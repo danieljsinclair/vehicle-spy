@@ -1,5 +1,13 @@
 # Adding a New Vehicle
 
+Vehicle-sim is **DBC-file driven**. All CAN frame parsing, signal extraction, scaling, and unit conversion comes from the DBC file — no protocol or translation code needed. Adding a vehicle is three steps:
+
+1. Drop a `.dbc` file in `resources/dbc/`
+2. Write a signal mapping (DBC signal names → display field names)
+3. Register it in one line
+
+The DBC file defines everything about the CAN bus: frame IDs, byte positions, bit lengths, scaling factors, offsets, units, and value labels. Gear positions translate automatically from DBC `VAL_` tables. You only need to tell the system which DBC signals you want displayed and what to call them.
+
 ## Steps
 
 ### Step 1: Add DBC File
