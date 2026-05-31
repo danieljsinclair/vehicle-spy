@@ -223,13 +223,11 @@ std::string ELM327Transport::extractPrompt(const std::string& response) {
 
 std::vector<ATCommand> ELM327Transport::buildCANMonitorInitSequence() {
     return {
-        {"ATZ\r", 3000},    // Full reset - ELM327 can take 2+ seconds
-        {"ATE0\r", 100},    // Echo off
-        {"ATL0\r", 100},    // Linefeeds off
-        {"ATSP6\r", 100},   // ISO 15765-4 CAN 500kbps 11-bit (Tesla)
-        {"ATH1\r", 100},    // Headers on (need CAN ID in response)
-        {"ATCSM1\r", 100},  // Silent monitoring - no CAN ACK bits on bus
-        {"ATMA\r", 100}     // Monitor all CAN frames
+        {"ATZ\r", 500},     // Full reset - needs long delay
+        {"ATE0\r", 50},    // Echo off
+        {"ATSP6\r", 50},   // ISO 15765-4 CAN 500kbps 11-bit (Tesla)
+        {"ATH1\r", 50},    // Headers on (need CAN ID in response)
+        {"ATMA\r", 50}     // Monitor all CAN frames
     };
 }
 

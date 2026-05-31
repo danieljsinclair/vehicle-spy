@@ -50,14 +50,6 @@ int main(int argc, char* argv[]) {
     auto opts = cli::parseArgs(argc, argv);
     if (!opts.error_message.empty()) {
         std::cerr << opts.error_message << "\n";
-        if (opts.error_message.find("--vehicle") != std::string::npos) {
-            std::cerr << "\nAvailable vehicles:\n";
-            for (const auto& id : translationService.registry().getRegisteredVehicles()) {
-                const auto* cfg = translationService.registry().getConfig(id);
-                if (cfg) std::cerr << "  " << id << "  (" << cfg->vehicleName << ")\n";
-            }
-            std::cerr << "\nUse --vehicle <name> to select a vehicle.\n";
-        }
         return 1;
     }
 
