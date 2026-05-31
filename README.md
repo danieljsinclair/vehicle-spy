@@ -1,75 +1,115 @@
 # vehicle-sim
 
-Real-time Tesla Model Y OBD2 telemetry display system.
+Real-time vehicle CAN bus telemetry for EV sound simulation.
 
-Connect a BLE OBD2 adapter to your Tesla's OBD-II port and see throttle position, speed, RPM, and more — either on macOS CLI or on your iPhone.
+Reads CAN frames from a Tesla (or other vehicle) via an ESP32 + CAN transceiver, translates them through DBC signal definitions, and streams telemetry for display or physics simulation.
 
-## Building
+## Quick Start
 
 ### Prerequisites
 
 - macOS with Xcode Command Line Tools (`xcode-select --install`)
-- CMake 3.20+
+- Homebrew
 
-### Build & Test
+### Clone & Build
 
 ```bash
-make            # Build native macOS binary
-make test       # Build and run all tests
-make clean      # Clean build artifacts
-make help       # Show all targets
+git clone <repo-url> && cd vehicle-sim
+make install-deps     # First time only: installs cmake, imagemagick, arduino-cli
+make                  # Builds native C++, runs tests, builds ESP32 firmware, builds iOS
 ```
 
-Binary: `build-native/vehicle-sim`
-
-## Quick Start
-
-### 1. Demo (No Hardware)
+### Demo (No Hardware)
 
 ```bash
 ./build-native/vehicle-sim --connect demo --vehicle tesla
 ```
 
-Displays mock Tesla telemetry at 2Hz (default). Good for verifying the display pipeline.
+## ESP32 CAN Bridge
 
-### 2. Scan for BLE OBD2 Adapters
+An ESP32-WROOM-32 with an SN65HVD230 CAN transceiver reads the vehicle CAN bus and streams frames over WiFi TCP using a minimal ELM327 protocol. vehicle-sim connects to it the same way it connects to a BLE OBD2 adapter.
 
-```bash
-./build-native/vehicle-sim --scan
+### Hardware
+
+| Component | Purpose | ~Cost |
+|-----------|---------|-------|
+| ESP32-WROOM-32 dev board | WiFi + TWAI CAN controller | $5 |
+| SN65HVD230 (VP230) CAN transceiver | CAN bus level shifting | $2 |
+| OBD2 breakout cable | Connects to vehicle (pin 6 = CAN-H, pin 14 = CAN-L) | $5 |
+
+**Note:** Many cheap ESP32 dev boards with USB-C have data pins not connected. If your board isn't detected by macOS, try a USB-A to USB-C adapter — the USB-C to USB-C handshake on these boards is often broken.
+
+### Wiring
+
+```
+SN65HVD230 board    ESP32 DevKit
+────────────────    ────────────
+3.3V        ──────  3.3V
+GND         ──────  GND
+TX          ──────  GPIO 22  (TWAI TX)
+RX          ──────  GPIO 21  (TWAI RX)
+
+SN65HVD230 CANH  ────  OBD2 pin 6   (CAN-H)
+SN65HVD230 CANL  ────  OBD2 pin 14  (CAN-L)
 ```
 
-Scans for 10 seconds and lists all discoverable BLE devices. Your OBD2 adapter (e.g., Vgate iCar, OBDLink MX+) will appear in the list when powered and in range.
+If you get no CAN data, swap TX and RX — naming conventions on transceiver breakout boards vary.
 
-### 3. Connect to Your Tesla
+### Setup
+
+1. **Plug the ESP32 into your Mac via USB**
+
+2. **Verify it's detected:**
+   ```bash
+   make firmware-port
+   ```
+   Should print something like `/dev/cu.usbserial-210`. If empty, check the USB cable and try a USB-A adapter.
+
+3. **Set WiFi credentials** (so the ESP32 joins your network):
+   ```bash
+   # Add to ~/.zshrc or equivalent
+   export ESP32_WIFI_SSID="YourNetworkName"
+   export ESP32_WIFI_PASSWORD="YourPassword"
+   ```
+   If not set, the ESP32 creates its own AP: `ESP32-CAN` / `cancan12`
+
+4. **Build, test, and flash:**
+   ```bash
+   make flash
+   ```
+   This runs all tests, builds the firmware, flashes it to the ESP32, and opens a serial monitor. The monitor shows the boot output including the IP address. Press `Ctrl-A` then `k` then `y` to quit the monitor.
+
+5. **Test the TCP connection:**
+   ```bash
+   nc <esp32-ip-address> 3333
+   ```
+   Type `ATZ` and press Enter — should respond `ELM327 v2.3` with a `>` prompt.
+
+### ESP32 Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make firmware` | Build ESP32 firmware (auto-installs arduino-cli on first run) |
+| `make flash` | Test + build + flash to ESP32 + open serial monitor |
+| `make firmware-monitor` | Open serial monitor at 115200 baud |
+| `make firmware-port` | Show detected ESP32 serial port |
+
+## BLE OBD2 Adapters
+
+vehicle-sim also supports BLE OBD2 adapters (ELM327-based) as an alternative to the ESP32.
+
+### Scan & Connect
 
 ```bash
-# Use the UUID from --scan output
-./build-native/vehicle-sim --connect <device-uuid> --vehicle tesla
-
-# Faster polling (200ms intervals)
-./build-native/vehicle-sim --connect <device-uuid> --vehicle tesla --interval 200
+./build-native/vehicle-sim --scan                          # List BLE devices
+./build-native/vehicle-sim --connect <uuid> --vehicle tesla
 ```
-
-On connection the CLI will:
-1. Discover BLE services and characteristics
-2. Initialize the ELM327 adapter (AT commands)
-3. Start polling OBD2 PIDs (throttle, speed, RPM, engine load, coolant temp)
-4. Display parsed telemetry in real-time
-
-## Hardware Setup
-
-1. **Plug** your BLE OBD2 adapter into the Tesla's OBD-II port (under the steering column)
-2. **Power on** the Tesla (accessory mode minimum; drive mode recommended)
-3. **Scan** from CLI — the adapter should appear within ~10 seconds
-4. **Connect** using the UUID from scan output
 
 ### Tested Adapters
 
-- Vgate iCar BLE (uses Nordic UART Service)
-- OBDLink MX+ (uses proprietary service)
+- Vgate iCar BLE (Nordic UART Service)
+- OBDLink MX+ (proprietary service)
 - Generic ELM327 BLE adapters (may vary)
-
-> The Tesla OBD-II port is only powered when the vehicle is ON. Some adapters require the vehicle to be in Drive mode to send data.
 
 ## All CLI Options
 
@@ -82,74 +122,29 @@ On connection the CLI will:
 --interval <ms>    Polling interval in ms (default: 500)
 --log-csv <file>   Log CSV telemetry to file
 --log-raw <file>   Log raw hex data to file
---help             Show help
+--help             show help
 ```
 
 ## iOS App
 
-The iOS app shows live Tesla telemetry on your iPhone.
+The iOS app shows live vehicle telemetry on your iPhone.
 
 ### Prerequisites
 
 - **Xcode** 16+ with iOS SDK
-- **Homebrew** + **ImageMagick** for app icons:
-  ```bash
-  brew install imagemagick
-  ```
 - Physical iPhone for device deployment (simulator works out of the box)
 
-### Quick Start
+### Build & Deploy
 
-1. **Install dependencies** (once):
-   ```bash
-   make install-deps          # Installs ImageMagick, cmake, etc. via Homebrew
-   ```
+```bash
+make xcode         # Build native + icons, then open Xcode project
+make ios           # Build Debug for simulator
+make ios-signed    # Build Release for physical device
+make deploy        # Install to connected iPhone
+make run           # Install AND launch on device
+```
 
-2. **Build everything** (native C++ libs + iOS app icons):
-   ```bash
-   make                       # Builds native libs + tests + iOS simulator build
-   ```
-
-3. **Run on iPhone Simulator**:
-   ```bash
-   make ios                   # Builds Debug for simulator
-   # Then in Xcode: select iPhone simulator → press Play
-   ```
-
-4. **Deploy to physical iPhone**:
-   ```bash
-   make ios-signed            # Build Release-signed .app for device
-   make deploy                # Install to connected iPhone
-   make run                   # Install AND launch on device
-   ```
-
-   > **Note**: The first time you run, Xcode may ask you to select a Development Team. Choose your Apple ID in Project Settings → Signing & Capabilities.
-
-5. **Open in Xcode** (for development/debugging):
-   ```bash
-   make xcode                 # Builds native + icons, then opens .xcodeproj
-   ```
-
-### Makefile Targets
-
-| Target | Description |
-|--------|-------------|
-| `make ios` | Build Debug for iOS Simulator |
-| `make ios-signed` | Build Release for physical device |
-| `make deploy` | Install signed build to connected iPhone |
-| `make run` | Install and launch on device |
-| `make xcode` | Open Xcode project (ensures native libs are built) |
-| `make native` | Build C++ native libraries only |
-| `make test` | Run C++ unit tests |
-| `make scrub` | Full clean: DerivedData, caches, generated icons |
-| `make update-dbc` | Update DBC files from commaai/opendbc submodule |
-
-### Notes
-
-- **Native library dependency**: `ios`, `ios-signed`, and `xcode` all depend on `native` — C++ libs are built automatically.
-- **App icons**: Generated from `image/ODB2_car_logo*.png` via ImageMagick; regenerated when source changes.
-- **Full-screen mode**: Enabled for both Debug and Release via `UIRequiresFullScreen` in Info.plist.
-- **Scheme configuration**: The Xcode scheme uses `BuildableProductRunnable` — automatically picks correct build (simulator vs device) when you press Play.
+> **Note**: The first time you run, Xcode may ask you to select a Development Team. Choose your Apple ID in Project Settings > Signing & Capabilities.
 
 ### iOS File Structure
 ```
@@ -163,38 +158,25 @@ vehicle-sim-ios/VehicleSim/
 └── VehicleSimApp.xcodeproj/    # Xcode project (checked into git)
 ```
 
-**Note**: The Xcode project references headers at `../../../include` — you must run `make ios` before building in Xcode.
+## All Makefile Targets
 
-```
-src/
-  cli/
-    CliOptions.cpp           # CLI parsing & validation
-    Orchestration.cpp        # Banner, early exit, vehicle resolution
-    TelemetryRunner.cpp      # Unified telemetry run loop
-    BLERunContext.cpp         # BLE execution flow
-    BLEConnectionManager.cpp # BLE connection lifecycle
-  domain/
-    DefaultVehicleConfigs.cpp # Vehicle DBC + signal mappings
-    SignalSourceFactory.cpp   # Factory for ISignalSource
-    VehicleConfigResolver.cpp # Vehicle config resolution
-    DemoSignalSource.cpp      # Demo signal generation
-    DBCTranslationService.cpp # DBC pipeline orchestration
-include/vehicle-sim/
-  domain/
-    VehicleSignal.h          # Immutable telemetry value object
-    ISignalSource.h          # Abstract signal source interface
-    Gear.h                   # Canonical gear constants
-    DBCTranslationService.h  # DBC pipeline service
-  cli/
-    CliOptions.h             # CLI parsing declarations
-    Orchestration.h          # Orchestration helpers
-    TelemetryRunner.h        # Telemetry runner
-test/
-  cli/                       # CLI tests (Orchestration, TelemetryRunner, etc.)
-  domain/                    # Domain tests (SignalSourceFactory, VehicleConfigResolver, etc.)
-  integration/               # Integration tests (DBC pipeline, etc.)
-```
+| Target | Description |
+|--------|-------------|
+| `make` | Build everything: native C++, tests, firmware, iOS |
+| `make test` | Run C++ unit tests |
+| `make firmware` | Build ESP32 firmware |
+| `make flash` | Test + build + flash firmware + serial monitor |
+| `make ios` | Build iOS app for simulator (Debug) |
+| `make ios-signed` | Build signed Release for physical device |
+| `make deploy` | Deploy to connected iPhone |
+| `make run` | Deploy and launch on device |
+| `make xcode` | Open in Xcode |
+| `make install-deps` | Install Homebrew dependencies |
+| `make update-dbc` | Update DBC files from opendbc |
+| `make clean` | Clean build artifacts |
+| `make scrub` | Full clean including ESP32 toolchain sentinel |
+| `make help` | Show all targets |
 
 ## Important
 
-**Always use `make` from the project root.** Never run `cmake` directly — the Makefile manages build directories (`build-native/`, `build-ios/`).
+**Always use `make` from the project root.** Never run `cmake` directly — the Makefile manages build directories (`build-native/`, `build-ios/`, `build-firmware/`).

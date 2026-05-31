@@ -166,8 +166,15 @@ firmware: $(FIRMWARE_BUILD)/can-bridge.ino.bin
 flash firmware-flash: test firmware
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make flash ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
 	@echo "Flashing via $(ESP32_PORT)..."
-	@arduino-cli upload -p "$(ESP32_PORT)" --fqbn $(FQBN) $(FIRMWARE_DIR)
+	@$(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/5.2.0/esptool \
+		--port "$(ESP32_PORT)" --baud 460800 \
+		write-flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
 	@echo "Flash complete."
+	@echo ""
+	@echo "  Serial monitor starting — press Ctrl-A then k then y to quit"
+	@echo ""
+	@sleep 2
+	@screen "$(ESP32_PORT)" 115200
 
 firmware-port:
 	@if [ -z "$(ESP32_PORT)" ]; then echo "No ESP32 detected. Plug in via USB and check with: ls /dev/cu.usb* /dev/cu.SLAB* /dev/cu.wchusbserial*"; exit 1; fi

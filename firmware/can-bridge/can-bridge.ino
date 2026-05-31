@@ -105,6 +105,7 @@ void setup() {
     // WiFi — Station mode if config exists, otherwise AP fallback
     if (ESP32_WIFI_SSID != nullptr) {
         WiFi.mode(WIFI_STA);
+        WiFi.setHostname("esp32-can");
         WiFi.begin(ESP32_WIFI_SSID, ESP32_WIFI_PASSWORD);
         Serial.printf("Connecting to %s", ESP32_WIFI_SSID);
         int retries = 0;
