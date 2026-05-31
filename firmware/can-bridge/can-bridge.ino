@@ -5,20 +5,24 @@
 // Wiring:   GPIO 22 → transceiver TX, GPIO 21 → transceiver RX
 //           Transceiver CANH → OBD2 pin 6, CANL → OBD2 pin 14
 //
-// WiFi:     Station mode (join your network) if WIFI_SSID/PASS set via env vars
-//           Falls back to AP mode (ESP32-CAN / cancan12) if no credentials
+// WiFi:     Station mode if ESP32_WIFI_SSID/ESP32_WIFI_PASSWORD defined at build time
+//           Falls back to AP mode (ESP32-CAN / cancan12) if not set
 // TCP:      port 3333
 // Protocol: Minimal ELM327 — ATZ, ATE0, ATSP6, ATH1, ATMA
 
 #include <WiFi.h>
 #include <driver/twai.h>
 
-#if __has_include("wifi_config.h")
-#include "wifi_config.h"
+// WiFi credentials injected via compiler defines (never stored on disk)
+// Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASSWORD=Y
+#ifdef ESP32_WIFI_SSID
+#define _STRINGIZE(x) #x
+#define STRINGIZE(x) _STRINGIZE(x)
+static constexpr const char* WIFI_SSID = STRINGIZE(ESP32_WIFI_SSID);
+static constexpr const char* WIFI_PASSWORD = STRINGIZE(ESP32_WIFI_PASSWORD);
 #else
-// Fallback: AP mode (no router needed — for car/field use)
-static constexpr const char* ESP32_WIFI_SSID = nullptr;
-static constexpr const char* ESP32_WIFI_PASSWORD = nullptr;
+static constexpr const char* WIFI_SSID = nullptr;
+static constexpr const char* WIFI_PASSWORD = nullptr;
 #endif
 
 static constexpr const char* AP_SSID = "ESP32-CAN";
@@ -103,11 +107,11 @@ void setup() {
     Serial.println("TWAI started @ 500kbps (listen-only)");
 
     // WiFi — Station mode if config exists, otherwise AP fallback
-    if (ESP32_WIFI_SSID != nullptr) {
+    if (WIFI_SSID != nullptr) {
         WiFi.mode(WIFI_STA);
         WiFi.setHostname("esp32-can");
-        WiFi.begin(ESP32_WIFI_SSID, ESP32_WIFI_PASSWORD);
-        Serial.printf("Connecting to %s", ESP32_WIFI_SSID);
+        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        Serial.printf("Connecting to %s", WIFI_SSID);
         int retries = 0;
         while (WiFi.status() != WL_CONNECTED && retries < 40) {
             delay(500);

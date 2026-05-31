@@ -18,7 +18,6 @@ all: test firmware ios
 
 clean: clean-icons
 	rm -rf build-native build-ios $(FIRMWARE_BUILD)
-	rm -f $(FIRMWARE_DIR)/wifi_config.h
 	rm -rf ~/Library/Developer/Xcode/DerivedData/VehicleSimApp-*
 	rm -rf vehicle-sim-ios/VehicleSim/build
 
@@ -127,15 +126,21 @@ install-deps:
 # ── ESP32 Firmware (opt-in) ────────────────────────────────────────────
 #
 # make firmware            — build firmware
-# make firmware-flash      — build + flash to ESP32
+# make flash               — test + build + flash to ESP32
 # make firmware-monitor    — serial console
 #
-# WiFi: set ESP32_WIFI_SSID and ESP32_WIFI_PASS env vars (e.g. in .zshrc)
+# WiFi: set ESP32_WIFI_SSID and ESP32_WIFI_PASSWORD env vars (e.g. in .zshrc)
+#       Credentials are injected as compiler defines — never written to disk
 #       Falls back to AP mode (ESP32-CAN / cancan12) if not set
 #
 
 ESP32_WIFI_SSID ?=
 ESP32_WIFI_PASSWORD ?=
+
+# WiFi credentials as compiler defines (only in memory, never on disk)
+ifneq ($(ESP32_WIFI_SSID),)
+FIRMWARE_CFLAGS = -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASSWORD=$(ESP32_WIFI_PASSWORD)
+endif
 
 # One-time setup sentinel — only runs when .firmware-ready doesn't exist
 .firmware-ready:
@@ -147,19 +152,12 @@ ESP32_WIFI_PASSWORD ?=
 	@arduino-cli core install esp32:esp32
 	@touch .firmware-ready
 
-# Generate wifi_config.h from env vars (AP mode if not set)
-# gitignored — never committed, regenerated every build
-$(FIRMWARE_DIR)/wifi_config.h:
-	@if [ -n "$(ESP32_WIFI_SSID)" ]; then \
-		printf '// Auto-generated from env vars\n#pragma once\nstatic constexpr const char* ESP32_WIFI_SSID = "%s";\nstatic constexpr const char* ESP32_WIFI_PASSWORD = "%s";\n' \
-			"$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASSWORD)" > $@; \
-	fi
-
 # Only recompile when source files change or setup runs
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) $(FIRMWARE_DIR)/wifi_config.h .firmware-ready
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) .firmware-ready
 	@mkdir -p $(FIRMWARE_BUILD)
 	@echo "--- Building ESP32 firmware ---"
-	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD)
+	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) \
+		--build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS)"
 
 firmware: $(FIRMWARE_BUILD)/can-bridge.ino.bin
 
