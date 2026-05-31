@@ -2,6 +2,7 @@
 build/
 build-ios/
 build-native/
+build-firmware/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
@@ -79,6 +80,14 @@ DEMO.md
 
 # Database
 *.db
+
+# Arduino CLI config (user-local)
+arduino-cli.yaml
+.firmware-ready
+
+# WiFi credentials — auto-generated from env vars, never commit
+firmware/can-bridge/wifi_config.h
+firmware/can-bridge/wifi_config.h.template
 
 # built assets
 image/build/
