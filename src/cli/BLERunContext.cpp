@@ -113,7 +113,6 @@ int BLERunContext::runWithProtocol(const std::string& address,
     BLEConnectionManager connMgr(std::move(bleManager));
 
     MonitorStats stats;
-    const char* protocolLabel = (protocol == domain::VehicleProtocol::CAN) ? "CAN" : "OBD2";
 
     if (!connMgr.connect(address, protocol,
         [&](const std::vector<std::uint8_t>& data) {

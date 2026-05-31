@@ -295,8 +295,7 @@ TEST_F(CANSignalDecoderSharedTest, SteeringAngleDecodesIdenticallyForTeslaAndAud
     // Both vehicles use identical decoding for CAN 297
     // This test documents the shared behavior
     const double expectedAngle = 45.0;
-    const double rawValue = (expectedAngle + 819.2) / 0.1;  // 8642
-    // 8642 = 0b10_0001_1100_0010
+    // rawValue = (expectedAngle + 819.2) / 0.1 = 8642 = 0b10_0001_1100_0010
     canFrame[2] = 0xC2;
     canFrame[3] = 0x21;
 

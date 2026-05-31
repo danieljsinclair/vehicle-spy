@@ -8,8 +8,8 @@ namespace vehicle_sim::domain {
 DemoSignalSource::DemoSignalSource(int intervalMs) noexcept
     : intervalMs_(intervalMs)
     , running_(false)
+    , latestSignal_(0)
     , phase_(0.0)
-    , latestSignal_(0)  // default timestamp 0
 {
 }
 

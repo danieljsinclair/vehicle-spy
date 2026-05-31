@@ -74,7 +74,7 @@ bool BLEConnectionManager::connect(const std::string& address,
     std::cout << "Press Ctrl+C to stop\n";
 
     isConnected_ = true;
-    bleManager_->onDataReceived([this, callback, protocolLabel](const std::vector<std::uint8_t>& data) {
+    bleManager_->onDataReceived([callback, protocolLabel](const std::vector<std::uint8_t>& data) {
         if (data.size() >= MIN_RAW_DATA_LOG_LENGTH) {
             std::cout << "[" << protocolLabel << "] Raw response: ";
             for (auto b : data) {

@@ -5,7 +5,7 @@
 
 namespace vehicle_sim::domain {
 class VehicleSignal;
-class VehicleConfig;
+struct VehicleConfig;
 }
 
 namespace vehicle_sim::presentation {

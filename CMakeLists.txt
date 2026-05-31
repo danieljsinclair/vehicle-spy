@@ -131,7 +131,7 @@ target_include_directories(vehicle-sim-lib
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_compile_options(vehicle-sim-lib PRIVATE -g)
+target_compile_options(vehicle-sim-lib PRIVATE -g -Wall -Wextra -Werror)
 
 # Main executable (CLI — not built for iOS)
 if(NOT BUILD_IOS)
@@ -145,7 +145,7 @@ target_link_libraries(vehicle-sim
     CLI11::CLI11
 )
 
-target_compile_options(vehicle-sim PRIVATE -g)
+target_compile_options(vehicle-sim PRIVATE -g -Wall -Wextra -Werror)
 endif() # NOT BUILD_IOS (closes the executable block)
 
 # Set rpath for executable to find dylibs in build directory

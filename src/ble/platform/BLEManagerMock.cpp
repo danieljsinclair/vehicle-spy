@@ -10,7 +10,7 @@ BLEManagerMock::BLEManagerMock()
 BLEManagerMock::~BLEManagerMock() {
 }
 
-std::vector<BLEDeviceInfo> BLEManagerMock::scanForDevices(int timeout_seconds) {
+std::vector<BLEDeviceInfo> BLEManagerMock::scanForDevices(int /*timeout_seconds*/) {
     // If mock devices not set, return default Tesla mock
     if (mock_devices_.empty()) {
         BLEDeviceInfo tesla;
@@ -49,7 +49,7 @@ void BLEManagerMock::setDataReceivedCallback(DataCallback callback) {
     data_callback_ = std::move(callback);
 }
 
-void BLEManagerMock::send(const std::vector<uint8_t>& data) {
+void BLEManagerMock::send(const std::vector<uint8_t>& /*data*/) {
     // Mock implementation - in real implementation, this would write to BLE characteristic
     // For testing, we can optionally echo back data or track sent data
 }

@@ -8,7 +8,7 @@ ConfigLoader::ConfigLoader() {
 ConfigLoader::~ConfigLoader() {
 }
 
-bool ConfigLoader::loadFromFile(const std::string& filepath) {
+bool ConfigLoader::loadFromFile(const std::string& /*filepath*/) {
     // Placeholder - implement config loading from JSON/YAML
     return true;
 }

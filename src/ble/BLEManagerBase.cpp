@@ -249,7 +249,7 @@ std::optional<std::string> BLEManagerBase::queryVIN(int timeout_ms) {
     return std::nullopt;
 }
 
-void BLEManagerBase::startCANMonitor(int interval_ms) {
+void BLEManagerBase::startCANMonitor(int /*interval_ms*/) {
     // CAN monitor mode doesn't need a polling thread.
     // ELM327 streams CAN frames continuously after ATMA command.
     // Data arrives via BLE notifications → invokeDataCallback() → CAN frame parsing.

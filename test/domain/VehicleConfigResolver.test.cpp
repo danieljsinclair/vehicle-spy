@@ -29,7 +29,7 @@ TEST_F(VehicleConfigResolverTest, ResolveValidVehicle_ReturnsConfigAndProtocol) 
 }
 
 TEST_F(VehicleConfigResolverTest, ResolveValidVehicle_LoadsDBCIntoService) {
-    resolver_->resolve("tesla");
+    (void)resolver_->resolve("tesla");
 
     EXPECT_TRUE(service_->isLoaded()) << "Vehicle should be loaded into service";
     EXPECT_EQ(service_->getVehicleId(), "tesla");
@@ -45,14 +45,14 @@ TEST_F(VehicleConfigResolverTest, ResolveValidAudiVehicle_ReturnsOBD2Protocol) {
 
 TEST_F(VehicleConfigResolverTest, ResolveInvalidVehicle_ThrowsRuntimeError) {
     EXPECT_THROW(
-        resolver_->resolve("nonexistent_vehicle"),
+        (void)resolver_->resolve("nonexistent_vehicle"),
         std::runtime_error
     );
 }
 
 TEST_F(VehicleConfigResolverTest, ResolveInvalidVehicle_ErrorMessageIncludesAvailableVehicles) {
     try {
-        resolver_->resolve("nonexistent_vehicle");
+        (void)resolver_->resolve("nonexistent_vehicle");
         FAIL() << "Should have thrown runtime_error";
     } catch (const std::runtime_error& e) {
         std::string msg = e.what();

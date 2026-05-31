@@ -63,8 +63,8 @@ std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
 }
 
 double OBD2SignalTranslatorBase::extractPIDValue(
-    std::uint8_t pid,
-    const std::vector<std::uint8_t>& data
+    std::uint8_t /*pid*/,
+    const std::vector<std::uint8_t>& /*data*/
 ) const noexcept {
     // Default: no PIDs recognized
     return 0.0;

@@ -40,7 +40,7 @@ TEST(SignalSourceFactoryTest, CreateDemoSource_DefaultIntervalWorks) {
 
 TEST(SignalSourceFactoryTest, CreateUnknownSource_ThrowsInvalidArgument) {
     EXPECT_THROW(
-        SignalSourceFactory::create("unknown_type", 100),
+        (void)SignalSourceFactory::create("unknown_type", 100),
         std::invalid_argument
     );
 }

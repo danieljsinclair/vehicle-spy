@@ -5,7 +5,7 @@
 
 namespace vehicle_sim::domain {
 class VehicleConfigRegistry;
-class VehicleConfig;
+struct VehicleConfig;
 class DBCTranslationService;
 }
 

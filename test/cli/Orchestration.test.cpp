@@ -64,7 +64,7 @@ TEST_F(OrchestrationTest, HandleEarlyExit_HelpFlagOutputsToStdout) {
     std::stringstream output;
     std::streambuf* old = std::cout.rdbuf(output.rdbuf());
 
-    handleEarlyExit(opts, *service_);
+    (void)handleEarlyExit(opts, *service_);
 
     std::cout.rdbuf(old);
 
@@ -82,7 +82,7 @@ TEST_F(OrchestrationTest, HandleEarlyExit_ListSignalsOutputsToStdout) {
     std::stringstream output;
     std::streambuf* old = std::cout.rdbuf(output.rdbuf());
 
-    handleEarlyExit(opts, *service_);
+    (void)handleEarlyExit(opts, *service_);
 
     std::cout.rdbuf(old);
 
@@ -110,14 +110,14 @@ TEST_F(OrchestrationTest, ResolveVehicleContext_AudiVehicleReturnsCANProtocol) {
 
 TEST_F(OrchestrationTest, ResolveVehicleContext_InvalidVehicleThrows) {
     EXPECT_THROW(
-        resolveVehicleContext("nonexistent_vehicle", *service_),
+        (void)resolveVehicleContext("nonexistent_vehicle", *service_),
         std::runtime_error
     );
 }
 
 TEST_F(OrchestrationTest, ResolveVehicleContext_ErrorMessageIncludesAvailableVehicles) {
     try {
-        resolveVehicleContext("nonexistent_vehicle", *service_);
+        (void)resolveVehicleContext("nonexistent_vehicle", *service_);
         FAIL() << "Should have thrown runtime_error";
     } catch (const std::runtime_error& e) {
         std::string msg = e.what();

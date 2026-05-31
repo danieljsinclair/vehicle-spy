@@ -36,7 +36,6 @@ private:
 
     int intervalMs_;
     std::atomic<bool> running_;
-    std::atomic<bool> workerActive_;
     std::thread worker_;
     VehicleSignal latestSignal_;
     mutable std::mutex signalMutex_;

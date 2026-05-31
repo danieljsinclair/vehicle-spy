@@ -14,9 +14,8 @@ const std::unordered_map<uint16_t, VehicleFingerprint> VehicleDetector::canIdReg
     {0x100, {VehicleMake::Audi,   "audi_mlb_evo", "Audi MLB signals"}},
 };
 
-VehicleDetector::VehicleDetector(int accumulationWindowMs)
-    : startTime_(std::chrono::steady_clock::now()),
-      accumulationWindowMs_(accumulationWindowMs) {}
+VehicleDetector::VehicleDetector(int /*accumulationWindowMs*/)
+    : startTime_(std::chrono::steady_clock::now()) {}
 
 // --- Passive CAN ID Observation ---
 

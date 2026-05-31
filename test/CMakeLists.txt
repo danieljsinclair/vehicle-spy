@@ -50,6 +50,8 @@ target_link_libraries(vehicle-sim-tests
     vehicle-sim-lib
 )
 
+target_compile_options(vehicle-sim-tests PRIVATE -Wall -Wextra -Werror -Wno-unused-parameter)
+
 # Link Objective-C runtime for macOS (needed for Objective-C++ BLE code)
 if(APPLE)
     find_library(FOUNDATION Foundation)

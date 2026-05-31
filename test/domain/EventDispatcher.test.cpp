@@ -147,7 +147,7 @@ TEST_F(EventDispatcherTest, ConcurrentDispatchFromMultipleThreads) {
     // Act
     std::vector<std::thread> threads;
     for (int i = 0; i < numThreads; ++i) {
-        threads.emplace_back([this, i, dispatchesPerThread]() {
+        threads.emplace_back([this, i]() {
             for (int j = 0; j < dispatchesPerThread; ++j) {
                 VehicleSignal signal(
                     static_cast<std::uint64_t>(i * 1000 + j),

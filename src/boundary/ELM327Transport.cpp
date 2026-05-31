@@ -21,17 +21,6 @@ namespace {
         "SEARCHING", "BUSINIT", "OK"
     };
 
-    bool isInfoMessage(const std::string& str) {
-        std::string upper = str;
-        std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-        for (const auto& info : INFO_MESSAGES) {
-            if (upper.find(info) != std::string::npos) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     bool isErrorMessage(const std::string& str) {
         std::string upper = str;
         std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
