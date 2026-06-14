@@ -116,20 +116,66 @@ Standard OBD2 PIDs work perfectly. The Aygo uses ISO 15765-4 CAN (11-bit, 500kbp
 ## ESP32 + CAN Architecture (Recommended for Tesla)
 
 ### Components
-- ESP32 dev board (any model) — ~$6
-- MCP2515 CAN controller or SN65HVD230 CAN transceiver — ~$2
-- X179 pigtail connector (Tesla-specific) — ~$10
-- Optional: BNO055 IMU module — ~$2
-- **Total: ~$20**
+- ESP32-WROOM-32 dev board — ~$6
+- SN65HVD230 (VP230) CAN transceiver — ~$2
+- OBD2 breakout cable (pin 6 = green, pin 14 = black/white) — ~$5
+- Optional: LM2596 buck converter (12V→5V from OBD2 pin 16) — ~$1
+- **Total: ~$14**
+
+### Wiring Diagram
+
+```
+    ┌──────────────────────────────────────────────────────────┐
+    │                      OBD2 PORT                           │
+    │   pin 4 (GND)  pin 5 (GND)  pin 6 (CANH)  pin 14 (CANL)│
+    └───────┬─────────────┬──────────┬──────────────┬─────────┘
+            │             │          │              │
+        orange wire   yellow wire  green wire   black/wht wire
+            │             │          │              │
+         orange Dupont  (tie to     green Dupont  black Dupont
+            │          common GND)    │              │
+    ┌───────┼─────────────────────────┼──CANH ●  CANL ●──────┐
+    │       │                         │          │           │
+    │      GND   3.3V    TX  RX                    │  SN65HVD230 │
+    │       ●     ●       ●   ●                    │  (VP230)    │
+    │       │     │       │   │                    └────────────┘
+    │    orange  red   brown blue                            │
+    │    Dupont Dupont Dupont Dupont                         │
+    │       │     │       │   │                              │
+    │      GND   3V3     D22  D21                            │
+    │       ●     ●       ●   ●                              │
+    │                                                       │
+    │              ESP32-WROOM-32                            │
+    │                                                       │
+    │  USB-C ─── power or flash via Mac                     │
+    └───────────────────────────────────────────────────────┘
+
+    Future: OBD2 pin 16 (+12V) → LM2596 buck → 5V → ESP32 VIN
+```
+
+### Wire Colour Reference
+
+Colours follow the OBD2 harness (the fixed constraint) so each signal keeps one colour across all three boards. This deliberately breaks the usual black=GND convention — go by the table, not by colour convention.
+
+| Wire colour | Signal | SN65HVD230 pin | ESP32 pin | OBD2 pin (harness wire) |
+|-------------|--------|---------------|-----------|-------------------------|
+| Red         | 3.3V power | 3.3V       | 3V3       | —                       |
+| Orange      | GND    | GND           | GND       | 4 (orange)              |
+| Yellow      | GND    | —             | —         | 5 (yellow) — tie to common GND |
+| Green       | CAN-H  | CANH          | —         | 6 (green)               |
+| Black       | CAN-L  | CANL          | —         | 14 (black/white)        |
+| Brown       | TX     | TX            | D22       | —                       |
+| Blue        | RX     | RX            | D21       | —                       |
+
+> Both OBD2 GND pins (4 = orange, 5 = yellow) must be tied to the common GND net. Don't leave pin 5 floating.
 
 ### Data Flow
 ```
-Tesla CAN Bus (500kbps, Party CAN or Bus 6 via X179)
-  → MCP2515 CAN controller (SPI to ESP32)
-  → ESP32 TWAI driver (hardware CAN controller)
-  → BLE GATT server (notify characteristic)
-  → iOS/macOS CoreBluetooth
-  → vehicle-sim BLEManager (invokeDataCallback)
+Vehicle CAN Bus (500kbps, listen-only)
+  → SN65HVD230 CAN transceiver (bus level shifting)
+  → ESP32 TWAI driver (hardware CAN controller, GPIO 22/21)
+  → WiFi TCP server (port 3333, ELM327 protocol)
+  → vehicle-sim CLI (--connect <ip>)
   → DBCSignalTranslator (DBC signal extraction via Model3CAN.dbc)
   → VehicleSim (telemetry state model)
 ```

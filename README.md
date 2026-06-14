@@ -42,16 +42,18 @@ An ESP32-WROOM-32 with an SN65HVD230 CAN transceiver reads the vehicle CAN bus a
 ### Wiring
 
 ```
-SN65HVD230 board    ESP32 DevKit
-────────────────    ────────────
-3.3V        ──────  3.3V
-GND         ──────  GND
-TX          ──────  GPIO 22  (TWAI TX)
-RX          ──────  GPIO 21  (TWAI RX)
+SN65HVD230 board    ESP32 DevKit     Dupont wire
+────────────────    ────────────     ───────────
+3.3V        ──────  3V3        ────  red
+GND         ──────  GND        ────  orange   (tie to OBD pin 4 + pin 5)
+TX          ──────  D22        ────  brown
+RX          ──────  D21        ────  blue
 
-SN65HVD230 CANH  ────  OBD2 pin 6   (CAN-H)
-SN65HVD230 CANL  ────  OBD2 pin 14  (CAN-L)
+SN65HVD230 CANH  ────  OBD2 pin 6   (green Dupont → green OBD2 wire)
+SN65HVD230 CANL  ────  OBD2 pin 14  (black Dupont → black/white OBD2 wire)
 ```
+
+Wire colours follow the OBD2 harness (the fixed constraint): GND = orange (pin 4) + yellow (pin 5), CAN-H = green (pin 6), CAN-L = black (pin 14). This breaks the usual black=GND convention — follow the table, not convention. Tie both OBD GND pins (4 and 5) to common GND; don't leave pin 5 floating.
 
 If you get no CAN data, swap TX and RX — naming conventions on transceiver breakout boards vary.
 

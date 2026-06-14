@@ -32,6 +32,14 @@ static constexpr gpio_num_t TWAI_TX = GPIO_NUM_22;
 static constexpr gpio_num_t TWAI_RX = GPIO_NUM_21;
 static constexpr uint32_t TCP_PORT = 3333;
 
+// USB serial baud. Throughput ceiling: at 115200 baud a ~26-char CAN frame
+// takes ~2.3ms to transmit, so a very busy bus (>~400 frames/sec) can drop
+// frames over serial. The WiFi TCP path is lossless and preferred for max
+// fidelity. If serial frame loss is observed, raise SERIAL_BAUD here AND the
+// matching `screen` baud in the Makefile firmware-monitor/flash targets so
+// both ends agree.
+static constexpr uint32_t SERIAL_BAUD = 115200;
+
 static WiFiServer tcpServer(TCP_PORT);
 static WiFiClient client;
 static bool monitorActive = false;
@@ -71,11 +79,9 @@ static void handleAT(const String& cmd) {
 }
 
 static void streamFrame(const twai_message_t& msg) {
-    if (!client.connected()) {
-        monitorActive = false;
-        return;
-    }
-
+    // Always build the frame in the canonical ELM327-ish text format
+    // (3-digit zero-padded hex ID, space-separated byte hex) so both
+    // vehicle-sim's parseCANFrame and raw serial capture tools work.
     char buf[32];
     int n = snprintf(buf, sizeof(buf), "%03X", msg.identifier);
     uint8_t len = min(msg.data_length_code, (uint8_t)8);
@@ -83,13 +89,20 @@ static void streamFrame(const twai_message_t& msg) {
         n += snprintf(buf + n, sizeof(buf) - n, " %02X", msg.data[i]);
     }
     snprintf(buf + n, sizeof(buf) - n, "\r");
-    client.print(buf);
+
+    // USB serial: always emit, independent of any TCP client.
+    Serial.print(buf);
+
+    // WiFi TCP: only when a client is connected and ATMA monitoring is active.
+    if (client.connected() && monitorActive) {
+        client.print(buf);
+    }
 }
 
 static String ipStr;
 
 void setup() {
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD);
 
     // TWAI init — listen-only so we never transmit on the vehicle bus
     twai_general_config_t gcfg = TWAI_GENERAL_CONFIG_DEFAULT(TWAI_TX, TWAI_RX, TWAI_MODE_LISTEN_ONLY);
@@ -152,20 +165,22 @@ void loop() {
         }
     }
 
-    if (!client || !client.connected()) return;
+    const bool haveClient = client && client.connected();
 
-    // Command mode: read AT commands until ATMA switches to monitor
-    if (!monitorActive && client.available()) {
+    // Command mode: read AT commands until ATMA switches to monitor.
+    // Only relevant when a TCP client is connected.
+    if (haveClient && !monitorActive && client.available()) {
         client.setTimeout(100);  // fast response — don't wait 1s for more data
         String cmd = client.readStringUntil('\r');
         if (cmd.length() > 0) handleAT(cmd);
     }
 
-    // Monitor mode: drain TWAI RX queue to TCP
-    if (monitorActive) {
-        twai_message_t msg;
-        while (twai_receive(&msg, 0) == ESP_OK) {
-            streamFrame(msg);
-        }
+    // Always drain the TWAI RX queue — each frame is received once and
+    // dispatched to Serial unconditionally, and to TCP only when a client
+    // is connected AND monitorActive. This keeps serial logging live even
+    // with no WiFi client, and never double-reads a frame.
+    twai_message_t msg;
+    while (twai_receive(&msg, 0) == ESP_OK) {
+        streamFrame(msg);
     }
 }
