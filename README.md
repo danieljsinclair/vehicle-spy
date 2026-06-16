@@ -50,10 +50,10 @@ TX          ──────  D22        ────  brown
 RX          ──────  D21        ────  blue
 
 SN65HVD230 CANH  ────  OBD2 pin 6   (green Dupont → green OBD2 wire)
-SN65HVD230 CANL  ────  OBD2 pin 14  (black Dupont → black/white OBD2 wire)
+SN65HVD230 CANL  ────  OBD2 pin 14  (black Dupont → brown/white OBD2 wire)
 ```
 
-Wire colours follow the OBD2 harness (the fixed constraint): GND = orange (pin 4) + yellow (pin 5), CAN-H = green (pin 6), CAN-L = black (pin 14). This breaks the usual black=GND convention — follow the table, not convention. Tie both OBD GND pins (4 and 5) to common GND; don't leave pin 5 floating.
+Harness wire colours are fixed by the OBD2 plug: GND = orange (pin 4) + yellow (pin 5), CAN-H = green (pin 6), CAN-L = brown/white (pin 14). The CAN-L Dupont wire is black. **Pin 13 trap:** pin 13 has a black/white wire that is vendor-specific, NOT CAN-L — it looks similar to pin 14's brown/white, and wiring CAN-L to it gives power-but-no-data. Tie both OBD GND pins (4 and 5) to common GND; don't leave pin 5 floating.
 
 If you get no CAN data, swap TX and RX — naming conventions on transceiver breakout boards vary.
 
@@ -79,7 +79,7 @@ If you get no CAN data, swap TX and RX — naming conventions on transceiver bre
    ```bash
    make flash
    ```
-   This runs all tests, builds the firmware, flashes it to the ESP32, and opens a serial monitor. The monitor shows the boot output including the IP address. Press `Ctrl-A` then `k` then `y` to quit the monitor.
+   This runs all tests, builds the firmware, and flashes it to the ESP32. It no longer auto-opens a monitor — run `make monitor` to see boot output (including the IP address), or `make capture` to capture the ESP32 serial stream **verbatim** to a timestamped notepad file (`timestamp_ms,raw_line` — every firmware line kept as-is, status text and hex-escaped noise bytes included; decode happens offline).
 
 5. **Test the TCP connection:**
    ```bash
@@ -92,8 +92,9 @@ If you get no CAN data, swap TX and RX — naming conventions on transceiver bre
 | Target | Description |
 |--------|-------------|
 | `make firmware` | Build ESP32 firmware (auto-installs arduino-cli on first run) |
-| `make flash` | Test + build + flash to ESP32 + open serial monitor |
-| `make firmware-monitor` | Open serial monitor at 115200 baud |
+| `make flash` | Test + build + flash to ESP32 (no auto-monitor) |
+| `make monitor` | Open serial monitor at 115200 baud (live view) |
+| `make capture` | Capture the ESP32 serial stream to TWO timestamped files: `captures/<tag>_<timestamp>.raw` (verbatim — every firmware line `timestamp_ms,raw_line`, frames/status/hex-escaped noise all kept, nothing dropped) AND `captures/<tag>_<timestamp>.csv` (parsed/filtered — one row per VALID frame `timestamp_ms,can_id,dlc,data_hex`; status/corrupt lines go to RAW only). `CAPFILE=Name` for a tag. The read loop is `select()`-gated (hard 0.5s timeout) so it never hangs on a quiet bus or a dropped USB link; a heartbeat prints to stderr every ~5s of silence. Ctrl-C to stop. |
 | `make firmware-port` | Show detected ESP32 serial port |
 
 ## BLE OBD2 Adapters
@@ -167,7 +168,9 @@ vehicle-sim-ios/VehicleSim/
 | `make` | Build everything: native C++, tests, firmware, iOS |
 | `make test` | Run C++ unit tests |
 | `make firmware` | Build ESP32 firmware |
-| `make flash` | Test + build + flash firmware + serial monitor |
+| `make flash` | Test + build + flash firmware to ESP32 |
+| `make monitor` | Serial monitor at 115200 baud (live view) |
+| `make capture` | Capture ESP32 serial stream to `captures/<tag>_<timestamp>.raw` (verbatim, nothing dropped) + `.csv` (parsed valid frames only); select-gated loop, never hangs; Ctrl-C to stop |
 | `make ios` | Build iOS app for simulator (Debug) |
 | `make ios-signed` | Build signed Release for physical device |
 | `make deploy` | Deploy to connected iPhone |

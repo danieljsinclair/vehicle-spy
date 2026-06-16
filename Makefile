@@ -1,6 +1,7 @@
-.PHONY: all clean test help ios ios-signed xcode native deploy run \
+.PHONY: all clean test test-cpp help ios ios-signed xcode native deploy run \
         install-deps ios-icons app-icons scrub update-dbc \
-        firmware firmware-flash flash firmware-monitor firmware-port
+        firmware firmware-flash flash monitor firmware-port capture startup-log firmware-clean \
+        ota-keys flash-ota reboot-over-usb reboot-over-tcp
 
 # Device ID (first connected/available device, excluding unavailable)
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/unavailable/ && match($$0, /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/) { print substr($$0, RSTART, RLENGTH); exit }')
@@ -8,13 +9,22 @@ DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/u
 # ESP32 firmware config
 FIRMWARE_DIR  = firmware/can-bridge
 FIRMWARE_BUILD = build-firmware
-FQBN          = esp32:esp32:esp32
+FQBN          = esp32:esp32:esp32:PartitionScheme=min_spiffs
 ESP32_PORT    ?= $(shell ls /dev/cu.usbserial* /dev/cu.SLAB_USBtoUART /dev/cu.wchusbserial* 2>/dev/null | head -1)
 
-# Default — build + test all platforms
+         RED=\033[0;31m
+       GREEN=\033[0;32m
+        BLUE=\033[0;34m
+      PURPLE=\033[0;35m
+        CYAN=\033[0;36m
+      YELLOW=\033[1;33m
+       WHITE=\033[1;37m
+	      NC=\033[0m
+
+# Default -- build + test all platforms
 all: test firmware ios
 
-# ── Clean ──────────────────────────────────────────────────────────────
+# -- Clean ---------------------------------------------------------------
 
 clean: clean-icons
 	rm -rf build-native build-ios $(FIRMWARE_BUILD)
@@ -30,7 +40,7 @@ scrub: clean
 	rm -f .firmware-ready
 	@echo "All cleaned. Run 'make' to rebuild."
 
-# ── Native C++ ─────────────────────────────────────────────────────────
+# -- Native C++ ----------------------------------------------------------
 
 build-native/Makefile: CMakeLists.txt
 	@mkdir -p build-native
@@ -39,11 +49,21 @@ build-native/Makefile: CMakeLists.txt
 native: build-native/Makefile
 	@$(MAKE) -C build-native all
 
-test: native
-	@$(MAKE) -C build-native vehicle-sim-tests
-	@$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes
+# C++ gtest suite (green) + Python capture-notepad suite (must also be green).
+# A failure in either fails the build.
+TEST_REPORT = build-native/test-report.txt
 
-# ── iOS ─────────────────────────────────────────────────────────────────
+test: native test-cpp
+
+test-cpp: $(TEST_REPORT)
+	@cat "$(TEST_REPORT)"
+
+$(TEST_REPORT): build-native/Makefile CMakeLists.txt test/CMakeLists.txt $(shell find test include src -type f 2>/dev/null)
+	@echo "--- Running C++ tests ---"
+	@$(MAKE) -C build-native vehicle-sim-tests
+	@$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes | tee "$(TEST_REPORT)"
+
+# -- iOS ------------------------------------------------------------------
 
 verify-device-id:
 	@if [ -z "$(DEVICE_ID)" ]; then \
@@ -77,7 +97,7 @@ xcode: native app-icons
 	@echo "Launching Xcode..."
 	@open vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj
 
-# ── iOS Icons ───────────────────────────────────────────────────────────
+# -- iOS Icons -------------------------------------------------------------
 
 ICON_LIGHT = image/ODB2_car_logo_trans.png
 ICON_DARK  = image/ODB2_car_logo_white_trans.png
@@ -107,30 +127,31 @@ $(ICON_CATALOG)/AppIcon.png: $(ICON_LIGHT)
 $(ICON_CATALOG)/AppIcon-dark.png: $(ICON_DARK)
 	$(generate_icon)
 
-# ── DBC ─────────────────────────────────────────────────────────────────
+# -- DBC ------------------------------------------------------------------
 
 update-dbc:
 	@echo "Updating DBC files from commaai/opendbc submodule..."
 	@cd external/opendbc && git checkout master && git pull
-	@cp external/opendbc/opendbc/dbc/tesla_can.dbc resources/dbc/Model3CAN.dbc
+	@cp external/opendbc/opendbc/dbc/tesla_model3_party.dbc resources/dbc/Model3CAN.dbc
 	@cp external/opendbc/opendbc/dbc/vw_mlb.dbc resources/dbc/vw_mlb.dbc
-	@echo "DBC files updated."
+	@echo "DBC files updated. Model3CAN.dbc is the canonical tesla_model3_party.dbc (verbatim)."
 
-# ── Dependencies ────────────────────────────────────────────────────────
+# -- Dependencies ----------------------------------------------------------
 
 install-deps:
 	@echo "Installing build dependencies from Brewfile..."
 	@brew bundle --no-upgrade
 	@echo "All dependencies installed."
 
-# ── ESP32 Firmware (opt-in) ────────────────────────────────────────────
+# -- ESP32 Firmware (opt-in) ----------------------------------------------
 #
-# make firmware            — build firmware
-# make flash               — test + build + flash to ESP32
-# make firmware-monitor    — serial console
+# make firmware            -- build firmware
+# make flash               -- test + build + flash to ESP32
+# make monitor             -- serial console (live view)
+# make capture             -- log CAN frames to captures/<tag>_<ts>.raw.txt + .csv
 #
 # WiFi: set ESP32_WIFI_SSID and ESP32_WIFI_PASSWORD env vars (e.g. in .zshrc)
-#       Credentials are injected as compiler defines — never written to disk
+#       Credentials are injected as compiler defines -- never written to disk
 #       Falls back to AP mode (ESP32-CAN / cancan12) if not set
 #
 
@@ -142,18 +163,15 @@ ifneq ($(ESP32_WIFI_SSID),)
 FIRMWARE_CFLAGS = -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASSWORD=$(ESP32_WIFI_PASSWORD)
 endif
 
-# One-time setup sentinel — only runs when .firmware-ready doesn't exist
-.firmware-ready:
-	@command -v arduino-cli >/dev/null 2>&1 || { echo "Installing arduino-cli..."; brew install arduino-cli; }
-	@echo "Setting up ESP32 toolchain (one-time)..."
-	@arduino-cli config init --overwrite 2>/dev/null || true
-	@arduino-cli config set board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-	@arduino-cli core update-index 2>/dev/null
-	@arduino-cli core install esp32:esp32
-	@touch .firmware-ready
+# Force a rebuild whenever WiFi env vars change. Without this, arduino-cli can
+# reuse an old binary and silently keep the previous SSID/password baked in.
+FIRMWARE_WIFI_SENTINEL = $(FIRMWARE_BUILD)/.wifi-env
 
-# Only recompile when source files change or setup runs
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) .firmware-ready
+$(FIRMWARE_WIFI_SENTINEL):
+	@mkdir -p $(FIRMWARE_BUILD)
+	@printf '%s\n%s\n' "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASSWORD)" > "$@"
+
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) .firmware-ready $(FIRMWARE_WIFI_SENTINEL)
 	@mkdir -p $(FIRMWARE_BUILD)
 	@echo "--- Building ESP32 firmware ---"
 	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) \
@@ -161,28 +179,109 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) .firmwar
 
 firmware: $(FIRMWARE_BUILD)/can-bridge.ino.bin
 
-flash firmware-flash: test firmware
+flash firmware-flash: firmware native test
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make flash ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
 	@echo "Flashing via $(ESP32_PORT)..."
 	@$(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/5.2.0/esptool \
 		--port "$(ESP32_PORT)" --baud 460800 \
 		write-flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
-	@echo "Flash complete."
-	@echo ""
-	@echo "  Serial monitor starting — press Ctrl-A then k then y to quit"
-	@echo ""
-	@sleep 2
-	@screen "$(ESP32_PORT)" 115200
+	@echo "Flash complete. Reading startup log from $(ESP32_PORT) at 115200 baud..."
+	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"
+	@echo "Startup log complete. Run 'make capture CAPFILE=<name>' to log CAN frames."
+
+startup-log:
+	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make startup-log ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
+	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30
 
 firmware-port:
-	@if [ -z "$(ESP32_PORT)" ]; then echo "No ESP32 detected. Plug in via USB and check with: ls /dev/cu.usb* /dev/cu.SLAB* /dev/cu.wchusbserial*"; exit 1; fi
+	@if [ -z "$(ESP32_PORT)" ]; then echo "No ESP32 detected. Plug in via USB and check with: ls /dev/cu.usb* /dev/cu.SLAB* /dev/cu.wchusbserial*" exit 1; fi
 	@echo "$(ESP32_PORT)"
 
-firmware-monitor:
+monitor:
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected." >&2; exit 1; fi
 	@screen "$(ESP32_PORT)" 115200
 
-# ── Help ────────────────────────────────────────────────────────────────
+reboot-over-usb:
+	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make reboot-over-usb ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
+	@echo "Starting serial logger, then resetting $(ESP32_PORT) via esptool USB control reset..."
+	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool
+
+# -- ESP32 OTA (signed-image, over-WiFi) -----------------------------------
+#
+# make ota-keys    -- generate your per-user ed25519 signing keypair + bake
+#                    the public key into firmware/can-bridge/OtaPublicKey.h
+# make flash-ota   -- sign the built firmware + push it to an ESP32 over WiFi
+#
+# OTA_HOST   the ESP32 IP/hostname to push to (REQUIRED for flash-ota)
+# OTA_PORT   the OTA listener port (3334, distinct from the 3333 CAN bridge)
+# OTA_KEYS_DIR  per-user signing keypair dir (NEVER committed)
+#
+# NOTE: the FIRST time you change your keypair, the new public key must be
+#       flashed over USB (make flash) so the device trusts it. Subsequent
+#       updates can go over WiFi via flash-ota.
+
+OTA_HOST     ?=
+OTA_PORT     ?= 3334
+OTA_KEYS_DIR ?= $(HOME)/.vehicle-sim/ota
+
+ota-keys:
+	@echo "--- Generating per-user OTA signing keypair ---"
+	@scripts/ota-generate-keys.sh --keys-dir "$(OTA_KEYS_DIR)"
+	@echo ""
+	@echo "IMPORTANT: the public key was baked into firmware/can-bridge/OtaPublicKey.h."
+	@echo "The FIRST time you use this keypair you MUST re-flash over USB so the"
+	@echo "device trusts it:  make flash"
+	@echo "Subsequent updates can be pushed over WiFi:  make flash-ota OTA_HOST=<ip>"
+
+flash-ota:
+	@if [ -z "$(OTA_HOST)" ]; then \
+		echo "Error: OTA_HOST is required. Usage: make flash-ota OTA_HOST=<esp32-ip>" >&2; \
+		exit 1; \
+	fi
+	@echo "--- Signing firmware ---"
+	@scripts/ota-sign.sh $(FIRMWARE_BUILD)/can-bridge.ino.bin --keys-dir "$(OTA_KEYS_DIR)"
+	@echo "--- Pushing OTA image to $(OTA_HOST):$(OTA_PORT) ---"
+	@scripts/ota-flash.sh "$(OTA_HOST)" $(FIRMWARE_BUILD)/can-bridge.ino.bin \
+		--sig $(FIRMWARE_BUILD)/can-bridge.ino.bin.sig --port $(OTA_PORT)
+
+reboot-over-tcp:
+	@if [ -z "$(OTA_HOST)" ]; then echo "Error: OTA_HOST is required. Usage: make reboot-over-tcp OTA_HOST=<esp32-ip>" >&2; exit 1; fi
+	@echo "Soft rebooting $(OTA_HOST) via TCP command..."
+	@printf 'ATZ\rATE0\rATREBOOT\r' | nc -w 2 "$(OTA_HOST)" 3333 || true
+
+# -- Capture (native USB) --------------------------------------------------
+#
+# Capture the ESP32 serial stream to TWO timestamped files (RAW + CSV) using
+# the native vehicle-sim binary (USBTransport). No Python dependency.
+#
+#   make capture                       -> captures/capture_<ts>.raw.txt + .csv
+#   CAPFILE=TeslaMonday make capture    -> captures/TeslaMonday_<ts>.raw.txt + .csv
+#
+# RAW  = verbatim safety net: every transport line written to <base>.raw.txt.
+# CSV  = parsed/filtered: one row per VALID frame ``timestamp_ms,can_id,dlc,
+#        data_hex``; status/corrupt/noise lines go to RAW ONLY.
+# Both files share the same ``<tag>_<ts>`` stem with .raw.txt/.csv extensions
+# so the pair is obvious. STDOUT echoes decoded telemetry live. Ctrl-C to stop.
+#
+# Uses the native vehicle-sim binary (USBTransport via --connect usb:<port>).
+# The Python POC (scripts/archive/serial_to_csv.py) is archived and no longer
+# used by this target.
+CAPFILE ?=
+CAPDIR  ?= captures
+CAPTURE_VEHICLE ?= tesla
+
+capture: native
+	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected." >&2; exit 1; fi
+	@mkdir -p $(CAPDIR)
+	@ts=$$(date +%Y-%m-%d-%H%M%S); \
+		if [ -n "$(CAPFILE)" ]; then name="$(CAPFILE)_$$ts"; else name="capture_$$ts"; fi; \
+		base="$(CAPDIR)/$$name"; \
+		echo "$(GREEN)Capturing$(NC) $(ESP32_PORT) -> $(CYAN)$$base.raw.txt $(NC)(verbatim) + $(CYAN)$$base.csv $(NC)(decoded) $(GREEN)(Ctrl-C to stop)$(NC)"; \
+		PS4=''; set -x;\
+		./build-native/vehicle-sim --connect "usb:$(ESP32_PORT)" --vehicle $(CAPTURE_VEHICLE) --log "$$base"; 
+
+
+# -- Help ------------------------------------------------------------------
 
 help:
 	@echo "Available targets:"
@@ -190,9 +289,15 @@ help:
 	@echo "  native           - Build native macOS C++ libraries"
 	@echo "  test             - Run C++ unit tests"
 	@echo "  firmware         - Build ESP32 CAN bridge firmware"
-	@echo "  flash            - Build + flash firmware to ESP32 (alias: firmware-flash)"
-	@echo "  firmware-monitor - Serial monitor at 115200 baud"
+	@echo "  flash            - Build + flash firmware to ESP32 (alias: firmware-flash), then print startup log"
+	@echo "  monitor          - Serial monitor at 115200 baud (live view)"
+	@echo "  startup-log      - Wait up to 30s for startup bytes, then read for 30s"
+	@echo "  reboot-over-usb  - Send ATREBOOT over USB serial, then print startup log"
+	@echo "  reboot-over-tcp  - Send ATREBOOT over TCP port 3333 (requires OTA_HOST=<esp32-ip>)"
+	@echo "  capture          - Log CAN frames to captures/<tag>_<timestamp>.raw.txt + .csv"
 	@echo "  firmware-port    - Show detected ESP32 serial port"
+	@echo "  ota-keys         - Generate per-user ed25519 OTA signing keypair + bake public key"
+	@echo "  flash-ota        - Sign + push firmware to ESP32 over WiFi (requires OTA_HOST=<ip>)"
 	@echo "  ios              - Build iOS app for simulator (Debug)"
 	@echo "  ios-signed       - Build signed Release for physical device"
 	@echo "  deploy           - Deploy to connected iPhone"

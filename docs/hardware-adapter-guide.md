@@ -118,7 +118,7 @@ Standard OBD2 PIDs work perfectly. The Aygo uses ISO 15765-4 CAN (11-bit, 500kbp
 ### Components
 - ESP32-WROOM-32 dev board — ~$6
 - SN65HVD230 (VP230) CAN transceiver — ~$2
-- OBD2 breakout cable (pin 6 = green, pin 14 = black/white) — ~$5
+- OBD2 breakout cable (pin 6 = green, pin 14 = brown/white) — ~$5
 - Optional: LM2596 buck converter (12V→5V from OBD2 pin 16) — ~$1
 - **Total: ~$14**
 
@@ -130,7 +130,7 @@ Standard OBD2 PIDs work perfectly. The Aygo uses ISO 15765-4 CAN (11-bit, 500kbp
     │   pin 4 (GND)  pin 5 (GND)  pin 6 (CANH)  pin 14 (CANL)│
     └───────┬─────────────┬──────────┬──────────────┬─────────┘
             │             │          │              │
-        orange wire   yellow wire  green wire   black/wht wire
+        orange wire   yellow wire  green wire   brown/wht wire
             │             │          │              │
          orange Dupont  (tie to     green Dupont  black Dupont
             │          common GND)    │              │
@@ -163,11 +163,13 @@ Colours follow the OBD2 harness (the fixed constraint) so each signal keeps one 
 | Orange      | GND    | GND           | GND       | 4 (orange)              |
 | Yellow      | GND    | —             | —         | 5 (yellow) — tie to common GND |
 | Green       | CAN-H  | CANH          | —         | 6 (green)               |
-| Black       | CAN-L  | CANL          | —         | 14 (black/white)        |
+| Black       | CAN-L  | CANL          | —         | 14 (brown/white)        |
 | Brown       | TX     | TX            | D22       | —                       |
 | Blue        | RX     | RX            | D21       | —                       |
 
 > Both OBD2 GND pins (4 = orange, 5 = yellow) must be tied to the common GND net. Don't leave pin 5 floating.
+>
+> **Pin 13 trap:** pin 13 carries a black/white wire that is vendor-specific, NOT CAN-L. CAN-L is pin 14 (brown/white). They look similar — wiring CAN-L to the black/white (pin 13) wire gives power-but-no-data.
 
 ### Data Flow
 ```

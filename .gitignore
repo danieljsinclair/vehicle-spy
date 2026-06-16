@@ -85,6 +85,9 @@ DEMO.md
 arduino-cli.yaml
 .firmware-ready
 
+# Per-user OTA signing keys (NEVER committed — public repo)
+.ota-keys/
+
 # built assets
 image/build/
 
@@ -108,3 +111,9 @@ temp/
 build-test/
 .claude/
 build-clean/
+
+# Generated capture output (large files, not source)
+captures/
+
+# Python cache
+scripts/archive/__pycache__/

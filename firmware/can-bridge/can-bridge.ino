@@ -13,6 +13,14 @@
 #include <WiFi.h>
 #include <driver/twai.h>
 
+// OTA update entry points (implemented in ota_update.ino, part of this sketch).
+//   otaMarkValidOnBoot - mark the running app valid to cancel an OTA rollback
+//   otaSetup           - start the signed-image OTA server (port 3334)
+//   otaLoop            - service incoming OTA connections each loop tick
+void otaMarkValidOnBoot();
+void otaSetup();
+void otaLoop();
+
 // WiFi credentials injected via compiler defines (never stored on disk)
 // Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASSWORD=Y
 #ifdef ESP32_WIFI_SSID
@@ -43,38 +51,79 @@ static constexpr uint32_t SERIAL_BAUD = 115200;
 static WiFiServer tcpServer(TCP_PORT);
 static WiFiClient client;
 static bool monitorActive = false;
+static uint32_t serialQuietUntilMs = 0;
 
 static void sendPrompt(const char* response) {
     client.printf("%s\r\r>", response);
     client.flush();
 }
 
-static void handleAT(const String& cmd) {
+static void sendSerialPrompt(const char* response) {
+    Serial.println(response);
+    Serial.flush();
+}
+
+static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)) {
     String c = cmd;
     c.trim();
     c.toUpperCase();
 
     if (c == "ATZ") {
         monitorActive = false;
-        sendPrompt("ELM327 v2.3");
+        sendPromptFn("ELM327 v2.3");
     } else if (c == "ATE0" || c == "ATE1") {
-        sendPrompt("OK");
+        sendPromptFn("OK");
     } else if (c.startsWith("ATSP")) {
-        sendPrompt("OK");
+        sendPromptFn("OK");
     } else if (c == "ATH1" || c == "ATH0") {
-        sendPrompt("OK");
+        sendPromptFn("OK");
     } else if (c == "ATCSM1" || c == "ATCSM0") {
-        sendPrompt("OK");
+        sendPromptFn("OK");
     } else if (c == "ATMA") {
         monitorActive = true;
-        sendPrompt("OK");
+        sendPromptFn("OK");
     } else if (c == "ATPC") {
         monitorActive = false;
-        sendPrompt("OK");
+        sendPromptFn("OK");
     } else if (c == "ATI") {
-        sendPrompt("ESP32 CAN Bridge v0.1");
+        sendPromptFn("ESP32 CAN Bridge v0.1");
+    } else if (c == "ATREBOOT") {
+        sendPromptFn("REBOOT");
+        client.flush();
+        Serial.println("REBOOT");
+        Serial.flush();
+        delay(250);
+        ESP.restart();
     } else {
-        sendPrompt("?");
+        sendPromptFn("?");
+    }
+}
+
+static void handleAT(const String& cmd) {
+    handleATCommand(cmd, sendPrompt);
+}
+
+static void handleSerialAT(const String& cmd) {
+    handleATCommand(cmd, sendSerialPrompt);
+}
+
+static void drainSerialATCommands() {
+    static String serialCmd;
+
+    while (Serial.available()) {
+        const char c = Serial.read();
+        if (c == '\r' || c == '\n') {
+            if (serialCmd.length() > 0) {
+                handleSerialAT(serialCmd);
+                serialQuietUntilMs = millis() + 250;
+                serialCmd = "";
+            }
+        } else {
+            serialCmd += c;
+            if (serialCmd.length() > 64) {
+                serialCmd = "";
+            }
+        }
     }
 }
 
@@ -150,9 +199,20 @@ void setup() {
 
     tcpServer.begin();
     Serial.printf("TCP listening on port %u\n", TCP_PORT);
+
+    // OTA: first mark THIS firmware's boot as healthy (cancels any pending
+    // rollback from a previous OTA), then start the signed-image OTA server.
+    // Order matters — mark-valid before bringing up the server so a rollback
+    // condition is cleared before accepting new uploads.
+    otaMarkValidOnBoot();
+    otaSetup();
 }
 
 void loop() {
+    // Service any incoming OTA upload before other work so an update isn't
+    // starved by CAN traffic. Non-blocking: handles at most one connection.
+    otaLoop();
+
     // Accept new TCP connections
     if (!client || !client.connected()) {
         WiFiClient next = tcpServer.accept();
@@ -175,12 +235,17 @@ void loop() {
         if (cmd.length() > 0) handleAT(cmd);
     }
 
+    drainSerialATCommands();
+
     // Always drain the TWAI RX queue — each frame is received once and
     // dispatched to Serial unconditionally, and to TCP only when a client
     // is connected AND monitorActive. This keeps serial logging live even
     // with no WiFi client, and never double-reads a frame.
+    const bool suppressSerialFrames = millis() < serialQuietUntilMs;
     twai_message_t msg;
     while (twai_receive(&msg, 0) == ESP_OK) {
-        streamFrame(msg);
+        if (!suppressSerialFrames) {
+            streamFrame(msg);
+        }
     }
 }
