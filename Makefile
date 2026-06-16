@@ -261,6 +261,9 @@ ota-keys:
 	@echo "device trusts it:  make flash"
 	@echo "Subsequent updates can be pushed over WiFi:  make flash-ota ESP32_HOST=<ip>"
 
+discover: native
+	@./build-native/vehicle-sim --discover
+
 flash-ota flash-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
 		echo "Error: ESP32_HOST is required. Usage: make flash-ota ESP32_HOST=<esp32-ip>" >&2; \
@@ -338,6 +341,7 @@ help:
 	@echo "  test             - Run C++ unit tests"
 	@echo "  firmware         - Build ESP32 CAN bridge firmware"
 	@echo "  flash            - Build + flash firmware to ESP32 via USB (aliases: flash-usb, firmware-flash), then print startup log"
+	@echo "  discover         - Discover ESP32 devices on the local network via UDP broadcast"
 	@echo "  flash-ota        - Sign + push firmware to ESP32 over WiFi (alias: flash-tcp; requires ESP32_HOST=<ip>)"
 	@echo "  monitor          - Serial monitor at 115200 baud (live view)"
 	@echo "  startup-log      - Wait up to 30s for startup bytes, then read for 30s"

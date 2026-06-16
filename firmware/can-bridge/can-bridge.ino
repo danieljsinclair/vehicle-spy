@@ -11,6 +11,7 @@
 // Protocol: Minimal ELM327 — ATZ, ATE0, ATSP6, ATH1, ATMA
 
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <driver/twai.h>
 
 // OTA update entry points (implemented in ota_update.ino, part of this sketch).
@@ -52,6 +53,61 @@ static WiFiServer tcpServer(TCP_PORT);
 static WiFiClient client;
 static bool monitorActive = false;
 static uint32_t serialQuietUntilMs = 0;
+
+// ── UDP Discovery Broadcast ──────────────────────────────────────────────
+// Broadcasts signed discovery packets on UDP port 3335 so that CLI and iOS
+// apps can auto-discover this ESP32 without manual IP configuration.
+static constexpr uint16_t DISCOVERY_PORT = 3335;
+static constexpr uint32_t DISCOVERY_INTERVAL_MS = 2000;  // broadcast every 2s
+static uint32_t lastDiscoveryBroadcast = 0;
+static WiFiUDP udpDiscovery;
+
+// Device ID (first 16 bytes of MAC address, hex)
+static uint8_t discoveryDeviceId[16];
+
+// Broadcast a signed discovery packet
+static void broadcastDiscovery() {
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    // Build the 42-byte header
+    uint8_t packet[106];  // 42 header + 64 signature
+
+    // Magic: "VSIM"
+    packet[0] = 0x56; packet[1] = 0x53; packet[2] = 0x49; packet[3] = 0x4D;
+    // Version
+    packet[4] = 1;
+    // Packet type: 1 = discovery
+    packet[5] = 1;
+    // Device ID (16 bytes)
+    memcpy(packet + 6, discoveryDeviceId, 16);
+    // Nonce (8 bytes) — use millis as simple nonce
+    uint32_t nonceVal = millis();
+    memcpy(packet + 22, &nonceVal, 4);
+    memset(packet + 26, 0, 4);
+    // Timestamp (8 bytes, big-endian Unix epoch)
+    uint64_t now = time(nullptr);
+    for (int i = 7; i >= 0; --i) {
+        packet[30 + i] = (uint8_t)(now & 0xFF);
+        now >>= 8;
+    }
+    // CAN port (2 bytes, big-endian)
+    packet[38] = (TCP_PORT >> 8) & 0xFF;
+    packet[39] = TCP_PORT & 0xFF;
+    // OTA port (2 bytes, big-endian)
+    packet[40] = (3334 >> 8) & 0xFF;
+    packet[41] = 3334 & 0xFF;
+
+    // For now, zero the signature (unsigned discovery)
+    // TODO: sign with Ed25519 once key management is added
+    memset(packet + 42, 0, 64);
+
+    // Broadcast on the local network
+    IPAddress broadcastIp = WiFi.localIP();
+    broadcastIp[3] = 255;  // 255.255.255.0 subnet → x.x.x.255
+    udpDiscovery.beginPacket(broadcastIp, DISCOVERY_PORT);
+    udpDiscovery.write(packet, 106);
+    udpDiscovery.endPacket();
+}
 
 static void sendPrompt(const char* response) {
     client.printf("%s\r\r>", response);
@@ -200,6 +256,17 @@ void setup() {
     tcpServer.begin();
     Serial.printf("TCP listening on port %u\n", TCP_PORT);
 
+    // Initialize device ID from MAC address
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    // MAC is 6 bytes, pad to 16 with "ESP32-" prefix
+    memset(discoveryDeviceId, 0, 16);
+    memcpy(discoveryDeviceId, mac, 6);
+
+    // Start UDP discovery
+    udpDiscovery.begin(DISCOVERY_PORT);
+    Serial.printf("UDP discovery on port %u\n", DISCOVERY_PORT);
+
     // OTA: first mark THIS firmware's boot as healthy (cancels any pending
     // rollback from a previous OTA), then start the signed-image OTA server.
     // Order matters — mark-valid before bringing up the server so a rollback
@@ -212,6 +279,13 @@ void loop() {
     // Service any incoming OTA upload before other work so an update isn't
     // starved by CAN traffic. Non-blocking: handles at most one connection.
     otaLoop();
+
+    // Broadcast discovery packet periodically
+    uint32_t now = millis();
+    if (now - lastDiscoveryBroadcast >= DISCOVERY_INTERVAL_MS) {
+        lastDiscoveryBroadcast = now;
+        broadcastDiscovery();
+    }
 
     // Accept new TCP connections
     if (!client || !client.connected()) {

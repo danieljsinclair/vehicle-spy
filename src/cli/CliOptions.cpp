@@ -17,9 +17,10 @@ CliOptions parseArgs(int argc, char* argv[]) {
 
     app.add_flag("-s,--scan", opts.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.list_signals, "List supported signals for each vehicle");
+    app.add_flag("--discover", opts.discover, "Discover ESP32 devices on the local network via UDP broadcast");
 
     app.add_option("-c,--connect", opts.connect_target,
-                   "Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', or BLE adapter address")
+                   "Connect target: 'demo', 'auto', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', or BLE adapter address")
         ->expected(1);
     app.add_option("-v,--vehicle", opts.vehicle_type, "Vehicle type (required)")
         ->expected(1);
@@ -67,11 +68,12 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "USAGE:\n"
         << "  vehicle-sim [OPTIONS]\n\n"
         << "OPTIONS:\n"
-        << "  -c,--connect <target> Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>',\n"
+        << "  -c,--connect <target> Connect target: 'demo', 'auto', 'file:<path>', 'tcp:<ip>:<port>',\n"
         << "                        'usb:<path>', or BLE adapter address (required)\n"
         << "  -v,--vehicle <type>   Vehicle type (required, or 'auto' to detect)\n"
         << "  -s,--scan             Scan for BLE OBD2 adapters\n"
         << "  -l,--list             List supported signals for each vehicle\n"
+        << "  --discover            Discover ESP32 devices on the local network\n"
         << "  -f,--format <fmt>     Output format: json, csv, or plain (default: plain)\n"
         << "  -i,--interval <ms>    Update interval in milliseconds (default: 500)\n"
         << "  --log <base>          Log base path: writes <base>.csv (decoded); live\n"
@@ -137,8 +139,8 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
 std::string validateOptions(const CliOptions& opts, const domain::DBCTranslationService& service) {
     auto& registry = service.registry();
 
-    // Skip validation for scan, list, help
-    if (opts.scan_mode || opts.list_signals || opts.help_requested) {
+    // Skip validation for scan, list, help, discover
+    if (opts.scan_mode || opts.list_signals || opts.help_requested || opts.discover) {
         return "";
     }
 

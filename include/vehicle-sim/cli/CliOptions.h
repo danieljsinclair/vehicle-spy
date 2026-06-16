@@ -25,7 +25,8 @@ struct CliOptions {
     bool scan_mode = false;
     bool list_signals = false;
     bool help_requested = false;
-    std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", or "usb:<path>"
+    bool discover = false;       // --discover: listen for ESP32 broadcasts, print found devices
+    std::string connect_target;  // "demo", "auto", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", or "usb:<path>"
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
@@ -40,11 +41,12 @@ struct CliOptions {
     std::string error_message;
 
     [[nodiscard]] bool isDemo() const { return connect_target == "demo"; }
+    [[nodiscard]] bool isAuto() const { return connect_target == "auto"; }
     [[nodiscard]] bool isFile() const noexcept { return connect_target.rfind("file:", 0) == 0; }
     [[nodiscard]] bool isTcp() const noexcept { return connect_target.rfind("tcp:", 0) == 0; }
     [[nodiscard]] bool isUsb() const noexcept { return connect_target.rfind("usb:", 0) == 0; }
     [[nodiscard]] bool isBLE() const {
-        return !connect_target.empty() && !isDemo() && !isFile() && !isTcp() && !isUsb();
+        return !connect_target.empty() && !isDemo() && !isAuto() && !isFile() && !isTcp() && !isUsb();
     }
 };
 

@@ -8,6 +8,7 @@
 #include "vehicle-sim/cli/LiveRunContext.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
+#include "vehicle-sim/discovery/UDPDiscovery.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
 
 namespace {
@@ -36,6 +37,39 @@ int runScan(vehicle_sim::BLEManager& bleManager) {
     std::cout << "\nFound " << devices.size() << " BLE device(s).\n";
     std::cout << "To connect: vehicle-sim --connect <address> --vehicle <type>\n\n";
     return 0;
+}
+
+// Listen for ESP32 UDP discovery broadcasts. Returns the TCP connection string
+// of the first discovered device, or empty string if none found.
+std::string runDiscovery(int timeoutSeconds = 5) {
+    using namespace vehicle_sim::discovery;
+
+    std::cout << "Listening for ESP32 discovery broadcasts (timeout " << timeoutSeconds << "s)...\n";
+
+    UDPDiscovery discovery;
+    if (!discovery.start()) {
+        std::cerr << "Failed to start UDP discovery listener.\n";
+        return "";
+    }
+
+    std::string result;
+    auto devices = discovery.poll(std::chrono::seconds(timeoutSeconds));
+    discovery.stop();
+
+    if (devices.empty()) {
+        std::cout << "No ESP32 devices found.\n";
+        return "";
+    }
+
+    std::cout << "Found " << devices.size() << " ESP32 device(s):\n";
+    for (size_t i = 0; i < devices.size(); ++i) {
+        const auto& d = devices[i];
+        std::cout << "  [" << (i + 1) << "] " << d.address
+                  << " (CAN:" << d.canPort << ", OTA:" << d.otaPort << ")\n";
+    }
+
+    // Return the first discovered device's TCP connection string
+    return devices[0].tcpConnectionString();
 }
 
 // Derive the canonical --log <base> from whichever logging flag the caller
@@ -93,6 +127,25 @@ int main(int argc, char* argv[]) {
     if (opts.scan_mode) {
         auto bleManager = std::make_unique<BLEManager>();
         return runScan(*bleManager);
+    }
+
+    if (opts.discover) {
+        std::string discovered = runDiscovery();
+        return discovered.empty() ? 1 : 0;
+    }
+
+    if (opts.isAuto()) {
+        std::string discovered = runDiscovery();
+        if (discovered.empty()) {
+            std::cerr << "No ESP32 devices found on the network.\n";
+            return 1;
+        }
+        std::cout << "Auto-discovered: " << discovered << "\n";
+        std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
+            discovered, opts.adapter_protocol);
+        std::string logBase = resolveLogBase(opts);
+        return cli::LiveRunContext::run(discovered, opts.vehicle_type,
+                                        protocol, logBase, translationService);
     }
 
     if (opts.isFile()) {

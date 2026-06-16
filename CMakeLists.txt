@@ -104,6 +104,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/telemetry/RawTraceLogger.cpp
     src/discovery/DiscoveryPacket.cpp
     src/discovery/DiscoveryVerifier.cpp
+    src/discovery/UDPDiscovery.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
