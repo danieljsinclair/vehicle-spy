@@ -1,7 +1,7 @@
-.PHONY: all clean test test-cpp help ios ios-signed xcode native deploy run \
-        install-deps ios-icons app-icons scrub update-dbc \
-        firmware firmware-flash flash monitor firmware-port capture startup-log firmware-clean \
-        ota-keys flash-ota reboot-over-usb reboot-over-tcp
+.PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
+	        install-deps ios-icons app-icons scrub update-dbc \
+	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
+	        capture-ota capture-tcp ota-keys flash-ota flash-tcp reboot-over-usb reboot-over-tcp
 
 # Device ID (first connected/available device, excluding unavailable)
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/unavailable/ && match($$0, /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/) { print substr($$0, RSTART, RLENGTH); exit }')
@@ -11,6 +11,7 @@ FIRMWARE_DIR  = firmware/can-bridge
 FIRMWARE_BUILD = build-firmware
 FQBN          = esp32:esp32:esp32:PartitionScheme=min_spiffs
 ESP32_PORT    ?= $(shell ls /dev/cu.usbserial* /dev/cu.SLAB_USBtoUART /dev/cu.wchusbserial* 2>/dev/null | head -1)
+ESP32_HOST    ?= $(OTA_HOST)
 
          RED=\033[0;31m
        GREEN=\033[0;32m
@@ -82,13 +83,13 @@ ios-signed: test native app-icons
 	@xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj -scheme VehicleSimApp -configuration Release -destination 'generic/platform=iOS' -derivedDataPath vehicle-sim-ios/VehicleSim/build -allowProvisioningUpdates clean build 2>&1 | tail -20
 	@echo "Build output in vehicle-sim-ios/VehicleSim/build/Release-iphoneos/VehicleSimApp.app"
 
-deploy: ios-signed verify-device-id
+deploy deploy-app deploy-ios: ios-signed verify-device-id
 	@echo "--- Installing on connected iPhone ---"
 	APP_PATH="$(PWD)/vehicle-sim-ios/VehicleSim/build/Build/Products/Release-iphoneos/VehicleSimApp.app"; \
 	xcrun devicectl device install app --device "$(DEVICE_ID)" "$$APP_PATH"
 	@echo "--- Deploy complete ---"
 
-run: deploy verify-device-id
+run run-app run-ios: deploy verify-device-id
 	@echo "--- Launching app on iPhone ---"
 	@xcrun devicectl device process launch --terminate-existing --device "$(DEVICE_ID)" com.axxiant.vehiclesim
 	@echo "--- App launched ---"
@@ -128,6 +129,33 @@ $(ICON_CATALOG)/AppIcon-dark.png: $(ICON_DARK)
 	$(generate_icon)
 
 # -- DBC ------------------------------------------------------------------
+#
+# ANALYSIS: update-dbc vs git submodule
+#
+# Q: What does update-dbc do that "git submodule update --remote" doesn't?
+#
+# A: Two things:
+#
+# 1. Renaming. The submodule file is called tesla_model3_party.dbc but the
+#    project references it as Model3CAN.dbc (see DefaultVehicleConfigs.cpp).
+#    update-dbc copies AND renames it in one step. A raw git submodule update
+#    would leave the file at external/opendbc/opendbc/dbc/tesla_model3_party.dbc
+#    and the build would not find it.
+#
+# 2. Selective copy. The opendbc submodule contains hundreds of DBC files for
+#    many manufacturers. update-dbc copies only the two files the project
+#    actually uses (tesla_model3_party.dbc and vw_mlb.dbc) into the project's
+#    own resources/dbc/ directory, keeping the repo self-contained.
+#
+# Could we use the submodule directly? In theory yes -- we could change
+# DefaultVehicleConfigs.cpp to point at external/opendbc/opendbc/dbc/ and use
+# the upstream filenames. But that would couple the build to the submodule's
+# internal directory structure, which commaai can change without notice. The
+# copy step is a deliberate boundary: it lets us pin filenames, insulate from
+# upstream renames, and keep the build working even without the submodule
+# checked out (e.g. in CI or for new clones that forget git submodule init).
+#
+# Verdict: the copy is justified. Keep update-dbc.
 
 update-dbc:
 	@echo "Updating DBC files from commaai/opendbc submodule..."
@@ -179,10 +207,10 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) .firmwar
 
 firmware: $(FIRMWARE_BUILD)/can-bridge.ino.bin
 
-flash firmware-flash: firmware native test
+flash flash-usb firmware-flash: firmware native test
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make flash ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
 	@echo "Flashing via $(ESP32_PORT)..."
-	@$(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/5.2.0/esptool \
+	@$(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool \
 		--port "$(ESP32_PORT)" --baud 460800 \
 		write-flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
 	@echo "Flash complete. Reading startup log from $(ESP32_PORT) at 115200 baud..."
@@ -212,7 +240,7 @@ reboot-over-usb:
 #                    the public key into firmware/can-bridge/OtaPublicKey.h
 # make flash-ota   -- sign the built firmware + push it to an ESP32 over WiFi
 #
-# OTA_HOST   the ESP32 IP/hostname to push to (REQUIRED for flash-ota)
+# ESP32_HOST the ESP32 IP/hostname to push to (REQUIRED for flash-ota / capture-ota)
 # OTA_PORT   the OTA listener port (3334, distinct from the 3333 CAN bridge)
 # OTA_KEYS_DIR  per-user signing keypair dir (NEVER committed)
 #
@@ -231,23 +259,23 @@ ota-keys:
 	@echo "IMPORTANT: the public key was baked into firmware/can-bridge/OtaPublicKey.h."
 	@echo "The FIRST time you use this keypair you MUST re-flash over USB so the"
 	@echo "device trusts it:  make flash"
-	@echo "Subsequent updates can be pushed over WiFi:  make flash-ota OTA_HOST=<ip>"
+	@echo "Subsequent updates can be pushed over WiFi:  make flash-ota ESP32_HOST=<ip>"
 
-flash-ota:
-	@if [ -z "$(OTA_HOST)" ]; then \
-		echo "Error: OTA_HOST is required. Usage: make flash-ota OTA_HOST=<esp32-ip>" >&2; \
+flash-ota flash-tcp:
+	@if [ -z "$(ESP32_HOST)" ]; then \
+		echo "Error: ESP32_HOST is required. Usage: make flash-ota ESP32_HOST=<esp32-ip>" >&2; \
 		exit 1; \
 	fi
 	@echo "--- Signing firmware ---"
 	@scripts/ota-sign.sh $(FIRMWARE_BUILD)/can-bridge.ino.bin --keys-dir "$(OTA_KEYS_DIR)"
-	@echo "--- Pushing OTA image to $(OTA_HOST):$(OTA_PORT) ---"
-	@scripts/ota-flash.sh "$(OTA_HOST)" $(FIRMWARE_BUILD)/can-bridge.ino.bin \
+	@echo "--- Pushing OTA image to $(ESP32_HOST):$(OTA_PORT) ---"
+	@scripts/ota-flash.sh "$(ESP32_HOST)" $(FIRMWARE_BUILD)/can-bridge.ino.bin \
 		--sig $(FIRMWARE_BUILD)/can-bridge.ino.bin.sig --port $(OTA_PORT)
 
 reboot-over-tcp:
-	@if [ -z "$(OTA_HOST)" ]; then echo "Error: OTA_HOST is required. Usage: make reboot-over-tcp OTA_HOST=<esp32-ip>" >&2; exit 1; fi
-	@echo "Soft rebooting $(OTA_HOST) via TCP command..."
-	@printf 'ATZ\rATE0\rATREBOOT\r' | nc -w 2 "$(OTA_HOST)" 3333 || true
+	@if [ -z "$(ESP32_HOST)" ]; then echo "Error: ESP32_HOST is required. Usage: make reboot-over-tcp ESP32_HOST=<esp32-ip>" >&2; exit 1; fi
+	@echo "Soft rebooting $(ESP32_HOST) via TCP command..."
+	@printf 'ATZ\rATE0\rATREBOOT\r' | nc -w 2 "$(ESP32_HOST)" 3333 || true
 
 # -- Capture (native USB) --------------------------------------------------
 #
@@ -270,7 +298,7 @@ CAPFILE ?=
 CAPDIR  ?= captures
 CAPTURE_VEHICLE ?= tesla
 
-capture: native
+capture capture-usb: native
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected." >&2; exit 1; fi
 	@mkdir -p $(CAPDIR)
 	@ts=$$(date +%Y-%m-%d-%H%M%S); \
@@ -278,7 +306,27 @@ capture: native
 		base="$(CAPDIR)/$$name"; \
 		echo "$(GREEN)Capturing$(NC) $(ESP32_PORT) -> $(CYAN)$$base.raw.txt $(NC)(verbatim) + $(CYAN)$$base.csv $(NC)(decoded) $(GREEN)(Ctrl-C to stop)$(NC)"; \
 		PS4=''; set -x;\
-		./build-native/vehicle-sim --connect "usb:$(ESP32_PORT)" --vehicle $(CAPTURE_VEHICLE) --log "$$base"; 
+		./build-native/vehicle-sim --connect "usb:$(ESP32_PORT)" --vehicle $(CAPTURE_VEHICLE) --log "$$base";
+
+
+# -- Capture (WiFi / TCP) --------------------------------------------------
+#
+# Same as capture-usb but connects over TCP to ESP32_HOST instead of USB serial.
+#
+#   make capture-ota                       -> captures/capture_<ts>.raw.txt + .csv
+#   CAPFILE=TeslaMonday make capture-ota    -> captures/TeslaMonday_<ts>.raw.txt + .csv
+#
+# Requires ESP32_HOST to be set (the ESP32 IP/hostname on the local network).
+
+capture-ota capture-tcp: native
+	@if [ -z "$(ESP32_HOST)" ]; then echo "Error: ESP32_HOST is required. Usage: make capture-ota ESP32_HOST=<esp32-ip>" >&2; exit 1; fi
+	@mkdir -p $(CAPDIR)
+	@ts=$$(date +%Y-%m-%d-%H%M%S); \
+		if [ -n "$(CAPFILE)" ]; then name="$(CAPFILE)_$$ts"; else name="capture_$$ts"; fi; \
+		base="$(CAPDIR)/$$name"; \
+		echo "$(GREEN)Capturing$(NC) $(ESP32_HOST) -> $(CYAN)$$base.raw.txt $(NC)(verbatim) + $(CYAN)$$base.csv $(NC)(decoded) $(GREEN)(Ctrl-C to stop)$(NC)"; \
+		PS4=''; set -x;\
+		./build-native/vehicle-sim --connect "tcp:$(ESP32_HOST)" --vehicle $(CAPTURE_VEHICLE) --log "$$base";
 
 
 # -- Help ------------------------------------------------------------------
@@ -289,19 +337,20 @@ help:
 	@echo "  native           - Build native macOS C++ libraries"
 	@echo "  test             - Run C++ unit tests"
 	@echo "  firmware         - Build ESP32 CAN bridge firmware"
-	@echo "  flash            - Build + flash firmware to ESP32 (alias: firmware-flash), then print startup log"
+	@echo "  flash            - Build + flash firmware to ESP32 via USB (aliases: flash-usb, firmware-flash), then print startup log"
+	@echo "  flash-ota        - Sign + push firmware to ESP32 over WiFi (alias: flash-tcp; requires ESP32_HOST=<ip>)"
 	@echo "  monitor          - Serial monitor at 115200 baud (live view)"
 	@echo "  startup-log      - Wait up to 30s for startup bytes, then read for 30s"
 	@echo "  reboot-over-usb  - Send ATREBOOT over USB serial, then print startup log"
-	@echo "  reboot-over-tcp  - Send ATREBOOT over TCP port 3333 (requires OTA_HOST=<esp32-ip>)"
-	@echo "  capture          - Log CAN frames to captures/<tag>_<timestamp>.raw.txt + .csv"
+	@echo "  reboot-over-tcp  - Send ATREBOOT over TCP port 3333 (requires ESP32_HOST=<esp32-ip>)"
+	@echo "  capture          - Log CAN frames via USB (aliases: capture-usb)"
+	@echo "  capture-ota      - Log CAN frames over WiFi TCP (alias: capture-tcp; requires ESP32_HOST=<esp32-ip>)"
 	@echo "  firmware-port    - Show detected ESP32 serial port"
 	@echo "  ota-keys         - Generate per-user ed25519 OTA signing keypair + bake public key"
-	@echo "  flash-ota        - Sign + push firmware to ESP32 over WiFi (requires OTA_HOST=<ip>)"
 	@echo "  ios              - Build iOS app for simulator (Debug)"
 	@echo "  ios-signed       - Build signed Release for physical device"
-	@echo "  deploy           - Deploy to connected iPhone"
-	@echo "  run              - Deploy and launch on device"
+	@echo "  deploy           - Deploy to connected iPhone (aliases: deploy-app, deploy-ios)"
+	@echo "  run              - Deploy and launch on device (aliases: run-app, run-ios)"
 	@echo "  xcode            - Open in Xcode"
 	@echo "  install-deps     - Install Homebrew dependencies"
 	@echo "  update-dbc       - Update DBC files from opendbc"
