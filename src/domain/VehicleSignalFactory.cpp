@@ -1,8 +1,47 @@
 #include "vehicle-sim/domain/VehicleSignalFactory.h"
 #include "vehicle-sim/domain/DBCSignalMapper.h"
 #include "vehicle-sim/domain/Gear.h"
+#include "vehicle-sim/domain/VehicleSignal.h"
+
+#include <optional>
+#include <string>
+#include <string_view>
 
 namespace vehicle_sim::domain {
+
+namespace {
+
+// Fixed output-slot layout for the numeric VehicleSignal fields. Kept in a
+// single place so resolveMappings() and build() cannot drift apart.
+constexpr std::size_t IDX_THROTTLE     = 0;
+constexpr std::size_t IDX_SPEED        = 1;
+constexpr std::size_t IDX_ACCEL        = 2;
+constexpr std::size_t IDX_BRAKE        = 3;
+constexpr std::size_t IDX_STEERING     = 4;
+constexpr std::size_t IDX_RPM          = 5;
+constexpr std::size_t IDX_HV_VOLTAGE   = 6;
+constexpr std::size_t IDX_HV_CURRENT   = 7;
+constexpr std::size_t IDX_TORQUE       = 8;
+constexpr std::size_t IDX_GEAR         = 9; // int slot, parallel array
+
+// Maps a VehicleSignal field name to its numeric output slot, or nullopt when
+// the field is not one the factory emits. Replaces the previous build()-time
+// if/else-if chain with a load-time decision (Open/Closed: the table is the
+// single point of extension for new numeric fields).
+[[nodiscard]] std::optional<std::size_t> numericSlotFor(std::string_view fieldName) {
+    if (fieldName == "throttlePercent")   return IDX_THROTTLE;
+    if (fieldName == "speedKmh")          return IDX_SPEED;
+    if (fieldName == "accelerationG")     return IDX_ACCEL;
+    if (fieldName == "brakePercent")      return IDX_BRAKE;
+    if (fieldName == "steeringAngleDeg")  return IDX_STEERING;
+    if (fieldName == "motorRpm")          return IDX_RPM;
+    if (fieldName == "motorHvVoltage")    return IDX_HV_VOLTAGE;
+    if (fieldName == "motorHvCurrent")    return IDX_HV_CURRENT;
+    if (fieldName == "motorTorqueNm")     return IDX_TORQUE;
+    return std::nullopt;
+}
+
+} // namespace
 
 VehicleSignalFactory::VehicleSignalFactory(
     const VehicleConfig& config,
@@ -11,80 +50,107 @@ VehicleSignalFactory::VehicleSignalFactory(
     : config_(config)
     , parseResult_(parseResult)
 {
+    resolveMappings();
+}
+
+void VehicleSignalFactory::resolveMappings() {
+    // signalMappings: signalName -> fieldName. For each, find the CAN ID +
+    // definition that carries signalName. The DBC join is O(signals) once;
+    // build() then pays O(mappings) per frame instead of O(mappings × frames)
+    // with repeated hash probes.
+    for (const auto& [signalName, fieldName] : config_.signalMappings) {
+        const auto numericSlot = numericSlotFor(fieldName);
+        const bool isGear = (fieldName == "gearSelector");
+
+        if (!numericSlot && !isGear) {
+            // Mapped to a field VehicleSignal does not expose (e.g. gearRequested).
+            resolved_.push_back({FieldKind::Ignored, 0, nullptr, 0});
+            continue;
+        }
+
+        // Locate the single CAN ID + definition carrying this signal name.
+        const DBCSignalDefinition* foundDef = nullptr;
+        std::uint16_t foundCanId = 0;
+        for (const auto& [canId, defs] : parseResult_.signalsByCanId) {
+            for (const auto& def : defs) {
+                if (def.name == signalName) {
+                    foundDef = &def;
+                    foundCanId = canId;
+                    break;
+                }
+            }
+            if (foundDef) break;
+        }
+
+        // No DBC definition for this mapped signal — nothing to decode; treat
+        // it as ignored (matches the previous scan, which would find no frame).
+        if (!foundDef) {
+            resolved_.push_back({FieldKind::Ignored, 0, nullptr, 0});
+            continue;
+        }
+
+        const std::size_t outIdx = isGear ? IDX_GEAR : *numericSlot;
+        const FieldKind kind = isGear ? FieldKind::Gear : FieldKind::Numeric;
+        resolved_.push_back({kind, foundCanId, foundDef, outIdx});
+    }
 }
 
 VehicleSignal VehicleSignalFactory::build(
     const std::unordered_map<std::uint16_t, std::vector<std::uint8_t>>& frames,
     std::uint64_t timestampUtcMs
 ) const noexcept {
-    std::optional<double> throttlePercent;
-    std::optional<double> speedKmh;
-    std::optional<double> accelerationG;
-    std::optional<double> brakePercent;
-    std::optional<double> steeringAngleDeg;
-    std::optional<double> motorRpm;
-    std::optional<double> motorHvVoltage;
-    std::optional<double> motorHvCurrent;
-    std::optional<double> motorTorqueNm;
-    std::optional<std::int32_t> gearSelector;
+    // Parallel output buffers: 9 numeric slots + 1 gear slot. Defaults
+    // (nullopt) match the previous per-call initialisation.
+    std::optional<double> numeric[IDX_GEAR];  // 9 numeric slots (indices 0..8)
+    std::optional<std::int32_t> gear;
 
-    for (const auto& [signalName, fieldName] : config_.signalMappings) {
-        std::optional<double>* targetField = nullptr;
-
-        if (fieldName == "throttlePercent") targetField = &throttlePercent;
-        else if (fieldName == "speedKmh") targetField = &speedKmh;
-        else if (fieldName == "accelerationG") targetField = &accelerationG;
-        else if (fieldName == "brakePercent") targetField = &brakePercent;
-        else if (fieldName == "steeringAngleDeg") targetField = &steeringAngleDeg;
-        else if (fieldName == "motorRpm") targetField = &motorRpm;
-        else if (fieldName == "motorHvVoltage") targetField = &motorHvVoltage;
-        else if (fieldName == "motorHvCurrent") targetField = &motorHvCurrent;
-        else if (fieldName == "motorTorqueNm") targetField = &motorTorqueNm;
-
-        if (!targetField) {
-            if (fieldName == "gearSelector") {
-                for (const auto& [canId, frame] : frames) {
-                    auto gearValue = DBCSignalMapper::mapGearSignal(
-                        frame,
-                        canId,
-                        signalName,
-                        parseResult_.signalsByCanId
-                    );
-                    if (gearValue) {
-                        gearSelector = *gearValue;
-                        break;
-                    }
-                }
-            }
+    for (const auto& field : resolved_) {
+        if (field.kind == FieldKind::Ignored || field.def == nullptr) {
             continue;
         }
 
-        for (const auto& [canId, frame] : frames) {
-            auto value = DBCSignalMapper::mapSignal(
-                frame,
-                canId,
-                signalName,
+        // Direct lookup of the one frame that can carry this signal. Avoids the
+        // previous all-frames scan + per-frame hash probe into signalsByCanId.
+        const auto frameIt = frames.find(field.canId);
+        if (frameIt == frames.end()) {
+            continue;
+        }
+
+        if (field.kind == FieldKind::Gear) {
+            // Reuse the existing gear decoder (value-table semantics) so output
+            // stays byte-identical. The 4-arg form re-probes signalsByCanId,
+            // but the definition is already known; the 2-arg mapSignal covers
+            // numeric fields. Gear has no 2-arg overload, so keep the 4-arg
+            // call — it is now invoked at most once per build, not per frame.
+            auto gearValue = DBCSignalMapper::mapGearSignal(
+                frameIt->second,
+                field.canId,
+                field.def->name,
                 parseResult_.signalsByCanId
             );
+            if (gearValue) {
+                gear = *gearValue;
+            }
+        } else {
+            auto value = DBCSignalMapper::mapSignal(frameIt->second, *field.def);
             if (value) {
-                *targetField = *value;
-                break;
+                numeric[field.outputIndex] = *value;
             }
         }
     }
 
     return VehicleSignal(
         timestampUtcMs,
-        throttlePercent,
-        speedKmh,
-        accelerationG,
-        brakePercent,
-        steeringAngleDeg,
-        motorRpm,
-        motorHvVoltage,
-        motorHvCurrent,
-        motorTorqueNm,
-        gearSelector
+        numeric[IDX_THROTTLE],
+        numeric[IDX_SPEED],
+        numeric[IDX_ACCEL],
+        numeric[IDX_BRAKE],
+        numeric[IDX_STEERING],
+        numeric[IDX_RPM],
+        numeric[IDX_HV_VOLTAGE],
+        numeric[IDX_HV_CURRENT],
+        numeric[IDX_TORQUE],
+        gear
     );
 }
 

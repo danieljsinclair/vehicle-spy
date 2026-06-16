@@ -5,6 +5,12 @@
 
 using namespace vehicle_sim::domain;
 
+// SignalSourceFactory is the thin demo-source factory for the legacy
+// ISignalSource path (still used by BLE/simulation). TCP-target parsing and
+// the createTcp entry were removed when TCP moved to the pipeline
+// (PipelineFactory::buildPipelineSource + pipeline::parseTcpTarget); the
+// parseTcpTarget tests now live in test/pipeline/PipelineFactory.test.cpp.
+
 class SignalSourceFactoryTest : public ::testing::Test {
 protected:
     void SetUp() override {}

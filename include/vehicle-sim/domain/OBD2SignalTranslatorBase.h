@@ -39,7 +39,8 @@ public:
     ) const noexcept override;
 
     [[nodiscard]] std::optional<VehicleSignal> translate(
-        const std::vector<std::uint8_t>& rawData
+        const std::vector<std::uint8_t>& rawData,
+        std::optional<std::uint64_t> timestampUtcMs = std::nullopt
     ) const noexcept override;
 
 protected:

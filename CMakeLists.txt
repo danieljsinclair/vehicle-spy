@@ -76,12 +76,27 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/SimulationSignalSource.cpp
     src/domain/IDBCContentProvider.cpp
     src/domain/VehicleConfigResolver.cpp
+    src/domain/CaptureLog.cpp
     src/domain/SignalSourceFactory.cpp
+    src/pipeline/FileTransport.cpp
+    src/pipeline/RawFrameNormaliser.cpp
+    src/pipeline/Elm327Normaliser.cpp
+    src/pipeline/CaptureNormaliser.cpp
+    src/pipeline/DemoTransport.cpp
+    src/pipeline/TCPTransport.cpp
+    src/pipeline/USBTransport.cpp
+    src/pipeline/PipelineFactory.cpp
+    src/pipeline/RawLogSink.cpp
+    src/pipeline/DecodedCsvSink.cpp
+    src/pipeline/ConsoleProgressReporter.cpp
+    src/pipeline/PipelineReplay.cpp
     src/cli/CliOptions.cpp
     src/cli/Orchestration.cpp
     src/cli/BLEConnectionManager.cpp
     src/cli/TelemetryRunner.cpp
     src/cli/BLERunContext.cpp
+    src/cli/ReplayRunContext.cpp
+    src/cli/LiveRunContext.cpp
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp
     src/boundary/OBD2Protocol.cpp

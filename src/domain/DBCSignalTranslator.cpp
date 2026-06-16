@@ -2,7 +2,6 @@
 #include "vehicle-sim/domain/VehicleSignal.h"
 
 #include <chrono>
-#include <algorithm>
 
 namespace vehicle_sim::domain {
 
@@ -21,7 +20,8 @@ DBCSignalTranslator::DBCSignalTranslator(
 }
 
 std::optional<VehicleSignal> DBCSignalTranslator::translate(
-    const std::vector<std::uint8_t>& rawData
+    const std::vector<std::uint8_t>& rawData,
+    std::optional<std::uint64_t> timestampUtcMs
 ) const noexcept {
     if (!isValidPacket(rawData)) {
         return std::nullopt;
@@ -29,34 +29,32 @@ std::optional<VehicleSignal> DBCSignalTranslator::translate(
 
     const std::uint16_t canId = extractCANId(rawData);
 
-    // Extract 8-byte data payload (bytes 2-9)
-    std::vector<std::uint8_t> data(
-        rawData.begin() + CAN_DATA_OFFSET,
-        rawData.begin() + CAN_FRAME_SIZE
-    );
-
-    // Store in accumulated frames (thread-safe)
+    // Extract 8-byte data payload (bytes 2-9) directly into the accumulated
+    // map slot, avoiding a transient vector allocation + move.
     {
         std::lock_guard<std::mutex> lock(frames_mutex_);
-        accumulatedFrames_[canId] = std::move(data);
+        auto& slot = accumulatedFrames_[canId];
+        slot.assign(rawData.begin() + CAN_DATA_OFFSET,
+                    rawData.begin() + CAN_FRAME_SIZE);
     }
 
-    // Build signal from all accumulated frames
-    const auto now = static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ).count()
+    // Stamp the emitted signal with the original capture time when supplied
+    // (replay path); otherwise fall back to wall-clock now() (live/BLE path).
+    const std::uint64_t effectiveTs = timestampUtcMs.value_or(
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()
+            ).count()
+        )
     );
 
-    // We need to copy the accumulated frames to pass to build()
-    // since we can't hold the lock while calling build()
-    std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> framesCopy;
-    {
-        std::lock_guard<std::mutex> lock(frames_mutex_);
-        framesCopy = accumulatedFrames_;
-    }
-
-    return factory_.build(framesCopy, now);
+    // build() is a read-only consumer of the accumulated frames; hold the
+    // lock across it instead of deep-copying the whole frame map per call.
+    // (Previously the entire unordered_map<uint16_t,vector<uint8_t>> was copied
+    // on every frame — the dominant cost of replay.) build() never calls back
+    // into translate(), so this is safe and presents a consistent snapshot.
+    std::lock_guard<std::mutex> lock(frames_mutex_);
+    return factory_.build(accumulatedFrames_, effectiveTs);
 }
 
 bool DBCSignalTranslator::isValidPacket(

@@ -1,4 +1,5 @@
 #include "vehicle-sim/telemetry/TraceLogger.h"
+#include "vehicle-sim/domain/Gear.h"
 
 #include <sstream>
 #include <iomanip>
@@ -6,8 +7,9 @@
 
 namespace vehicle_sim::telemetry {
 
-TraceLogger::TraceLogger(std::string filePath)
+TraceLogger::TraceLogger(std::string filePath, std::string vehicleId)
     : file_(filePath)
+    , vehicleId_(std::move(vehicleId))
 {
     if (!file_) {
         throw std::runtime_error("Failed to open trace file: " + filePath);
@@ -34,22 +36,42 @@ bool TraceLogger::isValid() const noexcept {
 }
 
 void TraceLogger::writeHeader() {
-    file_ << "timestamp_utc_ms,throttle_pct,speed_kmh,acceleration_g,brake_pct,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,gear_selector,motor_torque_nm\n";
+    file_ << "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_percent,acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count\n";
     file_.flush();
 }
 
 void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
+    const auto& gear = signal.getGearSelector();
+
+    // dbc_signal_count: count of POPULATED (non-nullopt) fields among the 10
+    // translated signal columns (throttle, speed, accel, brake, steering, rpm,
+    // hv_voltage, hv_current, torque, gear). timestamp and vehicle_id are NOT
+    // counted — only DBC-translated signals.
+    int populatedCount = 0;
+    if (signal.getThrottlePercent())  ++populatedCount;
+    if (signal.getSpeedKmh())         ++populatedCount;
+    if (signal.getAccelerationG())    ++populatedCount;
+    if (signal.getBrakePercent())     ++populatedCount;
+    if (signal.getSteeringAngleDeg()) ++populatedCount;
+    if (signal.getMotorRpm())         ++populatedCount;
+    if (signal.getMotorHvVoltage())   ++populatedCount;
+    if (signal.getMotorHvCurrent())   ++populatedCount;
+    if (signal.getMotorTorqueNm())    ++populatedCount;
+    if (gear)                         ++populatedCount;
+
     file_ << signal.getTimestampUtcMs() << ","
-          << formatOptional(signal.getThrottlePercent()) << ","
+          << vehicleId_ << ","
           << formatOptional(signal.getSpeedKmh()) << ","
-          << formatOptional(signal.getAccelerationG()) << ","
+          << formatOptional(signal.getThrottlePercent()) << ","
           << formatOptional(signal.getBrakePercent()) << ","
+          << formatOptional(signal.getAccelerationG()) << ","
           << formatOptional(signal.getSteeringAngleDeg()) << ","
           << formatOptional(signal.getMotorRpm()) << ","
           << formatOptional(signal.getMotorHvVoltage()) << ","
           << formatOptional(signal.getMotorHvCurrent()) << ","
-          << formatOptional(signal.getGearSelector()) << ","
-          << formatOptional(signal.getMotorTorqueNm())
+          << formatOptional(signal.getMotorTorqueNm()) << ","
+          << (gear ? domain::Gear::labelOr(*gear, std::to_string(*gear)) : "") << ","
+          << populatedCount
           << "\n";
     file_.flush();
 }
@@ -71,7 +93,8 @@ std::string TraceLogger::formatOptional(std::optional<std::int32_t> value) {
 }
 
 TraceLogger::TraceLogger(TraceLogger&& other) noexcept
-    : file_(std::move(other.file_)) {}
+    : file_(std::move(other.file_))
+    , vehicleId_(std::move(other.vehicleId_)) {}
 
 TraceLogger& TraceLogger::operator=(TraceLogger&& other) noexcept {
     if (this != &other) {
@@ -79,6 +102,7 @@ TraceLogger& TraceLogger::operator=(TraceLogger&& other) noexcept {
             file_.close();
         }
         file_ = std::move(other.file_);
+        vehicleId_ = std::move(other.vehicleId_);
     }
     return *this;
 }

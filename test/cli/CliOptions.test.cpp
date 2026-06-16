@@ -92,7 +92,40 @@ TEST_F(CliOptionsTest, ConnectBLEAddress) {
     EXPECT_EQ(opts.connect_target, "AA:BB:CC:DD:EE:FF");
     EXPECT_FALSE(opts.isDemo());
     EXPECT_TRUE(opts.isBLE());
+    EXPECT_FALSE(opts.isTcp());
     EXPECT_EQ(opts.vehicle_type, "tesla");
+}
+
+TEST_F(CliOptionsTest, ConnectTcpIpPort_IsTcpAndNotBle) {
+    Args args({"vehicle-sim", "--connect", "tcp:192.168.4.1:3333", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.connect_target, "tcp:192.168.4.1:3333");
+    EXPECT_FALSE(opts.isDemo());
+    EXPECT_FALSE(opts.isFile());
+    EXPECT_FALSE(opts.isBLE());
+    EXPECT_TRUE(opts.isTcp());
+}
+
+TEST_F(CliOptionsTest, ConnectTcpIpOnly_IsTcp) {
+    Args args({"vehicle-sim", "--connect", "tcp:192.168.4.1", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_TRUE(opts.isTcp());
+    EXPECT_FALSE(opts.isBLE());
+}
+
+TEST_F(CliOptionsTest, ConnectTcpWithLogFlags_Parses) {
+    Args args({"vehicle-sim", "--connect", "tcp:192.168.4.1:3333", "--vehicle", "tesla",
+               "--log-raw", "x.raw", "--log-csv", "x.csv"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_TRUE(opts.isTcp());
+    EXPECT_EQ(opts.log_raw, "x.raw");
+    EXPECT_EQ(opts.log_csv, "x.csv");
 }
 
 TEST_F(CliOptionsTest, ConnectDemoWithVehicle) {
@@ -331,6 +364,24 @@ TEST_F(CliValidationTest, ValidateVehicleAuto_DemoConnect_ReturnsError) {
     EXPECT_NE(error.find("auto requires a BLE connection"), std::string::npos);
 }
 
+TEST_F(CliValidationTest, ValidateVehicleAuto_TcpConnect_ReturnsError) {
+    // TCP source has no VIN detection — 'auto' requires BLE.
+    Args args({"vehicle-sim", "--connect", "tcp:192.168.4.1:3333", "--vehicle", "auto"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    auto error = validateOptions(opts, service_);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("auto requires a BLE connection"), std::string::npos);
+}
+
+TEST_F(CliValidationTest, ValidateTcpConnect_ValidVehicle_NoError) {
+    Args args({"vehicle-sim", "--connect", "tcp:192.168.4.1:3333", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    auto error = validateOptions(opts, service_);
+    EXPECT_TRUE(error.empty());
+}
+
 TEST_F(CliValidationTest, ValidateValidVehicle_NoError) {
     Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla"});
     auto opts = parseArgs(args.argc(), args.argv());
@@ -343,6 +394,94 @@ TEST_F(CliValidationTest, ValidateScan_NoError) {
     Args args({"vehicle-sim", "--scan"});
     auto opts = parseArgs(args.argc(), args.argv());
 
+    auto error = validateOptions(opts, service_);
+    EXPECT_TRUE(error.empty());
+}
+
+// ============================================================
+// --log <base> (canonical) and deprecated --log-csv/--log-raw aliases
+// ============================================================
+
+TEST_F(CliOptionsTest, LogBaseFlagSetsLogBase) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log", "/tmp/run1"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_EQ(opts.log_base, "/tmp/run1");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, LogBaseWithoutValueReturnsError) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_FALSE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, DeprecatedLogCsvStillParses) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--log-csv", "trace.csv"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_EQ(opts.log_csv, "trace.csv");
+    EXPECT_TRUE(opts.log_base.empty());  // canonical unset when alias used
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+// ============================================================
+// --adapter-protocol raw|elm327
+// ============================================================
+
+TEST_F(CliOptionsTest, AdapterProtocolDefaultsToRaw) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_EQ(opts.adapter_protocol, "raw");
+}
+
+TEST_F(CliOptionsTest, AdapterProtocolRawParses) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--adapter-protocol", "raw"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_EQ(opts.adapter_protocol, "raw");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, AdapterProtocolElm327Parses) {
+    // Parsing accepts 'elm327' (a known value); validation accepts it too.
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--adapter-protocol", "elm327"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_EQ(opts.adapter_protocol, "elm327");
+    EXPECT_TRUE(opts.error_message.empty());
+}
+
+TEST_F(CliOptionsTest, AdapterProtocolWithoutValueReturnsError) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--adapter-protocol"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_FALSE(opts.error_message.empty());
+}
+
+TEST_F(CliValidationTest, ValidateElm327Protocol_NoError_AcceptedForLaterWiring) {
+    // elm327 is now ACCEPTED (no longer "Phase 1 not implemented"). The
+    // default table + explicit override are resolved by the pipeline factory;
+    // validation only rejects UNKNOWN values.
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--adapter-protocol", "elm327"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    auto error = validateOptions(opts, service_);
+    EXPECT_TRUE(error.empty());
+}
+
+TEST_F(CliValidationTest, ValidateUnknownProtocol_ReturnsError) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--adapter-protocol", "canbus"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    auto error = validateOptions(opts, service_);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("Unknown --adapter-protocol"), std::string::npos);
+}
+
+TEST_F(CliValidationTest, ValidateRawProtocol_NoError) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--adapter-protocol", "raw"});
+    auto opts = parseArgs(args.argc(), args.argv());
     auto error = validateOptions(opts, service_);
     EXPECT_TRUE(error.empty());
 }

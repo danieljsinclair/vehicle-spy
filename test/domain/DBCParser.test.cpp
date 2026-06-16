@@ -448,21 +448,12 @@ TEST_F(DBCSignalMapperTest, Extracts1BitBooleanSignal) {
 // ================================================
 
 TEST_F(DBCSignalMapperTest, ExtractsMotorola8BitSignalAtBit7) {
-    // 8-bit Motorola at bit 7, scale 1, offset 0
-    // DBC bit 7 = byte 0 bit 0 (MSB of signal)
-    // DBC bits 8-14 = byte 1 bits 7,6,5,4,3,2,1
-    // Value 0xAB = 10101011:
-    //   bit7(result) → byte0 bit0 = 1 → frame[0] = 0x01
-    //   bit6(result) → byte1 bit7 = 0
-    //   bit5(result) → byte1 bit6 = 1 → frame[1] |= 0x40
-    //   bit4(result) → byte1 bit5 = 0
-    //   bit3(result) → byte1 bit4 = 1 → frame[1] |= 0x10
-    //   bit2(result) → byte1 bit3 = 0
-    //   bit1(result) → byte1 bit2 = 1 → frame[1] |= 0x04
-    //   bit0(result) → byte1 bit1 = 1 → frame[1] |= 0x02
-    // frame[0] = 0x01, frame[1] = 0x56
-    canFrame[0] = 0x01;
-    canFrame[1] = 0x56;
+    // 8-bit Motorola at bit 7, scale 1, offset 0.
+    // DBC convention (Vector CANdb++ / opendbc / cantools): startBit is the
+    // position of the MSB. startBit 7 = byte 0 physical bit 7, so an 8-bit
+    // Motorola signal occupies all of byte 0; a physical value V is encoded as
+    // frame[0] == V. cantools-verified: raw 0xAB (171) -> frame[0] = 0xAB.
+    canFrame[0] = 0xAB;
 
     const DBCSignalDefinition def(
         100, "MotoTest", 7, 8,
@@ -475,18 +466,11 @@ TEST_F(DBCSignalMapperTest, ExtractsMotorola8BitSignalAtBit7) {
 }
 
 TEST_F(DBCSignalMapperTest, ExtractsMotorola4BitSignalWithinByte) {
-    // 4-bit Motorola at bit 3, scale 1, offset 0
-    // DBC bit 3 = byte 0 bit 4 (MSB of signal)
-    // DBC bit 4 = byte 0 bit 3
-    // DBC bit 5 = byte 0 bit 2
-    // DBC bit 6 = byte 0 bit 1
-    // Value 0xA = 1010:
-    //   bit3(result) → byte0 bit4 = 1 → 0x10
-    //   bit2(result) → byte0 bit3 = 0
-    //   bit1(result) → byte0 bit2 = 1 → 0x04
-    //   bit0(result) → byte0 bit1 = 0
-    // frame[0] = 0x14
-    canFrame[0] = 0x14;
+    // 4-bit Motorola at bit 3, scale 1, offset 0.
+    // startBit 3 = byte 0 physical bit 3 (MSB); the 4 bits occupy physical
+    // bits 3,2,1,0 of byte 0 (the low nibble).
+    // cantools-verified: raw 0xA (10) -> frame[0] = 0x0A.
+    canFrame[0] = 0x0A;
 
     const DBCSignalDefinition def(
         100, "MotoTest", 3, 4,
@@ -499,12 +483,12 @@ TEST_F(DBCSignalMapperTest, ExtractsMotorola4BitSignalWithinByte) {
 }
 
 TEST_F(DBCSignalMapperTest, ExtractsMotorola16BitSpanningTwoBytes) {
-    // 16-bit Motorola at bit 7, scale 1, offset 0
-    // Value 0x1234 = 4660
-    // Computer-verified byte pattern: frame[1]=0x24, frame[2]=0x68
-    canFrame[0] = 0x00;
-    canFrame[1] = 0x24;
-    canFrame[2] = 0x68;
+    // 16-bit Motorola at bit 7, scale 1, offset 0.
+    // startBit 7 = byte 0 physical bit 7 (MSB). The signal fills byte 0 then
+    // wraps to byte 1 physical bits 7..1 (high 7 bits of byte 1).
+    // cantools-verified: raw 0x1234 (4660) -> frame[0]=0x12, frame[1]=0x34.
+    canFrame[0] = 0x12;
+    canFrame[1] = 0x34;
 
     const DBCSignalDefinition def(
         100, "MotoTest", 7, 16,
@@ -727,4 +711,143 @@ TEST_F(VehicleConfigRegistryTest, RegistersMultipleSignals) {
     EXPECT_TRUE(retrieved->hasMapping("DIR_torqueActual"));
     EXPECT_TRUE(retrieved->hasMapping("DI_accelPedalPos"));
     EXPECT_TRUE(retrieved->hasMapping("SteeringAngle129"));
+}
+
+// ================================================
+// DBC bit-extraction regression tests
+//
+// Intel (little-endian, @1) extraction of short, non-byte-aligned signals
+// and Motorola (big-endian, @0) extraction (including multi-byte signals).
+// The Intel cases guard the Tesla DI_gear signal (start 21, length 3, @1+),
+// whose 3 bits sit in the top nibble of byte 2 (bits 5-7). The Motorola
+// cases guard the DBC sawtooth bit-numbering convention, where startBit is
+// the MSB and bits progress downward within a byte then wrap to the MSB of
+// the next byte.
+// ================================================
+
+class DBCBitExtractionTest : public ::testing::Test {
+protected:
+    std::vector<uint8_t> canFrame{0, 0, 0, 0, 0, 0, 0, 0};
+};
+
+// ---- Intel short non-byte-aligned signal: DI_gear 21|3@1+ ----
+// Verified against cantools (cantools 41.4.3) and the DBC comment:
+//   P -> byte[2]=0x32 -> raw 1, R -> byte[2]=0x55 -> raw 2, D -> byte[2]=0x95 -> raw 4.
+TEST_F(DBCBitExtractionTest, IntelShort3BitAtBit21_DecodesParkReverseDrive) {
+    const DBCSignalDefinition def(
+        280, "DI_gear", 21, 3,
+        DBCByteOrder::Intel, 1.0, 0.0, false, "",
+        0.0, 7.0
+    );
+
+    canFrame[2] = 0x32;  // P -> raw 1
+    auto park = DBCSignalMapper::mapSignal(canFrame, def);
+    ASSERT_TRUE(park.has_value());
+    EXPECT_DOUBLE_EQ(*park, 1.0);
+
+    canFrame[2] = 0x55;  // R -> raw 2
+    auto reverse = DBCSignalMapper::mapSignal(canFrame, def);
+    ASSERT_TRUE(reverse.has_value());
+    EXPECT_DOUBLE_EQ(*reverse, 2.0);
+
+    canFrame[2] = 0x95;  // D -> raw 4
+    auto drive = DBCSignalMapper::mapSignal(canFrame, def);
+    ASSERT_TRUE(drive.has_value());
+    EXPECT_DOUBLE_EQ(*drive, 4.0);
+}
+
+// All 8 possible 3-bit values embedded at byte[2] bits 5-7 (Intel).
+TEST_F(DBCBitExtractionTest, IntelShort3BitAtBit21_DecodesAllValues) {
+    const DBCSignalDefinition def(
+        280, "DI_gear", 21, 3,
+        DBCByteOrder::Intel, 1.0, 0.0, false, "",
+        0.0, 7.0
+    );
+
+    for (uint8_t raw = 0; raw < 8; ++raw) {
+        canFrame.assign(8, 0);
+        canFrame[2] = static_cast<uint8_t>(raw << 5);  // place raw in bits 5-7
+        auto v = DBCSignalMapper::mapSignal(canFrame, def);
+        ASSERT_TRUE(v.has_value()) << "raw=" << static_cast<int>(raw);
+        EXPECT_DOUBLE_EQ(*v, static_cast<double>(raw))
+            << "raw=" << static_cast<int>(raw);
+    }
+}
+
+// ---- Motorola single-byte signal: MC_STW_ANGL_STAT 55|4@0+ ----
+// startBit 55 is byte 6, MSB. Bits occupy byte 6 high nibble (physical bits 4-7).
+// cantools ground truth: byte6=0x10 -> 1, 0xa0 -> 10, 0xf0 -> 15.
+TEST_F(DBCBitExtractionTest, Motorola4BitAtBit55_DecodesHighNibble) {
+    const DBCSignalDefinition def(
+        3, "MC_STW_ANGL_STAT", 55, 4,
+        DBCByteOrder::Motorola, 1.0, 0.0, false, "",
+        0.0, 15.0
+    );
+
+    struct Case { uint8_t byte; double expected; };
+    for (const auto& c : std::vector<Case>{
+        {0x00, 0.0}, {0x10, 1.0}, {0xa0, 10.0}, {0xf0, 15.0}
+    }) {
+        canFrame.assign(8, 0);
+        canFrame[6] = c.byte;
+        auto v = DBCSignalMapper::mapSignal(canFrame, def);
+        ASSERT_TRUE(v.has_value()) << "byte=0x" << std::hex << static_cast<int>(c.byte);
+        EXPECT_DOUBLE_EQ(*v, c.expected)
+            << "byte=0x" << std::hex << static_cast<int>(c.byte);
+    }
+}
+
+// ---- Motorola multi-byte signal crossing a byte boundary: StW_AnglHP 5|14@0+ ----
+// startBit 5 (MSB, byte 0), length 14: occupies byte 0 low bits then byte 1.
+// cantools ground truth for raw (scale 0.1, offset -819.2):
+//   raw 0 -> bytes 0x00 0x00, raw 8192 -> 0x20 0x00, raw 16383 -> 0x3f 0xff.
+TEST_F(DBCBitExtractionTest, Motorola14BitAtBit5_CrossesByteBoundary) {
+    const DBCSignalDefinition def(
+        14, "StW_AnglHP", 5, 14,
+        DBCByteOrder::Motorola, 0.1, -819.2, false, "deg",
+        -819.2, 819.1
+    );
+
+    // raw 8192 (physical 0.0): bits encoded so that cantools reads 8192.
+    // cantools encode: byte0=0x20, byte1=0x00.
+    canFrame.assign(8, 0);
+    canFrame[0] = 0x20;
+    canFrame[1] = 0x00;
+    auto center = DBCSignalMapper::mapSignal(canFrame, def);
+    ASSERT_TRUE(center.has_value());
+    EXPECT_NEAR(*center, 0.0, 0.2);  // raw 8192 * 0.1 - 819.2 = 0.0
+
+    // raw 16383 (max): cantools encode byte0=0x3f, byte1=0xff.
+    canFrame[0] = 0x3f;
+    canFrame[1] = 0xff;
+    auto maxVal = DBCSignalMapper::mapSignal(canFrame, def);
+    ASSERT_TRUE(maxVal.has_value());
+    EXPECT_NEAR(*maxVal, 819.1, 0.5);  // clamped to max
+
+    // raw 100: cantools encode byte0=0x00, byte1=0x64.
+    canFrame[0] = 0x00;
+    canFrame[1] = 0x64;
+    auto small = DBCSignalMapper::mapSignal(canFrame, def);
+    ASSERT_TRUE(small.has_value());
+    EXPECT_NEAR(*small, -809.2, 0.5);  // raw 100 * 0.1 - 819.2 = -809.2
+}
+
+// ---- Motorola 2-bit signal at a non-aligned start (EPAS_eacErrorCode 23|4@0+) ----
+// 4-bit Motorola at byte 2 (start 23). cantools: bits occupy byte2 low nibble.
+TEST_F(DBCBitExtractionTest, Motorola4BitAtBit23_DecodesCorrectly) {
+    const DBCSignalDefinition def(
+        880, "EPAS_eacErrorCode", 23, 4,
+        DBCByteOrder::Motorola, 1.0, 0.0, false, "",
+        0.0, 15.0
+    );
+
+    // startBit 23 = byte 2 bit 7 (MSB). 4 bits: byte2 physical bits 7,6,5,4 = high nibble.
+    for (uint8_t raw = 0; raw < 16; ++raw) {
+        canFrame.assign(8, 0);
+        canFrame[2] = static_cast<uint8_t>(raw << 4);
+        auto v = DBCSignalMapper::mapSignal(canFrame, def);
+        ASSERT_TRUE(v.has_value()) << "raw=" << static_cast<int>(raw);
+        EXPECT_DOUBLE_EQ(*v, static_cast<double>(raw))
+            << "raw=" << static_cast<int>(raw);
+    }
 }

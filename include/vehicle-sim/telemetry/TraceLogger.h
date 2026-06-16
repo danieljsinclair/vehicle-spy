@@ -9,7 +9,7 @@ namespace vehicle_sim::telemetry {
 
 class TraceLogger {
 public:
-    explicit TraceLogger(std::string filePath);
+    explicit TraceLogger(std::string filePath, std::string vehicleId = "");
     ~TraceLogger();
 
     void operator()(const domain::VehicleSignal& signal) noexcept;
@@ -28,6 +28,7 @@ private:
     std::string formatOptional(std::optional<std::int32_t> value);
 
     std::ofstream file_;
+    std::string vehicleId_;
 };
 
 }

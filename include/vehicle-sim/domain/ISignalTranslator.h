@@ -21,13 +21,18 @@ public:
     virtual ~ISignalTranslator() = default;
 
     /**
-     * Translate raw BLE packet data to canonical VehicleSignal
+     * Translate raw BLE packet data to canonical VehicleSignal.
      *
-     * @param rawData Raw bytes from BLE device
+     * @param rawData     Raw bytes from BLE device / capture replay
+     * @param timestampUtcMs Optional original capture timestamp (epoch ms). When
+     *                       supplied (replay path) it is stamped onto the emitted
+     *                       VehicleSignal; when nullopt (live/BLE path) the
+     *                       implementation falls back to wall-clock now().
      * @return VehicleSignal if translation successful, std::nullopt otherwise
      */
     [[nodiscard]] virtual std::optional<VehicleSignal> translate(
-        const std::vector<std::uint8_t>& rawData
+        const std::vector<std::uint8_t>& rawData,
+        std::optional<std::uint64_t> timestampUtcMs = std::nullopt
     ) const noexcept = 0;
 
     /**

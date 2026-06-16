@@ -4,9 +4,11 @@
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/cli/TelemetryRunner.h"
 #include "vehicle-sim/cli/BLERunContext.h"
+#include "vehicle-sim/cli/ReplayRunContext.h"
+#include "vehicle-sim/cli/LiveRunContext.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
-#include "vehicle-sim/domain/SignalSourceFactory.h"
+#include "vehicle-sim/pipeline/PipelineFactory.h"
 
 namespace {
 
@@ -34,6 +36,31 @@ int runScan(vehicle_sim::BLEManager& bleManager) {
     std::cout << "\nFound " << devices.size() << " BLE device(s).\n";
     std::cout << "To connect: vehicle-sim --connect <address> --vehicle <type>\n\n";
     return 0;
+}
+
+// Derive the canonical --log <base> from whichever logging flag the caller
+// used. --log is already a base; --log-csv <file> contributes a base by
+// stripping a trailing .csv; --log-raw <file> contributes a base by stripping
+// a trailing .raw/.raw.txt. The first non-empty source wins so an explicit
+// --log is never overridden by a deprecated alias.
+std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
+    using namespace vehicle_sim::cli;
+    if (!opts.log_base.empty()) {
+        return opts.log_base;
+    }
+    auto stripSuffix = [](std::string s, const std::string& suffix) {
+        if (s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0) {
+            s.erase(s.size() - suffix.size());
+        }
+        return s;
+    };
+    if (!opts.log_csv.empty()) {
+        return stripSuffix(opts.log_csv, ".csv");
+    }
+    if (!opts.log_raw.empty()) {
+        return stripSuffix(stripSuffix(opts.log_raw, ".txt"), ".raw");
+    }
+    return {};
 }
 
 } // namespace
@@ -68,16 +95,36 @@ int main(int argc, char* argv[]) {
         return runScan(*bleManager);
     }
 
+    if (opts.isFile()) {
+        // File replay through the canonical seam: FileTransport →
+        // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
+        // file is the raw source of truth, so we write ONLY <base>.csv.
+        std::string path = opts.connect_target.substr(5);
+        std::string logBase = resolveLogBase(opts);
+        return cli::ReplayRunContext::run(path, opts.vehicle_type,
+                                          logBase, translationService);
+    }
+
+    if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
+        // Live transports (demo/tcp/usb) through the canonical seam:
+        // (Demo|TCP|USB)Transport → Normaliser → DBCTranslationService →
+        // RawLogSink + DecodedCsvSink. The resolved --log base drives BOTH
+        // sinks for live (the raw stream is the source of truth). The adapter
+        // protocol default table + explicit override resolve here.
+        std::string logBase = resolveLogBase(opts);
+        std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
+            opts.connect_target, opts.adapter_protocol);
+        return cli::LiveRunContext::run(opts.connect_target, opts.vehicle_type,
+                                        protocol, logBase, translationService);
+    }
+
     if (opts.isBLE()) {
         return cli::BLERunContext::run(opts.connect_target, opts.vehicle_type,
                                       translationService);
     }
 
-    auto vehicleContext = cli::resolveVehicleContext(opts.vehicle_type, translationService);
-
-    auto source = domain::SignalSourceFactory::create("demo",
-                                                       opts.update_interval_ms);
-    return cli::TelemetryRunner::run(std::move(source), vehicleContext.config,
-                                      opts.log_csv, opts.log_raw,
-                                      opts.update_interval_ms);
+    // No recognized connect target — validation should have caught this, but
+    // fail closed rather than falling through to a default.
+    std::cerr << "No telemetry source for connect target: " << opts.connect_target << "\n";
+    return 1;
 }

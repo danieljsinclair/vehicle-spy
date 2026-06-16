@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <chrono>
 #include <cstdint>
 #include <vector>
 #include "vehicle-sim/domain/OBD2SignalTranslator.h"
@@ -167,4 +168,30 @@ TEST_F(OBD2SignalTranslatorTest, TimestampIsPopulated) {
 
     ASSERT_TRUE(result.has_value());
     EXPECT_GT(result->getTimestampUtcMs(), 0u);
+}
+
+TEST_F(OBD2SignalTranslatorTest, TranslateStampsCaptureTimeWhenProvided) {
+    // Caller (e.g. replay) supplies the original capture timestamp.
+    auto response = makeOBD2Response(0x0D, {0x64});
+    constexpr std::uint64_t captureTs = 1781472526915ULL;
+
+    auto result = translator.translate(response, captureTs);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->getTimestampUtcMs(), captureTs);
+}
+
+TEST_F(OBD2SignalTranslatorTest, TranslateFallsBackToWallClockWhenNoTimestamp) {
+    // Live path: no timestamp supplied -> wall-clock fallback (unchanged behaviour).
+    auto response = makeOBD2Response(0x0D, {0x64});
+    const auto before = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count()
+    );
+
+    auto result = translator.translate(response);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_GE(result->getTimestampUtcMs(), before);
 }
