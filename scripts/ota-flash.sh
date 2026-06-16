@@ -83,7 +83,12 @@ trap 'rm -f "${TMP}" "${REPLY_FILE}"' EXIT
 
 # Try to open the TCP connection. Failure here = host unreachable / port closed.
 exec 3<>"/dev/tcp/${HOST}/${PORT}" 2>/dev/null || {
-    echo "Error: cannot connect to ${HOST}:${PORT} (is the device online? OTA server running?)." >&2
+    echo "Error: cannot connect to ${HOST}:${PORT}" >&2
+    echo "       Possible causes:" >&2
+    echo "         - Device not on the network (check: ping ${HOST})" >&2
+    echo "         - OTA server not running (check: make startup-log)" >&2
+    echo "         - Wrong OTA_PORT (default 3334, device may use different port)" >&2
+    echo "         - Firewall blocking port ${PORT}" >&2
     exit 1
 }
 
