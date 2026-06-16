@@ -11,6 +11,9 @@
 		B1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002 /* ContentView.swift */; };
 		B1000003 /* VehicleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003 /* VehicleViewModel.swift */; };
 		B1000005 /* VehicleSimWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000005 /* VehicleSimWrapper.mm */; };
+		B1000040 /* DiscoveryPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000040 /* DiscoveryPacket.swift */; };
+		B1000041 /* DiscoveryVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000041 /* DiscoveryVerifier.swift */; };
+		B1000042 /* ESP32DiscoveryListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000042 /* ESP32DiscoveryListener.swift */; };
 		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
 		B1000011 /* TelemetryFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000011 /* TelemetryFormatter.cpp */; };
 		B1000012 /* BLEManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000012 /* BLEManager.cpp */; };
@@ -60,6 +63,9 @@
 		B2000005 /* VehicleSimWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VehicleSimWrapper.mm; sourceTree = "<group>"; };
 		B2000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000007 /* VehicleSim-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "VehicleSim-Bridging-Header.h"; sourceTree = "<group>"; };
+		B2000040 /* DiscoveryPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryPacket.swift; sourceTree = "<group>"; };
+		B2000041 /* DiscoveryVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryVerifier.swift; sourceTree = "<group>"; };
+		B2000042 /* ESP32DiscoveryListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32DiscoveryListener.swift; sourceTree = "<group>"; };
 		B2000010 /* VehicleSim.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSim.cpp; path = ../../src/VehicleSim.cpp; sourceTree = "<group>"; };
 		B2000011 /* TelemetryFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetryFormatter.cpp; path = ../../src/presentation/TelemetryFormatter.cpp; sourceTree = "<group>"; };
 		B2000012 /* BLEManager.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManager.cpp; path = ../../src/ble/BLEManager.cpp; sourceTree = "<group>"; };
@@ -140,6 +146,9 @@
 				B2000001 /* VehicleSimAppApp.swift */,
 				B2000002 /* ContentView.swift */,
 				B2000003 /* VehicleViewModel.swift */,
+				B2000040 /* DiscoveryPacket.swift */,
+				B2000041 /* DiscoveryVerifier.swift */,
+				B2000042 /* ESP32DiscoveryListener.swift */,
 				B2000004 /* VehicleSimWrapper.h */,
 				B2000005 /* VehicleSimWrapper.mm */,
 				B2000007 /* VehicleSim-Bridging-Header.h */,
@@ -280,6 +289,9 @@
 				B1000001 /* VehicleSimAppApp.swift in Sources */,
 				B1000002 /* ContentView.swift in Sources */,
 				B1000003 /* VehicleViewModel.swift in Sources */,
+				B1000040 /* DiscoveryPacket.swift in Sources */,
+				B1000041 /* DiscoveryVerifier.swift in Sources */,
+				B1000042 /* ESP32DiscoveryListener.swift in Sources */,
 				B1000005 /* VehicleSimWrapper.mm in Sources */,
 				B1000010 /* VehicleSim.cpp in Sources */,
 				B1000011 /* TelemetryFormatter.cpp in Sources */,

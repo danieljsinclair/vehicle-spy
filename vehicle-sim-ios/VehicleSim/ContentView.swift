@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 
 struct TelemetryCardView: View {
     let title: String

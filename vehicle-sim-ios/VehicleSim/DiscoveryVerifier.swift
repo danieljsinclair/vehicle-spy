@@ -44,8 +44,7 @@ struct DiscoveryVerifier {
     func verify(_ packet: DiscoveryPacket) throws {
         // 1. Verify Ed25519 signature over the signed payload
         let payload = packet.signedPayload
-        let signatureBytes = try Curve25519.Signing.ECDSASignature(rawRepresentation: packet.signature)
-        guard publicKey.isValid(signatureBytes, for: payload) else {
+        guard publicKey.isValidSignature(packet.signature, for: payload) else {
             throw DiscoveryVerificationError.invalidSignature
         }
 

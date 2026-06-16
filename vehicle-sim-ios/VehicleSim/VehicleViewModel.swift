@@ -214,7 +214,7 @@ class VehicleViewModel: ObservableObject {
         let listener = ESP32DiscoveryListener(
             trustedDeviceId: trustedDeviceId,
             publicKey: publicKey,
-            onDiscovered: { [weak self] discovered in
+            onDiscovered: { [weak self] (discovered: DiscoveredESP32) in
                 guard let self else { return }
                 // Deduplicate by address; update if re-discovered
                 if let idx = self.discoveredESP32s.firstIndex(where: { $0.address == discovered.address }) {
@@ -231,7 +231,7 @@ class VehicleViewModel: ObservableObject {
                     self.autoConnect(to: discovered)
                 }
             },
-            onError: { [weak self] error in
+            onError: { [weak self] (error: ESP32DiscoveryListenerError) in
                 guard let self else { return }
                 self.esp32DiscoveryError = error.localizedDescription
                 self.isESP32DiscoveryActive = false
@@ -261,7 +261,7 @@ class VehicleViewModel: ObservableObject {
 
     /// Manually connect to a discovered ESP32 at its CAN port.
     func connectToESP32(_ esp32: DiscoveredESP32) {
-        guard let wrapper = wrapper else { return }
+        guard wrapper != nil else { return }
         let address = esp32.host
         let port = esp32.canPort
 
@@ -271,7 +271,7 @@ class VehicleViewModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self, let wrapper = self.wrapper else { return }
 
-            let success = wrapper.connect(toTCPAddress: address, port: port)
+            let success = wrapper.connect(toDevice: address, deviceName: "ESP32 CAN Bridge")
 
             DispatchQueue.main.async {
                 if success {
