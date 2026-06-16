@@ -102,6 +102,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/boundary/OBD2Protocol.cpp
     src/telemetry/TraceLogger.cpp
     src/telemetry/RawTraceLogger.cpp
+    src/discovery/DiscoveryPacket.cpp
+    src/discovery/DiscoveryVerifier.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
@@ -128,6 +130,14 @@ target_link_libraries(vehicle-sim-lib
     Threads::Threads
     CLI11::CLI11
 )
+
+# Link libsodium for discovery signature verification
+find_path(SODIUM_INCLUDE_DIR sodium.h PATHS /opt/homebrew/include)
+find_library(SODIUM_LIBRARY sodium PATHS /opt/homebrew/lib)
+if(SODIUM_LIBRARY AND SODIUM_INCLUDE_DIR)
+    target_include_directories(vehicle-sim-lib PRIVATE ${SODIUM_INCLUDE_DIR})
+    target_link_libraries(vehicle-sim-lib PRIVATE ${SODIUM_LIBRARY})
+endif()
 
 # Link CoreBluetooth and Foundation on Apple platforms
 if(APPLE)

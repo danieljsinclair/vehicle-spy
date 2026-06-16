@@ -212,7 +212,7 @@ flash flash-usb firmware-flash: firmware native test
 	@echo "Flashing via $(ESP32_PORT)..."
 	@$(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool \
 		--port "$(ESP32_PORT)" --baud 460800 \
-		write-flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
+		write_flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
 	@echo "Flash complete. Reading startup log from $(ESP32_PORT) at 115200 baud..."
 	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"
 	@echo "Startup log complete. Run 'make capture CAPFILE=<name>' to log CAN frames."
