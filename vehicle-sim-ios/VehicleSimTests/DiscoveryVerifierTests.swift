@@ -13,6 +13,7 @@ final class DiscoveryVerifierTests: XCTestCase {
 
     private let nonce = Data([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22])
     private let canPort: UInt16 = 3333
+    private let otaPort: UInt16 = 3334
 
     private var keyPair: Curve25519.Signing.PrivateKey!
     private var publicKey: Curve25519.Signing.PublicKey!
@@ -23,43 +24,39 @@ final class DiscoveryVerifierTests: XCTestCase {
         publicKey = keyPair.publicKey
     }
 
-    // MARK: - Untrusted Device
+    // MARK: - No Public Key (unsigned acceptance)
 
-    func testVerifyRejectsUntrustedDevice() {
-        let trustStore = StaticDiscoveryTrustStore(trustedDeviceIds: [])
-        let verifier = DiscoveryVerifier(trustStore: trustStore, publicKey: publicKey)
+    func testVerifyAcceptsUnsignedPacketWithNoPublicKey() throws {
+        let verifier = DiscoveryVerifier(publicKey: nil)
+        let timestamp = UInt64(Date().timeIntervalSince1970)
+        let packet = makePacket(deviceId: deviceId, timestamp: timestamp, sign: false)
 
-        let packet = makePacket(deviceId: deviceId, timestamp: UInt64(Date().timeIntervalSince1970))
-
-        XCTAssertThrowsError(try verifier.verify(packet)) { error in
-            XCTAssertEqual(error as? DiscoveryVerificationError, .untrustedDevice)
-        }
+        // Should pass -- no public key configured means signature is not checked
+        try verifier.verify(packet)
     }
 
     // MARK: - Invalid Signature
 
     func testVerifyRejectsWrongSignature() {
-        let trustStore = StaticDiscoveryTrustStore(trustedDeviceIds: [deviceId])
-        let verifier = DiscoveryVerifier(trustStore: trustStore, publicKey: publicKey)
-
         let otherKeyPair = Curve25519.Signing.PrivateKey()
-        let packet = makePacket(deviceId: deviceId,
-                                timestamp: UInt64(Date().timeIntervalSince1970),
-                                signingKey: otherKeyPair)
+        let verifier = DiscoveryVerifier(publicKey: publicKey)
+
+        let timestamp = UInt64(Date().timeIntervalSince1970)
+        let packet = makePacket(deviceId: deviceId, timestamp: timestamp,
+                                signingKey: otherKeyPair, sign: true)
 
         XCTAssertThrowsError(try verifier.verify(packet)) { error in
             XCTAssertEqual(error as? DiscoveryVerificationError, .invalidSignature)
         }
     }
 
-    // MARK: - Valid Signature + Trusted
+    // MARK: - Valid Signature
 
-    func testVerifyAcceptsValidTrustedPacket() throws {
-        let trustStore = StaticDiscoveryTrustStore(trustedDeviceIds: [deviceId])
-        let verifier = DiscoveryVerifier(trustStore: trustStore, publicKey: publicKey)
-
+    func testVerifyAcceptsValidSignedPacket() throws {
+        let verifier = DiscoveryVerifier(publicKey: publicKey)
         let timestamp = UInt64(Date().timeIntervalSince1970)
-        let packet = makePacket(deviceId: deviceId, timestamp: timestamp, signingKey: keyPair)
+        let packet = makePacket(deviceId: deviceId, timestamp: timestamp,
+                                signingKey: keyPair, sign: true)
 
         try verifier.verify(packet)
     }
@@ -67,11 +64,9 @@ final class DiscoveryVerifierTests: XCTestCase {
     // MARK: - Stale Timestamp (Anti-replay)
 
     func testVerifyRejectsStaleTimestamp() {
-        let trustStore = StaticDiscoveryTrustStore(trustedDeviceIds: [deviceId])
-        let verifier = DiscoveryVerifier(trustStore: trustStore, publicKey: publicKey, maxClockSkew: 60)
-
+        let verifier = DiscoveryVerifier(publicKey: nil, maxClockSkew: 60)
         let staleTimestamp = UInt64(Date().timeIntervalSince1970) - 600
-        let packet = makePacket(deviceId: deviceId, timestamp: staleTimestamp, signingKey: keyPair)
+        let packet = makePacket(deviceId: deviceId, timestamp: staleTimestamp, sign: false)
 
         XCTAssertThrowsError(try verifier.verify(packet)) { error in
             XCTAssertEqual(error as? DiscoveryVerificationError, .staleTimestamp)
@@ -79,11 +74,9 @@ final class DiscoveryVerifierTests: XCTestCase {
     }
 
     func testVerifyRejectsFutureTimestamp() {
-        let trustStore = StaticDiscoveryTrustStore(trustedDeviceIds: [deviceId])
-        let verifier = DiscoveryVerifier(trustStore: trustStore, publicKey: publicKey, maxClockSkew: 60)
-
+        let verifier = DiscoveryVerifier(publicKey: nil, maxClockSkew: 60)
         let futureTimestamp = UInt64(Date().timeIntervalSince1970) + 600
-        let packet = makePacket(deviceId: deviceId, timestamp: futureTimestamp, signingKey: keyPair)
+        let packet = makePacket(deviceId: deviceId, timestamp: futureTimestamp, sign: false)
 
         XCTAssertThrowsError(try verifier.verify(packet)) { error in
             XCTAssertEqual(error as? DiscoveryVerificationError, .staleTimestamp)
@@ -93,17 +86,17 @@ final class DiscoveryVerifierTests: XCTestCase {
     // MARK: - Tamper Detection
 
     func testVerifyRejectsPayloadTamper() throws {
-        let trustStore = StaticDiscoveryTrustStore(trustedDeviceIds: [deviceId])
-        let verifier = DiscoveryVerifier(trustStore: trustStore, publicKey: publicKey)
-
+        let verifier = DiscoveryVerifier(publicKey: publicKey)
         let timestamp = UInt64(Date().timeIntervalSince1970)
-        let original = makePacket(deviceId: deviceId, timestamp: timestamp, signingKey: keyPair, canPort: 3333)
+        let original = makePacket(deviceId: deviceId, timestamp: timestamp,
+                                  signingKey: keyPair, canPort: 3333, sign: true)
 
         let tamperedPacket = DiscoveryPacket(
             deviceId: original.deviceId,
             nonce: original.nonce,
             timestamp: original.timestamp,
             canPort: 9999,
+            otaPort: original.otaPort,
             signature: original.signature
         )
 
@@ -112,46 +105,44 @@ final class DiscoveryVerifierTests: XCTestCase {
         }
     }
 
-    // MARK: - Trust Store Logic
-
-    func testTrustStoreAcceptsKnownDeviceId() {
-        let store = StaticDiscoveryTrustStore(trustedDeviceIds: [deviceId])
-        XCTAssertTrue(store.isTrusted(deviceId: deviceId))
-    }
-
-    func testTrustStoreRejectsUnknownDeviceId() {
-        let unknownId = Data(repeating: 0xFF, count: 16)
-        let store = StaticDiscoveryTrustStore(trustedDeviceIds: [deviceId])
-        XCTAssertFalse(store.isTrusted(deviceId: unknownId))
-    }
-
     // MARK: - Helpers
 
     private func makePacket(
         deviceId: Data,
         timestamp: UInt64,
         signingKey: Curve25519.Signing.PrivateKey? = nil,
-        canPort: UInt16 = 3333
+        canPort: UInt16 = 3333,
+        sign: Bool
     ) -> DiscoveryPacket {
-        let key = signingKey ?? keyPair
-
         let unsigned = DiscoveryPacket(
             deviceId: deviceId,
             nonce: nonce,
             timestamp: timestamp,
             canPort: canPort,
+            otaPort: otaPort,
             signature: Data()
         )
 
-        let payload = unsigned.signedPayload
-        let signature = try! key.signature(for: payload)
+        if sign, let key = signingKey {
+            let payload = unsigned.signedPayload
+            let signature = try! key.signature(for: payload)
+            return DiscoveryPacket(
+                deviceId: deviceId,
+                nonce: nonce,
+                timestamp: timestamp,
+                canPort: canPort,
+                otaPort: otaPort,
+                signature: Data(signature)
+            )
+        }
 
         return DiscoveryPacket(
             deviceId: deviceId,
             nonce: nonce,
             timestamp: timestamp,
             canPort: canPort,
-            signature: Data(signature)
+            otaPort: otaPort,
+            signature: Data(repeating: 0, count: 64)
         )
     }
 }

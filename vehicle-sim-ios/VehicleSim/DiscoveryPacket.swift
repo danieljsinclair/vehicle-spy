@@ -22,14 +22,14 @@ enum DiscoveryConstants {
     /// Size of Ed25519 signature in bytes
     static let signatureLength = 64
 
-    /// Header: magic(4) + version(1) + type(1) + deviceId(16) + nonce(8) + timestamp(8) + canPort(2) = 40
-    static let headerLength = 40
+    /// Header: magic(4) + version(1) + type(1) + deviceId(16) + nonce(8) + timestamp(8) + canPort(2) + otaPort(2) = 42
+    static let headerLength = 42
 
     /// Minimum total packet length: header + signature
-    static let minimumLength = headerLength + signatureLength  // 104
+    static let minimumLength = headerLength + signatureLength  // 106
 
     /// UDP port for discovery broadcasts
-    static let broadcastPort: UInt16 = 58421
+    static let broadcastPort: UInt16 = 3335
 
     /// Default CAN TCP port on ESP32
     static let defaultCANPort: UInt16 = 3333
@@ -57,6 +57,7 @@ struct DiscoveryPacket: Equatable {
     let nonce: Data
     let timestamp: UInt64
     let canPort: UInt16
+    let otaPort: UInt16
     let signature: Data
 
     /// The data that is signed (everything except the signature itself).
@@ -69,6 +70,7 @@ struct DiscoveryPacket: Equatable {
         payload.append(nonce)
         payload.append(timestamp.bigEndianBytes)
         payload.append(canPort.bigEndianBytes)
+        payload.append(otaPort.bigEndianBytes)
         return payload
     }
 
@@ -120,6 +122,9 @@ struct DiscoveryPacket: Equatable {
             throw DiscoveryPacketError.invalidPort
         }
 
+        let otaPortStart = canPortStart + 2
+        let otaPort = UInt16(bigEndianBytes: data[otaPortStart..<(otaPortStart + 2)])
+
         let sigStart = DiscoveryConstants.headerLength
         let signature = data.subdata(in: sigStart..<(sigStart + DiscoveryConstants.signatureLength))
 
@@ -128,6 +133,7 @@ struct DiscoveryPacket: Equatable {
             nonce: nonce,
             timestamp: timestamp,
             canPort: canPort,
+            otaPort: otaPort,
             signature: signature
         )
     }

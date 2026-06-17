@@ -37,7 +37,7 @@ enum ESP32DiscoveryListenerError: Error, LocalizedError {
 
 // MARK: - Listener
 
-final class ESP32DiscoveryListener: Sendable {
+final class ESP32DiscoveryListener {
     private let verifier: DiscoveryVerifier
     private let onDiscovered: @Sendable (DiscoveredESP32) -> Void
     private let onError: @Sendable (ESP32DiscoveryListenerError) -> Void
@@ -58,30 +58,15 @@ final class ESP32DiscoveryListener: Sendable {
     }
 
     init(
-        trustStore: any DiscoveryTrustStore,
-        publicKey: Curve25519.Signing.PublicKey,
+        publicKey: Curve25519.Signing.PublicKey? = nil,
         onDiscovered: @escaping @Sendable (DiscoveredESP32) -> Void,
         onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in },
         queue: DispatchQueue = .global(qos: .userInitiated)
     ) {
-        self.verifier = DiscoveryVerifier(trustStore: trustStore, publicKey: publicKey)
+        self.verifier = DiscoveryVerifier(publicKey: publicKey)
         self.onDiscovered = onDiscovered
         self.onError = onError
         self.queue = queue
-    }
-
-    convenience init(
-        trustedDeviceId: Data,
-        publicKey: Curve25519.Signing.PublicKey,
-        onDiscovered: @escaping @Sendable (DiscoveredESP32) -> Void,
-        onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in }
-    ) {
-        self.init(
-            trustStore: StaticDiscoveryTrustStore(trustedDeviceIds: [trustedDeviceId]),
-            publicKey: publicKey,
-            onDiscovered: onDiscovered,
-            onError: onError
-        )
     }
 
     func start() throws {

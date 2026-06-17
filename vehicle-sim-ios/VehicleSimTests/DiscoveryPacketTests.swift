@@ -6,8 +6,6 @@ import XCTest
 
 final class DiscoveryPacketTests: XCTestCase {
 
-    // MARK: - Test Data
-
     private let validDeviceId = Data([
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
         0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10
@@ -19,6 +17,7 @@ final class DiscoveryPacketTests: XCTestCase {
 
     private let validTimestamp: UInt64 = 1_700_000_000
     private let validCanPort: UInt16 = 3333
+    private let validOtaPort: UInt16 = 3334
     private let validSignature = Data(repeating: 0xAB, count: 64)
 
     // MARK: - Packet Construction
@@ -29,6 +28,7 @@ final class DiscoveryPacketTests: XCTestCase {
             nonce: validNonce,
             timestamp: validTimestamp,
             canPort: validCanPort,
+            otaPort: validOtaPort,
             signature: validSignature
         )
 
@@ -47,6 +47,7 @@ final class DiscoveryPacketTests: XCTestCase {
             nonce: validNonce,
             timestamp: validTimestamp,
             canPort: validCanPort,
+            otaPort: validOtaPort,
             signature: validSignature
         )
 
@@ -65,6 +66,7 @@ final class DiscoveryPacketTests: XCTestCase {
             nonce: validNonce,
             timestamp: validTimestamp,
             canPort: validCanPort,
+            otaPort: validOtaPort,
             signature: validSignature
         )
 
@@ -74,6 +76,7 @@ final class DiscoveryPacketTests: XCTestCase {
         XCTAssertEqual(parsed.nonce, validNonce)
         XCTAssertEqual(parsed.timestamp, validTimestamp)
         XCTAssertEqual(parsed.canPort, validCanPort)
+        XCTAssertEqual(parsed.otaPort, validOtaPort)
         XCTAssertEqual(parsed.signature, validSignature)
     }
 
@@ -112,7 +115,7 @@ final class DiscoveryPacketTests: XCTestCase {
 
     func testParseZeroTimestamp() {
         var data = buildValidPacketData()
-        for i in 22..<30 {
+        for i in 30..<38 {
             data[i] = 0
         }
         XCTAssertThrowsError(try DiscoveryPacket.parse(data)) { error in
@@ -122,7 +125,7 @@ final class DiscoveryPacketTests: XCTestCase {
 
     func testParseZeroCanPort() {
         var data = buildValidPacketData()
-        for i in 30..<32 {
+        for i in 38..<40 {
             data[i] = 0
         }
         XCTAssertThrowsError(try DiscoveryPacket.parse(data)) { error in
@@ -138,6 +141,7 @@ final class DiscoveryPacketTests: XCTestCase {
             nonce: validNonce,
             timestamp: validTimestamp,
             canPort: validCanPort,
+            otaPort: validOtaPort,
             signature: validSignature
         )
 
@@ -150,7 +154,7 @@ final class DiscoveryPacketTests: XCTestCase {
     // MARK: - Big-endian helpers
 
     func testUInt16BigEndianRoundTrip() {
-        let values: [UInt16] = [0, 1, 255, 256, 3333, 58421, 65535]
+        let values: [UInt16] = [0, 1, 255, 256, 3333, 3335, 65535]
         for value in values {
             let data = value.bigEndianBytes
             let parsed = UInt16(bigEndianBytes: data)
@@ -171,14 +175,14 @@ final class DiscoveryPacketTests: XCTestCase {
 
     func testConstants() {
         XCTAssertEqual(DiscoveryConstants.magic, [0x56, 0x53, 0x49, 0x4D])
-        XCTAssertEqual(DiscoveryConstants.broadcastPort, 58421)
+        XCTAssertEqual(DiscoveryConstants.broadcastPort, 3335)
         XCTAssertEqual(DiscoveryConstants.defaultCANPort, 3333)
         XCTAssertEqual(DiscoveryConstants.otaPort, 3334)
         XCTAssertEqual(DiscoveryConstants.signatureLength, 64)
         XCTAssertEqual(DiscoveryConstants.deviceIdLength, 16)
         XCTAssertEqual(DiscoveryConstants.nonceLength, 8)
-        XCTAssertEqual(DiscoveryConstants.headerLength, 40)
-        XCTAssertEqual(DiscoveryConstants.minimumLength, 104)
+        XCTAssertEqual(DiscoveryConstants.headerLength, 42)
+        XCTAssertEqual(DiscoveryConstants.minimumLength, 106)
     }
 
     // MARK: - Helpers
@@ -186,16 +190,19 @@ final class DiscoveryPacketTests: XCTestCase {
     private func buildValidPacketData() -> Data {
         var data = Data(capacity: DiscoveryConstants.minimumLength)
         data.append(contentsOf: DiscoveryConstants.magic)
-        data.append(1)
-        data.append(1)
+        data.append(1)  // version
+        data.append(1)  // packet type
         data.append(validDeviceId)
         data.append(validNonce)
 
         var ts = validTimestamp.bigEndian
         data.append(contentsOf: withUnsafeBytes(of: &ts) { Array($0) })
 
-        var port = validCanPort.bigEndian
-        data.append(contentsOf: withUnsafeBytes(of: &port) { Array($0) })
+        var canPort = validCanPort.bigEndian
+        data.append(contentsOf: withUnsafeBytes(of: &canPort) { Array($0) })
+
+        var otaPort = validOtaPort.bigEndian
+        data.append(contentsOf: withUnsafeBytes(of: &otaPort) { Array($0) })
 
         data.append(validSignature)
 

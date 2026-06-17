@@ -1,5 +1,4 @@
 import SwiftUI
-import CryptoKit
 
 struct TelemetryCardView: View {
     let title: String
@@ -42,18 +41,9 @@ private struct ConnectingDotsView: View {
     }
 }
 
-private struct PressableRowStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(configuration.isPressed ? Color(.systemGray5) : Color.clear)
-            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
-    }
-}
-
 struct ContentView: View {
     @StateObject private var viewModel = VehicleViewModel()
     @State private var isReceiving = false
-    @State private var showESP32Config = false
     private let receiveCheckTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     private var statusColor: Color {
@@ -71,8 +61,9 @@ struct ContentView: View {
         NavigationView {
             Form {
                 vehicleSelectionSection
+                connectionModeSection
                 connectionSection
-                esp32DiscoverySection
+                esp32DevicesSection
                 detectionSection
                 telemetrySection
             }
@@ -93,11 +84,24 @@ struct ContentView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .onChange(of: viewModel.selectedVehicle) {
+            .onChange(of: viewModel.selectedVehicle) { _, _ in
                 if viewModel.connectionState == .connected {
                     viewModel.switchVehicleType(viewModel.selectedVehicle)
                 }
             }
+        }
+    }
+
+    // MARK: - Connection Mode
+
+    private var connectionModeSection: some View {
+        Section(header: Text("Mode")) {
+            Picker("Connection Mode", selection: $viewModel.connectionMode) {
+                ForEach(ConnectionMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 
@@ -136,19 +140,8 @@ struct ContentView: View {
                 Spacer()
             }
 
-            if viewModel.connectionState == .disconnected {
-                Button(action: { viewModel.scanForDevices() }) {
-                    HStack {
-                        if viewModel.isScanning {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Scanning...")
-                        } else {
-                            Text("Scan for BLE Adapters")
-                        }
-                    }
-                }
-                .disabled(viewModel.isScanning)
+            if viewModel.connectionMode == .ble {
+                bleConnectionControls
             }
 
             if viewModel.connectionState == .connected {
@@ -157,114 +150,117 @@ struct ContentView: View {
                 }
                 .foregroundColor(.red)
             }
+        }
+    }
 
-            if !viewModel.discoveredDevices.isEmpty && viewModel.connectionState == .disconnected {
-                ForEach(viewModel.discoveredDevices) { device in
-                    Button(action: { viewModel.connectToDevice(device) }) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(device.name)
-                                    .foregroundColor(.primary)
-                                Text(device.address)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Text("RSSI: \(device.rssi)")
+    @ViewBuilder
+    private var bleConnectionControls: some View {
+        if viewModel.connectionState == .disconnected {
+            Button(action: { viewModel.scanForDevices() }) {
+                HStack {
+                    if viewModel.isScanning {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Scanning...")
+                    } else {
+                        Text("Scan for BLE Adapters")
+                    }
+                }
+            }
+            .disabled(viewModel.isScanning)
+        }
+
+        if !viewModel.discoveredDevices.isEmpty && viewModel.connectionState == .disconnected {
+            ForEach(viewModel.discoveredDevices) { device in
+                Button(action: { viewModel.connectToDevice(device) }) {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(device.name)
+                                .foregroundColor(.primary)
+                            Text(device.address)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
+                        Spacer()
+                        Text("RSSI: \(device.rssi)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
             }
         }
     }
 
-    // MARK: - ESP32 Discovery
+    // MARK: - ESP32 Discovered Devices (WiFi mode)
 
-    private var esp32DiscoverySection: some View {
-        Section(header: Text("ESP32 CAN Bridge")) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(viewModel.isESP32DiscoveryActive ? .green : .gray)
-                            .frame(width: 8, height: 8)
-                        Text(viewModel.isESP32DiscoveryActive
-                             ? "Listening for ESP32 broadcasts"
-                             : "Discovery inactive")
-                            .foregroundColor(viewModel.isESP32DiscoveryActive ? .green : .secondary)
+    @ViewBuilder
+    private var esp32DevicesSection: some View {
+        if viewModel.connectionMode == .wifi {
+            Section(header: Text("ESP32 CAN Bridge")) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(viewModel.isESP32DiscoveryActive ? .green : .gray)
+                                .frame(width: 8, height: 8)
+                            Text(viewModel.isESP32DiscoveryActive
+                                 ? "Listening for ESP32 broadcasts"
+                                 : "Discovery inactive")
+                                .foregroundColor(viewModel.isESP32DiscoveryActive ? .green : .secondary)
+                        }
+                        if let error = viewModel.esp32DiscoveryError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                        }
                     }
-                    if let error = viewModel.esp32DiscoveryError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
+                    Spacer()
                 }
-                Spacer()
-            }
 
-            Toggle("Auto-connect to first ESP32", isOn: $viewModel.autoConnectEnabled)
-                .disabled(viewModel.isESP32DiscoveryActive)
-
-            if !viewModel.isESP32DiscoveryActive {
-                Button("Configure and Start Discovery") {
-                    showESP32Config = true
+                if viewModel.discoveredESP32s.isEmpty && viewModel.isESP32DiscoveryActive {
+                    Text("Waiting for ESP32 broadcast packets...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-            } else {
-                Button("Stop Discovery") {
-                    viewModel.stopESP32Discovery()
+
+                ForEach(viewModel.discoveredESP32s) { esp32 in
+                    ESP32DeviceRow(
+                        esp32: esp32,
+                        isAutoConnected: viewModel.autoConnectedESP32?.address == esp32.address,
+                        isConnected: viewModel.connectionState == .connected
+                            && viewModel.connectedDeviceAddress == esp32.canEndpointDescription,
+                        onConnect: { viewModel.connectToESP32(esp32) }
+                    )
                 }
-                .foregroundColor(.red)
             }
-
-            if viewModel.discoveredESP32s.isEmpty && viewModel.isESP32DiscoveryActive {
-                Text("Waiting for ESP32 broadcast packets...")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            ForEach(viewModel.discoveredESP32s) { esp32 in
-                ESP32DeviceRow(
-                    esp32: esp32,
-                    isAutoConnected: viewModel.autoConnectedESP32?.address == esp32.address,
-                    isConnected: viewModel.connectionState == .connected
-                        && viewModel.connectedDeviceAddress == esp32.canEndpointDescription,
-                    onConnect: { viewModel.connectToESP32(esp32) }
-                )
-            }
-        }
-        .sheet(isPresented: $showESP32Config) {
-            ESP32ConfigSheet(viewModel: viewModel, isPresented: $showESP32Config)
         }
     }
 
     // MARK: - Detection
 
+    @ViewBuilder
     private var detectionSection: some View {
-        Group {
-            if viewModel.connectionState == .connected {
-                Section(header: Text("Vehicle Detection")) {
-                    HStack {
-                        Circle()
-                            .fill(isReceiving ? .green : .gray)
-                            .frame(width: 8, height: 8)
-                        Text("BLE notifications: \(viewModel.bleNotificationCount)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+        if viewModel.connectionState == .connected {
+            Section(header: Text("Vehicle Detection")) {
+                HStack {
+                    Circle()
+                        .fill(isReceiving ? .green : .gray)
+                        .frame(width: 8, height: 8)
+                    Text("BLE notifications: \(viewModel.bleNotificationCount)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
-                    if !viewModel.lastRawHex.isEmpty {
-                        Text(viewModel.lastRawHex)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
+                if !viewModel.lastRawHex.isEmpty {
+                    Text(viewModel.lastRawHex)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
 
-                    if !viewModel.detectionInfo.isEmpty {
-                        Text(viewModel.detectionInfo)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                if !viewModel.detectionInfo.isEmpty {
+                    Text(viewModel.detectionInfo)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
         }
@@ -384,99 +380,6 @@ private struct ESP32DeviceRow: View {
                 .foregroundColor(.secondary)
         }
         .padding(.vertical, 2)
-    }
-}
-
-// MARK: - ESP32 Configuration Sheet
-
-private struct ESP32ConfigSheet: View {
-    @ObservedObject var viewModel: VehicleViewModel
-    @Binding var isPresented: Bool
-    @State private var deviceIdHex = ""
-    @State private var publicKeyHex = ""
-    @State private var errorMessage: String?
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("Trusted Device ID"),
-                        footer: Text("16-byte hex string identifying your ESP32 (e.g. from ESP32 serial output on boot)")) {
-                    TextField("Device ID (32 hex chars)", text: $deviceIdHex)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-
-                Section(header: Text("Verification Public Key"),
-                        footer: Text("32-byte Ed25519 public key in hex (64 hex chars). Must match the key baked into the ESP32 firmware.")) {
-                    TextField("Public Key (64 hex chars)", text: $publicKeyHex)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-
-                if let error = errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundColor(.red)
-                            .font(.caption)
-                    }
-                }
-
-                Section {
-                    Button("Start Discovery") {
-                        startDiscovery()
-                    }
-                    .disabled(deviceIdHex.isEmpty || publicKeyHex.isEmpty)
-                }
-            }
-            .navigationTitle("ESP32 Discovery")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { isPresented = false }
-                }
-            }
-        }
-    }
-
-    private func startDiscovery() {
-        errorMessage = nil
-
-        guard let deviceId = Data(hex: deviceIdHex), deviceId.count == 16 else {
-            errorMessage = "Device ID must be exactly 32 hex characters (16 bytes)."
-            return
-        }
-
-        guard let publicKeyData = Data(hex: publicKeyHex), publicKeyData.count == 32 else {
-            errorMessage = "Public key must be exactly 64 hex characters (32 bytes)."
-            return
-        }
-
-        do {
-            let publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData)
-            viewModel.startESP32Discovery(trustedDeviceId: deviceId, publicKey: publicKey)
-            isPresented = false
-        } catch {
-            errorMessage = "Invalid public key: \(error.localizedDescription)"
-        }
-    }
-}
-
-// MARK: - Data hex conversion
-
-private extension Data {
-    init?(hex: String) {
-        let cleaned = hex.replacingOccurrences(of: " ", with: "")
-        guard cleaned.count % 2 == 0 else { return nil }
-        var data = Data()
-        var index = cleaned.startIndex
-        while index < cleaned.endIndex {
-            let nextIndex = cleaned.index(index, offsetBy: 2)
-            let byteString = String(cleaned[index..<nextIndex])
-            guard let byte = UInt8(byteString, radix: 16) else { return nil }
-            data.append(byte)
-            index = nextIndex
-        }
-        self = data
     }
 }
 

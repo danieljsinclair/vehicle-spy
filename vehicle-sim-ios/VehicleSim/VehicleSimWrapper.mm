@@ -1,15 +1,22 @@
 #import "VehicleSimWrapper.h"
 #include "vehicle-sim/VehicleSim.h"
 #include "vehicle-sim/BLEManager.h"
+#include "vehicle-sim/pipeline/PipelineFactory.h"
+#include "vehicle-sim/pipeline/RawFrameNormaliser.h"
+#include "vehicle-sim/domain/CaptureLog.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/Gear.h"
 #include "vehicle-sim/domain/ISignalSource.h"
 #include "vehicle-sim/domain/BLESignalSource.h"
+#include "vehicle-sim/domain/DemoSignalSource.h"
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <optional>
+#include <thread>
+#include <chrono>
 
 using namespace vehicle_sim;
 using namespace vehicle_sim::domain;
@@ -25,6 +32,13 @@ using namespace vehicle_sim::domain;
     std::unique_ptr<BLEManager> _bleManager;
     std::unique_ptr<DBCTranslationService> _translationService;
     std::unique_ptr<ISignalSource> _signalSource;
+    std::unique_ptr<pipeline::ITransport> _liveTransport;
+    std::unique_ptr<pipeline::IAdapterNormaliser> _liveNormaliser;
+    std::unique_ptr<std::thread> _liveWorker;
+    bool _liveRunning;
+    bool _connectionActive;
+    std::optional<domain::VehicleSignal> _latestSignal;
+    std::chrono::steady_clock::time_point _latestSignalTime;
 
     // Vehicle protocol for current connection
     VehicleProtocol _protocol;
@@ -62,12 +76,16 @@ using namespace vehicle_sim::domain;
 
 // MARK: - Connection Control
 
+- (void)startDemo {
+    [self stop];
+
+    _protocol = VehicleProtocol::Simulation;
+    _signalSource = std::make_unique<domain::DemoSignalSource>(100);
+    _signalSource->start();
+}
+
 - (void)startBLE {
-    // Stop any existing signal source
-    if (_signalSource) {
-        _signalSource->stop();
-        _signalSource.reset();
-    }
+    [self stop];
 
     // Clear device info
     _connectedDeviceName = nil;
@@ -75,6 +93,14 @@ using namespace vehicle_sim::domain;
 }
 
 - (void)stop {
+    _liveRunning = false;
+    if (_liveWorker && _liveWorker->joinable()) {
+        _liveWorker->join();
+        _liveWorker.reset();
+    }
+    _liveTransport.reset();
+    _liveNormaliser.reset();
+
     if (_signalSource) {
         _signalSource->stop();
         _signalSource.reset();
@@ -109,8 +135,23 @@ using namespace vehicle_sim::domain;
 }
 
 - (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName {
+    return [self connectToDevice:address deviceName:deviceName vehicleType:@"generic"];
+}
+
+- (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName vehicleType:(NSString *)vehicleType {
     // Stop any existing signal source
     [self stop];
+
+    // If address starts with "tcp:" treat as TCP connection to ESP32
+    NSString *prefix = @"tcp:";
+    if ([address hasPrefix:prefix]) {
+        // For now, TCP connections are not implemented in the wrapper.
+        // Return NO so the UI can show an error.
+        // TODO: Implement TCP transport connection via pipeline.
+        _connectedDeviceAddress = address;
+        _connectedDeviceName = deviceName;
+        return NO;
+    }
 
     std::string addressStr = [address UTF8String];
     if (!_bleManager->connect(addressStr)) {
@@ -119,6 +160,11 @@ using namespace vehicle_sim::domain;
 
     _connectedDeviceAddress = address;
     _connectedDeviceName = deviceName;
+
+    // Load vehicle type for translation if specified
+    if (vehicleType && vehicleType.length > 0) {
+        [self switchVehicleType:vehicleType];
+    }
 
     // Wait for write + notify characteristics (blocks until discovered or timeout)
     if (!_bleManager->waitForCharacteristics(10000)) {

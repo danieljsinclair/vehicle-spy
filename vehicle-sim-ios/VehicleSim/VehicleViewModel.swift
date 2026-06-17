@@ -2,6 +2,12 @@ import Foundation
 import Combine
 import CryptoKit
 
+enum ConnectionMode: String, CaseIterable, Codable {
+    case ble = "BLE"
+    case wifi = "WiFi"
+    case demo = "Demo"
+}
+
 class VehicleViewModel: ObservableObject {
     // MARK: - Signal Values
     @Published var throttlePercent: Double? = nil
@@ -31,8 +37,15 @@ class VehicleViewModel: ObservableObject {
     @Published var discoveredESP32s: [DiscoveredESP32] = []
     @Published var isESP32DiscoveryActive: Bool = false
     @Published var esp32DiscoveryError: String?
-    @Published var autoConnectEnabled: Bool = true
     @Published var autoConnectedESP32: DiscoveredESP32?
+
+    // MARK: - Connection Mode
+    @Published var connectionMode: ConnectionMode {
+        didSet {
+            UserDefaults.standard.set(connectionMode.rawValue, forKey: "connectionMode")
+            onConnectionModeChanged()
+        }
+    }
 
     var vehicleOptions: [(String, String)] {
         guard let wrapper = wrapper else { return [] }
@@ -58,6 +71,8 @@ class VehicleViewModel: ObservableObject {
     // MARK: - Lifecycle
 
     init() {
+        let savedMode = UserDefaults.standard.string(forKey: "connectionMode") ?? ""
+        self.connectionMode = ConnectionMode(rawValue: savedMode) ?? .ble
         wrapper = VehicleSimWrapper()
     }
 
@@ -65,6 +80,37 @@ class VehicleViewModel: ObservableObject {
         stopUpdates()
         wrapper?.stop()
         stopESP32Discovery()
+    }
+
+    // MARK: - Connection Mode
+
+    private func onConnectionModeChanged() {
+        // Stop any active connection when switching modes
+        if connectionState != .disconnected {
+            disconnect()
+        }
+
+        switch connectionMode {
+        case .ble:
+            stopESP32Discovery()
+        case .wifi:
+            startESP32Discovery()
+        case .demo:
+            stopESP32Discovery()
+            startDemo()
+        }
+    }
+
+    // MARK: - Demo Mode
+
+    private func startDemo() {
+        guard let wrapper = wrapper else { return }
+        wrapper.startDemo()
+        connectionState = .connected
+        connectedDeviceName = "Demo"
+        connectedDeviceAddress = "simulation"
+        connectionStatus = "Demo"
+        startPolling()
     }
 
     // MARK: - Connection Control
@@ -133,7 +179,8 @@ class VehicleViewModel: ObservableObject {
             guard let self = self, let wrapper = self.wrapper else { return }
 
             let success = wrapper.connect(toDevice: device.address,
-                                          deviceName: device.name)
+                                          deviceName: device.name,
+                                          vehicleType: self.selectedVehicle)
 
             DispatchQueue.main.async {
                 self.isConnecting = false
@@ -153,7 +200,7 @@ class VehicleViewModel: ObservableObject {
     }
 
     func disconnect() {
-        wrapper?.disconnect()
+        wrapper?.stop()
         connectionState = .disconnected
         connectedDeviceName = nil
         connectedDeviceAddress = nil
@@ -198,40 +245,35 @@ class VehicleViewModel: ObservableObject {
         return wrapper?.lastRawHex ?? ""
     }
 
-    // MARK: - ESP32 Discovery
+    // MARK: - ESP32 Discovery (auto, no manual config)
 
-    /// Start listening for ESP32 discovery broadcasts.
-    /// - Parameters:
-    ///   - trustedDeviceId: The 16-byte device ID to trust.
-    ///   - publicKey: The Ed25519 public key for signature verification.
-    func startESP32Discovery(trustedDeviceId: Data, publicKey: Curve25519.Signing.PublicKey) {
+    func startESP32Discovery() {
         guard !isESP32DiscoveryActive else { return }
 
         discoveredESP32s = []
         esp32DiscoveryError = nil
         autoConnectedESP32 = nil
 
+        // Start listener with no signature verification (firmware broadcasts unsigned for now)
         let listener = ESP32DiscoveryListener(
-            trustedDeviceId: trustedDeviceId,
-            publicKey: publicKey,
-            onDiscovered: { [weak self] (discovered: DiscoveredESP32) in
+            publicKey: nil,
+            onDiscovered: { [weak self] discovered in
                 guard let self else { return }
-                // Deduplicate by address; update if re-discovered
                 if let idx = self.discoveredESP32s.firstIndex(where: { $0.address == discovered.address }) {
                     self.discoveredESP32s[idx] = discovered
                 } else {
                     self.discoveredESP32s.append(discovered)
                 }
 
-                // Auto-connect on first discovery if enabled and not already connected
-                if self.autoConnectEnabled
+                // Auto-connect on first discovery if in WiFi mode and not already connected
+                if self.connectionMode == .wifi
                     && self.connectionState == .disconnected
                     && self.autoConnectedESP32 == nil
                 {
                     self.autoConnect(to: discovered)
                 }
             },
-            onError: { [weak self] (error: ESP32DiscoveryListenerError) in
+            onError: { [weak self] error in
                 guard let self else { return }
                 self.esp32DiscoveryError = error.localizedDescription
                 self.isESP32DiscoveryActive = false
@@ -253,12 +295,6 @@ class VehicleViewModel: ObservableObject {
         isESP32DiscoveryActive = false
     }
 
-    /// Returns the `tcp:<host>:<port>` string for the given discovered ESP32,
-    /// suitable for use with `vehicle-sim --connect`.
-    func tcpConnectionString(for esp32: DiscoveredESP32) -> String {
-        "tcp:\(esp32.host):\(esp32.canPort)"
-    }
-
     /// Manually connect to a discovered ESP32 at its CAN port.
     func connectToESP32(_ esp32: DiscoveredESP32) {
         guard wrapper != nil else { return }
@@ -271,7 +307,9 @@ class VehicleViewModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self, let wrapper = self.wrapper else { return }
 
-            let success = wrapper.connect(toDevice: address, deviceName: "ESP32 CAN Bridge")
+            let success = wrapper.connect(toDevice: address,
+                                          deviceName: "ESP32 CAN Bridge",
+                                          vehicleType: self.selectedVehicle)
 
             DispatchQueue.main.async {
                 if success {
