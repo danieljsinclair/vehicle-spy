@@ -11,6 +11,7 @@ FIRMWARE_DIR  = firmware/can-bridge
 FIRMWARE_BUILD = build-firmware
 FQBN          = esp32:esp32:esp32:PartitionScheme=min_spiffs
 ESP32_PORT    ?= $(shell ls /dev/cu.usbserial* /dev/cu.SLAB_USBtoUART /dev/cu.wchusbserial* 2>/dev/null | head -1)
+ESPTOOL       ?= $(firstword $(wildcard $(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool))
 ESP32_HOST    ?= $(OTA_HOST)
 
          RED=\033[0;31m
@@ -199,18 +200,25 @@ $(FIRMWARE_WIFI_SENTINEL):
 	@mkdir -p $(FIRMWARE_BUILD)
 	@printf '%s\n%s\n' "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASSWORD)" > "$@"
 
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) .firmware-ready $(FIRMWARE_WIFI_SENTINEL)
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) $(FIRMWARE_WIFI_SENTINEL)
 	@mkdir -p $(FIRMWARE_BUILD)
 	@echo "--- Building ESP32 firmware ---"
 	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) \
 		--build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS)"
+	@$(ESPTOOL) \
+		--chip esp32 \
+		merge-bin --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin \
+		--target-offset 0x0 \
+		0x1000 $(FIRMWARE_BUILD)/can-bridge.ino.bootloader.bin \
+		0x8000 $(FIRMWARE_BUILD)/can-bridge.ino.partitions.bin \
+		0x10000 $(FIRMWARE_BUILD)/can-bridge.ino.bin
 
 firmware: $(FIRMWARE_BUILD)/can-bridge.ino.bin
 
 flash flash-usb firmware-flash: firmware native test
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make flash ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
 	@echo "Flashing via $(ESP32_PORT)..."
-	@$(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool \
+	@$(ESPTOOL) \
 		--port "$(ESP32_PORT)" --baud 460800 \
 		write_flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
 	@echo "Flash complete. Reading startup log from $(ESP32_PORT) at 115200 baud..."
@@ -231,8 +239,9 @@ monitor:
 
 reboot-over-usb:
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make reboot-over-usb ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
+	@if [ -z "$(ESPTOOL)" ]; then echo "Error: esptool not found under $(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/." >&2; exit 1; fi
 	@echo "Starting serial logger, then resetting $(ESP32_PORT) via esptool USB control reset..."
-	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool
+	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool --esptool "$(ESPTOOL)"
 
 # -- ESP32 OTA (signed-image, over-WiFi) -----------------------------------
 #
@@ -264,10 +273,17 @@ ota-keys:
 discover: native
 	@./build-native/vehicle-sim --discover
 
-flash-ota flash-tcp:
+flash-ota flash-tcp: firmware native
 	@if [ -z "$(ESP32_HOST)" ]; then \
-		echo "Error: ESP32_HOST is required. Usage: make flash-ota ESP32_HOST=<esp32-ip>" >&2; \
-		exit 1; \
+		echo "--- Auto-discovering ESP32 ---" && \
+		DISCOVERED_IP=$$(./build-native/vehicle-sim --discover 2>/dev/null | \
+			grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2); \
+		if [ -z "$$DISCOVERED_IP" ]; then \
+			echo "Error: could not auto-discover ESP32. Set ESP32_HOST=<ip> or use --discover." >&2; \
+			exit 1; \
+		fi; \
+		echo "--- Found ESP32 at $$DISCOVERED_IP ---"; \
+		ESP32_HOST="$$DISCOVERED_IP"; \
 	fi
 	@echo "--- Signing firmware ---"
 	@scripts/ota-sign.sh $(FIRMWARE_BUILD)/can-bridge.ino.bin --keys-dir "$(OTA_KEYS_DIR)"

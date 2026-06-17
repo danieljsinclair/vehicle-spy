@@ -8,8 +8,9 @@
 #include "vehicle-sim/cli/LiveRunContext.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
-#include "vehicle-sim/discovery/UDPDiscovery.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
+#include "vehicle-sim/discovery/UDPDiscovery.h"
+#include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 namespace {
 
@@ -39,37 +40,91 @@ int runScan(vehicle_sim::BLEManager& bleManager) {
     return 0;
 }
 
-// Listen for ESP32 UDP discovery broadcasts. Returns the TCP connection string
-// of the first discovered device, or empty string if none found.
-std::string runDiscovery(int timeoutSeconds = 5) {
+// Run UDP discovery and list found ESP32s.
+int runDiscovery() {
     using namespace vehicle_sim::discovery;
 
-    std::cout << "Listening for ESP32 discovery broadcasts (timeout " << timeoutSeconds << "s)...\n";
+    std::cout << "Listening for ESP32 discovery broadcasts on UDP port "
+              << DISCOVERY_PORT << "...\n";
+    std::cout << "Press Ctrl-C to stop.\n\n";
 
     UDPDiscovery discovery;
-    if (!discovery.start()) {
-        std::cerr << "Failed to start UDP discovery listener.\n";
-        return "";
+
+    // Try to load the OTA public key for signature verification
+    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey;
+    std::string keyPath = std::string(getenv("HOME") ? getenv("HOME") : "")
+                          + "/.vehicle-sim/ota/ed25519_pub.raw";
+    if (loadPublicKey(keyPath, publicKey)) {
+        discovery.setPublicKey(publicKey);
+        std::cout << "Loaded OTA public key from " << keyPath << "\n";
+        std::cout << "Signature verification: ENABLED\n\n";
+    } else {
+        std::cout << "No OTA public key found at " << keyPath << "\n";
+        std::cout << "Signature verification: DISABLED (accepting all broadcasts)\n\n";
     }
 
-    std::string result;
-    auto devices = discovery.poll(std::chrono::seconds(timeoutSeconds));
+    if (!discovery.start()) {
+        std::cerr << "Failed to start UDP discovery listener on port "
+                  << DISCOVERY_PORT << "\n";
+        return 1;
+    }
+
+    // Poll for 30 seconds, showing results as they come
+    auto devices = discovery.poll(std::chrono::seconds(30));
     discovery.stop();
 
     if (devices.empty()) {
-        std::cout << "No ESP32 devices found.\n";
-        return "";
+        std::cout << "No ESP32 devices discovered.\n\n"
+                  << "Troubleshooting:\n"
+                  << "  1. Ensure the ESP32 is powered on and connected to WiFi\n"
+                  << "  2. Check that the ESP32 firmware includes UDP discovery\n"
+                  << "  3. Verify both devices are on the same subnet\n"
+                  << "  4. Check firewall rules for UDP port " << DISCOVERY_PORT << "\n";
+        return 1;
     }
 
-    std::cout << "Found " << devices.size() << " ESP32 device(s):\n";
+    std::cout << "Discovered " << devices.size() << " ESP32 device(s):\n\n";
     for (size_t i = 0; i < devices.size(); ++i) {
         const auto& d = devices[i];
-        std::cout << "  [" << (i + 1) << "] " << d.address
-                  << " (CAN:" << d.canPort << ", OTA:" << d.otaPort << ")\n";
+        std::cout << "  [" << (i + 1) << "] " << d.address << "\n"
+                  << "      CAN:  " << d.tcpConnectionString() << "\n"
+                  << "      OTA:  tcp:" << d.address << ":" << d.otaPort << "\n";
+    }
+    std::cout << "\nConnect with: vehicle-sim --connect tcp:<ip>:<port> --vehicle <type>\n"
+              << "   or:        vehicle-sim --connect auto --vehicle <type>\n";
+
+    return 0;
+}
+
+// Auto-discover an ESP32 and return its TCP connection string.
+// Returns empty string if no device found.
+std::string autoDiscoverESP32(std::chrono::seconds timeout = std::chrono::seconds(10)) {
+    using namespace vehicle_sim::discovery;
+
+    UDPDiscovery discovery;
+
+    // Try to load the OTA public key
+    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey;
+    std::string keyPath = std::string(getenv("HOME") ? getenv("HOME") : "")
+                          + "/.vehicle-sim/ota/ed25519_pub.raw";
+    if (loadPublicKey(keyPath, publicKey)) {
+        discovery.setPublicKey(publicKey);
+    }
+
+    if (!discovery.start()) {
+        std::cerr << "Failed to start UDP discovery\n";
+        return {};
+    }
+
+    auto devices = discovery.poll(timeout);
+    discovery.stop();
+
+    if (devices.empty()) {
+        return {};
     }
 
     // Return the first discovered device's TCP connection string
-    return devices[0].tcpConnectionString();
+    return devices.front().tcpConnectionString();
 }
 
 // Derive the canonical --log <base> from whichever logging flag the caller
@@ -129,23 +184,21 @@ int main(int argc, char* argv[]) {
         return runScan(*bleManager);
     }
 
-    if (opts.discover) {
-        std::string discovered = runDiscovery();
-        return discovered.empty() ? 1 : 0;
+    if (opts.discover_mode) {
+        return runDiscovery();
     }
 
+    // Handle --connect auto: discover ESP32 and connect
     if (opts.isAuto()) {
-        std::string discovered = runDiscovery();
-        if (discovered.empty()) {
-            std::cerr << "No ESP32 devices found on the network.\n";
+        std::cout << "Auto-discovering ESP32...\n";
+        std::string target = autoDiscoverESP32();
+        if (target.empty()) {
+            std::cerr << "No ESP32 found on the network. Use --discover to scan manually.\n";
             return 1;
         }
-        std::cout << "Auto-discovered: " << discovered << "\n";
-        std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
-            discovered, opts.adapter_protocol);
-        std::string logBase = resolveLogBase(opts);
-        return cli::LiveRunContext::run(discovered, opts.vehicle_type,
-                                        protocol, logBase, translationService);
+        std::cout << "Found ESP32 at " << target << "\n";
+        opts.connect_target = target;
+        // Fall through to the TCP handling below
     }
 
     if (opts.isFile()) {

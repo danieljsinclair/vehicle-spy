@@ -55,7 +55,7 @@ static bool monitorActive = false;
 static uint32_t serialQuietUntilMs = 0;
 
 // ── UDP Discovery Broadcast ──────────────────────────────────────────────
-// Broadcasts signed discovery packets on UDP port 3335 so that CLI and iOS
+// Broadcasts unsigned discovery packets on UDP port 3335 so that CLI and iOS
 // apps can auto-discover this ESP32 without manual IP configuration.
 static constexpr uint16_t DISCOVERY_PORT = 3335;
 static constexpr uint32_t DISCOVERY_INTERVAL_MS = 2000;  // broadcast every 2s
@@ -65,7 +65,9 @@ static WiFiUDP udpDiscovery;
 // Device ID (first 16 bytes of MAC address, hex)
 static uint8_t discoveryDeviceId[16];
 
-// Broadcast a signed discovery packet
+// Broadcast a discovery packet. The packet reserves the same signature field as
+// the CLI/iOS wire format; current firmware broadcasts unsigned discovery so
+// first connection remains usable before OTA keys are flashed.
 static void broadcastDiscovery() {
     if (WiFi.status() != WL_CONNECTED) return;
 
@@ -97,8 +99,7 @@ static void broadcastDiscovery() {
     packet[40] = (3334 >> 8) & 0xFF;
     packet[41] = 3334 & 0xFF;
 
-    // For now, zero the signature (unsigned discovery)
-    // TODO: sign with Ed25519 once key management is added
+    // Signature bytes remain zeroed for unsigned discovery broadcasts.
     memset(packet + 42, 0, 64);
 
     // Broadcast on the local network
@@ -258,7 +259,7 @@ void setup() {
 
     // Initialize device ID from MAC address
     uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    WiFi.macAddress(mac);
     // MAC is 6 bytes, pad to 16 with "ESP32-" prefix
     memset(discoveryDeviceId, 0, 16);
     memcpy(discoveryDeviceId, mac, 6);

@@ -24,9 +24,9 @@ constexpr const char* DEFAULT_VEHICLE_TYPE = "generic";
 struct CliOptions {
     bool scan_mode = false;
     bool list_signals = false;
+    bool discover_mode = false;
     bool help_requested = false;
-    bool discover = false;       // --discover: listen for ESP32 broadcasts, print found devices
-    std::string connect_target;  // "demo", "auto", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", or "usb:<path>"
+    std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", "usb:<path>", or "auto"
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
@@ -41,17 +41,16 @@ struct CliOptions {
     std::string error_message;
 
     [[nodiscard]] bool isDemo() const { return connect_target == "demo"; }
-    [[nodiscard]] bool isAuto() const { return connect_target == "auto"; }
     [[nodiscard]] bool isFile() const noexcept { return connect_target.rfind("file:", 0) == 0; }
     [[nodiscard]] bool isTcp() const noexcept { return connect_target.rfind("tcp:", 0) == 0; }
     [[nodiscard]] bool isUsb() const noexcept { return connect_target.rfind("usb:", 0) == 0; }
+    [[nodiscard]] bool isAuto() const { return connect_target == "auto"; }
     [[nodiscard]] bool isBLE() const {
-        return !connect_target.empty() && !isDemo() && !isAuto() && !isFile() && !isTcp() && !isUsb();
+        return !connect_target.empty() && !isDemo() && !isFile() && !isTcp() && !isUsb() && !isAuto();
     }
 };
 
 // Parse command-line arguments into a structured result.
-// Throws CLI::ParseError on --help (caller should catch and call app.exit(e)).
 CliOptions parseArgs(int argc, char* argv[]);
 
 // Display help text including registered vehicles from the service.

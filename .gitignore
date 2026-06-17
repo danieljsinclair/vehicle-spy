@@ -116,4 +116,5 @@ build-clean/
 captures/
 
 # Python cache
-scripts/archive/__pycache__/
+__pycache__/
+firmware-ready

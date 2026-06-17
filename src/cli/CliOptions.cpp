@@ -17,10 +17,11 @@ CliOptions parseArgs(int argc, char* argv[]) {
 
     app.add_flag("-s,--scan", opts.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.list_signals, "List supported signals for each vehicle");
-    app.add_flag("--discover", opts.discover, "Discover ESP32 devices on the local network via UDP broadcast");
+    app.add_flag("--discover", opts.discover_mode, "Discover ESP32 devices on the network via UDP broadcast");
 
     app.add_option("-c,--connect", opts.connect_target,
-                   "Connect target: 'demo', 'auto', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', or BLE adapter address")
+                   "Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', "
+                   "'auto' (auto-discover ESP32), or BLE adapter address")
         ->expected(1);
     app.add_option("-v,--vehicle", opts.vehicle_type, "Vehicle type (required)")
         ->expected(1);
@@ -68,12 +69,12 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "USAGE:\n"
         << "  vehicle-sim [OPTIONS]\n\n"
         << "OPTIONS:\n"
-        << "  -c,--connect <target> Connect target: 'demo', 'auto', 'file:<path>', 'tcp:<ip>:<port>',\n"
-        << "                        'usb:<path>', or BLE adapter address (required)\n"
+        << "  -c,--connect <target> Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>',\n"
+        << "                        'usb:<path>', 'auto' (auto-discover ESP32), or BLE adapter address\n"
         << "  -v,--vehicle <type>   Vehicle type (required, or 'auto' to detect)\n"
         << "  -s,--scan             Scan for BLE OBD2 adapters\n"
         << "  -l,--list             List supported signals for each vehicle\n"
-        << "  --discover            Discover ESP32 devices on the local network\n"
+        << "      --discover        Discover ESP32 devices on the network\n"
         << "  -f,--format <fmt>     Output format: json, csv, or plain (default: plain)\n"
         << "  -i,--interval <ms>    Update interval in milliseconds (default: 500)\n"
         << "  --log <base>          Log base path: writes <base>.csv (decoded); live\n"
@@ -97,6 +98,8 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
 
     out << "EXAMPLES:\n"
         << "  vehicle-sim --connect demo --vehicle tesla\n"
+        << "  vehicle-sim --discover\n"
+        << "  vehicle-sim --connect auto --vehicle tesla\n"
         << "  vehicle-sim --connect file:capture.csv --vehicle tesla --log-csv decoded.csv\n"
         << "  vehicle-sim --connect tcp:192.168.4.1:3333 --vehicle tesla --log-raw x.raw --log-csv x.csv\n"
         << "  vehicle-sim --connect usb:/dev/cu.usbserial-110 --vehicle tesla --log captures/SecondDrive\n"
@@ -107,6 +110,7 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  vehicle-sim --list\n\n"
         << "NOTES:\n"
         << "  --connect and --vehicle are required for telemetry\n"
+        << "  'auto' discovers an ESP32 on the UDP discovery port (3335) and connects automatically\n"
         << "  file:<path> replays a captured raw CAN CSV\n"
         << "  tcp:<ip>:<port> streams live CAN frames from an ESP32 CAN-bridge over WiFi\n"
         << "    (port defaults to 3333 when omitted; e.g. tcp:192.168.4.1)\n"
@@ -140,15 +144,11 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
     auto& registry = service.registry();
 
     // Skip validation for scan, list, help, discover
-    if (opts.scan_mode || opts.list_signals || opts.help_requested || opts.discover) {
+    if (opts.scan_mode || opts.list_signals || opts.help_requested || opts.discover_mode) {
         return "";
     }
 
-    // --adapter-protocol must be a known value. Both raw and elm327 are
-    // accepted; the default table (demo/file/tcp/usb→raw, ble→elm327) is
-    // applied later in pipeline::resolveAdapterProtocol when the flag is
-    // omitted or empty. ELM327 *normaliser* body is a later task (#18); today
-    // elm327 only changes the TCP connect handshake (sends AT-init).
+    // --adapter-protocol must be a known value.
     if (!opts.adapter_protocol.empty() &&
         opts.adapter_protocol != "raw" &&
         opts.adapter_protocol != "elm327" &&
@@ -161,7 +161,7 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
 
     // --connect is required for telemetry
     if (opts.connect_target.empty()) {
-        return "--connect is required. Use --connect demo or --connect <address>";
+        return "--connect is required. Use --connect demo, --connect auto, or --connect <address>";
     }
 
     // --vehicle is required
@@ -175,7 +175,7 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
         return oss.str();
     }
 
-    // "auto" is valid — resolved at runtime via VIN detection (BLE only)
+    // "auto" is valid — resolved at runtime via UDP discovery
     if (opts.vehicle_type == "auto") {
         if (!opts.isBLE()) {
             return "--vehicle auto requires a BLE connection. Use --connect <address> --vehicle auto";

@@ -53,6 +53,7 @@ add_executable(vehicle-sim-tests
     pipeline/Sinks.test.cpp
     pipeline/PipelineReplay.test.cpp
     pipeline/ConsoleProgressReporter.test.cpp
+    discovery/DiscoveryPacket.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests
