@@ -4,6 +4,7 @@
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include <string>
 #include <memory>
+#include <iosfwd>
 
 namespace vehicle_sim::cli {
 
@@ -40,7 +41,9 @@ public:
                    const domain::VehicleConfig* config,
                    const std::string& logCsvPath,
                    const std::string& logRawPath,
-                   int pollIntervalMs);
+                   int pollIntervalMs,
+                   bool stdoutCsv = false,
+                   std::ostream* stdoutCsvStream = nullptr);
 
     static void resetRunningState();
 

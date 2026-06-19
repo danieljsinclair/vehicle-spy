@@ -33,6 +33,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
         ->expected(1);
     app.add_option("--log-raw", opts.log_raw, "Log raw hex data to file")
         ->expected(1);
+    app.add_flag("--stdout-csv", opts.stdout_csv, "Emit decoded CSV rows to stdout (identical to --log-csv format)");
 
     try {
         app.parse(argc, argv);
@@ -59,6 +60,7 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  -i,--interval <ms>    Update interval in milliseconds (default: 500)\n"
         << "  --log-csv <file>      Log CSV telemetry to file\n"
         << "  --log-raw <file>      Log raw hex data to file\n"
+        << "  --stdout-csv          Emit decoded CSV rows to stdout (identical to --log-csv format)\n"
         << "  --help                Show this help message\n\n";
 
     auto vehicles = registry.getRegisteredVehicles();

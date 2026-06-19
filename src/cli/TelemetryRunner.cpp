@@ -3,6 +3,7 @@
 #include "vehicle-sim/domain/EventDispatcher.h"
 #include "vehicle-sim/telemetry/TraceLogger.h"
 #include "vehicle-sim/telemetry/RawTraceLogger.h"
+#include "vehicle-sim/telemetry/CsvStdoutSink.h"
 #include <iostream>
 #include <atomic>
 #include <thread>
@@ -22,11 +23,14 @@ namespace {
         vehicle_sim::domain::EventDispatcher dispatcher;
         std::unique_ptr<vehicle_sim::telemetry::TraceLogger> csvLogger;
         std::unique_ptr<vehicle_sim::telemetry::RawTraceLogger> rawLogger;
+        std::unique_ptr<vehicle_sim::telemetry::ICsvStdoutSink> stdoutSink;
         int dispatchCount_ = 0;
 
         bool setup(const std::string& logCsvPath,
                    const std::string& logRawPath,
-                   std::ostream& outStream) {
+                   std::ostream& outStream,
+                   bool stdoutCsv,
+                   std::ostream* stdoutCsvStream) {
             using namespace vehicle_sim;
 
             if (!logCsvPath.empty()) {
@@ -48,9 +52,18 @@ namespace {
                 }
             }
 
+            // Always register the terminal display consumer (banners/progress stay identifiable)
             dispatcher.registerConsumer([this, &outStream](const domain::VehicleSignal& signal) {
                 presentation::printTelemetryRow(outStream, signal, ++dispatchCount_);
             });
+
+            // Optional: emit decoded CSV rows to the CSV stdout stream
+            stdoutSink = telemetry::createStdoutSink(stdoutCsv, stdoutCsvStream ? *stdoutCsvStream : std::cout);
+            if (stdoutCsv) {
+                dispatcher.registerConsumer([this](const domain::VehicleSignal& signal) {
+                    (*stdoutSink)(signal);
+                });
+            }
 
             return true;
         }
@@ -63,7 +76,9 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
                           const domain::VehicleConfig* config,
                           const std::string& logCsvPath,
                           const std::string& logRawPath,
-                          int pollIntervalMs) {
+                          int pollIntervalMs,
+                          bool stdoutCsv,
+                          std::ostream* stdoutCsvStream) {
     if (!config) {
         std::cerr << "Vehicle config is null\n";
         return 1;
@@ -75,7 +90,7 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
     presentation::printTelemetryHeader(std::cout, *config);
 
     TelemetryPipeline pipeline;
-    if (!pipeline.setup(logCsvPath, logRawPath, std::cout)) {
+    if (!pipeline.setup(logCsvPath, logRawPath, std::cout, stdoutCsv, stdoutCsvStream)) {
         return 1;
     }
 

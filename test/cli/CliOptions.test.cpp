@@ -346,3 +346,14 @@ TEST_F(CliValidationTest, ValidateScan_NoError) {
     auto error = validateOptions(opts, service_);
     EXPECT_TRUE(error.empty());
 }
+
+TEST_F(CliOptionsTest, StdoutCsvFlag_DefaultsFalse) {
+    CliOptions opts;
+    EXPECT_FALSE(opts.stdout_csv);
+}
+
+TEST_F(CliOptionsTest, StdoutCsvFlag_ParsedFromArg) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "generic", "--stdout-csv"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_TRUE(opts.stdout_csv);
+}

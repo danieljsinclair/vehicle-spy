@@ -79,5 +79,7 @@ int main(int argc, char* argv[]) {
                                                        opts.update_interval_ms);
     return cli::TelemetryRunner::run(std::move(source), vehicleContext.config,
                                       opts.log_csv, opts.log_raw,
-                                      opts.update_interval_ms);
+                                      opts.update_interval_ms,
+                                      opts.stdout_csv,
+                                      opts.stdout_csv ? &std::cout : nullptr);
 }

@@ -31,6 +31,7 @@ struct CliOptions {
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
     std::string log_csv;
     std::string log_raw;
+    bool stdout_csv = false;  // Emit decoded CSV rows to stdout (identical to --log-csv format)
 
     // Set on parse error — caller should print and exit(1).
     std::string error_message;
