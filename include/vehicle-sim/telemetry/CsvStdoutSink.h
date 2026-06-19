@@ -6,10 +6,6 @@
 #include <iosfwd>
 #include "vehicle-sim/domain/VehicleSignal.h"
 
-namespace vehicle_sim::domain {
-class EventDispatcher;
-} // forward-declared header not needed here
-
 namespace vehicle_sim::telemetry {
 
 /**
@@ -44,8 +40,8 @@ public:
 private:
     void writeHeader();
     void writeRow(const domain::VehicleSignal& signal);
-    static std::string formatOptional(std::optional<double> value);
-    static std::string formatOptional(std::optional<std::int32_t> value);
+    std::string formatOptional(std::optional<double> value);
+    std::string formatOptional(std::optional<std::int32_t> value);
 
     std::ostream* out_;
 };
