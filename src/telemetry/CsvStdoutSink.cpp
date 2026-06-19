@@ -3,7 +3,6 @@
 #include <iostream>
 #include <sstream>
 #include <iomanip>
-#include <cmath>
 
 namespace vehicle_sim::telemetry {
 
