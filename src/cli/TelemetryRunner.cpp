@@ -52,9 +52,11 @@ namespace {
                 }
             }
 
-            // Always register the terminal display consumer (banners/progress stay identifiable)
-            dispatcher.registerConsumer([this, &outStream](const domain::VehicleSignal& signal) {
-                presentation::printTelemetryRow(outStream, signal, ++dispatchCount_);
+            // Terminal display: write to stderr when stdout is carrying CSV data
+            // so the pipe receives clean CSV rows only.
+            auto& displayStream = stdoutCsv ? std::cerr : outStream;
+            dispatcher.registerConsumer([this, &displayStream](const domain::VehicleSignal& signal) {
+                presentation::printTelemetryRow(displayStream, signal, ++dispatchCount_);
             });
 
             // Optional: emit decoded CSV rows to the CSV stdout stream
