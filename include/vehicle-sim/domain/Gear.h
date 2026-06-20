@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace vehicle_sim::domain {
 
@@ -39,6 +41,14 @@ struct Gear {
     static constexpr int32_t AUTO_4 = AUTO_BIT | 4;
     static constexpr int32_t AUTO_5 = AUTO_BIT | 5;
     static constexpr int32_t AUTO_6 = AUTO_BIT | 6;
+
+    // Single gear→display-string function for ALL presentation layers.
+    // Returns label(gear) when known, else `fallback`. Callers must route
+    // through this rather than reimplementing the 4097->"D" mapping (DRY).
+    static std::string labelOr(int32_t gear, std::string_view fallback) noexcept {
+        const char* lbl = label(gear);
+        return lbl ? std::string(lbl) : std::string(fallback);
+    }
 
     /// Display label for a gear constant. Returns nullptr for unknown values.
     static const char* label(int32_t gear) noexcept {

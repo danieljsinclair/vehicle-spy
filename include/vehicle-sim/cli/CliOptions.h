@@ -24,11 +24,16 @@ constexpr const char* DEFAULT_VEHICLE_TYPE = "generic";
 struct CliOptions {
     bool scan_mode = false;
     bool list_signals = false;
+    bool discover_mode = false;
     bool help_requested = false;
-    std::string connect_target;  // "demo" or BLE address/UUID
+    std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", "usb:<path>", or "auto"
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
+    std::string log_base;        // --log <base>: canonical decoded-CSV base ("<base>.csv")
+    std::string adapter_protocol = "raw";  // --adapter-protocol raw|elm327
+    // Deprecated aliases (kept for migration). Empty unless the caller used the
+    // old flag; mapped onto log_base / raw-output semantics in main.cpp.
     std::string log_csv;
     std::string log_raw;
     bool stdout_csv = false;  // Emit decoded CSV rows to stdout (identical to --log-csv format)
@@ -37,11 +42,16 @@ struct CliOptions {
     std::string error_message;
 
     [[nodiscard]] bool isDemo() const { return connect_target == "demo"; }
-    [[nodiscard]] bool isBLE() const { return !connect_target.empty() && !isDemo(); }
+    [[nodiscard]] bool isFile() const noexcept { return connect_target.rfind("file:", 0) == 0; }
+    [[nodiscard]] bool isTcp() const noexcept { return connect_target.rfind("tcp:", 0) == 0; }
+    [[nodiscard]] bool isUsb() const noexcept { return connect_target.rfind("usb:", 0) == 0; }
+    [[nodiscard]] bool isAuto() const { return connect_target == "auto"; }
+    [[nodiscard]] bool isBLE() const {
+        return !connect_target.empty() && !isDemo() && !isFile() && !isTcp() && !isUsb() && !isAuto();
+    }
 };
 
 // Parse command-line arguments into a structured result.
-// Throws CLI::ParseError on --help (caller should catch and call app.exit(e)).
 CliOptions parseArgs(int argc, char* argv[]);
 
 // Display help text including registered vehicles from the service.

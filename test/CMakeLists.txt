@@ -19,6 +19,7 @@ add_executable(vehicle-sim-tests
     domain/VehicleDetector.test.cpp
     domain/DBCSignalTranslator.test.cpp
     domain/DBCTranslationService.test.cpp
+    domain/CaptureLog.test.cpp
     domain/DefaultVehicleConfigs.test.cpp
     domain/DemoSignalProvider.test.cpp
     domain/SignalSourceFactory.test.cpp
@@ -42,6 +43,18 @@ add_executable(vehicle-sim-tests
     integration/AudiOBD2LiveDecoding.test.cpp
     telemetry/TraceLogger.test.cpp
     telemetry/CsvStdoutSink.test.cpp
+    pipeline/RawFrameNormaliser.test.cpp
+    pipeline/Elm327Normaliser.test.cpp
+    pipeline/CaptureNormaliser.test.cpp
+    pipeline/DemoTransport.test.cpp
+    pipeline/TCPTransport.test.cpp
+    pipeline/USBTransport.test.cpp
+    pipeline/PipelineFactory.test.cpp
+    pipeline/FileTransport.test.cpp
+    pipeline/Sinks.test.cpp
+    pipeline/PipelineReplay.test.cpp
+    pipeline/ConsoleProgressReporter.test.cpp
+    discovery/DiscoveryPacket.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests

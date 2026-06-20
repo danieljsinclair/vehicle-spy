@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <chrono>
 #include <memory>
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DBCSignalDefinition.h"
@@ -83,6 +84,50 @@ TEST_F(DBCTranslationServiceTest, ProcessOBD2Frame_ReturnsSignal) {
     EXPECT_EQ(result->getSpeedKmh().value(), 100.0);
 }
 
+TEST_F(DBCTranslationServiceTest, ProcessFrameStampsCaptureTimeWhenProvided) {
+    // Replay path: capture timestamp threaded into the decoded signal.
+    VehicleConfig config(
+        "",
+        "",
+        "OBD2 Vehicle",
+        std::unordered_map<std::string, std::string>{}
+    );
+    service_->registry().registerVehicle("obd2_vehicle", std::move(config));
+    service_->loadVehicle("obd2_vehicle", VehicleProtocol::OBD2);
+
+    std::vector<std::uint8_t> obd2Frame = {0x41, 0x0D, 100};
+    constexpr std::uint64_t captureTs = 1781472526915ULL;
+
+    auto result = service_->processFrame(obd2Frame, captureTs);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->getTimestampUtcMs(), captureTs);
+}
+
+TEST_F(DBCTranslationServiceTest, ProcessFrameFallsBackToWallClockWhenNoTimestamp) {
+    // Live/default path: no capture timestamp -> wall-clock fallback.
+    VehicleConfig config(
+        "",
+        "",
+        "OBD2 Vehicle",
+        std::unordered_map<std::string, std::string>{}
+    );
+    service_->registry().registerVehicle("obd2_vehicle", std::move(config));
+    service_->loadVehicle("obd2_vehicle", VehicleProtocol::OBD2);
+
+    const auto before = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count()
+    );
+
+    std::vector<std::uint8_t> obd2Frame = {0x41, 0x0D, 100};
+    auto result = service_->processFrame(obd2Frame);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_GE(result->getTimestampUtcMs(), before);
+}
+
 TEST_F(DBCTranslationServiceTest, GetProtocol_ReturnsCorrectProtocol) {
     VehicleConfig config("", "", "OBD2 Vehicle", std::unordered_map<std::string, std::string>{});
     service_->registry().registerVehicle("obd2_vehicle", std::move(config));
@@ -123,7 +168,7 @@ TEST_F(DBCTranslationServiceTest, LoadFromPath_NonexistentFile_ReturnsFalse) {
         "nonexistent.dbc",
         "nonexistent.dbc",
         "Test Vehicle",
-        std::unordered_map<std::string, std::string>{{"DI_motorRPM", "motorRpm"}},
+        std::unordered_map<std::string, std::string>{{"DI_torqueActual", "motorTorqueNm"}},
         "",
         true
     );
@@ -163,7 +208,7 @@ TEST_F(DBCTranslationServiceTest, LoadFromPath_ValidTeslaDBCFile_ReturnsTrue) {
         "Model3CAN.dbc",
         "Model3CAN.dbc",
         "Tesla Model 3",
-        std::unordered_map<std::string, std::string>{{"DI_motorRPM", "motorRpm"}},
+        std::unordered_map<std::string, std::string>{{"DI_torqueActual", "motorTorqueNm"}},
         "",
         true
     );

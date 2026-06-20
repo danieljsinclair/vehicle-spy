@@ -37,10 +37,13 @@ typedef NS_ENUM(NSInteger, ConnectionState) {
 
 // MARK: - Connection Control
 
+/// Start demo live mode
+- (void)startDemo;
+
 /// Start BLE live mode
 - (void)startBLE;
 
-/// Stop current connection (demo or BLE)
+/// Stop current connection (demo, BLE, or TCP)
 - (void)stop;
 
 /// Scan for BLE devices
@@ -48,11 +51,12 @@ typedef NS_ENUM(NSInteger, ConnectionState) {
 /// @return Array of discovered devices
 - (NSArray<VehicleSimDevice*> *)scanForDevices:(NSTimeInterval)timeout;
 
-/// Connect to a BLE device
-/// @param address Device address to connect to
-/// @param deviceName Display name of the BLE device
+/// Connect to a BLE device or TCP target (e.g. "tcp:192.168.4.1:3333")
+/// @param address Device address or TCP target to connect to
+/// @param deviceName Display name of the connected device
+/// @param vehicleType Vehicle type used for decoding
 /// @return YES if connection initiated successfully
-- (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName;
+- (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName vehicleType:(NSString *)vehicleType;
 
 /// Disconnect from current BLE device
 - (void)disconnect;

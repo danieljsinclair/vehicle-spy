@@ -4,6 +4,7 @@
 #include "vehicle-sim/telemetry/TraceLogger.h"
 #include "vehicle-sim/telemetry/RawTraceLogger.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
+#include "vehicle-sim/domain/Gear.h"
 
 using namespace vehicle_sim::telemetry;
 using namespace vehicle_sim::domain;
@@ -47,7 +48,7 @@ protected:
 TEST_F(TraceLoggerTest, WritesHeaderOnConstruction) {
     TraceLogger logger(testFile);
     std::string content = readFirstLine(testFile);
-    EXPECT_EQ(content, "timestamp_utc_ms,throttle_pct,speed_kmh,acceleration_g,brake_pct,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,gear_selector,motor_torque_nm");
+    EXPECT_EQ(content, "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_percent,acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count");
 }
 
 TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
@@ -64,7 +65,7 @@ TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     }
 
     ASSERT_EQ(lines.size(), 2); // header + 1 row
-    EXPECT_EQ(lines[1], "123456789,50.00,100.00,0.50,25.00,-12.50,3500.50,400.00,25.30,4097,150.00");
+    EXPECT_EQ(lines[1], "123456789,,100.00,50.00,25.00,0.50,-12.50,3500.50,400.00,25.30,150.00,D,10");
 }
 
 TEST_F(TraceLoggerTest, WritesMultipleRows) {
@@ -84,8 +85,8 @@ TEST_F(TraceLoggerTest, WritesMultipleRows) {
     }
 
     ASSERT_EQ(lines.size(), 3); // header + 2 rows
-    EXPECT_EQ(lines[1], "1000,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,-2,0.00"); // explicit zeros formatted
-    EXPECT_EQ(lines[2], "2000,100.00,200.00,2.00,80.00,,5000.00,380.50,25.20,0,300.00");
+    EXPECT_EQ(lines[1], "1000,,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,P,10"); // explicit zeros formatted
+    EXPECT_EQ(lines[2], "2000,,200.00,100.00,80.00,2.00,,5000.00,380.50,25.20,300.00,N,9");
 }
 
 TEST_F(TraceLoggerTest, LeavesEmptyCellsForNulloptValues) {
@@ -102,7 +103,7 @@ TEST_F(TraceLoggerTest, LeavesEmptyCellsForNulloptValues) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,,,,,,,,,,"); // timestamp + 10 empty cells
+    EXPECT_EQ(lines[1], "12345,,,,,,,,,,,,0"); // timestamp + empty vehicle_id + 10 empty signals + count 0
 }
 
 TEST_F(TraceLoggerTest, LeavesEmptyCellForNulloptGearSelector) {
@@ -119,9 +120,9 @@ TEST_F(TraceLoggerTest, LeavesEmptyCellForNulloptGearSelector) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    // Order: timestamp, throttle, speed, accel, brake, steering, motor_rpm, motor_hv_voltage, motor_hv_current, gear_selector, motor_torque
-    // Values: 12345, 50.00, 100.00, nullopt, nullopt, nullopt, 3500.00, nullopt, nullopt, nullopt, nullopt
-    EXPECT_EQ(lines[1], "12345,50.00,100.00,,,,3500.00,,,,");
+    // Order: timestamp, vehicle_id, speed, throttle, brake, accel, steering, motor_rpm, motor_hv_voltage, motor_hv_current, motor_torque, gear, count
+    // Values: 12345, (empty), 100.00, 50.00, nullopt, nullopt, nullopt, 3500.00, nullopt, nullopt, nullopt, nullopt, 3
+    EXPECT_EQ(lines[1], "12345,,100.00,50.00,,,,3500.00,,,,,3");
 }
 
 TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
@@ -138,7 +139,7 @@ TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,,50.00,-2.50,,-180.00,,,,-1,-500.00"); // nullopt values are empty, negative values preserved
+    EXPECT_EQ(lines[1], "12345,,50.00,,,-2.50,-180.00,,,,-500.00,R,5"); // nullopt values are empty, negative values preserved
 }
 
 TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
@@ -157,7 +158,7 @@ TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,50.00,100.00,0.50,25.00,,3500.00,,,4097,150.00");
+    EXPECT_EQ(lines[1], "12345,,100.00,50.00,25.00,0.50,,3500.00,,,150.00,D,7");
 }
 
 TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
@@ -175,7 +176,25 @@ TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "54321,75.00,150.00,1.00,50.00,,4000.00,,,4098,200.00");
+    EXPECT_EQ(lines[1], "54321,,150.00,75.00,50.00,1.00,,4000.00,,,200.00,D2,7");
+}
+
+TEST_F(TraceLoggerTest, WritesVehicleIdWhenProvided) {
+    TraceLogger logger(testFile, "tesla");
+    VehicleSignal signal(1000ULL, 50.0, 100.0, {}, {}, {}, {}, {}, {}, {}, Gear::AUTO_1);
+    logger(signal);
+
+    std::string content = readFileContent(testFile);
+    std::vector<std::string> lines;
+    std::stringstream ss(content);
+    std::string line;
+    while (std::getline(ss, line)) {
+        lines.push_back(line);
+    }
+
+    ASSERT_EQ(lines.size(), 2); // header + 1 row
+    // vehicle_id is the 2nd CSV field — the row must carry `,tesla,`.
+    EXPECT_NE(lines[1].find(",tesla,"), std::string::npos);
 }
 
 // ================================================

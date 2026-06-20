@@ -7,6 +7,8 @@
 
 namespace vehicle_sim::domain {
 
+class DBCTranslationService;
+
 /**
  * Factory for creating ISignalSource implementations
  *

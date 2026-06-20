@@ -34,7 +34,7 @@ void printTelemetryRow(std::ostream& out, const domain::VehicleSignal& signal, i
 
     auto gearVal = signal.getGearSelector();
     out << "Gear: " << std::setw(1)
-        << (gearVal ? (domain::Gear::label(*gearVal) ? domain::Gear::label(*gearVal) : "?") : "-") << "  ";
+        << (gearVal ? domain::Gear::labelOr(*gearVal, "?") : "-") << "  ";
     out << "Steer: " << std::setw(6) << std::fixed << std::setprecision(1)
         << signal.getSteeringAngleDeg().value_or(0.0) << "°  ";
     out << "Motor: " << std::setw(5) << std::fixed << std::setprecision(0)

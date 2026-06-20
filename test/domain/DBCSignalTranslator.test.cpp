@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <chrono>
 #include <memory>
 #include "vehicle-sim/domain/DBCSignalTranslator.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
@@ -164,6 +165,39 @@ TEST_F(DBCSignalTranslatorTest, GetSupportedCANIds) {
     EXPECT_EQ(ids.size(), 2);
     EXPECT_NE(std::find(ids.begin(), ids.end(), 264), ids.end());
     EXPECT_NE(std::find(ids.begin(), ids.end(), 280), ids.end());
+}
+
+TEST_F(DBCSignalTranslatorTest, TranslateStampsCaptureTimeWhenProvided) {
+    // Replay path: caller supplies the original capture timestamp (epoch ms).
+    // translate() must echo it into the VehicleSignal, not wall-clock now().
+    std::vector<std::uint8_t> frame = {
+        0x08, 0x01,  // CAN ID 264
+        0x00, 0x00, 0x00, 0x00, 0x00, 0xA8, 0x61, 0x00
+    };
+    constexpr std::uint64_t captureTs = 1781472526915ULL;
+
+    auto result = translator_->translate(frame, captureTs);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->getTimestampUtcMs(), captureTs);
+}
+
+TEST_F(DBCSignalTranslatorTest, TranslateFallsBackToWallClockWhenNoTimestamp) {
+    // Live/default path: no capture timestamp supplied -> wall-clock fallback.
+    std::vector<std::uint8_t> frame = {
+        0x08, 0x01,  // CAN ID 264
+        0x00, 0x00, 0x00, 0x00, 0x00, 0xA8, 0x61, 0x00
+    };
+    const auto before = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()
+        ).count()
+    );
+
+    auto result = translator_->translate(frame);
+
+    ASSERT_TRUE(result.has_value());
+    EXPECT_GE(result->getTimestampUtcMs(), before);
 }
 
 TEST_F(DBCSignalTranslatorTest, ResetClearsAccumulatedState) {

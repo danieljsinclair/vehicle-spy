@@ -56,11 +56,15 @@ public:
      * extracts the 8-byte data payload, stores it in accumulatedFrames_,
      * and delegates to VehicleSignalFactory.build().
      *
-     * @param rawData Raw CAN frame (minimum 10 bytes)
+     * @param rawData       Raw CAN frame (minimum 10 bytes)
+     * @param timestampUtcMs Optional original capture timestamp (epoch ms). When
+     *                       supplied it is stamped onto the emitted signal;
+     *                       otherwise wall-clock now() is used (live path).
      * @return VehicleSignal if frame is valid, nullopt otherwise
      */
     [[nodiscard]] std::optional<VehicleSignal> translate(
-        const std::vector<std::uint8_t>& rawData
+        const std::vector<std::uint8_t>& rawData,
+        std::optional<std::uint64_t> timestampUtcMs = std::nullopt
     ) const noexcept override;
 
     /**

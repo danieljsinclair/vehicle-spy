@@ -129,6 +129,18 @@ TEST(ELM327Transport, BuildCANMonitorInitSequence_HasExpectedDelays)
     }
 }
 
+TEST(ELM327Transport, BuildCANMonitorInitSequence_TerminatesWithMonitorAll)
+{
+    // The prompt-driven sequence must end in ATMA (monitor-all): that is the
+    // command that puts the adapter into the streaming monitor mode whose
+    // "<ID> <D0>..<D7>" output the Elm327Normaliser consumes. This pins the
+    // contract between the init sequencer (transport) and the line normaliser
+    // without requiring live hardware.
+    auto commands = ELM327Transport::buildCANMonitorInitSequence();
+    ASSERT_FALSE(commands.empty());
+    EXPECT_EQ(commands.back().command, "ATMA\r");
+}
+
 // ================================================
 // Test Suite 3: CAN Frame Filter (Optional Feature)
 // ================================================

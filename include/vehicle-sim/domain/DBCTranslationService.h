@@ -25,7 +25,19 @@ public:
     bool loadVehicle(const std::string& vehicleId, VehicleProtocol protocol);
     bool loadVehicleWithContent(const std::string& vehicleId, VehicleProtocol protocol, const std::string& dbcContent);
     bool loadVehicleFromPath(const std::string& vehicleId, VehicleProtocol protocol, const std::string& dbcAbsolutePath);
-    [[nodiscard]] std::optional<VehicleSignal> processFrame(const std::vector<std::uint8_t>& rawData) const noexcept;
+    /**
+     * Decode a single raw CAN/OBD2 frame into a VehicleSignal.
+     *
+     * @param rawData       Raw frame bytes (DBC: [canId lo, canId hi, d0..d7])
+     * @param timestampUtcMs Optional original capture timestamp (epoch ms). When
+     *                       supplied (replay path) it is stamped onto the emitted
+     *                       signal; when nullopt (live/BLE path) the translator
+     *                       falls back to wall-clock now().
+     */
+    [[nodiscard]] std::optional<VehicleSignal> processFrame(
+        const std::vector<std::uint8_t>& rawData,
+        std::optional<std::uint64_t> timestampUtcMs = std::nullopt
+    ) const noexcept;
     [[nodiscard]] VehicleProtocol getProtocol() const noexcept;
     [[nodiscard]] std::string getVehicleId() const noexcept;
     [[nodiscard]] bool isLoaded() const noexcept;

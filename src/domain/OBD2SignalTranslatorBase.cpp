@@ -30,7 +30,8 @@ bool OBD2SignalTranslatorBase::isValidPacket(
 }
 
 std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
-    const std::vector<std::uint8_t>& rawData
+    const std::vector<std::uint8_t>& rawData,
+    std::optional<std::uint64_t> timestampUtcMs
 ) const noexcept {
     if (!isValidPacket(rawData)) {
         return std::nullopt;
@@ -41,10 +42,14 @@ std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
 
     double value = extractPIDValue(pid, data);
 
+    // Stamp the emitted signal with the original capture time when supplied
+    // (replay path); otherwise fall back to wall-clock now() (live/BLE path).
+    const std::uint64_t effectiveTs = timestampUtcMs.value_or(getCurrentTimestamp());
+
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         updateSignalField(pid, value);
-        lastTimestamp_ = getCurrentTimestamp();
+        lastTimestamp_ = effectiveTs;
 
         return VehicleSignal(
             lastTimestamp_,

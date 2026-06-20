@@ -76,18 +76,36 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/SimulationSignalSource.cpp
     src/domain/IDBCContentProvider.cpp
     src/domain/VehicleConfigResolver.cpp
+    src/domain/CaptureLog.cpp
     src/domain/SignalSourceFactory.cpp
+    src/pipeline/FileTransport.cpp
+    src/pipeline/RawFrameNormaliser.cpp
+    src/pipeline/Elm327Normaliser.cpp
+    src/pipeline/CaptureNormaliser.cpp
+    src/pipeline/DemoTransport.cpp
+    src/pipeline/TCPTransport.cpp
+    src/pipeline/USBTransport.cpp
+    src/pipeline/PipelineFactory.cpp
+    src/pipeline/RawLogSink.cpp
+    src/pipeline/DecodedCsvSink.cpp
+    src/pipeline/ConsoleProgressReporter.cpp
+    src/pipeline/PipelineReplay.cpp
     src/cli/CliOptions.cpp
     src/cli/Orchestration.cpp
     src/cli/BLEConnectionManager.cpp
     src/cli/TelemetryRunner.cpp
     src/cli/BLERunContext.cpp
+    src/cli/ReplayRunContext.cpp
+    src/cli/LiveRunContext.cpp
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp
     src/boundary/OBD2Protocol.cpp
     src/telemetry/TraceLogger.cpp
     src/telemetry/RawTraceLogger.cpp
     src/telemetry/CsvStdoutSink.cpp
+    src/discovery/DiscoveryPacket.cpp
+    src/discovery/DiscoveryVerifier.cpp
+    src/discovery/UDPDiscovery.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
@@ -114,6 +132,14 @@ target_link_libraries(vehicle-sim-lib
     Threads::Threads
     CLI11::CLI11
 )
+
+# Link libsodium for discovery signature verification
+find_path(SODIUM_INCLUDE_DIR sodium.h PATHS /opt/homebrew/include)
+find_library(SODIUM_LIBRARY sodium PATHS /opt/homebrew/lib)
+if(SODIUM_LIBRARY AND SODIUM_INCLUDE_DIR)
+    target_include_directories(vehicle-sim-lib PRIVATE ${SODIUM_INCLUDE_DIR})
+    target_link_libraries(vehicle-sim-lib PRIVATE ${SODIUM_LIBRARY})
+endif()
 
 # Link CoreBluetooth and Foundation on Apple platforms
 if(APPLE)

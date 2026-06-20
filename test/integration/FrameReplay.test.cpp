@@ -53,12 +53,12 @@ TEST_F(FrameReplayTest, ReplaySyntheticCanFrames_MultiFrameAccumulation) {
     EXPECT_EQ(r1->getMotorRpm().value(), 2500.0);
 
     // Frame 2: CAN 280 with gear=4 (Drive) and throttle=50%
-    // DI_gear: startBit=12, 3 bits, gear=4 -> byte 1 = 0x40
+    // DI_gear: startBit=21, 3 bits (reverse-engineered), gear=4 -> byte 2 = 0x80
     // DI_accelPedalPos: startBit=32, 8-bit, Intel, scale=0.4, offset=0
     // 50.0 / 0.4 = 125 = 0x7D
     std::vector<std::uint8_t> frame280 = {
         0x18, 0x01,  // CAN ID 280
-        0x00, 0x40, 0x7D, 0x00, 0x00, 0x00, 0x00, 0x00  // gear=4, throttle=50%
+        0x00, 0x00, 0x80, 0x7D, 0x00, 0x00, 0x00, 0x00  // gear=4 (byte2), throttle=50% (byte3)
     };
     auto r2 = translator.translate(frame280);
     ASSERT_TRUE(r2.has_value());
@@ -105,20 +105,22 @@ TEST_F(FrameReplayTest, ReplaySyntheticCanFrames_DriveSequence) {
     DBCSignalTranslator translator(config, parseResult);
 
     // State 1: Park (gear=1)
+    // DI_gear: startBit=21, gear=1 -> byte 2 = 0x20 (bit 5 of byte 2)
     std::vector<std::uint8_t> framePark = {
         0x18, 0x01,  // CAN ID 280
-        0x00, 0x10,  // gear=1 (Park)
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        0x00, 0x00, 0x20,  // gear=1 (Park) at byte 2
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
     auto r1 = translator.translate(framePark);
     ASSERT_TRUE(r1.has_value());
     EXPECT_TRUE(r1->getGearSelector().has_value());
 
     // State 2: Drive (gear=4) with 0% throttle
+    // gear=4 -> byte 2 = 0x80 (bit 7 of byte 2)
     std::vector<std::uint8_t> frameDrive = {
         0x18, 0x01,  // CAN ID 280
-        0x00, 0x40,  // gear=4 (Drive)
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        0x00, 0x00, 0x80,  // gear=4 (Drive) at byte 2
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
     auto r2 = translator.translate(frameDrive);
     ASSERT_TRUE(r2.has_value());
@@ -126,11 +128,12 @@ TEST_F(FrameReplayTest, ReplaySyntheticCanFrames_DriveSequence) {
     EXPECT_FALSE(r2->getThrottlePercent().has_value());  // No accel pedal pos in this frame
 
     // State 3: Accelerating (gear=4, throttle=30%, speed increasing)
+    // gear=4 -> byte 2 = 0x80; DI_accelPedalPos at byte 3? No: DI_accelPedalPos isn't in this DBC.
+    // throttle=30% via DI_accelPedalPos startBit=32,8-bit Intel -> byte 4. 30/0.4=75=0x4B
     std::vector<std::uint8_t> frameAccel = {
         0x18, 0x01,  // CAN ID 280
-        0x00, 0x40,  // gear=4 (Drive)
-        0x4B, 0x00,  // throttle=30% (30/0.4=75=0x4B)
-        0x00, 0x00, 0x00, 0x00, 0x00
+        0x00, 0x00, 0x80,  // gear=4 (Drive) at byte 2
+        0x00, 0x4B, 0x00, 0x00, 0x00, 0x00  // throttle=30% via byte 4
     };
     auto r3 = translator.translate(frameAccel);
     ASSERT_TRUE(r3.has_value());

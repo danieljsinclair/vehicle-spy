@@ -115,12 +115,15 @@ bool DBCTranslationService::loadVehicleFromPath(const std::string& vehicleId, Ve
     return true;
 }
 
-std::optional<VehicleSignal> DBCTranslationService::processFrame(const std::vector<std::uint8_t>& rawData) const noexcept {
+std::optional<VehicleSignal> DBCTranslationService::processFrame(
+    const std::vector<std::uint8_t>& rawData,
+    std::optional<std::uint64_t> timestampUtcMs
+) const noexcept {
     if (!pImpl->loaded_ || !pImpl->translator_) {
         return std::nullopt;
     }
 
-    return pImpl->translator_->translate(rawData);
+    return pImpl->translator_->translate(rawData, timestampUtcMs);
 }
 
 VehicleProtocol DBCTranslationService::getProtocol() const noexcept {

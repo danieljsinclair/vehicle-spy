@@ -16,7 +16,9 @@ using testing::Field;
 
 class MockSignalTranslator : public ISignalTranslator {
 public:
-    MOCK_METHOD(std::optional<VehicleSignal>, translate, (const std::vector<std::uint8_t>& rawData), (const, noexcept, override));
+    MOCK_METHOD(std::optional<VehicleSignal>, translate,
+        (const std::vector<std::uint8_t>& rawData, std::optional<std::uint64_t> timestampUtcMs),
+        (const, noexcept, override));
     MOCK_METHOD(bool, isValidPacket, (const std::vector<std::uint8_t>& rawData), (const, noexcept, override));
 };
 
@@ -32,10 +34,10 @@ TEST(ISignalTranslatorTest, TranslateReturnsOptionalVehicleSignal)
     MockSignalTranslator mock;
     std::vector<std::uint8_t> validData = {0xAA, 0x55};
 
-    EXPECT_CALL(mock, translate(validData))
+    EXPECT_CALL(mock, translate(validData, _))
         .WillOnce(Return(VehicleSignal(12345, 50.0, 100.0, 0.5, 0.0)));
 
-    auto result = mock.translate(validData);
+    auto result = mock.translate(validData, std::nullopt);
 
     ASSERT_TRUE(result.has_value())
         << "Should return VehicleSignal for valid data";
@@ -51,10 +53,10 @@ TEST(ISignalTranslatorTest, TranslateReturnsEmptyOptionalOnFailure)
     MockSignalTranslator mock;
     std::vector<std::uint8_t> invalidData = {0xFF};
 
-    EXPECT_CALL(mock, translate(invalidData))
+    EXPECT_CALL(mock, translate(invalidData, _))
         .WillOnce(Return(std::nullopt));
 
-    auto result = mock.translate(invalidData);
+    auto result = mock.translate(invalidData, std::nullopt);
 
     ASSERT_FALSE(result.has_value())
         << "Should return nullopt for invalid data";

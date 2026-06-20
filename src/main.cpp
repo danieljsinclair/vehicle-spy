@@ -4,9 +4,13 @@
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/cli/TelemetryRunner.h"
 #include "vehicle-sim/cli/BLERunContext.h"
+#include "vehicle-sim/cli/ReplayRunContext.h"
+#include "vehicle-sim/cli/LiveRunContext.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
-#include "vehicle-sim/domain/SignalSourceFactory.h"
+#include "vehicle-sim/pipeline/PipelineFactory.h"
+#include "vehicle-sim/discovery/UDPDiscovery.h"
+#include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 namespace {
 
@@ -34,6 +38,118 @@ int runScan(vehicle_sim::BLEManager& bleManager) {
     std::cout << "\nFound " << devices.size() << " BLE device(s).\n";
     std::cout << "To connect: vehicle-sim --connect <address> --vehicle <type>\n\n";
     return 0;
+}
+
+// Run UDP discovery and list found ESP32s.
+int runDiscovery() {
+    using namespace vehicle_sim::discovery;
+
+    std::cout << "Listening for ESP32 discovery broadcasts on UDP port "
+              << DISCOVERY_PORT << "...\n";
+    std::cout << "Press Ctrl-C to stop.\n\n";
+
+    UDPDiscovery discovery;
+
+    // Try to load the OTA public key for signature verification
+    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey;
+    std::string keyPath = std::string(getenv("HOME") ? getenv("HOME") : "")
+                          + "/.vehicle-sim/ota/ed25519_pub.raw";
+    if (loadPublicKey(keyPath, publicKey)) {
+        discovery.setPublicKey(publicKey);
+        std::cout << "Loaded OTA public key from " << keyPath << "\n";
+        std::cout << "Signature verification: ENABLED\n\n";
+    } else {
+        std::cout << "No OTA public key found at " << keyPath << "\n";
+        std::cout << "Signature verification: DISABLED (accepting all broadcasts)\n\n";
+    }
+
+    if (!discovery.start()) {
+        std::cerr << "Failed to start UDP discovery listener on port "
+                  << DISCOVERY_PORT << "\n";
+        return 1;
+    }
+
+    // Poll for 30 seconds, showing results as they come
+    auto devices = discovery.poll(std::chrono::seconds(30));
+    discovery.stop();
+
+    if (devices.empty()) {
+        std::cout << "No ESP32 devices discovered.\n\n"
+                  << "Troubleshooting:\n"
+                  << "  1. Ensure the ESP32 is powered on and connected to WiFi\n"
+                  << "  2. Check that the ESP32 firmware includes UDP discovery\n"
+                  << "  3. Verify both devices are on the same subnet\n"
+                  << "  4. Check firewall rules for UDP port " << DISCOVERY_PORT << "\n";
+        return 1;
+    }
+
+    std::cout << "Discovered " << devices.size() << " ESP32 device(s):\n\n";
+    for (size_t i = 0; i < devices.size(); ++i) {
+        const auto& d = devices[i];
+        std::cout << "  [" << (i + 1) << "] " << d.address << "\n"
+                  << "      CAN:  " << d.tcpConnectionString() << "\n"
+                  << "      OTA:  tcp:" << d.address << ":" << d.otaPort << "\n";
+    }
+    std::cout << "\nConnect with: vehicle-sim --connect tcp:<ip>:<port> --vehicle <type>\n"
+              << "   or:        vehicle-sim --connect auto --vehicle <type>\n";
+
+    return 0;
+}
+
+// Auto-discover an ESP32 and return its TCP connection string.
+// Returns empty string if no device found.
+std::string autoDiscoverESP32(std::chrono::seconds timeout = std::chrono::seconds(10)) {
+    using namespace vehicle_sim::discovery;
+
+    UDPDiscovery discovery;
+
+    // Try to load the OTA public key
+    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey;
+    std::string keyPath = std::string(getenv("HOME") ? getenv("HOME") : "")
+                          + "/.vehicle-sim/ota/ed25519_pub.raw";
+    if (loadPublicKey(keyPath, publicKey)) {
+        discovery.setPublicKey(publicKey);
+    }
+
+    if (!discovery.start()) {
+        std::cerr << "Failed to start UDP discovery\n";
+        return {};
+    }
+
+    auto devices = discovery.poll(timeout);
+    discovery.stop();
+
+    if (devices.empty()) {
+        return {};
+    }
+
+    // Return the first discovered device's TCP connection string
+    return devices.front().tcpConnectionString();
+}
+
+// Derive the canonical --log <base> from whichever logging flag the caller
+// used. --log is already a base; --log-csv <file> contributes a base by
+// stripping a trailing .csv; --log-raw <file> contributes a base by stripping
+// a trailing .raw/.raw.txt. The first non-empty source wins so an explicit
+// --log is never overridden by a deprecated alias.
+std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
+    using namespace vehicle_sim::cli;
+    if (!opts.log_base.empty()) {
+        return opts.log_base;
+    }
+    auto stripSuffix = [](std::string s, const std::string& suffix) {
+        if (s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0) {
+            s.erase(s.size() - suffix.size());
+        }
+        return s;
+    };
+    if (!opts.log_csv.empty()) {
+        return stripSuffix(opts.log_csv, ".csv");
+    }
+    if (!opts.log_raw.empty()) {
+        return stripSuffix(stripSuffix(opts.log_raw, ".txt"), ".raw");
+    }
+    return {};
 }
 
 } // namespace
@@ -68,18 +184,54 @@ int main(int argc, char* argv[]) {
         return runScan(*bleManager);
     }
 
+    if (opts.discover_mode) {
+        return runDiscovery();
+    }
+
+    // Handle --connect auto: discover ESP32 and connect
+    if (opts.isAuto()) {
+        std::cout << "Auto-discovering ESP32...\n";
+        std::string target = autoDiscoverESP32();
+        if (target.empty()) {
+            std::cerr << "No ESP32 found on the network. Use --discover to scan manually.\n";
+            return 1;
+        }
+        std::cout << "Found ESP32 at " << target << "\n";
+        opts.connect_target = target;
+        // Fall through to the TCP handling below
+    }
+
+    if (opts.isFile()) {
+        // File replay through the canonical seam: FileTransport →
+        // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
+        // file is the raw source of truth, so we write ONLY <base>.csv.
+        std::string path = opts.connect_target.substr(5);
+        std::string logBase = resolveLogBase(opts);
+        return cli::ReplayRunContext::run(path, opts.vehicle_type,
+                                          logBase, translationService);
+    }
+
+    if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
+        // Live transports (demo/tcp/usb) through the canonical seam:
+        // (Demo|TCP|USB)Transport → Normaliser → DBCTranslationService →
+        // RawLogSink + DecodedCsvSink. The resolved --log base drives BOTH
+        // sinks for live (the raw stream is the source of truth). The adapter
+        // protocol default table + explicit override resolve here.
+        std::string logBase = resolveLogBase(opts);
+        std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
+            opts.connect_target, opts.adapter_protocol);
+        return cli::LiveRunContext::run(opts.connect_target, opts.vehicle_type,
+                                        protocol, logBase, translationService,
+                                        opts.stdout_csv);
+    }
+
     if (opts.isBLE()) {
         return cli::BLERunContext::run(opts.connect_target, opts.vehicle_type,
                                       translationService);
     }
 
-    auto vehicleContext = cli::resolveVehicleContext(opts.vehicle_type, translationService);
-
-    auto source = domain::SignalSourceFactory::create("demo",
-                                                       opts.update_interval_ms);
-    return cli::TelemetryRunner::run(std::move(source), vehicleContext.config,
-                                      opts.log_csv, opts.log_raw,
-                                      opts.update_interval_ms,
-                                      opts.stdout_csv,
-                                      opts.stdout_csv ? &std::cout : nullptr);
+    // No recognized connect target — validation should have caught this, but
+    // fail closed rather than falling through to a default.
+    std::cerr << "No telemetry source for connect target: " << opts.connect_target << "\n";
+    return 1;
 }

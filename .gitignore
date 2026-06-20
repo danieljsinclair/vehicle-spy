@@ -2,6 +2,7 @@
 build/
 build-ios/
 build-native/
+build-firmware/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
@@ -80,6 +81,13 @@ DEMO.md
 # Database
 *.db
 
+# Arduino CLI config (user-local)
+arduino-cli.yaml
+.firmware-ready
+
+# Per-user OTA signing keys (NEVER committed — public repo)
+.ota-keys/
+
 # built assets
 image/build/
 
@@ -103,3 +111,10 @@ temp/
 build-test/
 .claude/
 build-clean/
+
+# Generated capture output (large files, not source)
+captures/
+
+# Python cache
+__pycache__/
+firmware-ready

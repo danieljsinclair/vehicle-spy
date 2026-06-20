@@ -74,14 +74,19 @@ TEST_F(VehicleSignalFactoryTest, BuildFromMultipleCanFramesWithMultipleSignals) 
 
     std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
     frames[264] = {0x00, 0x00, 0x00, 0x00, 0x00, 0xA8, 0x61, 0x00};
-    frames[280] = {0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00};
+    // DI_accelPedalPos is Motorola 32|8@0+, scale 0.4. startBit 32 = byte 4
+    // physical bit 0 (MSB); raw 3 (-> 1.2%) encodes as byte4=0x00, byte5=0x06
+    // (cantools-verified).
+    frames[280] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00};
     frames[297] = {0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00};
 
     auto signal = factory.build(frames, 1234567890);
 
     EXPECT_EQ(signal.getMotorRpm().value(), 2500.0);
     EXPECT_NEAR(signal.getThrottlePercent().value(), 1.2, 0.01);
-    EXPECT_NEAR(signal.getSteeringAngleDeg().value(), -614.4, 0.01);
+    // SteeringAngle129 is Motorola 16|14@0+, scale 0.1 off -819.2. The byte
+    // pattern frame[2]=0x20 leaves raw 0 -> physical -819.2 (cantools-verified).
+    EXPECT_NEAR(signal.getSteeringAngleDeg().value(), -819.2, 0.01);
 }
 
 TEST_F(VehicleSignalFactoryTest, UnmappedSignalsDefaultToNullopt) {
@@ -120,14 +125,17 @@ TEST_F(VehicleSignalFactoryTest, FullIntegrationRealTeslaDBCPatterns) {
 
     std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
     frames[264] = {0x00, 0x00, 0x00, 0x00, 0x00, 0xA8, 0x61, 0x00};
-    frames[280] = {0x00, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00};
+    // DI_accelPedalPos Motorola 32|8@0+ scale 0.4. raw 100 (-> 40.0%) encodes
+    // as byte4=0x00, byte5=0xC8 (cantools-verified).
+    frames[280] = {0x00, 0x00, 0x00, 0x00, 0x00, 0xC8, 0x00, 0x00};
     frames[297] = {0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00};
 
     auto signal = factory.build(frames, 1234567890);
 
     EXPECT_EQ(signal.getMotorRpm().value(), 2500.0);
     EXPECT_NEAR(signal.getThrottlePercent().value(), 40.0, 0.01);
-    EXPECT_NEAR(signal.getSteeringAngleDeg().value(), -614.4, 0.01);
+    // SteeringAngle129 Motorola 16|14@0+; frame[2]=0x20 -> raw 0 -> -819.2.
+    EXPECT_NEAR(signal.getSteeringAngleDeg().value(), -819.2, 0.01);
 }
 
 TEST_F(VehicleSignalFactoryTest, BuildFromEmptyFramesReturnsDefaultSignal) {
