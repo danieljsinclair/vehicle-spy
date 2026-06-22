@@ -60,6 +60,8 @@ public:
 private:
     bool sendAll(int fd, const std::string& data) noexcept;
     bool sendElm327Init(int fd) noexcept;
+    bool connectAndAuth();
+    void closeConnection() noexcept;
 
     std::string host_;
     int port_;
@@ -67,6 +69,10 @@ private:
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;
+    // Reconnect state
+    int retryCount_ = 0;
+    static constexpr int MAX_RETRIES = 0x7FFFFFFF;  // ~2 billion — effectively unlimited
+    static constexpr int RETRY_DELAY_MS = 1000;
     // Accumulated bytes not yet terminated by a line ending.
     std::string pending_;
 };

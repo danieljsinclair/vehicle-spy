@@ -1,7 +1,7 @@
 .PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
-	        install-deps ios-icons app-icons scrub update-dbc \
+	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
-	        capture-ota capture-tcp ota-keys flash-ota flash-tcp reboot-over-usb reboot-over-tcp
+	        capture-ota capture-tcp ota-keys flash-ota flash-tcp reboot-over-usb reboot-over-tcp check-esp32
 
 # Device ID (first connected/available device, excluding unavailable)
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/unavailable/ && match($$0, /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/) { print substr($$0, RSTART, RLENGTH); exit }')
@@ -11,7 +11,9 @@ FIRMWARE_DIR  = firmware/can-bridge
 FIRMWARE_BUILD = build-firmware
 FQBN          = esp32:esp32:esp32:PartitionScheme=min_spiffs
 ESP32_PORT    ?= $(shell ls /dev/cu.usbserial* /dev/cu.SLAB_USBtoUART /dev/cu.wchusbserial* 2>/dev/null | head -1)
-ESPTOOL       ?= $(firstword $(wildcard $(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool))
+ESPTOOL_DIR   ?= $(shell python3 -c 'import pathlib; roots=sorted(pathlib.Path.home().glob("Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool"), key=lambda p: tuple(int(x) if x.isdigit() else x for x in p.parent.name.split("."))); print(roots[-1].parent if roots else "")')
+ESPTOOL       ?= $(ESPTOOL_DIR)/esptool
+ESPTOOL_MERGE_CMD ?= $(shell if [ -x "$(ESPTOOL)" ] && "$(ESPTOOL)" --help 2>/dev/null | grep -q 'merge-bin'; then printf 'merge-bin'; else printf 'merge_bin'; fi)
 ESP32_HOST    ?= $(OTA_HOST)
 
          RED=\033[0;31m
@@ -184,30 +186,37 @@ install-deps:
 #       Falls back to AP mode (ESP32-CAN / cancan12) if not set
 #
 
+# WiFi credentials: read from environment, or prompt at build time.
+# Never use a silent default — the wrong SSID means the ESP32 won't connect.
 ESP32_WIFI_SSID ?=
 ESP32_WIFI_PASSWORD ?=
+FIRMWARE_EXTRA_CFLAGS ?=
 
 # WiFi credentials as compiler defines (only in memory, never on disk)
 ifneq ($(ESP32_WIFI_SSID),)
-FIRMWARE_CFLAGS = -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASSWORD=$(ESP32_WIFI_PASSWORD)
+FIRMWARE_CFLAGS += -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASSWORD=$(ESP32_WIFI_PASSWORD)
+else
+$(warning ESP32_WIFI_SSID is not set. Firmware will use AP mode (ESP32-CAN).)
+$(warning Set: export ESP32_WIFI_SSID=manht2 ESP32_WIFI_PASSWORD=yourpassword)
+endif
+ifneq ($(ESP32_OTA_USER),)
 endif
 
-# Force a rebuild whenever WiFi env vars change. Without this, arduino-cli can
-# reuse an old binary and silently keep the previous SSID/password baked in.
+# Force a rebuild whenever env vars change. Without this, arduino-cli can
+# reuse an old binary and silently keep the previous credentials baked in.
 FIRMWARE_WIFI_SENTINEL = $(FIRMWARE_BUILD)/.wifi-env
 
-$(FIRMWARE_WIFI_SENTINEL):
+firmware-wifi-sentinel:
 	@mkdir -p $(FIRMWARE_BUILD)
-	@printf '%s\n%s\n' "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASSWORD)" > "$@"
 
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(wildcard $(FIRMWARE_DIR)/*.ino) $(FIRMWARE_WIFI_SENTINEL)
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: firmware-wifi-sentinel $(wildcard $(FIRMWARE_DIR)/*.ino)
 	@mkdir -p $(FIRMWARE_BUILD)
 	@echo "--- Building ESP32 firmware ---"
 	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) \
-		--build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS)"
+		--build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS)"
 	@$(ESPTOOL) \
 		--chip esp32 \
-		merge-bin --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin \
+		$(ESPTOOL_MERGE_CMD) --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin \
 		--target-offset 0x0 \
 		0x1000 $(FIRMWARE_BUILD)/can-bridge.ino.bootloader.bin \
 		0x8000 $(FIRMWARE_BUILD)/can-bridge.ino.partitions.bin \
@@ -218,6 +227,8 @@ firmware: $(FIRMWARE_BUILD)/can-bridge.ino.bin
 flash flash-usb firmware-flash: firmware native test
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make flash ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
 	@echo "Flashing via $(ESP32_PORT)..."
+	@echo "ESP32_WIFI_SSID=$(ESP32_WIFI_SSID)"
+	@echo "ESP32_WIFI_PASSWORD=********"
 	@$(ESPTOOL) \
 		--port "$(ESP32_PORT)" --baud 460800 \
 		write_flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
@@ -243,14 +254,26 @@ reboot-over-usb:
 	@echo "Starting serial logger, then resetting $(ESP32_PORT) via esptool USB control reset..."
 	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool --esptool "$(ESPTOOL)"
 
-# -- ESP32 OTA (signed-image, over-WiFi) -----------------------------------
+# -- ESP32 OTA (signed-image, Ed25519ph, over-HTTP) -------------------------
 #
-# make ota-keys    -- generate your per-user ed25519 signing keypair + bake
+# make ota-keys    -- generate a per-user Ed25519 OTA signing keypair + bake
 #                    the public key into firmware/can-bridge/OtaPublicKey.h
 # make flash-ota   -- sign the built firmware + push it to an ESP32 over WiFi
 #
+# The firmware is signed with Ed25519ph (RFC 8032 pre-hashed) before push.
+# The ESP32 verifies the signature BEFORE committing. Tampered images are
+# rejected and the running firmware is untouched.
+#
+# SECURITY NOTES
+#   - Firmware authenticity: Ed25519ph signing prevents tampered images.
+#   - Transport: HTTP (not HTTPS). Auth credentials and firmware travel in
+#     cleartext on the wire. This is acceptable on a trusted local network
+#     but does NOT provide transport-layer confidentiality. For untrusted
+#     networks, use a VPN or consider HTTPS with a self-signed cert.
+#     No defaults — fail-closed (empty creds = OTA always rejected).
+#
 # ESP32_HOST the ESP32 IP/hostname to push to (REQUIRED for flash-ota / capture-ota)
-# OTA_PORT   the OTA listener port (3334, distinct from the 3333 CAN bridge)
+# OTA_PORT   the HTTP OTA port (80)
 # OTA_KEYS_DIR  per-user signing keypair dir (NEVER committed)
 #
 # NOTE: the FIRST time you change your keypair, the new public key must be
@@ -258,8 +281,70 @@ reboot-over-usb:
 #       updates can go over WiFi via flash-ota.
 
 OTA_HOST     ?=
-OTA_PORT     ?= 3334
+OTA_PORT     ?= 80
 OTA_KEYS_DIR ?= $(HOME)/.vehicle-sim/ota
+
+# OTA credentials: read from environment, or from ~/.zshenv if available.
+# Never hardcoded — always injected at build time.
+ESP32_OTA_USER ?= $(shell grep -m1 'ESP32_OTA_USER=' $(HOME)/.zshenv 2>/dev/null | cut -d= -f2)
+
+# ── ESP32 reachability check ──────────────────────────────────────────────
+# Usage: make check-esp32 ESP32_HOST=192.168.68.60
+# Pings the device and reports whether it's reachable on the network.
+check-esp32:
+	@if [ -z "$(ESP32_HOST)" ] && [ -z "$(OTA_HOST)" ]; then \
+		echo "Error: ESP32_HOST or OTA_HOST is required." >&2; \
+		echo "  make check-esp32 ESP32_HOST=<esp32-ip>" >&2; \
+		exit 1; \
+	fi
+	$(eval _IP := $(if $(ESP32_HOST),$(ESP32_HOST),$(OTA_HOST)))
+	@echo "Pinging $(_IP)..."
+	@ping -c 3 -t 2 "$(_IP)" 2>/dev/null | tail -1
+	@echo ""
+	@echo "ARP table:"
+	@arp -an | grep "$(_IP)" 2>/dev/null || echo "  (no ARP entry)"
+	@echo ""
+	@echo "TCP port 3333:"
+	@nc -z -w 2 "$(_IP)" 3333 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
+	@echo ""
+	@echo "TCP port 80:"
+	@nc -z -w 2 "$(_IP)" 80 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
+ESP32_OTA_PASS ?= $(shell grep -m1 'ESP32_OTA_PASS=' $(HOME)/.zshenv 2>/dev/null | cut -d= -f2)
+
+# If still not set, generate random credentials and offer to persist them.
+ifeq ($(ESP32_OTA_USER),)
+_OTA_GEN_USER := ota-$(shell openssl rand -hex 4)
+_OTA_GEN_PASS := $(shell openssl rand -hex 16)
+endif
+
+ota-creds:
+	@mkdir -p $(HOME)/.vehicle-sim
+		_O_USER=ota-$$(openssl rand -hex 4); \
+		_O_PASS=$$(openssl rand -hex 16); \
+		echo ""; \
+		echo "--- Generated OTA credentials ---"; \
+		echo "    ESP32_OTA_USER=$$_O_USER"; \
+		echo "    ESP32_OTA_PASS=$$_O_PASS"; \
+		echo ""; \
+		printf "Persist to ~/.zshenv so this machine always uses these? [Y/n] "; \
+		read _answer; \
+		if [ "$$_answer" != "n" ] && [ "$$_answer" != "N" ]; then \
+			echo "export ESP32_OTA_USER=$$_O_USER" >> /tmp/.zshenv.tmp; \
+			echo "export ESP32_OTA_PASS=$$_O_PASS" >> /tmp/.zshenv.tmp; \
+			mv /tmp/.zshenv.tmp $(HOME)/.zshenv; \
+			echo "    Written to ~/.zshenv"; \
+			echo "    Run 'source ~/.zshenv' or open a new terminal to use them."; \
+		else \
+			echo "    Set manually:"; \
+			echo "    export ESP32_OTA_USER=$$_O_USER"; \
+			echo "    export ESP32_OTA_PASS=$$_O_PASS"; \
+		fi; \
+		echo ""; \
+	else \
+		echo "OTA credentials already set."; \
+		echo "    ESP32_OTA_USER=$(ESP32_OTA_USER)"; \
+		echo "    (pass hidden)"; \
+	fi
 
 ota-keys:
 	@echo "--- Generating per-user OTA signing keypair ---"
@@ -272,6 +357,7 @@ ota-keys:
 
 discover: native
 	@./build-native/vehicle-sim --discover
+
 
 flash-ota flash-tcp: firmware native
 	@if [ -z "$(ESP32_HOST)" ]; then \
@@ -287,14 +373,24 @@ flash-ota flash-tcp: firmware native
 	fi
 	@echo "--- Signing firmware ---"
 	@scripts/ota-sign.sh $(FIRMWARE_BUILD)/can-bridge.ino.bin --keys-dir "$(OTA_KEYS_DIR)"
-	@echo "--- Pushing OTA image to $(ESP32_HOST):$(OTA_PORT) ---"
-	@scripts/ota-flash.sh "$(ESP32_HOST)" $(FIRMWARE_BUILD)/can-bridge.ino.bin \
-		--sig $(FIRMWARE_BUILD)/can-bridge.ino.bin.sig --port $(OTA_PORT)
+	@echo "--- Pushing signed OTA image to $(ESP32_HOST):$(OTA_PORT) ---"
+	@python3 scripts/ota-push.py $(FIRMWARE_BUILD)/can-bridge.ino.bin \
+		--host "$(ESP32_HOST)" --port "$(OTA_PORT)" \
+		--keys-dir "$(OTA_KEYS_DIR)"
 
 reboot-over-tcp:
-	@if [ -z "$(ESP32_HOST)" ]; then echo "Error: ESP32_HOST is required. Usage: make reboot-over-tcp ESP32_HOST=<esp32-ip>" >&2; exit 1; fi
-	@echo "Soft rebooting $(ESP32_HOST) via TCP command..."
-	@printf 'ATZ\rATE0\rATREBOOT\r' | nc -w 2 "$(ESP32_HOST)" 3333 || true
+	@if [ -z "$(ESP32_HOST)" ] && [ -z "$(OTA_HOST)" ]; then \
+		echo "Error: ESP32_HOST or OTA_HOST is required." >&2; \
+		echo "  make reboot-over-tcp ESP32_HOST=<esp32-ip>" >&2; \
+		exit 1; \
+	fi
+	$(eval ESP32_HOST := $(if $(ESP32_HOST),$(ESP32_HOST),$(OTA_HOST)))
+	@echo "Rebooting $(ESP32_HOST):3333..."
+	@printf 'AUTH vehicle-sim-2026\rATZ\rATE0\rATREBOOT\r' | nc -w 5 "$(ESP32_HOST)" 3333 2>/dev/null; \
+	_rc=$$?; \
+	if [ $$_rc -ne 0 ]; then \
+		echo "WARN: no response (device may have already rebooted)"; \
+	fi
 
 # -- Capture (native USB) --------------------------------------------------
 #
@@ -338,7 +434,12 @@ capture capture-usb: native
 # Requires ESP32_HOST to be set (the ESP32 IP/hostname on the local network).
 
 capture-ota capture-tcp: native
-	@if [ -z "$(ESP32_HOST)" ]; then echo "Error: ESP32_HOST is required. Usage: make capture-ota ESP32_HOST=<esp32-ip>" >&2; exit 1; fi
+	@if [ -z "$(ESP32_HOST)" ] && [ -z "$(OTA_HOST)" ]; then \
+		echo "Error: ESP32_HOST or OTA_HOST is required." >&2; \
+		echo "  make capture-tcp ESP32_HOST=<esp32-ip>" >&2; \
+		exit 1; \
+	fi
+	$(eval ESP32_HOST := $(if $(ESP32_HOST),$(ESP32_HOST),$(OTA_HOST)))
 	@mkdir -p $(CAPDIR)
 	@ts=$$(date +%Y-%m-%d-%H%M%S); \
 		if [ -n "$(CAPFILE)" ]; then name="$(CAPFILE)_$$ts"; else name="capture_$$ts"; fi; \
@@ -366,7 +467,7 @@ help:
 	@echo "  capture          - Log CAN frames via USB (aliases: capture-usb)"
 	@echo "  capture-ota      - Log CAN frames over WiFi TCP (alias: capture-tcp; requires ESP32_HOST=<esp32-ip>)"
 	@echo "  firmware-port    - Show detected ESP32 serial port"
-	@echo "  ota-keys         - Generate per-user ed25519 OTA signing keypair + bake public key"
+	@echo "  ota-keys         - Generate per-user Ed25519 OTA signing keypair + bake public key"
 	@echo "  ios              - Build iOS app for simulator (Debug)"
 	@echo "  ios-signed       - Build signed Release for physical device"
 	@echo "  deploy           - Deploy to connected iPhone (aliases: deploy-app, deploy-ios)"

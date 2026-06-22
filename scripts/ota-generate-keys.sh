@@ -99,4 +99,15 @@ done
 } > "${HEADER}"
 
 echo "Baked public key ->    ${HEADER}"
+
+# Warn if the generated file is not tracked by git (expected after first
+# clone — the placeholder in git is intentionally invalid all-zeros).
+if git ls-files --error-unmatch "${HEADER}" >/dev/null 2>&1; then
+    echo "The public key file is tracked by git. Commit the updated key."
+else
+    echo "NOTE: ${HEADER} is gitignored. This is expected — the file contains"
+    echo "      your per-user public key and should NOT be committed to a"
+    echo "      shared repository. Do not add it to git."
+fi
+
 echo "Done. Flash the firmware (make flash) to install this key on a device."

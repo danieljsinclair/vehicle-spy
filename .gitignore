@@ -85,8 +85,12 @@ DEMO.md
 arduino-cli.yaml
 .firmware-ready
 
-# Per-user OTA signing keys (NEVER committed — public repo)
+# Per-user OTA signing keys and generated artifacts (NEVER committed)
 .ota-keys/
+firmware/can-bridge/OtaPublicKey.h
+*.sig
+*.pem
+ed25519*
 
 # built assets
 image/build/

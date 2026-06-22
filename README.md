@@ -75,17 +75,23 @@ If you get no CAN data, swap TX and RX — naming conventions on transceiver bre
    ```
    If not set, the ESP32 creates its own AP: `ESP32-CAN` / `cancan12`
 
-4. **Build, test, and flash:**
+4. **Generate OTA credentials** (first time only):
+   ```bash
+   make ota-creds
+   ```
+   Generates random credentials and offers to persist them to `~/.zshenv`. These are used for both OTA firmware uploads and TCP authentication.
+
+5. **Build, test, and flash:**
    ```bash
    make flash
    ```
    This runs all tests, builds the firmware, and flashes it to the ESP32. It no longer auto-opens a monitor — run `make monitor` to see boot output (including the IP address), or `make capture` to capture the ESP32 serial stream **verbatim** to a timestamped notepad file (`timestamp_ms,raw_line` — every firmware line kept as-is, status text and hex-escaped noise bytes included; decode happens offline).
 
-5. **Test the TCP connection:**
+6. **Test the TCP connection:**
    ```bash
    nc <esp32-ip-address> 3333
    ```
-   Type `ATZ` and press Enter — should respond `ELM327 v2.3` with a `>` prompt.
+   First line must be the AUTH token (printed by `make ota-creds`). Then type `ATZ` — should respond `ELM327 v2.3` with a `>` prompt.
 
 ### ESP32 Makefile Targets
 
@@ -126,6 +132,43 @@ vehicle-sim also supports BLE OBD2 adapters (ELM327-based) as an alternative to 
 --log-csv <file>   Log CSV telemetry to file
 --log-raw <file>   Log raw hex data to file
 --help             show help
+```
+
+## Environment Variables
+
+All credentials and configuration are read from environment variables — nothing is hardcoded in the repo. Add to `~/.zshrc` or `~/.zshenv` for persistence.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ESP32_WIFI_SSID` | For `make flash` | WiFi network name. If unset, ESP32 creates its own AP (`ESP32-CAN` / `cancan12`) |
+| `ESP32_WIFI_PASSWORD` | For `make flash` | WiFi password |
+| `ESP32_HOST` | For `make flash-ota`, `capture-tcp`, `reboot-over-tcp`, `check-esp32` | ESP32 IP address. Also accepts `OTA_HOST` as alias |
+| `OTA_PORT` | No (default: 80) | HTTP port for OTA |
+| `OTA_KEYS_DIR` | No (default: `~/.vehicle-sim/ota`) | Directory containing Ed25519 signing keypair |
+| `ESP32_PORT` | For `make flash` | Serial port path (e.g. `/dev/cu.usbserial-210`). Auto-detected if unset |
+| `CAPTURE_VEHICLE` | No (default: `tesla`) | Vehicle type for capture |
+| `CAPFILE` | No | Tag name for capture files |
+
+**First-time setup:**
+```bash
+make ota-creds          # Generates random OTA_USER/OTA_PASS, offers to persist to ~/.zshenv
+source ~/.zshenv        # Load credentials into current shell
+make flash              # Flash ESP32 over USB (needs ESP32_PORT or auto-detect)
+```
+
+**Daily workflow:**
+```bash
+make check-esp32 ESP32_HOST=192.168.68.60   # Ping device, check TCP ports
+make flash-ota ESP32_HOST=192.168.68.60     # Sign + push firmware over WiFi
+make capture-tcp ESP32_HOST=192.168.68.60   # Capture CAN frames over TCP
+make reboot-over-tcp ESP32_HOST=192.168.68.60  # Reboot ESP32 over TCP
+```
+
+**Troubleshooting:**
+```bash
+make check-esp32 ESP32_HOST=192.168.68.60   # Is the device on the network?
+# If unreachable: device may be in AP mode (ESP32-CAN) or bootlooping
+# Re-flash over USB: make flash ESP32_WIFI_SSID=manht2 ESP32_WIFI_PASSWORD=...
 ```
 
 ## iOS App

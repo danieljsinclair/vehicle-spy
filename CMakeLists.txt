@@ -85,6 +85,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/DemoTransport.cpp
     src/pipeline/TCPTransport.cpp
     src/pipeline/USBTransport.cpp
+    src/pipeline/OTAHttpTransport.cpp
     src/pipeline/PipelineFactory.cpp
     src/pipeline/RawLogSink.cpp
     src/pipeline/DecodedCsvSink.cpp
@@ -105,6 +106,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/discovery/DiscoveryPacket.cpp
     src/discovery/DiscoveryVerifier.cpp
     src/discovery/UDPDiscovery.cpp
+    src/pipeline/SecureTcpTransport.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds

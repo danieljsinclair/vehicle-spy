@@ -138,36 +138,43 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
     return true;
 }
 
-bool TCPTransport::open() {
-    if (opened_) {
-        return fd_ >= 0 && !exhausted_;
-    }
-    opened_ = true;
-
+bool TCPTransport::connectAndAuth() {
+    closeConnection();
     fd_ = connectToHost(host_, port_);
-    if (fd_ < 0) {
-        std::cerr << "[tcp] Failed to connect to " << host_ << ":" << port_ << "\n";
-        return false;
-    }
+    if (fd_ < 0) return false;
 
-    // Backstop recv timeout so a stuck peer can't wedge us even if select()
-    // reports readable spuriously.
     struct timeval rtv{};
     rtv.tv_sec = SOCKET_RCVTIMEO_MS / 1000;
     rtv.tv_usec = (SOCKET_RCVTIMEO_MS % 1000) * 1000;
     (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
 
-    // RAW (default): no init — read the stream verbatim. ELM327: send the
-    // CAN-monitor init sequence before reading. The ELM327 normaliser is a
-    // later task; today elm327 only changes the handshake.
-    if (adapterProtocol_ == "elm327") {
-        if (!sendElm327Init(fd_)) {
-            close(fd_);
-            fd_ = -1;
-            return false;
-        }
+    // Authenticate: send token, expect "OK" back
+    std::string authCmd = "AUTH vehicle-sim-2026\r";
+    if (!sendAll(fd_, authCmd)) { closeConnection(); return false; }
+    char authResp[64] = {};
+    int n = recv(fd_, authResp, sizeof(authResp) - 1, 0);
+    if (n <= 0 || std::string(authResp, n).find("OK") == std::string::npos) {
+        closeConnection(); return false;
     }
 
+    if (adapterProtocol_ == "elm327") {
+        if (!sendElm327Init(fd_)) { closeConnection(); return false; }
+    }
+    return true;
+}
+
+void TCPTransport::closeConnection() noexcept {
+    if (fd_ >= 0) { close(fd_); fd_ = -1; }
+}
+
+bool TCPTransport::open() {
+    if (opened_) return fd_ >= 0 && !exhausted_;
+    opened_ = true;
+    retryCount_ = 0;
+    if (!connectAndAuth()) {
+        std::cerr << "[tcp] Failed to connect to " << host_ << ":" << port_ << "\n";
+        return false;
+    }
     std::cout << "[tcp] Monitoring " << host_ << ":" << port_ << "\n";
     pending_.reserve(256);
     return true;
@@ -227,9 +234,33 @@ std::optional<std::string> TCPTransport::nextLine() {
         char buffer[256];
         ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
         if (n <= 0) {
-            // Peer closed (0) or error (<0): clean disconnect → EOF.
-            exhausted_ = true;
-            return std::nullopt;
+            // Peer closed (0) or error (<0): attempt reconnect with backoff.
+            std::cerr << "[tcp] disconnected from " << host_ << ":" << port_
+                      << " — reconnecting...\n";
+            closeConnection();
+            while (retryCount_ < MAX_RETRIES) {
+                if (g_stopRequested.load()) {
+                    std::cerr << "[tcp] reconnect cancelled (stop requested)\n";
+                    exhausted_ = true;
+                    return std::nullopt;
+                }
+                retryCount_++;
+                std::cerr << "[tcp] reconnect attempt " << retryCount_ << " in "
+                          << RETRY_DELAY_MS << "ms\n";
+                std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_DELAY_MS));
+                if (connectAndAuth()) {
+                    std::cerr << "[tcp] reconnected to " << host_ << ":" << port_ << "\n";
+                    retryCount_ = 0;
+                    break;
+                }
+            }
+            if (fd_ < 0) {
+                std::cerr << "[tcp] reconnect failed after " << MAX_RETRIES
+                          << " attempts — giving up\n";
+                exhausted_ = true;
+                return std::nullopt;
+            }
+            continue;  // reconnected — resume reading
         }
 
         pending_.append(buffer, static_cast<std::size_t>(n));

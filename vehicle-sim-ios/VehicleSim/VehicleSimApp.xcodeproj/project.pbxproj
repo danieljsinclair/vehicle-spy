@@ -14,7 +14,7 @@
 		B1000040 /* DiscoveryPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000040 /* DiscoveryPacket.swift */; };
 		B1000041 /* DiscoveryVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000041 /* DiscoveryVerifier.swift */; };
 		B1000042 /* ESP32DiscoveryListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000042 /* ESP32DiscoveryListener.swift */; };
-		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
+		B1000043 /* WiFiSecurityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000043 /* WiFiSecurityPolicy.swift */; };		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
 		B1000011 /* TelemetryFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000011 /* TelemetryFormatter.cpp */; };
 		B1000012 /* BLEManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000012 /* BLEManager.cpp */; };
 		B1000013 /* BLEManagerBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000013 /* BLEManagerBase.cpp */; };
@@ -51,7 +51,20 @@
 		B1A00018 /* BLESignalSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A00018 /* BLESignalSource.h */; };
 		B1A00019 /* BLESignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00019 /* BLESignalSource.cpp */; };
 		B1A0001A /* IOSDBCContentProvider.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001A /* IOSDBCContentProvider.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
-		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
+		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
+		B1P00002 /* RawFrameNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00002 /* RawFrameNormaliser.cpp */; };
+		B1P00003 /* PipelineReplay.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00003 /* PipelineReplay.cpp */; };
+		B1P00004 /* PipelineFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00004 /* PipelineFactory.cpp */; };
+		B1P00005 /* CaptureNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00005 /* CaptureNormaliser.cpp */; };
+		B1P00006 /* DecodedCsvSink.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00006 /* DecodedCsvSink.cpp */; };
+		B1P00007 /* RawLogSink.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00007 /* RawLogSink.cpp */; };
+		B1P00008 /* ConsoleProgressReporter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00008 /* ConsoleProgressReporter.cpp */; };
+		B1P00009 /* DemoTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00009 /* DemoTransport.cpp */; };
+		B1P00010 /* FileTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00010 /* FileTransport.cpp */; };
+		B1P00011 /* CaptureLog.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00011 /* CaptureLog.cpp */; };
+		B1P00012 /* USBTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00012 /* USBTransport.cpp */; };
+		B1P00013 /* Elm327Normaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00013 /* Elm327Normaliser.cpp */; };
+		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
 		B1D00002 /* vw_mlb.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00002 /* vw_mlb.dbc */; };
 /* End PBXBuildFile section */
 
@@ -66,6 +79,7 @@
 		B2000040 /* DiscoveryPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryPacket.swift; sourceTree = "<group>"; };
 		B2000041 /* DiscoveryVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryVerifier.swift; sourceTree = "<group>"; };
 		B2000042 /* ESP32DiscoveryListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32DiscoveryListener.swift; sourceTree = "<group>"; };
+		B2000043 /* WiFiSecurityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSecurityPolicy.swift; sourceTree = "<group>"; };
 		B2000010 /* VehicleSim.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSim.cpp; path = ../../src/VehicleSim.cpp; sourceTree = "<group>"; };
 		B2000011 /* TelemetryFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetryFormatter.cpp; path = ../../src/presentation/TelemetryFormatter.cpp; sourceTree = "<group>"; };
 		B2000012 /* BLEManager.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManager.cpp; path = ../../src/ble/BLEManager.cpp; sourceTree = "<group>"; };
@@ -106,7 +120,20 @@
 		B2A0001A /* IOSDBCContentProvider.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = IOSDBCContentProvider.mm; path = ../../src/domain/IOSDBCContentProvider.mm; sourceTree = "<group>"; };
 		B2D00001 /* Model3CAN.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = Model3CAN.dbc; path = ../../resources/dbc/Model3CAN.dbc; sourceTree = "<group>"; };
 		B2D00002 /* vw_mlb.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = vw_mlb.dbc; path = ../../resources/dbc/vw_mlb.dbc; sourceTree = "<group>"; };
-/* End PBXFileReference section */
+		B2P00001 /* TCPTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TCPTransport.cpp; path = ../../src/pipeline/TCPTransport.cpp; sourceTree = "<group>"; };
+		B2P00002 /* RawFrameNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawFrameNormaliser.cpp; path = ../../src/pipeline/RawFrameNormaliser.cpp; sourceTree = "<group>"; };
+		B2P00003 /* PipelineReplay.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineReplay.cpp; path = ../../src/pipeline/PipelineReplay.cpp; sourceTree = "<group>"; };
+		B2P00004 /* PipelineFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineFactory.cpp; path = ../../src/pipeline/PipelineFactory.cpp; sourceTree = "<group>"; };
+		B2P00005 /* CaptureNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CaptureNormaliser.cpp; path = ../../src/pipeline/CaptureNormaliser.cpp; sourceTree = "<group>"; };
+		B2P00006 /* DecodedCsvSink.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DecodedCsvSink.cpp; path = ../../src/pipeline/DecodedCsvSink.cpp; sourceTree = "<group>"; };
+		B2P00007 /* RawLogSink.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawLogSink.cpp; path = ../../src/pipeline/RawLogSink.cpp; sourceTree = "<group>"; };
+		B2P00008 /* ConsoleProgressReporter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ConsoleProgressReporter.cpp; path = ../../src/pipeline/ConsoleProgressReporter.cpp; sourceTree = "<group>"; };
+		B2P00009 /* DemoTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DemoTransport.cpp; path = ../../src/pipeline/DemoTransport.cpp; sourceTree = "<group>"; };
+		B2P00010 /* FileTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = FileTransport.cpp; path = ../../src/pipeline/FileTransport.cpp; sourceTree = "<group>"; };
+		B2P00011 /* CaptureLog.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CaptureLog.cpp; path = ../../src/domain/CaptureLog.cpp; sourceTree = "<group>"; };
+		B2P00012 /* USBTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = USBTransport.cpp; path = ../../src/pipeline/USBTransport.cpp; sourceTree = "<group>"; };
+		B2P00013 /* Elm327Normaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Normaliser.cpp; path = ../../src/pipeline/Elm327Normaliser.cpp; sourceTree = "<group>"; };
+		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B3000001 /* Frameworks */ = {
@@ -149,7 +176,7 @@
 				B2000040 /* DiscoveryPacket.swift */,
 				B2000041 /* DiscoveryVerifier.swift */,
 				B2000042 /* ESP32DiscoveryListener.swift */,
-				B2000004 /* VehicleSimWrapper.h */,
+				B2000043 /* WiFiSecurityPolicy.swift */,				B2000004 /* VehicleSimWrapper.h */,
 				B2000005 /* VehicleSimWrapper.mm */,
 				B2000007 /* VehicleSim-Bridging-Header.h */,
 				B2000006 /* Info.plist */,
@@ -202,7 +229,20 @@
 				B2A00018 /* BLESignalSource.h */,
 				B2A00019 /* BLESignalSource.cpp */,
 				B2A0001A /* IOSDBCContentProvider.mm */,
-			);
+				B2P00001 /* TCPTransport.cpp */,
+				B2P00002 /* RawFrameNormaliser.cpp */,
+				B2P00003 /* PipelineReplay.cpp */,
+				B2P00004 /* PipelineFactory.cpp */,
+				B2P00005 /* CaptureNormaliser.cpp */,
+				B2P00006 /* DecodedCsvSink.cpp */,
+				B2P00007 /* RawLogSink.cpp */,
+				B2P00008 /* ConsoleProgressReporter.cpp */,
+				B2P00009 /* DemoTransport.cpp */,
+				B2P00010 /* FileTransport.cpp */,
+				B2P00011 /* CaptureLog.cpp */,
+				B2P00012 /* USBTransport.cpp */,
+				B2P00013 /* Elm327Normaliser.cpp */,
+				B2P00014 /* TraceLogger.cpp */,			);
 			name = "Core (C++)";
 			sourceTree = "<group>";
 		};
@@ -292,7 +332,7 @@
 				B1000040 /* DiscoveryPacket.swift in Sources */,
 				B1000041 /* DiscoveryVerifier.swift in Sources */,
 				B1000042 /* ESP32DiscoveryListener.swift in Sources */,
-				B1000005 /* VehicleSimWrapper.mm in Sources */,
+				B1000043 /* WiFiSecurityPolicy.swift in Sources */,				B1000005 /* VehicleSimWrapper.mm in Sources */,
 				B1000010 /* VehicleSim.cpp in Sources */,
 				B1000011 /* TelemetryFormatter.cpp in Sources */,
 				B1000012 /* BLEManager.cpp in Sources */,
@@ -328,7 +368,20 @@
 				B1A00018 /* BLESignalSource.h in Sources */,
 				B1A00019 /* BLESignalSource.cpp in Sources */,
 				B1A0001A /* IOSDBCContentProvider.mm in Sources */,
-			);
+				B1P00001 /* TCPTransport.cpp in Sources */,
+				B1P00002 /* RawFrameNormaliser.cpp in Sources */,
+				B1P00003 /* PipelineReplay.cpp in Sources */,
+				B1P00004 /* PipelineFactory.cpp in Sources */,
+				B1P00005 /* CaptureNormaliser.cpp in Sources */,
+				B1P00006 /* DecodedCsvSink.cpp in Sources */,
+				B1P00007 /* RawLogSink.cpp in Sources */,
+				B1P00008 /* ConsoleProgressReporter.cpp in Sources */,
+				B1P00009 /* DemoTransport.cpp in Sources */,
+				B1P00010 /* FileTransport.cpp in Sources */,
+				B1P00011 /* CaptureLog.cpp in Sources */,
+				B1P00012 /* USBTransport.cpp in Sources */,
+				B1P00013 /* Elm327Normaliser.cpp in Sources */,
+				B1P00014 /* TraceLogger.cpp in Sources */,			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

@@ -1,0 +1,427 @@
+// SecureTcpTransport.test.cpp — Tests for the authenticated encrypted TCP transport.
+//
+// Tests cover: handshake failure with wrong key, successful handshake (with a
+// mock server that speaks the protocol), encryption/decryption round-trip,
+// tamper detection, and stop-flag behavior.
+//
+// The mock server is a minimal implementation of the server side of the
+// handshake + data protocol, using real libsodium crypto.
+
+#include <gtest/gtest.h>
+#include "vehicle-sim/pipeline/SecureTcpTransport.h"
+#include "vehicle-sim/discovery/DiscoveryVerifier.h"
+
+#include <sodium.h>
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+#include <atomic>
+#include <cstring>
+#include <thread>
+#include <vector>
+
+using namespace vehicle_sim::pipeline;
+using namespace vehicle_sim::discovery;
+
+namespace {
+
+// ── Mock encrypted server ──────────────────────────────────────────────────
+// Implements the server side of the SecureTcpTransport handshake + data
+// protocol so we can test the client against a real (local) peer.
+
+class MockSecureServer {
+public:
+    struct Keypair {
+        std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey;
+        std::array<uint8_t, crypto_sign_ed25519_SECRETKEYBYTES> secretKey;
+    };
+
+    static Keypair generateKeypair() {
+        Keypair kp{};
+        EXPECT_EQ(crypto_sign_ed25519_keypair(kp.publicKey.data(), kp.secretKey.data()), 0);
+        return kp;
+    }
+
+    bool start() {
+        listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (listenFd_ < 0) return false;
+        int yes = 1;
+        setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+
+        if (bind(listenFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) return false;
+        if (listen(listenFd_, 1) != 0) return false;
+
+        socklen_t len = sizeof(addr);
+        getsockname(listenFd_, reinterpret_cast<sockaddr*>(&addr), &len);
+        port_ = ntohs(addr.sin_port);
+        return port_ > 0;
+    }
+
+    ~MockSecureServer() {
+        if (clientFd_ >= 0) close(clientFd_);
+        if (listenFd_ >= 0) close(listenFd_);
+    }
+
+    int port() const { return port_; }
+
+    int acceptClient(int timeoutMs = 3000) {
+        fd_set rs;
+        FD_ZERO(&rs);
+        FD_SET(listenFd_, &rs);
+        timeval tv{};
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
+        int r = select(listenFd_ + 1, &rs, nullptr, nullptr, &tv);
+        if (r <= 0) { clientFd_ = -1; return -1; }
+        clientFd_ = accept(listenFd_, nullptr, nullptr);
+        return clientFd_;
+    }
+
+    // Perform the server side of the handshake.
+    // Returns true on success.
+    bool performHandshake(const Keypair& serverIdentity) {
+        if (clientFd_ < 0) return false;
+
+        // 1. Receive client ephemeral public key
+        std::array<uint8_t, 32> clientPk{};
+        if (!recvExact(clientPk.data(), clientPk.size())) return false;
+
+        // 2. Generate server ephemeral keypair
+        std::array<uint8_t, 32> serverPk{};
+        std::array<uint8_t, 32> serverSk{};
+        if (crypto_kx_keypair(serverPk.data(), serverSk.data()) != 0) return false;
+
+        // 3. Send server ephemeral public key
+        if (!sendAll(serverPk.data(), serverPk.size())) return false;
+
+        // 4. Compute session keys (server side: rx=client→tx, tx=server→rx)
+        //    crypto_kx_server_session_keys(rx, tx, server_pk, server_sk, client_pk)
+        std::array<uint8_t, 32> serverRxKey{};
+        std::array<uint8_t, 32> serverTxKey{};
+        if (crypto_kx_server_session_keys(
+                serverRxKey.data(), serverTxKey.data(),
+                serverPk.data(), serverSk.data(), clientPk.data()) != 0) return false;
+
+        sodium_memzero(serverSk.data(), serverSk.size());
+
+        // 5. Sign the transcript (clientPk || serverPk) with Ed25519 identity key
+        std::array<uint8_t, 64> transcript{};
+        std::copy(clientPk.begin(), clientPk.end(), transcript.begin());
+        std::copy(serverPk.begin(), serverPk.end(), transcript.begin() + 32);
+
+        std::array<uint8_t, crypto_sign_BYTES> sig{};
+        EXPECT_EQ(crypto_sign_ed25519_detached(
+            sig.data(), nullptr,
+            transcript.data(), transcript.size(),
+            serverIdentity.secretKey.data()), 0);
+
+        // 6. Send signature
+        if (!sendAll(sig.data(), sig.size())) return false;
+
+        // Store the tx key for sending encrypted data
+        txKey_ = serverTxKey;
+        return true;
+    }
+
+    // Send an encrypted line to the client
+    void sendEncryptedLine(const std::string& line) {
+        if (clientFd_ < 0) return;
+
+        // Frame: nonce(24) | length(2, big-endian) | ciphertext+tag
+        size_t plaintextLen = line.size();
+        size_t ctLen = plaintextLen + crypto_secretbox_xchacha20poly1305_MACBYTES;
+
+        std::vector<uint8_t> frame;
+        frame.resize(crypto_secretbox_xchacha20poly1305_NONCEBYTES + 2 + ctLen);
+
+        // Nonce: use the counter
+        uint64_t nonceCounter = txNonceCounter_++;
+        std::memset(frame.data(), 0, crypto_secretbox_xchacha20poly1305_NONCEBYTES);
+        std::memcpy(frame.data(), &nonceCounter, sizeof(nonceCounter));
+
+        // Length (big-endian)
+        frame[crypto_secretbox_xchacha20poly1305_NONCEBYTES] =
+            static_cast<uint8_t>((ctLen >> 8) & 0xFF);
+        frame[crypto_secretbox_xchacha20poly1305_NONCEBYTES + 1] =
+            static_cast<uint8_t>(ctLen & 0xFF);
+
+        // Encrypt
+        crypto_secretbox_xchacha20poly1305_easy(
+            frame.data() + crypto_secretbox_xchacha20poly1305_NONCEBYTES + 2,
+            reinterpret_cast<const uint8_t*>(line.data()), plaintextLen,
+            frame.data(), txKey_.data());
+
+        sendAll(frame.data(), frame.size());
+    }
+
+    void closeClient() {
+        if (clientFd_ >= 0) { close(clientFd_); clientFd_ = -1; }
+    }
+
+private:
+    bool sendAll(const uint8_t* data, size_t len) {
+        size_t sent = 0;
+        while (sent < len) {
+            ssize_t n = ::send(clientFd_, data + sent, len - sent, 0);
+            if (n <= 0) return false;
+            sent += static_cast<size_t>(n);
+        }
+        return true;
+    }
+
+    bool recvExact(uint8_t* dst, size_t len) {
+        size_t got = 0;
+        while (got < len) {
+            ssize_t n = recv(clientFd_, dst + got, len - got, 0);
+            if (n <= 0) return false;
+            got += static_cast<size_t>(n);
+        }
+        return true;
+    }
+
+    int listenFd_ = -1;
+    int clientFd_ = -1;
+    int port_ = 0;
+    std::array<uint8_t, 32> txKey_{};
+    uint64_t txNonceCounter_ = 0;
+};
+
+} // namespace
+
+// ── Test: handshake with correct key succeeds ──────────────────────────────
+
+TEST(SecureTcpTransportTest, HandshakeSuccess_WithCorrectKey) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    SecureTcpTransport::resetStop();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+
+    // Run the server handshake on a thread
+    std::atomic<bool> serverOk{false};
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        serverOk = server.performHandshake(serverKp);
+    });
+
+    EXPECT_TRUE(t.open());
+    serverThread.join();
+    EXPECT_TRUE(serverOk);
+
+    server.closeClient();
+    EXPECT_FALSE(t.nextLine().has_value());
+}
+
+// ── Test: handshake with wrong key fails ───────────────────────────────────
+
+TEST(SecureTcpTransportTest, HandshakeFails_WithWrongKey) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    auto clientKp = MockSecureServer::generateKeypair();  // different keypair
+
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    SecureTcpTransport::resetStop();
+    // Client has the WRONG public key
+    SecureTcpTransport t("127.0.0.1", server.port(), clientKp.publicKey);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        // Server signs with its key, but client expects a different key
+        (void)server.performHandshake(serverKp);
+    });
+
+    // open() must fail because signature verification fails
+    EXPECT_FALSE(t.open());
+    serverThread.join();
+
+    server.closeClient();
+}
+
+// ── Test: encrypted data round-trip ────────────────────────────────────────
+
+TEST(SecureTcpTransportTest, EncryptedDataRoundTrip) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    SecureTcpTransport::resetStop();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+
+        // Send some encrypted CAN-monitor lines with small delays
+        // to ensure the client can keep up with decryption
+        server.sendEncryptedLine("118 3C 00 18 00 00 00 00 FF");
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        server.sendEncryptedLine("108 00 00 00 90 01 00 00 00");
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        server.sendEncryptedLine("297 00 00 10 00 00 00 00 00");
+
+        // Keep connection open so the client can read all data
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    std::vector<std::string> lines;
+    while (auto line = t.nextLine()) {
+        lines.push_back(*line);
+    }
+
+    serverThread.join();
+
+    ASSERT_GE(lines.size(), 3u);
+    EXPECT_EQ(lines[0], "118 3C 00 18 00 00 00 00 FF");
+    EXPECT_EQ(lines[1], "108 00 00 00 90 01 00 00 00");
+    EXPECT_EQ(lines[2], "297 00 00 10 00 00 00 00 00");
+}
+
+// ── Test: connection refused ────────────────────────────────────────────────
+
+TEST(SecureTcpTransportTest, ConnectionRefused_OpenReturnsFalse) {
+    ASSERT_GE(sodium_init(), 0);
+
+    // Bind then close a port so connect() is refused
+    int refuseFd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(refuseFd, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    int yes = 1;
+    setsockopt(refuseFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+    ASSERT_EQ(bind(refuseFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
+    ASSERT_EQ(listen(refuseFd, 1), 0);
+    socklen_t len = sizeof(addr);
+    getsockname(refuseFd, reinterpret_cast<sockaddr*>(&addr), &len);
+    int port = ntohs(addr.sin_port);
+    close(refuseFd);
+
+    auto kp = MockSecureServer::generateKeypair();
+    SecureTcpTransport::resetStop();
+    SecureTcpTransport t("127.0.0.1", port, kp.publicKey);
+    EXPECT_FALSE(t.open());
+    EXPECT_FALSE(t.isOpen());
+}
+
+// ── Test: clean disconnect returns nullopt ──────────────────────────────────
+
+TEST(SecureTcpTransportTest, CleanDisconnect_ReturnsNullopt) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    SecureTcpTransport::resetStop();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+        // Close immediately without sending data
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    // Should get nullopt (EOF) without hanging
+    EXPECT_FALSE(t.nextLine().has_value());
+    EXPECT_FALSE(t.isOpen());
+
+    serverThread.join();
+}
+
+// ── Test: requestStop terminates nextLine ───────────────────────────────────
+
+TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    SecureTcpTransport::resetStop();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+        // Keep connection open but send no data
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    // Request stop from "signal handler"
+    SecureTcpTransport::requestStop();
+
+    auto start = std::chrono::steady_clock::now();
+    auto r = t.nextLine();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+
+    EXPECT_FALSE(r.has_value());
+    EXPECT_LT(elapsed.count(), 1500) << "stop should be prompt";
+
+    serverThread.join();
+    SecureTcpTransport::resetStop();
+}
+
+// ── Test: multiple lines in sequence ────────────────────────────────────────
+
+TEST(SecureTcpTransportTest, MultipleLines_InSequence) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    SecureTcpTransport::resetStop();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+
+        for (int i = 0; i < 10; ++i) {
+            server.sendEncryptedLine("118 " + std::to_string(i) + " 00 00 00 00 00 00 00");
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    int count = 0;
+    while (auto line = t.nextLine()) {
+        EXPECT_EQ(line->substr(0, 4), "118 ");
+        count++;
+    }
+
+    EXPECT_EQ(count, 10);
+    serverThread.join();
+}

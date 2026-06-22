@@ -48,12 +48,15 @@ add_executable(vehicle-sim-tests
     pipeline/DemoTransport.test.cpp
     pipeline/TCPTransport.test.cpp
     pipeline/USBTransport.test.cpp
+    pipeline/OTAHttpTransport.test.cpp
     pipeline/PipelineFactory.test.cpp
     pipeline/FileTransport.test.cpp
     pipeline/Sinks.test.cpp
     pipeline/PipelineReplay.test.cpp
     pipeline/ConsoleProgressReporter.test.cpp
     discovery/DiscoveryPacket.test.cpp
+    discovery/DiscoveryVerifier.test.cpp
+    pipeline/SecureTcpTransport.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests
@@ -61,6 +64,7 @@ target_link_libraries(vehicle-sim-tests
     GTest::gtest_main
     GTest::gmock
     vehicle-sim-lib
+    ${SODIUM_LIBRARY}
 )
 
 target_compile_options(vehicle-sim-tests PRIVATE -Wall -Wextra -Werror -Wno-unused-parameter)
@@ -77,6 +81,7 @@ target_include_directories(vehicle-sim-tests
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${SODIUM_INCLUDE_DIR}
 )
 
 add_test(NAME vehicle-sim-tests COMMAND vehicle-sim-tests WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
