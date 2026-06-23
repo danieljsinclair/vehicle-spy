@@ -119,14 +119,16 @@ void SecureTcpTransport::resetStop() noexcept {
 SecureTcpTransport::SecureTcpTransport(
     std::string host,
     int port,
-    std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey)
+    std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey,
+    std::shared_ptr<ITransportOutput> output)
     : host_(std::move(host))
     , port_(port)
     , publicKey_(publicKey)
+    , output_(std::move(output))
 {
     // Ensure libsodium is initialised (idempotent).
     if (sodium_init() < 0) {
-        std::cerr << "[secure-tcp] FATAL: sodium_init failed\n";
+        output_->err("[secure-tcp] FATAL: sodium_init failed");
     }
 }
 
@@ -139,7 +141,7 @@ SecureTcpTransport::~SecureTcpTransport() {
 bool SecureTcpTransport::connectTcp() {
     fd_ = connectToHost(host_, port_);
     if (fd_ < 0) {
-        std::cerr << "[secure-tcp] Failed to connect to " << host_ << ":" << port_ << "\n";
+        output_->err("[secure-tcp] Failed to connect to " + host_ + ":" + std::to_string(port_));
         return false;
     }
 
@@ -157,20 +159,20 @@ bool SecureTcpTransport::performHandshake() {
     std::array<uint8_t, X25519_PUBLIC_KEY_LEN> clientPk;
     std::array<uint8_t, X25519_SECRET_KEY_LEN> clientSk;
     if (crypto_kx_keypair(clientPk.data(), clientSk.data()) != 0) {
-        std::cerr << "[secure-tcp] crypto_kx_keypair failed\n";
+        output_->err("[secure-tcp] crypto_kx_keypair failed");
         return false;
     }
 
     // -- Step 2: Send client ephemeral public key --
     if (!doSendAll(fd_, clientPk.data(), clientPk.size())) {
-        std::cerr << "[secure-tcp] Failed to send client public key\n";
+        output_->err("[secure-tcp] Failed to send client public key");
         return false;
     }
 
     // -- Step 3: Receive server ephemeral public key --
     std::array<uint8_t, X25519_PUBLIC_KEY_LEN> serverPk;
     if (!doRecvExact(fd_, serverPk.data(), serverPk.size(), HANDSHAKE_TIMEOUT_MS)) {
-        std::cerr << "[secure-tcp] Failed to receive server public key\n";
+        output_->err("[secure-tcp] Failed to receive server public key");
         return false;
     }
 
@@ -178,7 +180,7 @@ bool SecureTcpTransport::performHandshake() {
     if (crypto_kx_client_session_keys(
             rxKey_.data(), txKey_.data(),
             clientPk.data(), clientSk.data(), serverPk.data()) != 0) {
-        std::cerr << "[secure-tcp] crypto_kx_client_session_keys failed\n";
+        output_->err("[secure-tcp] crypto_kx_client_session_keys failed");
         return false;
     }
 
@@ -188,7 +190,7 @@ bool SecureTcpTransport::performHandshake() {
     // -- Step 5: Receive server's Ed25519 signature on the transcript --
     std::array<uint8_t, crypto_sign_BYTES> serverSig;
     if (!doRecvExact(fd_, serverSig.data(), serverSig.size(), HANDSHAKE_TIMEOUT_MS)) {
-        std::cerr << "[secure-tcp] Failed to receive server signature\n";
+        output_->err("[secure-tcp] Failed to receive server signature");
         return false;
     }
 
@@ -201,11 +203,11 @@ bool SecureTcpTransport::performHandshake() {
             serverSig.data(),
             transcript.data(), transcript.size(),
             publicKey_.data()) != 0) {
-        std::cerr << "[secure-tcp] Handshake signature verification FAILED - peer is untrusted\n";
+        output_->err("[secure-tcp] Handshake signature verification FAILED - peer is untrusted");
         return false;
     }
 
-    std::cout << "[secure-tcp] Handshake complete - peer authenticated\n";
+    output_->out("[secure-tcp] Handshake complete - peer authenticated");
     return true;
 }
 
@@ -258,7 +260,7 @@ std::optional<std::string> SecureTcpTransport::readEncryptedLine() {
                 std::vector<unsigned char> plaintext(frameLen);
                 if (crypto_secretbox_xchacha20poly1305_open_easy(
                         plaintext.data(), ct, frameLen, nonce.data(), rxKey_.data()) != 0) {
-                    std::cerr << "[secure-tcp] Frame decryption failed (tampered?)\n";
+                    output_->err("[secure-tcp] Frame decryption failed (tampered?)");
                     exhausted_ = true;
                     return std::nullopt;
                 }
@@ -302,7 +304,7 @@ std::optional<std::string> SecureTcpTransport::readEncryptedLine() {
         rawBuffer_.append(buffer, static_cast<size_t>(n));
 
         if (rawBuffer_.size() > MAX_LINE_LEN + SECRETBOX_NONCEBYTES + 2 + SECRETBOX_MACBYTES) {
-            std::cerr << "[secure-tcp] Raw buffer overflow - disconnecting\n";
+            output_->err("[secure-tcp] Raw buffer overflow - disconnecting");
             exhausted_ = true;
             return std::nullopt;
         }

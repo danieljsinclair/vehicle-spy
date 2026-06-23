@@ -32,11 +32,13 @@
 #define VEHICLE_SIM_PIPELINE_SECURE_TCP_TRANSPORT_H
 
 #include "vehicle-sim/pipeline/ITransport.h"
+#include "vehicle-sim/pipeline/ITransportOutput.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -54,7 +56,8 @@ public:
     SecureTcpTransport(
         std::string host,
         int port,
-        std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey
+        std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey,
+        std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>()
     );
 
     ~SecureTcpTransport() override;
@@ -96,6 +99,7 @@ private:
     std::string host_;
     int port_;
     std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey_;
+    std::shared_ptr<ITransportOutput> output_;
 
     int fd_ = -1;
     bool opened_ = false;

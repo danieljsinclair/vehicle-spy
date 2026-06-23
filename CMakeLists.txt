@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(vehicle-sim VERSION 1.0.0 LANGUAGES C CXX)
 
+# Ensure subprojects (e.g. FetchContent) inherit our minimum version,
+# silencing "CMake Deprecation Warning: Compatibility with CMake < 3.10
+# will be removed" from dependencies that declare their own lower bound.
+cmake_policy(SET CMP0077 NEW)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -161,6 +166,10 @@ target_include_directories(vehicle-sim-lib
 )
 
 target_compile_options(vehicle-sim-lib PRIVATE -g -Wall -Wextra -Werror)
+
+# TCP auth token — single credential for TCP commands and OTA
+# Can be overridden at build time: -DTCP_AUTH_TOKEN=\"my-token\"
+target_compile_definitions(vehicle-sim-lib PRIVATE TCP_AUTH_TOKEN=\"vehicle-sim-2026\")
 
 # Main executable (CLI — not built for iOS)
 if(NOT BUILD_IOS)

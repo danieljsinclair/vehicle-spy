@@ -52,6 +52,7 @@
 		B1A00019 /* BLESignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00019 /* BLESignalSource.cpp */; };
 		B1A0001A /* IOSDBCContentProvider.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001A /* IOSDBCContentProvider.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
+		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };
 		B1P00002 /* RawFrameNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00002 /* RawFrameNormaliser.cpp */; };
 		B1P00003 /* PipelineReplay.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00003 /* PipelineReplay.cpp */; };
 		B1P00004 /* PipelineFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00004 /* PipelineFactory.cpp */; };
@@ -64,8 +65,7 @@
 		B1P00011 /* CaptureLog.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00011 /* CaptureLog.cpp */; };
 		B1P00012 /* USBTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00012 /* USBTransport.cpp */; };
 		B1P00013 /* Elm327Normaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00013 /* Elm327Normaliser.cpp */; };
-		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };
-		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
+		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
 		B1D00002 /* vw_mlb.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00002 /* vw_mlb.dbc */; };
 /* End PBXBuildFile section */
 
@@ -122,6 +122,7 @@
 		B2D00001 /* Model3CAN.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = Model3CAN.dbc; path = ../../resources/dbc/Model3CAN.dbc; sourceTree = "<group>"; };
 		B2D00002 /* vw_mlb.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = vw_mlb.dbc; path = ../../resources/dbc/vw_mlb.dbc; sourceTree = "<group>"; };
 		B2P00001 /* TCPTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TCPTransport.cpp; path = ../../src/pipeline/TCPTransport.cpp; sourceTree = "<group>"; };
+		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
 		B2P00002 /* RawFrameNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawFrameNormaliser.cpp; path = ../../src/pipeline/RawFrameNormaliser.cpp; sourceTree = "<group>"; };
 		B2P00003 /* PipelineReplay.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineReplay.cpp; path = ../../src/pipeline/PipelineReplay.cpp; sourceTree = "<group>"; };
 		B2P00004 /* PipelineFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineFactory.cpp; path = ../../src/pipeline/PipelineFactory.cpp; sourceTree = "<group>"; };
@@ -134,9 +135,7 @@
 		B2P00011 /* CaptureLog.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CaptureLog.cpp; path = ../../src/domain/CaptureLog.cpp; sourceTree = "<group>"; };
 		B2P00012 /* USBTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = USBTransport.cpp; path = ../../src/pipeline/USBTransport.cpp; sourceTree = "<group>"; };
 		B2P00013 /* Elm327Normaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Normaliser.cpp; path = ../../src/pipeline/Elm327Normaliser.cpp; sourceTree = "<group>"; };
-		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };
-		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
-/* End PBXFileReference section */
+		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B3000001 /* Frameworks */ = {

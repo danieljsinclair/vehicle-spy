@@ -5,7 +5,7 @@
 // Wiring:   GPIO 22 → transceiver TX, GPIO 21 → transceiver RX
 //           Transceiver CANH → OBD2 pin 6, CANL → OBD2 pin 14
 //
-// WiFi:     Station mode if ESP32_WIFI_SSID/ESP32_WIFI_PASSWORD defined at build time
+// WiFi:     Station mode if ESP32_WIFI_SSID/ESP32_WIFI_PASS defined at build time
 //           Falls back to AP mode (ESP32-CAN / cancan12) if not set
 // TCP:      port 3333 (CAN bridge)
 // OTA:      port 80 (HTTPUpdateServer — standard Arduino OTA)
@@ -13,6 +13,17 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+
+// TCP auth token — injected at build time, never stored on disk
+#ifndef TCP_AUTH_TOKEN
+#define TCP_AUTH_TOKEN "vehicle-sim-2026"
+#endif
+
+// ANSI color codes for serial output
+static const char* const RED   = "\033[0;31m";
+static const char* const GREEN = "\033[0;32m";
+static const char* const NC    = "\033[0m";
+
 #include <driver/twai.h>
 
 #ifndef VEHICLE_SIM_ENABLE_OTA_SERVER
@@ -38,12 +49,12 @@ void otaLoop();
 #endif
 
 // WiFi credentials injected via compiler defines (never stored on disk)
-// Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASSWORD=Y
+// Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASS=Y
 #ifdef ESP32_WIFI_SSID
 #define _STRINGIZE(x) #x
 #define STRINGIZE(x) _STRINGIZE(x)
 static constexpr const char* WIFI_SSID = STRINGIZE(ESP32_WIFI_SSID);
-static constexpr const char* WIFI_PASSWORD = STRINGIZE(ESP32_WIFI_PASSWORD);
+static constexpr const char* WIFI_PASSWORD = STRINGIZE(ESP32_WIFI_PASS);
 #else
 static constexpr const char* WIFI_SSID = nullptr;
 static constexpr const char* WIFI_PASSWORD = nullptr;
@@ -225,9 +236,9 @@ static String ipStr;
 
 static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
     lastDisconnectReason = static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
-    Serial.printf("\nWiFi disconnected: reason=%d %s\n",
-                  static_cast<int>(lastDisconnectReason),
-                  WiFi.disconnectReasonName(lastDisconnectReason));
+    Serial.printf("\n%sWiFi disconnected: reason=%d %s%s\n", RED,
+                    static_cast<int>(lastDisconnectReason),
+                    WiFi.disconnectReasonName(lastDisconnectReason), NC);
 }
 
 void setup() {
@@ -262,16 +273,15 @@ void setup() {
         int retries = 0;
         while (WiFi.status() != WL_CONNECTED && retries < 120) {
             delay(500);
-            Serial.printf(" status=%d", static_cast<int>(WiFi.status()));
+            Serial.printf("%s status=%d%s", GREEN, static_cast<int>(WiFi.status()), NC);
             retries++;
         }
         if (WiFi.status() == WL_CONNECTED) {
             ipStr = WiFi.localIP().toString();
-            Serial.printf("\nConnected. IP: %s\n", ipStr.c_str());
+            Serial.printf("%s\nConnected. IP: %s\n%s", GREEN, ipStr.c_str(), NC);
         } else {
             const wl_status_t status = WiFi.status();
-            Serial.printf("\nWiFi failed: status=%d, falling back to AP mode\n",
-                          static_cast<int>(status));
+            Serial.printf("%s\nWiFi failed: status=%d, falling back to AP mode\n%s", RED, static_cast<int>(status), NC);
             WiFi.mode(WIFI_AP);
             WiFi.softAP(AP_SSID, AP_PASS);
             ipStr = WiFi.softAPIP().toString();
@@ -343,7 +353,7 @@ void loop() {
             client.setTimeout(5000);
             String firstLine = client.readStringUntil('\r');
             firstLine.trim();
-            if (firstLine != "AUTH vehicle-sim-2026") {
+            if (firstLine != "AUTH " TCP_AUTH_TOKEN) {
                 client.println("ERROR unauthorized");
                 client.stop();
                 client = WiFiClient();

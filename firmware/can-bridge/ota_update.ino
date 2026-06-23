@@ -13,11 +13,6 @@
 #include <esp_partition.h>
 #include "OtaPublicKey.h"
 
-// ANSI color codes for serial output
-static const char* const RED   = "\033[0;31m";
-static const char* const GREEN = "\033[0;32m";
-static const char* const NC    = "\033[0m";
-
 extern "C" {
 #include <sodium.h>
 }
