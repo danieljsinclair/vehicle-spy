@@ -1,8 +1,10 @@
 #pragma once
 
 #include "vehicle-sim/pipeline/ITransport.h"
+#include "vehicle-sim/pipeline/ITransportOutput.h"
 
 #include <atomic>
+#include <memory>
 #include <string>
 
 namespace vehicle_sim::pipeline {
@@ -14,7 +16,8 @@ namespace vehicle_sim::pipeline {
  */
 class USBTransport final : public ITransport {
 public:
-    USBTransport(std::string port, int baud = 115200);
+    USBTransport(std::string port, int baud = 115200,
+                 std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>());
     ~USBTransport() override;
 
     USBTransport(const USBTransport&) = delete;
@@ -38,6 +41,7 @@ public:
 private:
     std::string port_;
     int baud_;
+    std::shared_ptr<ITransportOutput> output_;
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;

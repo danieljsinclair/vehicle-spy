@@ -37,9 +37,10 @@ void USBTransport::resetStop() noexcept {
     g_stopRequested.store(false, std::memory_order_relaxed);
 }
 
-USBTransport::USBTransport(std::string port, int baud)
+USBTransport::USBTransport(std::string port, int baud, std::shared_ptr<ITransportOutput> output)
     : port_(std::move(port))
-    , baud_(baud) {
+    , baud_(baud)
+    , output_(std::move(output)) {
 }
 
 USBTransport::~USBTransport() {
@@ -56,14 +57,13 @@ bool USBTransport::open() {
 
     fd_ = ::open(port_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (fd_ < 0) {
-        std::cerr << "[usb] Failed to open " << port_ << ": " << std::strerror(errno) << "\n";
+        output_->err("[usb] Failed to open " + port_ + ": " + std::strerror(errno));
         return false;
     }
 
     termios attrs{};
     if (tcgetattr(fd_, &attrs) != 0) {
-        std::cerr << "[usb] Failed to read termios for " << port_ << ": "
-                  << std::strerror(errno) << "\n";
+        output_->err("[usb] Failed to read termios for " + port_ + ": " + std::strerror(errno));
         close(fd_);
         fd_ = -1;
         return false;
@@ -77,8 +77,7 @@ bool USBTransport::open() {
 #else
     if (cfsetispeed(&attrs, static_cast<speed_t>(baud_)) != 0 ||
         cfsetospeed(&attrs, static_cast<speed_t>(baud_)) != 0) {
-        std::cerr << "[usb] Failed to set baud rate for " << port_ << ": "
-                  << std::strerror(errno) << "\n";
+        output_->err("[usb] Failed to set baud rate for " + port_ + ": " + std::strerror(errno));
         close(fd_);
         fd_ = -1;
         return false;
@@ -97,23 +96,21 @@ bool USBTransport::open() {
     attrs.c_cc[VTIME] = 0;
 
     if (tcsetattr(fd_, TCSANOW, &attrs) != 0) {
-        std::cerr << "[usb] Failed to configure " << port_ << ": "
-                  << std::strerror(errno) << "\n";
+        output_->err("[usb] Failed to configure " + port_ + ": " + std::strerror(errno));
         close(fd_);
         fd_ = -1;
         return false;
     }
 
     if (!setNonBlocking(fd_)) {
-        std::cerr << "[usb] Failed to set non-blocking mode for " << port_ << ": "
-                  << std::strerror(errno) << "\n";
+        output_->err("[usb] Failed to set non-blocking mode for " + port_ + ": " + std::strerror(errno));
         close(fd_);
         fd_ = -1;
         return false;
     }
 
     pending_.reserve(256);
-    std::cout << "[usb] Monitoring " << port_ << " at " << baud_ << " 8N1\n";
+    output_->out("[usb] Monitoring " + port_ + " at " + std::to_string(baud_) + " 8N1");
     return true;
 }
 
@@ -152,7 +149,7 @@ std::optional<std::string> USBTransport::nextLine() {
             if (errno == EINTR) {
                 continue;
             }
-            std::cerr << "[usb] Select failed on " << port_ << ": " << std::strerror(errno) << "\n";
+            output_->err("[usb] Select failed on " + port_ + ": " + std::strerror(errno));
             exhausted_ = true;
             return std::nullopt;
         }
@@ -172,7 +169,7 @@ std::optional<std::string> USBTransport::nextLine() {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
             }
-            std::cerr << "[usb] Read failed on " << port_ << ": " << std::strerror(errno) << "\n";
+            output_->err("[usb] Read failed on " + port_ + ": " + std::strerror(errno));
             exhausted_ = true;
             return std::nullopt;
         }

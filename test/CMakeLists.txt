@@ -67,7 +67,7 @@ target_link_libraries(vehicle-sim-tests
     ${SODIUM_LIBRARY}
 )
 
-target_compile_options(vehicle-sim-tests PRIVATE -Wall -Wextra -Werror -Wno-unused-parameter)
+target_compile_options(vehicle-sim-tests PRIVATE -Wall -Wextra -Werror -Wno-unused-parameter -DVEHICLE_SIM_TEST_SILENTLY)
 
 # Link Objective-C runtime for macOS (needed for Objective-C++ BLE code)
 if(APPLE)

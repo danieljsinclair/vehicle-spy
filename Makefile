@@ -224,7 +224,7 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: firmware-wifi-sentinel $(wildcard $(FIRMWA
 
 firmware: $(FIRMWARE_BUILD)/can-bridge.ino.bin
 
-flash flash-usb firmware-flash: firmware native test
+flash flash-usb flash-over-usb firmware-flash: firmware native test
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected. Plug in the board. Override with: make flash ESP32_PORT=/dev/cu.XXXX" >&2; exit 1; fi
 	@echo "Flashing via $(ESP32_PORT)..."
 	@echo "ESP32_WIFI_SSID=$(ESP32_WIFI_SSID)"

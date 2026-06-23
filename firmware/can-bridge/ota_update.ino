@@ -13,6 +13,11 @@
 #include <esp_partition.h>
 #include "OtaPublicKey.h"
 
+// ANSI color codes for serial output
+static const char* const RED   = "\033[0;31m";
+static const char* const GREEN = "\033[0;32m";
+static const char* const NC    = "\033[0m";
+
 extern "C" {
 #include <sodium.h>
 }
@@ -124,13 +129,13 @@ void otaSetup() {
                 auto* target = esp_ota_get_next_update_partition(running);
                 if (!target) { otaErr = "no OTA partition"; return; }
                 if (!verifyPartition(target, up.totalSize, otaSig)) {
-                    Serial.println("OTA: REJECTED — signature verification failed");
+                    Serial.printf("%sOTA: REJECTED — signature verification failed%s\n", RED, NC);
                     otaErr = "signature verification failed";
                     return;
                 }
                 if (esp_ota_set_boot_partition(target) != ESP_OK)
                     { otaErr = "set boot partition failed"; return; }
-                Serial.printf("OTA: accepted %u bytes, rebooting\n", up.totalSize);
+                Serial.printf("%sOTA: accepted %u bytes, rebooting\n%s", GREEN, up.totalSize, NC);
             } else if (up.status == UPLOAD_FILE_ABORTED) {
                 Update.end();
                 otaErr = "upload aborted";
@@ -139,7 +144,7 @@ void otaSetup() {
     );
 
     otaHttp.begin();
-    Serial.printf("OTA HTTP server on port %u\n", OTA_HTTP_PORT);
+    Serial.printf("%sOTA HTTP server on port %u\n%s", GREEN, OTA_HTTP_PORT, NC);
 }
 
 void otaLoop() { otaHttp.handleClient(); }
@@ -151,7 +156,7 @@ void otaMarkValidOnBoot() {
     if (esp_ota_get_state_partition(running, &state) == ESP_OK) {
         if (state == ESP_OTA_IMG_PENDING_VERIFY) {
             esp_ota_mark_app_valid_cancel_rollback();
-            Serial.println("OTA: marked valid");
+            Serial.printf("%sOTA: marked valid%s\n", GREEN, NC);
         }
     }
 }

@@ -96,10 +96,12 @@ int connectToHost(const std::string& host, int port) {
 
 } // namespace
 
-TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol)
+TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol,
+                           std::shared_ptr<ITransportOutput> output)
     : host_(std::move(host))
     , port_(port)
-    , adapterProtocol_(std::move(adapterProtocol)) {
+    , adapterProtocol_(std::move(adapterProtocol))
+    , output_(std::move(output)) {
 }
 
 TCPTransport::~TCPTransport() {

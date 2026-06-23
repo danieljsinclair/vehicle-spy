@@ -1,10 +1,18 @@
 #pragma once
 
 #include "vehicle-sim/pipeline/ITransport.h"
+#include "vehicle-sim/pipeline/ITransportOutput.h"
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
+
+// TCP auth token — injected at build time via compiler define
+// Makefile passes -DTCP_AUTH_TOKEN=\"...\" for firmware; CMakeLists.txt sets it for native
+#ifndef TCP_AUTH_TOKEN
+#define TCP_AUTH_TOKEN "vehicle-sim-2026"
+#endif
 
 namespace vehicle_sim::pipeline {
 
@@ -35,7 +43,8 @@ public:
      * @param port             TCP port (firmware default 3333).
      * @param adapterProtocol  "raw" (no init) or "elm327" (send AT-init).
      */
-    TCPTransport(std::string host, int port, std::string adapterProtocol = "raw");
+    TCPTransport(std::string host, int port, std::string adapterProtocol = "raw",
+                 std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>());
 
     ~TCPTransport() override;
 
@@ -66,6 +75,7 @@ private:
     std::string host_;
     int port_;
     std::string adapterProtocol_;
+    std::shared_ptr<ITransportOutput> output_;
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;

@@ -107,6 +107,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/discovery/DiscoveryVerifier.cpp
     src/discovery/UDPDiscovery.cpp
     src/pipeline/SecureTcpTransport.cpp
+    src/pipeline/ITransportOutput.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
