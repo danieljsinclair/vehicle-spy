@@ -20,9 +20,10 @@
 #endif
 
 // ANSI color codes for serial output
-static const char* const RED   = "\033[0;31m";
-static const char* const GREEN = "\033[0;32m";
-static const char* const NC    = "\033[0m";
+static const char* const RED    = "\033[0;31m";
+static const char* const GREEN  = "\033[0;32m";
+static const char* const PURPLE = "\033[0;35m";
+static const char* const NC     = "\033[0m";
 
 #include <driver/twai.h>
 
@@ -236,9 +237,9 @@ static String ipStr;
 
 static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
     lastDisconnectReason = static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
-    Serial.printf("\n%sWiFi disconnected: reason=%d %s%s\n", RED,
+    Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
                     static_cast<int>(lastDisconnectReason),
-                    WiFi.disconnectReasonName(lastDisconnectReason), NC);
+                    WiFi.disconnectReasonName(lastDisconnectReason), NC, WiFi.SSID().c_str());
 }
 
 void setup() {
@@ -266,6 +267,7 @@ void setup() {
 
     // WiFi — Station mode if config exists, otherwise AP fallback
     if (WIFI_SSID != nullptr) {
+        WiFi.disconnect(false, true);   // erase stale NVS creds before fresh connect
         WiFi.mode(WIFI_STA);
         WiFi.setHostname("esp32-can");
         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -278,24 +280,24 @@ void setup() {
         }
         if (WiFi.status() == WL_CONNECTED) {
             ipStr = WiFi.localIP().toString();
-            Serial.printf("%s\nConnected. IP: %s\n%s", GREEN, ipStr.c_str(), NC);
+            Serial.printf("%s\nConnected. IP: %s\r\n%s", GREEN, ipStr.c_str(), NC);
         } else {
             const wl_status_t status = WiFi.status();
             Serial.printf("%s\nWiFi failed: status=%d, falling back to AP mode\n%s", RED, static_cast<int>(status), NC);
             WiFi.mode(WIFI_AP);
             WiFi.softAP(AP_SSID, AP_PASS);
             ipStr = WiFi.softAPIP().toString();
-            Serial.printf("AP: %s  IP: %s\n", AP_SSID, ipStr.c_str());
+            Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ipStr.c_str(), NC);
         }
     } else {
         WiFi.mode(WIFI_AP);
         WiFi.softAP(AP_SSID, AP_PASS);
         ipStr = WiFi.softAPIP().toString();
-        Serial.printf("AP: %s  IP: %s\n", AP_SSID, ipStr.c_str());
+        Serial.printf("AP: %s  IP: %s\r\n", AP_SSID, ipStr.c_str());
     }
 
     tcpServer.begin();
-    Serial.printf("TCP listening on port %u\n", TCP_PORT);
+    Serial.printf("TCP listening on port %u\r\n", TCP_PORT);
 
     // Initialize device ID from MAC address
     uint8_t mac[6];
@@ -307,7 +309,7 @@ void setup() {
     // Start UDP discovery
 #if VEHICLE_SIM_ENABLE_DISCOVERY
     udpDiscovery.begin(DISCOVERY_PORT);
-    Serial.printf("UDP discovery on port %u\n", DISCOVERY_PORT);
+    Serial.printf("UDP discovery on port %u\r\n", DISCOVERY_PORT);
 #else
     Serial.println("UDP discovery disabled via VEHICLE_SIM_ENABLE_DISCOVERY=0");
 #endif

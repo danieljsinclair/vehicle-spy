@@ -94,7 +94,7 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
     signature_hex = sig_bytes.hex()
 
     conn = http.client.HTTPConnection(host, port, timeout=600)
-    print(f"{RED}OTA: uploading to {host}:{port}...{NC}", file=sys.stderr)
+    print(f"OTA: uploading to {host}:{port}...", file=sys.stderr)
     headers = {
         'Content-Type': f'multipart/form-data; boundary={boundary}',
         'Content-Length': str(len(body)),
@@ -105,12 +105,12 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
 
     import time as _time
     size_mb = len(firmware_bytes) / (1024 * 1024)
-    print(f"{RED}OTA: pushing {size_mb:.1f} MiB to {host}:{port}...{NC}", file=sys.stderr)
+    print(f"OTA: pushing {size_mb:.1f} MiB to {host}:{port}...", file=sys.stderr)
 
     try:
         conn.request('POST', '/update', body, headers)
         # Read response with progress indication
-        print(f"{RED}OTA: waiting for device to receive and verify...{NC}", file=sys.stderr)
+        print(f"OTA: waiting for device to receive and verify...", file=sys.stderr)
         resp = conn.getresponse()
         resp_body = resp.read().decode('utf-8', errors='replace')
         conn.close()
@@ -125,7 +125,7 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
 
     if resp.status == 200:
         print(f"{GREEN}OTA: SUCCESS — device accepted update ({resp_body.strip()}){NC}", file=sys.stderr)
-        print(f"{GREEN}OTA: device will reboot to apply new firmware.{NC}", file=sys.stderr)
+        print(f"OTA: device will reboot to apply new firmware.", file=sys.stderr)
         return True
     else:
         print(f"{RED}OTA: FAILED — HTTP {resp.status}: {resp_body}{NC}", file=sys.stderr)
@@ -147,8 +147,8 @@ def main():
 
     priv_key = os.path.join(args.keys_dir, 'ed25519.pem')
     if not os.path.isfile(priv_key):
-        sys.exit(f"Error: private key not found: {priv_key}\n"
-                 f"Run: scripts/ota-generate-keys.sh --keys-dir {args.keys_dir}")
+        sys.exit(f"{RED}Error: private key not found: {priv_key}\n"
+                 f"Run: scripts/ota-generate-keys.sh --keys-dir {args.keys_dir}{NC}")
 
     sodium = load_sodium()
     print("Signing firmware...", file=sys.stderr)

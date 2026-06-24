@@ -36,7 +36,6 @@
 		B1A00005 /* DBCSignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00005 /* DBCSignalTranslator.cpp */; };
 		B1A00006 /* DBCTranslationService.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00006 /* DBCTranslationService.cpp */; };
 		B1A00007 /* DefaultVehicleConfigs.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00007 /* DefaultVehicleConfigs.cpp */; };
-		B1A00008 /* ITimeProvider.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00008 /* ITimeProvider.cpp */; };
 		B1A00009 /* OBD2SignalTranslatorBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00009 /* OBD2SignalTranslatorBase.cpp */; };
 		B1A0000B /* VehicleConfig.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000B /* VehicleConfig.cpp */; };
 		B1A0000C /* VehicleDetector.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0000C /* VehicleDetector.cpp */; };
@@ -104,7 +103,6 @@
 		B2A00005 /* DBCSignalTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DBCSignalTranslator.cpp; path = ../../src/domain/DBCSignalTranslator.cpp; sourceTree = "<group>"; };
 		B2A00006 /* DBCTranslationService.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DBCTranslationService.cpp; path = ../../src/domain/DBCTranslationService.cpp; sourceTree = "<group>"; };
 		B2A00007 /* DefaultVehicleConfigs.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DefaultVehicleConfigs.cpp; path = ../../src/domain/DefaultVehicleConfigs.cpp; sourceTree = "<group>"; };
-		B2A00008 /* ITimeProvider.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITimeProvider.cpp; path = ../../src/domain/ITimeProvider.cpp; sourceTree = "<group>"; };
 		B2A00009 /* OBD2SignalTranslatorBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2SignalTranslatorBase.cpp; path = ../../src/domain/OBD2SignalTranslatorBase.cpp; sourceTree = "<group>"; };
 		B2A0000B /* VehicleConfig.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleConfig.cpp; path = ../../src/domain/VehicleConfig.cpp; sourceTree = "<group>"; };
 		B2A0000C /* VehicleDetector.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleDetector.cpp; path = ../../src/domain/VehicleDetector.cpp; sourceTree = "<group>"; };
@@ -216,7 +214,6 @@
 				B2A00005 /* DBCSignalTranslator.cpp */,
 				B2A00006 /* DBCTranslationService.cpp */,
 				B2A00007 /* DefaultVehicleConfigs.cpp */,
-				B2A00008 /* ITimeProvider.cpp */,
 				B2A00009 /* OBD2SignalTranslatorBase.cpp */,
 				B2A0000B /* VehicleConfig.cpp */,
 				B2A0000C /* VehicleDetector.cpp */,
@@ -356,7 +353,6 @@
 				B1A00005 /* DBCSignalTranslator.cpp in Sources */,
 				B1A00006 /* DBCTranslationService.cpp in Sources */,
 				B1A00007 /* DefaultVehicleConfigs.cpp in Sources */,
-				B1A00008 /* ITimeProvider.cpp in Sources */,
 				B1A00009 /* OBD2SignalTranslatorBase.cpp in Sources */,
 				B1A0000B /* VehicleConfig.cpp in Sources */,
 				B1A0000C /* VehicleDetector.cpp in Sources */,

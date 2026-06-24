@@ -1,6 +1,7 @@
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/boundary/ELM327Transport.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -33,9 +34,12 @@ void TCPTransport::resetStop() noexcept {
 
 namespace {
 
-// select() read timeout — keeps nextLine() responsive to EOF/disconnect and a
-// vanished peer. Matches the capture tool's robustness target (~0.5s).
-constexpr int READ_TIMEOUT_US = 500000;
+// select() read timeout floor — the production default (0.5s) keeps nextLine()
+// responsive to EOF/disconnect and a vanished peer, matching the capture tool's
+// robustness target. The actual per-instance timeout is injectable via the
+// constructor (readTimeoutUs_) so tests can pass a sub-millisecond value.
+// Kept as a constant for documentation / comparison only.
+constexpr int READ_TIMEOUT_US_FLOOR = 1000;  // 1ms poll floor so sub-ms injects still wake promptly
 
 // How long connect() may block. A missing/unreachable board fails fast.
 constexpr int CONNECT_TIMEOUT_S = 5;
@@ -97,11 +101,15 @@ int connectToHost(const std::string& host, int port) {
 } // namespace
 
 TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol,
-                           std::shared_ptr<ITransportOutput> output)
+                           std::shared_ptr<ITransportOutput> output,
+                           int readTimeoutUs,
+                           int atInitDelayMs)
     : host_(std::move(host))
     , port_(port)
     , adapterProtocol_(std::move(adapterProtocol))
-    , output_(std::move(output)) {
+    , output_(std::move(output))
+    , readTimeoutUs_(readTimeoutUs > 0 ? readTimeoutUs : 500000)
+    , atInitDelayMs_(atInitDelayMs) {
 }
 
 TCPTransport::~TCPTransport() {
@@ -133,9 +141,12 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
             output_->err("[tcp] Failed to send AT command: " + cmd.command);
             return false;
         }
-        // Brief settle so the adapter can process each command.
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(cmd.delayMs > 0 ? cmd.delayMs : 50));
+        // Brief settle so the adapter can process each command. The per-command
+        // delay is overridable via atInitDelayMs_ (constructor DI): -1 (default)
+        // keeps each command's own cmd.delayMs (production); any value >= 0 is
+        // used for every command so tests can pass 0 and skip the pacing.
+        std::this_thread::sleep_for(std::chrono::milliseconds(
+            atInitDelayMs_ >= 0 ? atInitDelayMs_ : (cmd.delayMs > 0 ? cmd.delayMs : 50)));
     }
     return true;
 }
@@ -211,9 +222,15 @@ std::optional<std::string> TCPTransport::nextLine() {
         FD_ZERO(&readSet);
         FD_SET(fd_, &readSet);
 
+        // Honour the injected read timeout, but cap each select() poll at a
+        // 1ms floor so the loop still wakes promptly on stop/disconnect even
+        // when a test injects a sub-millisecond value. Production default
+        // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
+        // and the stop flag is re-checked every poll, same as before.
+        const int pollUs = std::min(readTimeoutUs_, READ_TIMEOUT_US_FLOOR);
         struct timeval tv{};
         tv.tv_sec = 0;
-        tv.tv_usec = READ_TIMEOUT_US;
+        tv.tv_usec = pollUs;
 
         int ready = select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
         if (ready < 0) {

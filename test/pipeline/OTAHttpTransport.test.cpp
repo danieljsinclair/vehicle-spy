@@ -7,7 +7,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include <atomic>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -335,16 +334,17 @@ TEST(OTAHttpTransportTest, ServerTimeout_ReturnsError) {
     HttpLoopbackServer server;
     ASSERT_TRUE(server.init());
 
-    OTAHttpTransport transport("127.0.0.1", server.port(), "ota", "pass");
+    // Injected 1ms recv timeout so the timeout path fires instantly — no
+    // sleep anywhere. recvResponse honours sub-100ms timeouts (it polls for
+    // min(remaining, 100ms)). Production keeps the 30s default.
+    OTAHttpTransport transport("127.0.0.1", server.port(), "ota", "pass", 1);
     ASSERT_TRUE(transport.open());
     ASSERT_GE(server.acceptClient(), 0);
 
     std::vector<uint8_t> firmware = {0x01};
     auto sig = fakeSignature();
     std::thread serverThread([&] {
-        server.readRequest();
-        std::this_thread::sleep_for(std::chrono::milliseconds(20000));
-        server.closeClient();
+        server.readRequest();   // consume the request, then stay silent (no response)
     });
 
     bool result = transport.push(firmware, sig);

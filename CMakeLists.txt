@@ -1,11 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(vehicle-sim VERSION 1.0.0 LANGUAGES C CXX)
 
-# Ensure subprojects (e.g. FetchContent) inherit our minimum version,
-# silencing "CMake Deprecation Warning: Compatibility with CMake < 3.10
-# will be removed" from dependencies that declare their own lower bound.
-cmake_policy(SET CMP0077 NEW)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -29,7 +24,7 @@ include(FetchContent)
 FetchContent_Declare(
     cli11
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG v2.4.2
+    GIT_TAG v2.5.0
 )
 FetchContent_MakeAvailable(cli11)
 
@@ -63,7 +58,6 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/OBD2SignalTranslator.cpp
     src/domain/OBD2SignalTranslatorBase.cpp
     src/domain/CANDecoder.cpp
-    src/domain/ITimeProvider.cpp
     src/domain/DBCSignalDefinition.cpp
     src/domain/DBCSignalMapper.cpp
     src/domain/DBCFileParser.cpp
@@ -108,6 +102,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/boundary/OBD2Protocol.cpp
     src/telemetry/TraceLogger.cpp
     src/telemetry/RawTraceLogger.cpp
+    src/util/SystemClock.cpp
     src/discovery/DiscoveryPacket.cpp
     src/discovery/DiscoveryVerifier.cpp
     src/discovery/UDPDiscovery.cpp

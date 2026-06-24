@@ -42,9 +42,24 @@ public:
      * @param host             IPv4/hostname of the CAN-bridge.
      * @param port             TCP port (firmware default 3333).
      * @param adapterProtocol  "raw" (no init) or "elm327" (send AT-init).
+     * @param output           Where to emit human-readable status/error lines.
+     * @param readTimeoutUs    Max wait (microseconds) for a select() read before
+     *                         re-checking the stop flag. Defaults to 500000 (0.5s)
+     *                         — matches the capture tool's robustness target.
+     *                         Injectable so tests can pass a tiny value and see a
+     *                         requestStop() in ~0 ms instead of waiting out the
+     *                         full production poll. Production default unchanged.
+     * @param atInitDelayMs    Inter-command pacing (milliseconds) between ELM327
+     *                         AT-init commands. -1 (default) means use each
+     *                         command's own cmd.delayMs (production behaviour —
+     *                         a real adapter needs the settle time). Any value
+     *                         >= 0 overrides every command's delay to that value,
+     *                         so tests can pass 0 and skip the ~700ms of pacing.
      */
     TCPTransport(std::string host, int port, std::string adapterProtocol = "raw",
-                 std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>());
+                 std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
+                 int readTimeoutUs = 500000,
+                 int atInitDelayMs = -1);
 
     ~TCPTransport() override;
 
@@ -76,6 +91,8 @@ private:
     int port_;
     std::string adapterProtocol_;
     std::shared_ptr<ITransportOutput> output_;
+    int readTimeoutUs_ = 500000;
+    int atInitDelayMs_ = -1;
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;

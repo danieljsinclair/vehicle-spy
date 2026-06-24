@@ -82,7 +82,7 @@ scrub: clean
 
 build-native/Makefile: CMakeLists.txt
 	@mkdir -p build-native
-	@cd build-native && cmake .. -DBUILD_IOS=OFF
+	@cd build-native && cmake .. -DBUILD_IOS=OFF -DBUILD_TESTS=ON
 
 native macos osx: build-native/Makefile
 	@$(MAKE) -C build-native all
@@ -111,32 +111,50 @@ verify-device-id:
 	echo -e "${GREEN}Found device: $(DEVICE_ID)${NC}";
 	@xcrun devicectl list devices
 
-ios: test native app-icons
-	@echo "--- Building iOS app for Simulator (Debug) ---"
-	@XCODEBUILD_LOG=$$(mktemp /tmp/xcodebuild.XXXXXX.log); \
-	xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj -scheme VehicleSimApp -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 16' -derivedDataPath vehicle-sim-ios/VehicleSim/build build > $$XCODEBUILD_LOG 2>&1; \
-	_ret=$$?; \
-	tail -10 $$XCODEBUILD_LOG; \
-	rm -f $$XCODEBUILD_LOG; \
-	if [ $$_ret -eq 0 ]; then \
-		echo "$${GREEN}iOS build succeeded$${NC}"; \
+# Shared xcodebuild runner (DRY for ios / ios-signed).
+# Per-target config is passed via TARGET-SPECIFIC variables (XCB_CONFIG /
+# XCB_DEST / XCB_EXTRA), NOT via $(call ...) arguments — because the destination
+# string contains a comma, which would split $(call) args and corrupt the
+# command line.
+#
+# Streams xcodebuild output LIVE to the terminal (progress is visible) while
+# teeing a full copy to build-ios/xcodebuild.XXXXXX for post-mortem. `set -o
+# pipefail` makes the pipeline's exit status reflect xcodebuild's real result
+# (tee otherwise masks it), so the single coloured verdict line below is driven
+# by the actual exit code and `exit $$XCB_STATUS` propagates failure to make.
+# pipefail is supported by bash and zsh (and macOS /bin/sh).
+#
+# mktemp: BSD mkstemp needs the X's to be the TRAILING chars of the template, so
+# build-ios/xcodebuild.XXXXXX (NOT ....XXXXXX.log). A suffix after the X's leaves
+# them un-substituted and fails "File exists" on the second run.
+define run_xcodebuild
+	@set -o pipefail; \
+	echo "--- Building iOS app ($(XCB_CONFIG)) ---"; \
+	mkdir -p build-ios; \
+	XCODEBUILD_LOG=$$(mktemp build-ios/xcodebuild.XXXXXX); \
+	xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj \
+			   -scheme VehicleSimApp -configuration $(XCB_CONFIG) -destination "$(XCB_DEST)" \
+			   -derivedDataPath vehicle-sim-ios/VehicleSim/build $(XCB_EXTRA) build 2>&1 | tee $$XCODEBUILD_LOG; \
+	XCB_STATUS=$$?; \
+	if [ $$XCB_STATUS -eq 0 ]; then \
+		printf "${GREEN}== iOS BUILD SUCCEEDED ==${NC}  (logfile: ${CYAN}$$XCODEBUILD_LOG${NC})\n"; \
 	else \
-		echo "$${RED}iOS build failed (exit $$_ret)${NC}"; \
-	fi
+		printf "${RED}== iOS BUILD FAILED ==${NC}  (logfile: ${CYAN}$$XCODEBUILD_LOG${NC})\n"; \
+	fi; \
+	exit $$XCB_STATUS
+endef
 
+ios: XCB_CONFIG := Debug
+ios: XCB_DEST := platform=iOS Simulator,name=iPhone 16
+ios: XCB_EXTRA :=
+ios: test native app-icons
+	$(run_xcodebuild)
+
+ios-signed: XCB_CONFIG := Release
+ios-signed: XCB_DEST := generic/platform=iOS
+ios-signed: XCB_EXTRA := -allowProvisioningUpdates clean
 ios-signed: test native app-icons
-	@echo "--- Building Release for Physical iOS Device ---"
-	@XCODEBUILD_LOG=$$(mktemp /tmp/xcodebuild.XXXXXX.log); \
-	xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj -scheme VehicleSimApp -configuration Release -destination 'generic/platform=iOS' -derivedDataPath vehicle-sim-ios/VehicleSim/build -allowProvisioningUpdates clean build > $$XCODEBUILD_LOG 2>&1; \
-	_ret=$$?; \
-	tail -20 $$XCODEBUILD_LOG; \
-	rm -f $$XCODEBUILD_LOG; \
-	if [ $$_ret -eq 0 ]; then \
-		echo "$${GREEN}iOS release build succeeded$${NC}"; \
-		echo "Build output in vehicle-sim-ios/VehicleSim/build/Release-iphoneos/VehicleSimApp.app"; \
-	else \
-		echo "$${RED}iOS release build failed (exit $$_ret)${NC}"; \
-	fi
+	$(run_xcodebuild)
 
 deploy deploy-app deploy-ios: ios-signed verify-device-id
 	@echo "--- Installing on connected iPhone ---"
@@ -257,13 +275,26 @@ endif
 ESP32_TCP_TOKEN ?= vehicle-sim-2026
 FIRMWARE_CFLAGS += -DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"
 
-# Force a rebuild when WiFi credentials or TCP token change.
-# Writes a checksum of the credential values; Make compares mtime vs source files.
+# Force a re-bake when WiFi credentials or TCP token change.
+#
+# Make cannot observe command-line variable changes (e.g. ESP32_WIFI_SSID=...),
+# so a stale sentinel with old creds would never refresh and the firmware would
+# silently keep the previous credentials baked in. The sentinel recipe therefore
+# ALWAYS runs (via FORCE) and recomputes the md5 of the credential values; it
+# rewrites the file ONLY when the hash actually changed, so can-bridge.ino.bin
+# rebuilds exactly when a credential changed -- not on every invocation with the
+# same creds.
 FIRMWARE_CRED_SENTINEL = $(FIRMWARE_BUILD)/.cred-hash
+FORCE:
 
-$(FIRMWARE_CRED_SENTINEL): $(FIRMWARE_DIR)/*.ino
+$(FIRMWARE_CRED_SENTINEL): $(FIRMWARE_DIR)/*.ino FORCE
 	@mkdir -p $(FIRMWARE_BUILD)
-	@echo "$(ESP32_WIFI_SSID)$(ESP32_WIFI_PASS)$(ESP32_TCP_TOKEN)" | md5sum > $@
+	@_new=$$(printf '%s%s%s' '$(ESP32_WIFI_SSID)' '$(ESP32_WIFI_PASS)' '$(ESP32_TCP_TOKEN)' | md5sum | awk '{print $$1}'); \
+	_old=$$(cat $@ 2>/dev/null || true); \
+	if [ "$$_new" != "$$_old" ]; then \
+		printf '%s\n' "$$_new" > $@; \
+		echo "  ${CYAN}WiFi credentials changed${NC} -> rebuilding firmware..."; \
+	fi
 
 $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(wildcard $(FIRMWARE_DIR)/*.ino)
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
@@ -279,8 +310,11 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(wildcard $(FIR
 
 firmware: test $(FIRMWARE_BUILD)/can-bridge.ino.bin
 
-flash flash-usb firmware-flash: firmware native test
-	@if [ -z "$(ESP32_PORT)" ]; then echo "${RED}Error: no ESP32 serial port detected. Plug in the board. ${NC}Override with: make flash ${PURPLE}ESP32_PORT=/dev/cu.XXXX${NC}" >&2; exit 1; fi
+firmware-port:
+	@if [ -z "$(ESP32_PORT)" ]; then printf "${RED}Error: no ESP32 serial port detected. Plug in the board. $(NC)Override with: make reboot-over-usb ESP32_PORT=$(PURPLE)/dev/cu.XXXX${NC}\r\n" >&2; exit 1; fi
+	@printf "$(PURPLE)$(ESP32_PORT)$(NC)\r\n"
+
+flash flash-usb firmware-flash: firmware-port firmware native test
 	@echo "Flashing ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} via $(ESP32_PORT)..."
 	@$(show_wifi)
 	$(ESPTOOL) --port "$(ESP32_PORT)" --baud 460800 write_flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
@@ -290,21 +324,15 @@ flash flash-usb firmware-flash: firmware native test
 
 flash-over-usb: flash
 
-startup-log:
-	@if [ -z "$(ESP32_PORT)" ]; then echo "${RED}Error: no ESP32 serial port detected. Plug in the board. Override with: make startup-log ESP32_PORT=/dev/cu.XXXX${NC}" >&2; exit 1; fi
+startup-log: firmware-port
 	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30
 
-firmware-port:
-	@if [ -z "$(ESP32_PORT)" ]; then echo "${RED}No ESP32 detected. Plug in via USB and check with: ls /dev/cu.usb* /dev/cu.SLAB* /dev/cu.wchusbserial*${NC}" >&2; exit 1; fi
-	@echo "$(ESP32_PORT)"
 
-monitor:
-	@if [ -z "$(ESP32_PORT)" ]; then echo "${RED}Error: no ESP32 serial port detected.${NC}" >&2; exit 1; fi
-	@echo "      ESP32_PORT: $(PURPLE)$(ESP32_PORT)$(NC)"
+monitor: firmware-port
+
 	@screen "$(ESP32_PORT)" 115200
 
-reboot-over-usb:
-	@if [ -z "$(ESP32_PORT)" ]; then echo "${RED}Error: no ESP32 serial port detected. Plug in the board. Override with: make reboot-over-usb ESP32_PORT=/dev/cu.XXXX${NC}" >&2; exit 1; fi
+reboot-over-usb: firmware-port
 	@if [ -z "$(ESPTOOL)" ]; then echo "${RED}Error: esptool not found under $(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/${NC}" >&2; exit 1; fi
 	@echo "Starting serial logger, then resetting ${PURPLE}$(ESP32_PORT)${NC} via esptool USB control reset..."
 	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool --esptool "$(ESPTOOL)"
@@ -401,7 +429,7 @@ discover: native
 	@./build-native/vehicle-sim --discover
 
 
-flash-over-tcp: firmware native
+flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 	@if [ -z "$(ESP32_HOST)" ]; then \
 		echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
 		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
@@ -423,7 +451,7 @@ flash-over-tcp: firmware native
 		--host "$(ESP32_HOST)" --port 80 \
 		--keys-dir "$(OTA_KEYS_DIR)"
 
-reboot-over-tcp:
+reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
 		echo "Error: ESP32_HOST is required." >&2; \
 		echo "  make reboot-over-tcp ESP32_HOST=<esp32-ip>" >&2; \
@@ -457,7 +485,7 @@ CAPFILE ?=
 CAPDIR  ?= captures
 CAPTURE_VEHICLE ?= tesla
 
-capture capture-usb capture-over-usb: native
+capture capture-usb capture-over-usb: test-cpp
 	@if [ -z "$(ESP32_PORT)" ]; then echo "Error: no ESP32 serial port detected." >&2; exit 1; fi
 	@echo "      ESP32_PORT: $(PURPLE)$(ESP32_PORT)$(NC)"
 	@mkdir -p $(CAPDIR)

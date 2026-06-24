@@ -268,16 +268,14 @@ TEST(SecureTcpTransportTest, EncryptedDataRoundTrip) {
         ASSERT_GE(server.acceptClient(), 0);
         ASSERT_TRUE(server.performHandshake(serverKp));
 
-        // Send some encrypted CAN-monitor lines with small delays
-        // to ensure the client can keep up with decryption
+        // Send some encrypted CAN-monitor lines
         server.sendEncryptedLine("118 3C 00 18 00 00 00 00 FF");
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
         server.sendEncryptedLine("108 00 00 00 90 01 00 00 00");
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
         server.sendEncryptedLine("297 00 00 10 00 00 00 00 00");
 
-        // Keep connection open so the client can read all data
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        // Close immediately: nextLine() returns nullopt on EOF (recv <= 0)
+        // without waiting on the select poll timeout, so the client drains
+        // all buffered frames and exits its read loop promptly.
         server.closeClient();
     });
 
@@ -362,14 +360,18 @@ TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(server.start());
 
     SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    // Tiny recv poll (1ms) so the stop flag is re-checked near-instantly,
+    // instead of waiting the production 500ms poll floor.
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey,
+                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
         ASSERT_TRUE(server.performHandshake(serverKp));
-        // Keep connection open but send no data
-        std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-        server.closeClient();
+        // Keep connection open but send no data. The server destructor closes
+        // the listen/client sockets; we do not need to hold the thread open
+        // with a sleep — requestStop() makes nextLine() return nullopt
+        // regardless of server state.
     });
 
     ASSERT_TRUE(t.open());
@@ -405,12 +407,16 @@ TEST(SecureTcpTransportTest, MultipleLines_InSequence) {
         ASSERT_GE(server.acceptClient(), 0);
         ASSERT_TRUE(server.performHandshake(serverKp));
 
+        // No inter-send pacing needed: frames are length-prefixed
+        // ([nonce(24)|len(2)|ciphertext+tag]), so the client peels coalesced
+        // frames correctly regardless of TCP segment merging.
         for (int i = 0; i < 10; ++i) {
             server.sendEncryptedLine("118 " + std::to_string(i) + " 00 00 00 00 00 00 00");
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        // Close immediately: the client's read loop drains all buffered frames
+        // and returns nullopt on EOF (recv <= 0) without waiting on the select
+        // poll timeout.
         server.closeClient();
     });
 

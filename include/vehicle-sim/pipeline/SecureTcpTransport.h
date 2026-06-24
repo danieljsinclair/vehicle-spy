@@ -52,12 +52,19 @@ public:
      * @param port        TCP port.
      * @param publicKey   Ed25519 public key for handshake verification
      *                    (the same OTA/discovery key).
+     * @param output      Sink for status/error messages.
+     * @param recvTimeoutUs  Max wait (microseconds) for a socket read in the
+     *                       nextLine() poll loop before re-checking the stop
+     *                       flag. Defaults to RECV_TIMEOUT_US (500ms) — the
+     *                       production value. Injectable so tests can pass a
+     *                       tiny value instead of sleeping for the poll floor.
      */
     SecureTcpTransport(
         std::string host,
         int port,
         std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey,
-        std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>()
+        std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
+        int recvTimeoutUs = static_cast<int>(RECV_TIMEOUT_US)
     );
 
     ~SecureTcpTransport() override;
@@ -100,6 +107,7 @@ private:
     int port_;
     std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey_;
     std::shared_ptr<ITransportOutput> output_;
+    int recvTimeoutUs_ = static_cast<int>(RECV_TIMEOUT_US);
 
     int fd_ = -1;
     bool opened_ = false;

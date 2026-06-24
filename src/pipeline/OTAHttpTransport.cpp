@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <sstream>
@@ -79,11 +80,13 @@ std::string OTAHttpTransport::buildMultipartBody(
 // ── Public API ───────────────────────────────────────────────────────────
 
 OTAHttpTransport::OTAHttpTransport(std::string host, int port,
-                                   std::string username, std::string password)
+                                   std::string username, std::string password,
+                                   int recvTimeoutMs)
     : host_(std::move(host))
     , port_(port)
     , username_(std::move(username))
-    , password_(std::move(password)) {}
+    , password_(std::move(password))
+    , recvTimeoutMs_(recvTimeoutMs) {}
 
 OTAHttpTransport::~OTAHttpTransport() {
     if (fd_ >= 0) ::close(fd_);
@@ -170,8 +173,9 @@ bool OTAHttpTransport::push(const std::vector<uint8_t>& firmware,
         return false;
     }
 
-    // Read response
-    std::string response = recvResponse(30000);  // 30s — verification takes time
+    // Read response — uses the injected timeout (30s default; tests pass a
+    // small value so the timeout path can be exercised without sleeping).
+    std::string response = recvResponse(recvTimeoutMs_);
     if (response.empty()) {
         lastError_ = "no response from device (timeout)";
         return false;
@@ -230,9 +234,16 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) noexcept {
         fd_set rs;
         FD_ZERO(&rs);
         FD_SET(fd_, &rs);
+        // Poll for at most the time remaining until the deadline (capped at
+        // 100ms), so a small timeout is actually honoured — otherwise select's
+        // 100ms poll floor would round any sub-100ms timeout up to ~100ms.
+        auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               deadline - std::chrono::steady_clock::now()).count();
+        if (remainingMs <= 0) break;
+        const auto pollMs = std::min<decltype(remainingMs)>(remainingMs, 100);
         timeval tv{};
         tv.tv_sec = 0;
-        tv.tv_usec = 100 * 1000;  // 100ms poll
+        tv.tv_usec = static_cast<suseconds_t>(pollMs * 1000);
         int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv);
         if (r > 0) {
             ssize_t n = recv(fd_, buf, sizeof(buf), 0);

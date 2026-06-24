@@ -141,8 +141,15 @@ void BLEManagerBase::startOBD2Polling(int interval_ms) {
     polling_thread_ = std::thread([this]() {
         std::cout << "[BLEManagerBase] Starting OBD2 prompt-driven polling" << std::endl;
 
-        // Wait a moment for characteristic notifications to be set up
-        std::this_thread::sleep_for(std::chrono::milliseconds(POST_CONNECT_SETUP_DELAY_MS));
+        // Wait a moment for characteristic notifications to be set up.
+        // Chunked (10ms) so stopOBD2Polling() can interrupt this promptly — a
+        // single sleep_for(POST_CONNECT_SETUP_DELAY_MS) would stall the join for
+        // the full delay even after stop is requested.
+        for (int waited = 0;
+             waited < POST_CONNECT_SETUP_DELAY_MS && polling_active_;
+             waited += 10) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
 
         const uint8_t pids[] = {
             OBD2PIDs::BATTERY_VOLTAGE,

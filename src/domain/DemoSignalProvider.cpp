@@ -1,14 +1,21 @@
 #include "vehicle-sim/domain/DemoSignalProvider.h"
 #include "vehicle-sim/domain/Gear.h"
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <thread>
 
 namespace vehicle_sim::domain {
 
 class DemoSignalProvider::Impl {
 public:
-    explicit Impl(int intervalMs) noexcept
+    explicit Impl(int intervalMs, std::shared_ptr<util::IClock> clock) noexcept
         : intervalMs_(intervalMs)
+        , clock_(std::move(clock))
         , running_(false)
         , phase_(0.0)
         , gearIndex_(0)
@@ -28,7 +35,15 @@ public:
     }
 
     void stop() {
-        running_.store(false);
+        // Deterministic barrier: clear running_ under the lock so the tick
+        // loop's waitFor predicate (!running_) is observed, then notify the cv
+        // to release a parked waiter, then join. After stop() returns, no
+        // further callback invocations occur.
+        {
+            std::lock_guard<std::mutex> lk(mutex_);
+            running_.store(false);
+        }
+        cv_.notify_all();
         if (worker_.joinable()) {
             worker_.join();
         }
@@ -41,14 +56,24 @@ public:
 private:
     void generateSignals() {
         while (running_.load()) {
-            auto now = std::chrono::steady_clock::now();
+            // Timestamp is derived from the injected clock so a FakeClock yields
+            // strictly-increasing, deterministic timestamps in tests (real
+            // steady_clock would assign identical ms to sub-ms-spaced ticks).
+            auto now = clock_->now();
             auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now.time_since_epoch()).count();
 
             VehicleSignal signal = generateSignal(static_cast<std::uint64_t>(timestamp));
             callback_(signal);
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs_));
+            // Clock-aware wait: an injected FakeClock returns promptly when its
+            // virtual time is advanced past the deadline (by the test thread),
+            // making the tick loop deterministic. A SystemClock blocks for real
+            // wall-clock time. The predicate releases the waiter on stop().
+            std::unique_lock<std::mutex> lock(mutex_);
+            clock_->waitFor(cv_, lock,
+                            [this] { return !running_.load(); },
+                            clock_->now() + std::chrono::milliseconds(intervalMs_));
         }
     }
 
@@ -129,6 +154,9 @@ private:
     }
 
     int intervalMs_;
+    std::shared_ptr<util::IClock> clock_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
     std::atomic<bool> running_;
     std::thread worker_;
     SignalCallback callback_;
@@ -138,8 +166,9 @@ private:
     int gearIndex_;
 };
 
-DemoSignalProvider::DemoSignalProvider(int intervalMs) noexcept
-    : pImpl(std::make_unique<Impl>(intervalMs))
+DemoSignalProvider::DemoSignalProvider(
+    int intervalMs, std::shared_ptr<util::IClock> clock) noexcept
+    : pImpl(std::make_unique<Impl>(intervalMs, std::move(clock)))
 {
 }
 

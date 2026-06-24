@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -66,8 +67,12 @@ public:
             fd_set rs;
             FD_ZERO(&rs);
             FD_SET(clientFd_, &rs);
+            auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   deadline - std::chrono::steady_clock::now()).count();
+            if (remainingMs <= 0) break;
             timeval tv{};
-            tv.tv_usec = 100 * 1000;
+            tv.tv_usec = static_cast<suseconds_t>(
+                std::min<decltype(remainingMs)>(remainingMs, 100) * 1000);
             int r = select(clientFd_ + 1, &rs, nullptr, nullptr, &tv);
             if (r > 0) {
                 ssize_t n = recv(clientFd_, buf, sizeof(buf), 0);
@@ -88,8 +93,12 @@ public:
             fd_set rs;
             FD_ZERO(&rs);
             FD_SET(clientFd_, &rs);
+            auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   deadline - std::chrono::steady_clock::now()).count();
+            if (remainingMs <= 0) break;
             timeval tv{};
-            tv.tv_usec = 100 * 1000;
+            tv.tv_usec = static_cast<suseconds_t>(
+                std::min<decltype(remainingMs)>(remainingMs, 100) * 1000);
             int r = select(clientFd_ + 1, &rs, nullptr, nullptr, &tv);
             if (r > 0) {
                 ssize_t n = recv(clientFd_, &c, 1, 0);
@@ -152,8 +161,10 @@ TEST(TCPTransportTest, RawProtocol_SendsAuthOnConnect) {
     th.join();
     ASSERT_TRUE(opened.load());
 
-    // After AUTH, RAW sends nothing — the bridge streams first.
-    std::string sent = server.readClientBytes(1, 300);
+    // After AUTH, RAW sends nothing — the bridge streams first. A short 10ms
+    // deadline is sufficient to prove silence (no extra bytes arrive after the
+    // AUTH line); shrinking from 300ms removes a gratuitous wall-clock wait.
+    std::string sent = server.readClientBytes(1, 10);
     EXPECT_TRUE(sent.empty())
         << "raw TCP must not send AT-init after auth, but sent: " << sent;
 
@@ -263,7 +274,14 @@ TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327");
+    // Pass the StdOut output explicitly so the readTimeoutUs positional default
+    // is kept and the atInitDelayMs positional (0) zeroes the inter-command
+    // pacing — otherwise the ~5 AT commands × ~50-300ms settle ≈ 700ms of pure
+    // wall-clock waste in this test. The AT commands are still SENT, so the
+    // assertions below still hold; only the sleeps between them are skipped.
+    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/500000,
+                   /*atInitDelayMs=*/0);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -272,6 +290,8 @@ TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
     ASSERT_TRUE(opened.load());
 
     // After AUTH, ELM327 must send the AT-init sequence (ATZ/ATE0/ATSP6/ATH1/ATMA).
+    // With atInitDelayMs=0 the bytes arrive near-instantly; the 2000ms deadline
+    // is more than enough headroom.
     std::string sent = server.readClientBytes(
         std::string("ATZ\rATE0\rATSP6\rATH1\rATMA\r").size(), 2000);
     EXPECT_NE(sent.find("ATZ\r"), std::string::npos);
@@ -315,7 +335,12 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
+    // Inject a tiny read timeout (1us) so nextLine()'s select() poll returns
+    // promptly and re-checks the stop flag in ~0 ms instead of waiting the full
+    // 0.5s production poll. The default output (StdOut) is passed explicitly so
+    // the read-timeout positional arg can be supplied.
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -325,7 +350,8 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
 
     // Request stop from another "thread" (simulating a signal handler).
     TCPTransport::requestStop();
-    // nextLine should return nullopt within ~one select timeout (0.5s).
+    // nextLine should return nullopt within ~one select poll (≈0ms with the
+    // injected 1us timeout, floored at 1ms per poll).
     auto start = std::chrono::steady_clock::now();
     auto r = t.nextLine();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(

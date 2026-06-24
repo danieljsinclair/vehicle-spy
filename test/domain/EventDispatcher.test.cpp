@@ -295,9 +295,6 @@ TEST_F(EventDispatcherTest, EventDataIntegrityPreserved) {
     // Act
     dispatcher->dispatch(originalSignal);
 
-    // Wait for async dispatch
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
     // Assert
     EXPECT_TRUE(signalReceived.load());
     EXPECT_DOUBLE_EQ(receivedSignal.getThrottlePercent().value(), originalSignal.getThrottlePercent().value());
@@ -416,9 +413,6 @@ TEST_F(EventDispatcherTest, SequentialDispatchMaintainsOrder) {
         VehicleSignal signal(static_cast<std::uint64_t>(i), static_cast<double>(i), 0.0, 0.0, 0.0);
         dispatcher->dispatch(signal);
     }
-
-    // Wait for processing
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     // Assert
     EXPECT_EQ(receivedOrder.size(), 10);

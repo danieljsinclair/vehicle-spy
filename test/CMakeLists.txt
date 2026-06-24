@@ -57,6 +57,7 @@ add_executable(vehicle-sim-tests
     discovery/DiscoveryPacket.test.cpp
     discovery/DiscoveryVerifier.test.cpp
     pipeline/SecureTcpTransport.test.cpp
+    util/IClock.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests
@@ -85,3 +86,8 @@ target_include_directories(vehicle-sim-tests
 )
 
 add_test(NAME vehicle-sim-tests COMMAND vehicle-sim-tests WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+
+# Fail fast on a hung test case: ctest kills the binary at 30 s (the whole
+# suite runs in <1 s) instead of wedging `make test-cpp` until the shell
+# timeout. The last gtest [ RUN ] line in the --verbose log identifies the culprit.
+set_tests_properties(vehicle-sim-tests PROPERTIES TIMEOUT 30)

@@ -120,11 +120,13 @@ SecureTcpTransport::SecureTcpTransport(
     std::string host,
     int port,
     std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey,
-    std::shared_ptr<ITransportOutput> output)
+    std::shared_ptr<ITransportOutput> output,
+    int recvTimeoutUs)
     : host_(std::move(host))
     , port_(port)
     , publicKey_(publicKey)
     , output_(std::move(output))
+    , recvTimeoutUs_(recvTimeoutUs)
 {
     // Ensure libsodium is initialised (idempotent).
     if (sodium_init() < 0) {
@@ -272,13 +274,21 @@ std::optional<std::string> SecureTcpTransport::readEncryptedLine() {
             }
         }
 
-        // Need more bytes from the socket
+        // Need more bytes from the socket. Poll for at most recvTimeoutUs_ so
+        // the stop flag is re-checked promptly. Mirrors OTAHttpTransport: the
+        // injected value is honoured literally (a tiny test value yields a
+        // tiny poll), and we cap at a 100ms floor so a large injected value
+        // still re-checks the stop flag at a reasonable cadence.
+        int pollUs = recvTimeoutUs_;
+        if (pollUs > 100000) pollUs = 100000;  // floor: never block > 100ms
+        if (pollUs < 0) pollUs = static_cast<int>(RECV_TIMEOUT_US);
+
         fd_set readSet;
         FD_ZERO(&readSet);
         FD_SET(fd_, &readSet);
         struct timeval tv{};
-        tv.tv_sec = 0;
-        tv.tv_usec = RECV_TIMEOUT_US;
+        tv.tv_sec = pollUs / 1000000;
+        tv.tv_usec = pollUs % 1000000;
 
         int ready = select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
         if (ready < 0) {

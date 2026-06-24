@@ -25,13 +25,18 @@ namespace vehicle_sim::pipeline {
 class OTAHttpTransport {
 public:
     /**
-     * @param host     IPv4 address or hostname of the ESP32.
-     * @param port     HTTP port (default 80).
-     * @param username HTTP Basic Auth username.
-     * @param password HTTP Basic Auth password.
+     * @param host           IPv4 address or hostname of the ESP32.
+     * @param port           HTTP port (default 80).
+     * @param username       HTTP Basic Auth username.
+     * @param password       HTTP Basic Auth password.
+     * @param recvTimeoutMs  Max wait (ms) for the device's HTTP response.
+     *                       Defaults to 30s — OTA signature verification can
+     *                       take time. Injectable so tests can use a tiny value
+     *                       instead of sleeping.
      */
     OTAHttpTransport(std::string host, int port,
-                     std::string username, std::string password);
+                     std::string username, std::string password,
+                     int recvTimeoutMs = 30000);
 
     ~OTAHttpTransport();
 
@@ -74,6 +79,7 @@ private:
     int port_;
     std::string username_;
     std::string password_;
+    int recvTimeoutMs_ = 30000;
     int fd_ = -1;
     bool succeeded_ = false;
     std::string lastError_;
