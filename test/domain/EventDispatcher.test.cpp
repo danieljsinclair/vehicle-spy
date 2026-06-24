@@ -185,6 +185,12 @@ TEST_F(EventDispatcherTest, ConcurrentRegistrationDuringDispatch) {
     std::vector<unsigned int> tokens;
 
     // Act - Concurrent registration and dispatch
+    // NOTE: The 1ms sleeps below deliberately force register-vs-dispatch race
+    // interleaving — this is INTENTIONAL (the sleeps ARE the race-window mechanism).
+    // OPTIONAL future hardening: replace with std::atomic barrier/countdown for
+    // more deterministic timing. However, sleeps may better surface real races;
+    // atomic barriers could reduce coverage by making timing too predictable.
+    // Effort: S-M, Risk: M (could weaken race detection).
     std::thread registrationThread([&]() {
         for (int i = 0; i < numConsumers; ++i) {
             auto consumer = [&](const VehicleSignal& signal) {
@@ -294,9 +300,6 @@ TEST_F(EventDispatcherTest, EventDataIntegrityPreserved) {
 
     // Act
     dispatcher->dispatch(originalSignal);
-
-    // Wait for async dispatch
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     // Assert
     EXPECT_TRUE(signalReceived.load());
@@ -416,9 +419,6 @@ TEST_F(EventDispatcherTest, SequentialDispatchMaintainsOrder) {
         VehicleSignal signal(static_cast<std::uint64_t>(i), static_cast<double>(i), 0.0, 0.0, 0.0);
         dispatcher->dispatch(signal);
     }
-
-    // Wait for processing
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     // Assert
     EXPECT_EQ(receivedOrder.size(), 10);

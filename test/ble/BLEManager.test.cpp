@@ -11,7 +11,6 @@ using testing::_;
 using testing::Return;
 using testing::SaveArg;
 using testing::Eq;
-using testing::Field;
 
 // Mock BLE platform for testing - inherits from BLEManagerBase
 class MockBLEManagerBase : public BLEManagerBase {
@@ -355,7 +354,7 @@ TEST(BLEManagerBaseTest, WaitForPromptReturnsFalseOnTimeout)
     PromptTestBLEManager manager;
 
     // No notification — should time out
-    bool result = manager.waitForPrompt(100);
+    bool result = manager.waitForPrompt(1);
 
     EXPECT_FALSE(result);
 }
@@ -421,14 +420,16 @@ TEST(BLEManagerBaseTest, StopOBD2PollingWakesPromptWait)
 
     manager.startOBD2Polling(200);
 
-    // Let the thread enter waitForPrompt (POST_CONNECT_SETUP_DELAY_MS is 500ms,
-    // then it sends a query and waits for prompt)
-    std::this_thread::sleep_for(std::chrono::milliseconds(700));
-
-    // stopOBD2Polling should unblock the thread and join it
-    // If notifyPrompt is not called, this would hang forever
+    // stopOBD2Polling() unblocks the polling thread regardless of which wait
+    // state it is in: it clears polling_active_, then notifyPrompt() sets
+    // prompt_ready_ and notifies the condition_variable. Whether the thread is
+    // still in the POST_CONNECT_SETUP_DELAY_MS sleep (it then sees
+    // polling_active_ == false and exits the loop without reaching the cv) or
+    // already blocked in waitForPrompt (the notify wakes it and the loop guard
+    // exits), the join returns promptly. Calling stop immediately therefore
+    // deterministically verifies the wake path without any test-side wait.
     manager.stopOBD2Polling();
 
-    // If we get here, stopOBD2Polling correctly woke the waiting thread
+    // If we get here, stopOBD2Polling correctly woke the thread and joined it.
     SUCCEED();
 }

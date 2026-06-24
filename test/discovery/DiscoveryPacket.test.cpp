@@ -32,7 +32,7 @@ TEST(DiscoveryPacketConstants, DiscoveryPort) {
 
 TEST(DiscoveryPacketConstants, DefaultPorts) {
     EXPECT_EQ(DEFAULT_CAN_PORT, 3333u);
-    EXPECT_EQ(DEFAULT_OTA_PORT, 3334u);
+    EXPECT_EQ(DEFAULT_OTA_PORT, 80u);
 }
 
 // ── Serialization ─────────────────────────────────────────────────────────

@@ -23,6 +23,10 @@
     <string>VehicleSim needs Bluetooth to connect to your OBD2 adapter and display real-time Tesla telemetry data.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
     <string>VehicleSim needs Bluetooth to connect to your OBD2 adapter and display real-time Tesla telemetry data.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>VehicleSim uses the local network to discover and connect to ESP32 CAN bridge devices.</string>
+    <key>NSBonjourServices</key>
+    <array/>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>

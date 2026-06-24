@@ -2,10 +2,8 @@
 
 #include <functional>
 #include <memory>
-#include <atomic>
-#include <thread>
-#include <cstdint>
 #include "vehicle-sim/domain/VehicleSignal.h"
+#include "vehicle-sim/util/IClock.h"
 
 namespace vehicle_sim::domain {
 
@@ -31,8 +29,13 @@ public:
     /**
      * Constructor
      * @param intervalMs Update interval in milliseconds (default: 50ms = 20Hz)
+     * @param clock      Clock abstraction for the tick loop. Defaults to the
+     *                   real SystemClock; tests inject a FakeClock to make the
+     *                   loop deterministic (no wall-clock sleeps).
      */
-    explicit DemoSignalProvider(int intervalMs = 50) noexcept;
+    explicit DemoSignalProvider(
+        int intervalMs = 50,
+        std::shared_ptr<util::IClock> clock = std::make_shared<util::SystemClock>()) noexcept;
 
     ~DemoSignalProvider();
 

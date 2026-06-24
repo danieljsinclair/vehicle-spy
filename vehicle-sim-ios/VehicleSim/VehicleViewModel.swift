@@ -39,6 +39,10 @@ class VehicleViewModel: ObservableObject {
     @Published var esp32DiscoveryError: String?
     @Published var autoConnectedESP32: DiscoveredESP32?
 
+    // MARK: - WiFi Security
+    @Published var wifiSecurityPolicy: WiFiSecurityPolicy = WiFiSecurityPolicy()
+    @Published var wifiSecurityError: String?
+
     // MARK: - Connection Mode
     @Published var connectionMode: ConnectionMode {
         didSet {
@@ -245,7 +249,7 @@ class VehicleViewModel: ObservableObject {
         return wrapper?.lastRawHex ?? ""
     }
 
-    // MARK: - ESP32 Discovery (auto, no manual config)
+    // MARK: - ESP32 Discovery (WiFi mode)
 
     func startESP32Discovery() {
         guard !isESP32DiscoveryActive else { return }
@@ -253,10 +257,11 @@ class VehicleViewModel: ObservableObject {
         discoveredESP32s = []
         esp32DiscoveryError = nil
         autoConnectedESP32 = nil
+        wifiSecurityError = nil
 
-        // Start listener with no signature verification (firmware broadcasts unsigned for now)
+        // Start listener with signature verification via the security policy
         let listener = ESP32DiscoveryListener(
-            publicKey: nil,
+            publicKey: wifiSecurityPolicy.publicKey,
             onDiscovered: { [weak self] discovered in
                 guard let self else { return }
                 if let idx = self.discoveredESP32s.firstIndex(where: { $0.address == discovered.address }) {
@@ -265,12 +270,19 @@ class VehicleViewModel: ObservableObject {
                     self.discoveredESP32s.append(discovered)
                 }
 
-                // Auto-connect on first discovery if in WiFi mode and not already connected
+                // Auto-connect on first verified discovery if in WiFi mode and not already connected
                 if self.connectionMode == .wifi
                     && self.connectionState == .disconnected
                     && self.autoConnectedESP32 == nil
                 {
-                    self.autoConnect(to: discovered)
+                    // Check security policy before auto-connecting
+                    do {
+                        try self.wifiSecurityPolicy.allowConnection(discovered: discovered)
+                        self.autoConnect(to: discovered)
+                    } catch {
+                        // Device not verified -- do not auto-connect
+                        self.wifiSecurityError = error.localizedDescription
+                    }
                 }
             },
             onError: { [weak self] error in
@@ -296,10 +308,43 @@ class VehicleViewModel: ObservableObject {
     }
 
     /// Manually connect to a discovered ESP32 at its CAN port.
+    /// Checks the WiFi security policy first; refuses unverified devices by default.
     func connectToESP32(_ esp32: DiscoveredESP32) {
         guard wrapper != nil else { return }
+
+        // Security policy check
+        do {
+            try wifiSecurityPolicy.allowConnection(discovered: esp32)
+            wifiSecurityError = nil
+        } catch {
+            wifiSecurityError = error.localizedDescription
+            connectionStatus = "Refused: Unverified Device"
+            return
+        }
+
+        initiateESP32Connection(esp32)
+    }
+
+    /// Explicitly trust a discovered ESP32 device, bypassing signature verification.
+    /// The user must confirm this action via the UI.
+    func trustESP32(_ esp32: DiscoveredESP32) {
+        wifiSecurityPolicy.markUserTrusted(deviceId: esp32.deviceId)
+        // Remove from discovered list and re-add to update UI state
+        if let idx = discoveredESP32s.firstIndex(where: { $0.address == esp32.address }) {
+            discoveredESP32s[idx] = esp32
+        }
+    }
+
+    private func autoConnect(to esp32: DiscoveredESP32) {
+        autoConnectedESP32 = esp32
+        initiateESP32Connection(esp32)
+    }
+
+    private func initiateESP32Connection(_ esp32: DiscoveredESP32) {
+        guard let wrapper = wrapper else { return }
         let address = esp32.host
         let port = esp32.canPort
+        let tcpTarget = "tcp:\(address):\(port)"
 
         connectionStatus = "Connecting to \(address):\(port)"
         connectionState = .connecting
@@ -307,7 +352,7 @@ class VehicleViewModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self, let wrapper = self.wrapper else { return }
 
-            let success = wrapper.connect(toDevice: address,
+            let success = wrapper.connect(toDevice: tcpTarget,
                                           deviceName: "ESP32 CAN Bridge",
                                           vehicleType: self.selectedVehicle)
 
@@ -325,11 +370,6 @@ class VehicleViewModel: ObservableObject {
                 }
             }
         }
-    }
-
-    private func autoConnect(to esp32: DiscoveredESP32) {
-        autoConnectedESP32 = esp32
-        connectToESP32(esp32)
     }
 
     // MARK: - Polling

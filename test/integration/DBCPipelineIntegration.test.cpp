@@ -9,6 +9,10 @@ using namespace vehicle_sim::domain;
 
 class DBCPipelineIntegrationTest : public ::testing::Test {
 protected:
+    // NOTE: DBC parser re-parses vw_mlb.dbc (~224KB) every test.
+    // Refactor: hoist parsed result to SetUpTestSuite() or static lazy-init
+    // so DBC parses once per suite (~120ms saving). Parser is stateless,
+    // so sharing across tests is safe. Effort: M, Risk: L.
     DBCFileParser parser;
 
     // Helper to get DBC file path relative to project root

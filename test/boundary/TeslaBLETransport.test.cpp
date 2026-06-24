@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 #include <memory>
-#include <thread>
-#include <chrono>
 #include <vector>
 #include <cstdint>
 #include <string>
@@ -142,9 +140,6 @@ TEST_F(TeslaBLETransportTest, ReceivesValidPacket)
     BLEManagerMock* mock = rawMock;
     mock->simulateIncomingData(validPacket);
 
-    // Give time for async processing
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     ASSERT_TRUE(callbackInvoked)
         << "Callback should be invoked for valid packet";
     ASSERT_EQ(receivedPacket.size(), validPacket.size())
@@ -179,8 +174,6 @@ TEST_F(TeslaBLETransportTest, BuffersIncompletePackets)
     BLEManagerMock* mock = rawMock;
     mock->simulateIncomingData(partialPacket);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     ASSERT_FALSE(callbackInvoked)
         << "Incomplete packet should not trigger callback";
 }
@@ -205,8 +198,6 @@ TEST_F(TeslaBLETransportTest, RejectsInvalidHeaderPackets)
             mock->simulateIncomingData(packet);
         }
     }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Only packets with valid headers should invoke callback
     EXPECT_EQ(callbackInvoked, false)
@@ -233,8 +224,6 @@ TEST_F(TeslaBLETransportTest, RejectsInvalidChecksumPackets)
             mock->simulateIncomingData(packet);
         }
     }
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Only packets with valid checksums should invoke callback
     EXPECT_EQ(callbackInvoked, false)
@@ -272,15 +261,11 @@ TEST_F(TeslaBLETransportTest, ClearsBufferOnDisconnect)
     // Send partial packet (will be buffered)
     mock->simulateIncomingData({0xAA, 0x55, 0x03, 0x10, 0x20, 0x30});  // Missing checksum 0x62
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
     // Disconnect - should clear buffer
     transport->disconnect();
 
     // Try to complete packet (should not work - buffer was cleared)
     mock->simulateIncomingData({0x62});  // Correct checksum
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     ASSERT_FALSE(callbackInvoked)
         << "Buffer should be cleared on disconnect, packet completion should not happen";
@@ -320,8 +305,6 @@ TEST_F(TeslaBLETransportTest, HandlesContinuousPacketStream)
     mock->simulateIncomingData({0xAA, 0x55, 0x03, 0x11, 0x21, 0x31, 0x65});  // Checksum: 0x65
     mock->simulateIncomingData({0xAA, 0x55, 0x03, 0x12, 0x22, 0x32, 0x68});  // Checksum: 0x68
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     EXPECT_EQ(packetsReceived, 3)
         << "Should process all 3 packets in stream";
 }
@@ -354,8 +337,6 @@ TEST_F(TeslaBLETransportTest, ReassemblesFragmentedPacket)
     // Send packet in fragments (no checksum byte, transport will validate complete packet)
     mock->simulateIncomingData({0xAA, 0x55, 0x04, 0x10});
     mock->simulateIncomingData({0x20, 0x30, 0x40, 0xA3});  // Complete checksum
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     ASSERT_TRUE(callbackInvoked)
         << "Fragmented packet should be reassembled and received";
@@ -394,8 +375,6 @@ TEST_F(TeslaBLETransportTest, SendWithDataWhenConnected)
     // Send valid packet while connected
     mock->simulateIncomingData(validPacket);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     // Verify callback was invoked
     ASSERT_TRUE(callbackInvoked);
     ASSERT_EQ(receivedPacket.size(), validPacket.size());
@@ -415,7 +394,6 @@ TEST_F(TeslaBLETransportTest, SendReturnsFalseWhenDisconnected)
 
     // Send data when disconnected
     mock->simulateIncomingData({0xAA, 0x55, 0x03, 0x10, 0x20, 0x30, 0x62});  // Correct checksum
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     // Try to send - should not throw but no callback should happen
     EXPECT_NO_THROW(transport->send(testData));

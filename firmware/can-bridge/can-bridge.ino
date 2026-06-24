@@ -5,30 +5,57 @@
 // Wiring:   GPIO 22 → transceiver TX, GPIO 21 → transceiver RX
 //           Transceiver CANH → OBD2 pin 6, CANL → OBD2 pin 14
 //
-// WiFi:     Station mode if ESP32_WIFI_SSID/ESP32_WIFI_PASSWORD defined at build time
+// WiFi:     Station mode if ESP32_WIFI_SSID/ESP32_WIFI_PASS defined at build time
 //           Falls back to AP mode (ESP32-CAN / cancan12) if not set
-// TCP:      port 3333
+// TCP:      port 3333 (CAN bridge)
+// OTA:      port 80 (HTTPUpdateServer — standard Arduino OTA)
 // Protocol: Minimal ELM327 — ATZ, ATE0, ATSP6, ATH1, ATMA
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+
+// TCP auth token — injected at build time, never stored on disk
+#ifndef TCP_AUTH_TOKEN
+#define TCP_AUTH_TOKEN "vehicle-sim-2026"
+#endif
+
+// ANSI color codes for serial output
+static const char* const RED    = "\033[0;31m";
+static const char* const GREEN  = "\033[0;32m";
+static const char* const PURPLE = "\033[0;35m";
+static const char* const NC     = "\033[0m";
+
 #include <driver/twai.h>
+
+#ifndef VEHICLE_SIM_ENABLE_OTA_SERVER
+#define VEHICLE_SIM_ENABLE_OTA_SERVER 1
+#endif
+
+#ifndef VEHICLE_SIM_ENABLE_DISCOVERY
+#define VEHICLE_SIM_ENABLE_DISCOVERY 1
+#endif
+
+#ifndef VEHICLE_SIM_ENABLE_TWAI
+#define VEHICLE_SIM_ENABLE_TWAI 1
+#endif
 
 // OTA update entry points (implemented in ota_update.ino, part of this sketch).
 //   otaMarkValidOnBoot - mark the running app valid to cancel an OTA rollback
-//   otaSetup           - start the signed-image OTA server (port 3334)
+//   otaSetup           - start the HTTPUpdateServer /update endpoint on port 80
 //   otaLoop            - service incoming OTA connections each loop tick
+#if VEHICLE_SIM_ENABLE_OTA_SERVER
 void otaMarkValidOnBoot();
 void otaSetup();
 void otaLoop();
+#endif
 
 // WiFi credentials injected via compiler defines (never stored on disk)
-// Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASSWORD=Y
+// Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASS=Y
 #ifdef ESP32_WIFI_SSID
 #define _STRINGIZE(x) #x
 #define STRINGIZE(x) _STRINGIZE(x)
 static constexpr const char* WIFI_SSID = STRINGIZE(ESP32_WIFI_SSID);
-static constexpr const char* WIFI_PASSWORD = STRINGIZE(ESP32_WIFI_PASSWORD);
+static constexpr const char* WIFI_PASSWORD = STRINGIZE(ESP32_WIFI_PASS);
 #else
 static constexpr const char* WIFI_SSID = nullptr;
 static constexpr const char* WIFI_PASSWORD = nullptr;
@@ -53,6 +80,7 @@ static WiFiServer tcpServer(TCP_PORT);
 static WiFiClient client;
 static bool monitorActive = false;
 static uint32_t serialQuietUntilMs = 0;
+static wifi_err_reason_t lastDisconnectReason = WIFI_REASON_UNSPECIFIED;
 
 // ── UDP Discovery Broadcast ──────────────────────────────────────────────
 // Broadcasts unsigned discovery packets on UDP port 3335 so that CLI and iOS
@@ -95,9 +123,9 @@ static void broadcastDiscovery() {
     // CAN port (2 bytes, big-endian)
     packet[38] = (TCP_PORT >> 8) & 0xFF;
     packet[39] = TCP_PORT & 0xFF;
-    // OTA port (2 bytes, big-endian)
-    packet[40] = (3334 >> 8) & 0xFF;
-    packet[41] = 3334 & 0xFF;
+    // OTA port (2 bytes, big-endian) — HTTPUpdateServer listens on port 80
+    packet[40] = (80 >> 8) & 0xFF;
+    packet[41] = 80 & 0xFF;
 
     // Signature bytes remain zeroed for unsigned discovery broadcasts.
     memset(packet + 42, 0, 64);
@@ -207,10 +235,19 @@ static void streamFrame(const twai_message_t& msg) {
 
 static String ipStr;
 
+static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
+    lastDisconnectReason = static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
+    Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
+                    static_cast<int>(lastDisconnectReason),
+                    WiFi.disconnectReasonName(lastDisconnectReason), NC, WiFi.SSID().c_str());
+}
+
 void setup() {
     Serial.begin(SERIAL_BAUD);
+    WiFi.onEvent(onWiFiDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
     // TWAI init — listen-only so we never transmit on the vehicle bus
+#if VEHICLE_SIM_ENABLE_TWAI
     twai_general_config_t gcfg = TWAI_GENERAL_CONFIG_DEFAULT(TWAI_TX, TWAI_RX, TWAI_MODE_LISTEN_ONLY);
     twai_timing_config_t tcfg = TWAI_TIMING_CONFIG_500KBITS();
     twai_filter_config_t fcfg = TWAI_FILTER_CONFIG_ACCEPT_ALL();
@@ -224,38 +261,43 @@ void setup() {
         while (true) delay(1000);
     }
     Serial.println("TWAI started @ 500kbps (listen-only)");
+#else
+    Serial.println("TWAI disabled via VEHICLE_SIM_ENABLE_TWAI=0");
+#endif
 
     // WiFi — Station mode if config exists, otherwise AP fallback
     if (WIFI_SSID != nullptr) {
+        WiFi.disconnect(false, true);   // erase stale NVS creds before fresh connect
         WiFi.mode(WIFI_STA);
         WiFi.setHostname("esp32-can");
         WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
         Serial.printf("Connecting to %s", WIFI_SSID);
         int retries = 0;
-        while (WiFi.status() != WL_CONNECTED && retries < 40) {
+        while (WiFi.status() != WL_CONNECTED && retries < 120) {
             delay(500);
-            Serial.print(".");
+            Serial.printf("%s status=%d%s", GREEN, static_cast<int>(WiFi.status()), NC);
             retries++;
         }
         if (WiFi.status() == WL_CONNECTED) {
             ipStr = WiFi.localIP().toString();
-            Serial.printf("\nConnected. IP: %s\n", ipStr.c_str());
+            Serial.printf("%s\nConnected. IP: %s\r\n%s", GREEN, ipStr.c_str(), NC);
         } else {
-            Serial.println("\nWiFi failed, falling back to AP mode");
+            const wl_status_t status = WiFi.status();
+            Serial.printf("%s\nWiFi failed: status=%d, falling back to AP mode\n%s", RED, static_cast<int>(status), NC);
             WiFi.mode(WIFI_AP);
             WiFi.softAP(AP_SSID, AP_PASS);
             ipStr = WiFi.softAPIP().toString();
-            Serial.printf("AP: %s  IP: %s\n", AP_SSID, ipStr.c_str());
+            Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ipStr.c_str(), NC);
         }
     } else {
         WiFi.mode(WIFI_AP);
         WiFi.softAP(AP_SSID, AP_PASS);
         ipStr = WiFi.softAPIP().toString();
-        Serial.printf("AP: %s  IP: %s\n", AP_SSID, ipStr.c_str());
+        Serial.printf("AP: %s  IP: %s\r\n", AP_SSID, ipStr.c_str());
     }
 
     tcpServer.begin();
-    Serial.printf("TCP listening on port %u\n", TCP_PORT);
+    Serial.printf("TCP listening on port %u\r\n", TCP_PORT);
 
     // Initialize device ID from MAC address
     uint8_t mac[6];
@@ -265,28 +307,40 @@ void setup() {
     memcpy(discoveryDeviceId, mac, 6);
 
     // Start UDP discovery
+#if VEHICLE_SIM_ENABLE_DISCOVERY
     udpDiscovery.begin(DISCOVERY_PORT);
-    Serial.printf("UDP discovery on port %u\n", DISCOVERY_PORT);
+    Serial.printf("UDP discovery on port %u\r\n", DISCOVERY_PORT);
+#else
+    Serial.println("UDP discovery disabled via VEHICLE_SIM_ENABLE_DISCOVERY=0");
+#endif
 
     // OTA: first mark THIS firmware's boot as healthy (cancels any pending
     // rollback from a previous OTA), then start the signed-image OTA server.
     // Order matters — mark-valid before bringing up the server so a rollback
     // condition is cleared before accepting new uploads.
+#if VEHICLE_SIM_ENABLE_OTA_SERVER
     otaMarkValidOnBoot();
     otaSetup();
+#else
+    Serial.println("OTA server disabled via VEHICLE_SIM_ENABLE_OTA_SERVER=0");
+#endif
 }
 
 void loop() {
     // Service any incoming OTA upload before other work so an update isn't
     // starved by CAN traffic. Non-blocking: handles at most one connection.
+#if VEHICLE_SIM_ENABLE_OTA_SERVER
     otaLoop();
+#endif
 
     // Broadcast discovery packet periodically
+#if VEHICLE_SIM_ENABLE_DISCOVERY
     uint32_t now = millis();
     if (now - lastDiscoveryBroadcast >= DISCOVERY_INTERVAL_MS) {
         lastDiscoveryBroadcast = now;
         broadcastDiscovery();
     }
+#endif
 
     // Accept new TCP connections
     if (!client || !client.connected()) {
@@ -295,8 +349,21 @@ void loop() {
             if (client) client.stop();
             client = next;
             monitorActive = false;
-            sendPrompt("ELM327 v2.3");
-            Serial.println("Client connected");
+            // Require AUTH before any other commands.
+            // Client must send "AUTH <token>" as the first line.
+            // This prevents unauthorized reboots and captures on the local network.
+            client.setTimeout(5000);
+            String firstLine = client.readStringUntil('\r');
+            firstLine.trim();
+            if (firstLine != "AUTH " TCP_AUTH_TOKEN) {
+                client.println("ERROR unauthorized");
+                client.stop();
+                client = WiFiClient();
+                Serial.println("TCP: rejected unauthenticated connection");
+            } else {
+                client.println("OK");
+                Serial.println("TCP: client authenticated");
+            }
         }
     }
 
@@ -317,10 +384,12 @@ void loop() {
     // is connected AND monitorActive. This keeps serial logging live even
     // with no WiFi client, and never double-reads a frame.
     const bool suppressSerialFrames = millis() < serialQuietUntilMs;
+#if VEHICLE_SIM_ENABLE_TWAI
     twai_message_t msg;
     while (twai_receive(&msg, 0) == ESP_OK) {
         if (!suppressSerialFrames) {
             streamFrame(msg);
         }
     }
+#endif
 }

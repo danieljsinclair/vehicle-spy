@@ -1,10 +1,18 @@
 #pragma once
 
 #include "vehicle-sim/pipeline/ITransport.h"
+#include "vehicle-sim/pipeline/ITransportOutput.h"
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
+
+// TCP auth token — injected at build time via compiler define
+// Makefile passes -DTCP_AUTH_TOKEN=\"...\" for firmware; CMakeLists.txt sets it for native
+#ifndef TCP_AUTH_TOKEN
+#define TCP_AUTH_TOKEN "vehicle-sim-2026"
+#endif
 
 namespace vehicle_sim::pipeline {
 
@@ -34,8 +42,24 @@ public:
      * @param host             IPv4/hostname of the CAN-bridge.
      * @param port             TCP port (firmware default 3333).
      * @param adapterProtocol  "raw" (no init) or "elm327" (send AT-init).
+     * @param output           Where to emit human-readable status/error lines.
+     * @param readTimeoutUs    Max wait (microseconds) for a select() read before
+     *                         re-checking the stop flag. Defaults to 500000 (0.5s)
+     *                         — matches the capture tool's robustness target.
+     *                         Injectable so tests can pass a tiny value and see a
+     *                         requestStop() in ~0 ms instead of waiting out the
+     *                         full production poll. Production default unchanged.
+     * @param atInitDelayMs    Inter-command pacing (milliseconds) between ELM327
+     *                         AT-init commands. -1 (default) means use each
+     *                         command's own cmd.delayMs (production behaviour —
+     *                         a real adapter needs the settle time). Any value
+     *                         >= 0 overrides every command's delay to that value,
+     *                         so tests can pass 0 and skip the ~700ms of pacing.
      */
-    TCPTransport(std::string host, int port, std::string adapterProtocol = "raw");
+    TCPTransport(std::string host, int port, std::string adapterProtocol = "raw",
+                 std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
+                 int readTimeoutUs = 500000,
+                 int atInitDelayMs = -1);
 
     ~TCPTransport() override;
 
@@ -60,13 +84,22 @@ public:
 private:
     bool sendAll(int fd, const std::string& data) noexcept;
     bool sendElm327Init(int fd) noexcept;
+    bool connectAndAuth();
+    void closeConnection() noexcept;
 
     std::string host_;
     int port_;
     std::string adapterProtocol_;
+    std::shared_ptr<ITransportOutput> output_;
+    int readTimeoutUs_ = 500000;
+    int atInitDelayMs_ = -1;
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;
+    // Reconnect state
+    int retryCount_ = 0;
+    static constexpr int MAX_RETRIES = 0x7FFFFFFF;  // ~2 billion — effectively unlimited
+    static constexpr int RETRY_DELAY_MS = 1000;
     // Accumulated bytes not yet terminated by a line ending.
     std::string pending_;
 };

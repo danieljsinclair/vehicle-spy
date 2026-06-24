@@ -27,20 +27,26 @@ public:
     ~Impl() = default;
 
     bool initialize(const std::string& config_file) {
+#ifndef VEHICLE_SIM_TEST_SILENTLY
         std::cout << "[VehicleSimulator] Initializing with config: "
                   << (config_file.empty() ? "default" : config_file) << std::endl;
+#endif
         return true;
     }
 
     bool start() {
         running_ = true;
+#ifndef VEHICLE_SIM_TEST_SILENTLY
         std::cout << "[VehicleSimulator] Started" << std::endl;
+#endif
         return true;
     }
 
     void stop() {
         running_ = false;
+#ifndef VEHICLE_SIM_TEST_SILENTLY
         std::cout << "[VehicleSimulator] Stopped" << std::endl;
+#endif
     }
 
     void update() {

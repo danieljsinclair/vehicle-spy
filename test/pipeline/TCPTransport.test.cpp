@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -66,13 +67,47 @@ public:
             fd_set rs;
             FD_ZERO(&rs);
             FD_SET(clientFd_, &rs);
+            auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   deadline - std::chrono::steady_clock::now()).count();
+            if (remainingMs <= 0) break;
             timeval tv{};
-            tv.tv_usec = 100 * 1000;
+            tv.tv_usec = static_cast<suseconds_t>(
+                std::min<decltype(remainingMs)>(remainingMs, 100) * 1000);
             int r = select(clientFd_ + 1, &rs, nullptr, nullptr, &tv);
             if (r > 0) {
                 ssize_t n = recv(clientFd_, buf, sizeof(buf), 0);
                 if (n <= 0) break;
                 out.append(buf, static_cast<std::size_t>(n));
+            }
+        }
+        return out;
+    }
+
+    // Read a single line (up to \r or \n) with timeout.
+    std::string readLine(int timeoutMs = 3000) {
+        std::string out;
+        auto deadline = std::chrono::steady_clock::now() +
+                        std::chrono::milliseconds(timeoutMs);
+        char c;
+        while (std::chrono::steady_clock::now() < deadline) {
+            fd_set rs;
+            FD_ZERO(&rs);
+            FD_SET(clientFd_, &rs);
+            auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   deadline - std::chrono::steady_clock::now()).count();
+            if (remainingMs <= 0) break;
+            timeval tv{};
+            tv.tv_usec = static_cast<suseconds_t>(
+                std::min<decltype(remainingMs)>(remainingMs, 100) * 1000);
+            int r = select(clientFd_ + 1, &rs, nullptr, nullptr, &tv);
+            if (r > 0) {
+                ssize_t n = recv(clientFd_, &c, 1, 0);
+                if (n <= 0) break;
+                if (c == '\r' || c == '\n') {
+                    if (!out.empty()) break;
+                    continue;  // skip leading CR/LF
+                }
+                out += c;
             }
         }
         return out;
@@ -97,31 +132,46 @@ private:
     int port_ = 0;
 };
 
-} // namespace
+// Helper: accept a connection, read the AUTH line, send "OK". Returns true if
+// auth succeeded.
+bool acceptAndAuth(LoopbackServer& server, int timeoutMs = 3000) {
+    if (server.acceptClient(timeoutMs) < 0) return false;
+    std::string line = server.readLine(timeoutMs);
+    if (line != "AUTH vehicle-sim-2026") return false;
+    server.sendBytes("OK\r");
+    return true;
+}
 
 // ============================================================
-// RAW protocol (default) — NO AT-init is sent on connect. The transport
-// streams the bridge's "<ID> <D0> ... <D7>" lines verbatim.
+// RAW protocol (default) — AUTH token sent on connect, then stream verbatim.
 // ============================================================
 
-TEST(TCPTransportTest, RawProtocol_SendsNoAtInitOnConnect) {
+TEST(TCPTransportTest, RawProtocol_SendsAuthOnConnect) {
     LoopbackServer server;
     ASSERT_TRUE(server.init());
 
+    // Start the transport open in a thread so we can accept+auth before it times out.
     TCPTransport::resetStop();
     TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"raw");
-    ASSERT_TRUE(t.open());
-    ASSERT_GE(server.acceptClient(), 0);
+    std::atomic<bool> opened{false};
+    std::thread th([&] { opened = t.open(); });
 
-    // Give the transport a moment in which it could (wrongly) send AT-init.
-    std::string sent = server.readClientBytes(1, 600);
-    // RAW must send nothing on connect — the bridge streams first.
+    // Accept and auth before checking open result.
+    ASSERT_TRUE(acceptAndAuth(server));
+    th.join();
+    ASSERT_TRUE(opened.load());
+
+    // After AUTH, RAW sends nothing — the bridge streams first. A short 10ms
+    // deadline is sufficient to prove silence (no extra bytes arrive after the
+    // AUTH line); shrinking from 300ms removes a gratuitous wall-clock wait.
+    std::string sent = server.readClientBytes(1, 10);
     EXPECT_TRUE(sent.empty())
-        << "raw TCP must not send AT-init, but sent: " << sent;
+        << "raw TCP must not send AT-init after auth, but sent: " << sent;
 
     server.closeClient();
-    // Drain to let nextLine observe the disconnect.
+    TCPTransport::requestStop();
     EXPECT_FALSE(t.nextLine().has_value());
+    TCPTransport::resetStop();
 }
 
 TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
@@ -130,8 +180,12 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
 
     TCPTransport::resetStop();
     TCPTransport t("127.0.0.1", server.port(), "raw");
-    ASSERT_TRUE(t.open());
-    ASSERT_GE(server.acceptClient(), 0);
+    std::atomic<bool> opened{false};
+    std::thread th([&] { opened = t.open(); });
+
+    ASSERT_TRUE(acceptAndAuth(server));
+    th.join();
+    ASSERT_TRUE(opened.load());
 
     // Feed a couple of raw CAN-monitor lines (HEX CAN IDs).
     server.sendBytes("118 3C 00 18 00 00 00 00 FF\r");
@@ -151,22 +205,42 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
     EXPECT_EQ(ids[1], 0x108u);
 
     server.closeClient();
-    EXPECT_FALSE(t.nextLine().has_value());  // disconnect → EOF
+    TCPTransport::requestStop();
+    t.nextLine();
+    TCPTransport::resetStop();
 }
 
-TEST(TCPTransportTest, CleanDisconnectOnServerClose_ReturnsNullopt) {
+TEST(TCPTransportTest, CleanDisconnect_DetectedByNextLine) {
+    // Verify that when the server closes, nextLine() detects the disconnect
+    // (returns nullopt) without hanging. The transport attempts reconnect in
+    // the background; we stop it with requestStop().
     LoopbackServer server;
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
     TCPTransport t("127.0.0.1", server.port(), "raw");
-    ASSERT_TRUE(t.open());
-    ASSERT_GE(server.acceptClient(), 0);
+    std::atomic<bool> opened{false};
+    std::thread th([&] { opened = t.open(); });
 
+    ASSERT_TRUE(acceptAndAuth(server));
+    th.join();
+    ASSERT_TRUE(opened.load());
+
+    // Send one frame.
+    server.sendBytes("118 3C 00 18 00 00 00 00 FF\r");
+    auto line = t.nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(*line, "118 3C 00 18 00 00 00 00 FF");
+
+    // Server closes — transport detects disconnect and attempts reconnect.
     server.closeClient();
-    // The transport must observe EOF and return nullopt without hanging.
-    EXPECT_FALSE(t.nextLine().has_value());
-    EXPECT_FALSE(t.isOpen());
+
+    // The transport should eventually return nullopt (either from EOF detection
+    // or from reconnect failure). Use requestStop to bound the wait.
+    TCPTransport::requestStop();
+    line = t.nextLine();
+    EXPECT_FALSE(line.has_value());
+    TCPTransport::resetStop();
 }
 
 TEST(TCPTransportTest, ConnectionRefused_OpenReturnsFalse) {
@@ -192,21 +266,32 @@ TEST(TCPTransportTest, ConnectionRefused_OpenReturnsFalse) {
 }
 
 // ============================================================
-// ELM327 protocol — distinguished by sending the CAN-monitor AT-init on
-// connect. The ELM327 normaliser itself is a later task (#18); today elm327
-// only changes the connect handshake.
+// ELM327 protocol — AUTH + AT-init on connect.
 // ============================================================
 
-TEST(TCPTransportTest, Elm327Protocol_SendsAtInitOnConnect) {
+TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
     LoopbackServer server;
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327");
-    ASSERT_TRUE(t.open());
-    ASSERT_GE(server.acceptClient(), 0);
+    // Pass the StdOut output explicitly so the readTimeoutUs positional default
+    // is kept and the atInitDelayMs positional (0) zeroes the inter-command
+    // pacing — otherwise the ~5 AT commands × ~50-300ms settle ≈ 700ms of pure
+    // wall-clock waste in this test. The AT commands are still SENT, so the
+    // assertions below still hold; only the sleeps between them are skipped.
+    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/500000,
+                   /*atInitDelayMs=*/0);
+    std::atomic<bool> opened{false};
+    std::thread th([&] { opened = t.open(); });
 
-    // ELM327 must send the AT-init sequence (ATZ/ATE0/ATSP6/ATH1/ATMA).
+    ASSERT_TRUE(acceptAndAuth(server));
+    th.join();
+    ASSERT_TRUE(opened.load());
+
+    // After AUTH, ELM327 must send the AT-init sequence (ATZ/ATE0/ATSP6/ATH1/ATMA).
+    // With atInitDelayMs=0 the bytes arrive near-instantly; the 2000ms deadline
+    // is more than enough headroom.
     std::string sent = server.readClientBytes(
         std::string("ATZ\rATE0\rATSP6\rATH1\rATMA\r").size(), 2000);
     EXPECT_NE(sent.find("ATZ\r"), std::string::npos);
@@ -216,32 +301,31 @@ TEST(TCPTransportTest, Elm327Protocol_SendsAtInitOnConnect) {
     EXPECT_NE(sent.find("ATMA\r"), std::string::npos);
 
     server.closeClient();
-    EXPECT_FALSE(t.nextLine().has_value());
+    TCPTransport::requestStop();
+    t.nextLine();
+    TCPTransport::resetStop();
 }
 
 TEST(TCPTransportTest, Elm327InitFailure_OpenReturnsFalse) {
-    // elm327 init sends bytes; if the peer closes mid-init, open() fails and
-    // the transport is not usable.
     LoopbackServer server;
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
     TCPTransport t("127.0.0.1", server.port(), "elm327");
-    // Open the transport; it will start sending AT-init. Close the server-side
-    // client immediately so the send fails.
-    // Run open() on a thread because it blocks on send/settle delays.
+    // Open the transport; it will start sending AUTH then AT-init.
+    // Close the server-side client immediately so the send fails.
     std::atomic<bool> opened{false};
     std::thread th([&] {
-        // We can't easily make the send fail mid-init without timing races;
-        // instead, assert the happy path here is covered by the test above.
         opened = t.open();
     });
     ASSERT_GE(server.acceptClient(), 0);
+    // Read and discard the AUTH line, then close before sending OK.
+    server.readLine();
     server.closeClient();
     th.join();
-    // Either open() failed (send failed) or succeeded then nextLine sees EOF —
-    // both are acceptable; what matters is no hang.
-    SUCCEED();
+    // open() should fail because the auth handshake was interrupted.
+    EXPECT_FALSE(opened.load());
+    TCPTransport::resetStop();
 }
 
 TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
@@ -251,13 +335,23 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
-    ASSERT_TRUE(t.open());
-    ASSERT_GE(server.acceptClient(), 0);
+    // Inject a tiny read timeout (1us) so nextLine()'s select() poll returns
+    // promptly and re-checks the stop flag in ~0 ms instead of waiting the full
+    // 0.5s production poll. The default output (StdOut) is passed explicitly so
+    // the read-timeout positional arg can be supplied.
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1);
+    std::atomic<bool> opened{false};
+    std::thread th([&] { opened = t.open(); });
+
+    ASSERT_TRUE(acceptAndAuth(server));
+    th.join();
+    ASSERT_TRUE(opened.load());
 
     // Request stop from another "thread" (simulating a signal handler).
     TCPTransport::requestStop();
-    // nextLine should return nullopt within ~one select timeout (0.5s).
+    // nextLine should return nullopt within ~one select poll (≈0ms with the
+    // injected 1us timeout, floored at 1ms per poll).
     auto start = std::chrono::steady_clock::now();
     auto r = t.nextLine();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -268,3 +362,28 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     server.closeClient();
     TCPTransport::resetStop();
 }
+
+TEST(TCPTransportTest, AuthRejected_OpenReturnsFalse) {
+    // Server that accepts the connection but sends "ERROR" instead of "OK".
+    LoopbackServer server;
+    ASSERT_TRUE(server.init());
+
+    TCPTransport::resetStop();
+    TCPTransport t("127.0.0.1", server.port(), "raw");
+    std::atomic<bool> opened{false};
+    std::thread th([&] { opened = t.open(); });
+
+    ASSERT_GE(server.acceptClient(), 0);
+    // Read the AUTH line.
+    std::string line = server.readLine();
+    ASSERT_EQ(line, "AUTH vehicle-sim-2026");
+    // Send rejection instead of OK.
+    server.sendBytes("ERROR unauthorized\r");
+    th.join();
+    EXPECT_FALSE(opened.load());
+    EXPECT_FALSE(t.isOpen());
+    server.closeClient();
+    TCPTransport::resetStop();
+}
+
+} // namespace vehicle_sim::pipeline

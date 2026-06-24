@@ -58,7 +58,7 @@ inline constexpr uint16_t DISCOVERY_PORT = 3335;
 
 // Default ports
 inline constexpr uint16_t DEFAULT_CAN_PORT = 3333;
-inline constexpr uint16_t DEFAULT_OTA_PORT = 3334;
+inline constexpr uint16_t DEFAULT_OTA_PORT = 80;
 
 // ── Packet structure ─────────────────────────────────────────────────────
 

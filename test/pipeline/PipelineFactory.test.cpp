@@ -63,6 +63,11 @@ TEST(ResolveAdapterProtocolTest, UnknownProtocolFallsToDefault) {
 // ============================================================
 
 TEST(BuildPipelineSourceTest, FileTarget_PairsFileTransportWithCaptureNormaliser) {
+    // Create a minimal capture file so the file transport can open it
+    {
+        std::ofstream f("/tmp/x.csv");
+        f << "timestamp_ms,can_id,dlc,data\n";
+    }
     auto src = buildPipelineSource("file:/tmp/x.csv", "raw");
     ASSERT_TRUE(src.transport);
     ASSERT_TRUE(src.normaliser);

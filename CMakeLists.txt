@@ -24,7 +24,7 @@ include(FetchContent)
 FetchContent_Declare(
     cli11
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG v2.4.2
+    GIT_TAG v2.5.0
 )
 FetchContent_MakeAvailable(cli11)
 
@@ -58,7 +58,6 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/OBD2SignalTranslator.cpp
     src/domain/OBD2SignalTranslatorBase.cpp
     src/domain/CANDecoder.cpp
-    src/domain/ITimeProvider.cpp
     src/domain/DBCSignalDefinition.cpp
     src/domain/DBCSignalMapper.cpp
     src/domain/DBCFileParser.cpp
@@ -85,6 +84,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/DemoTransport.cpp
     src/pipeline/TCPTransport.cpp
     src/pipeline/USBTransport.cpp
+    src/pipeline/OTAHttpTransport.cpp
     src/pipeline/PipelineFactory.cpp
     src/pipeline/RawLogSink.cpp
     src/pipeline/DecodedCsvSink.cpp
@@ -103,9 +103,12 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/telemetry/TraceLogger.cpp
     src/telemetry/RawTraceLogger.cpp
     src/telemetry/CsvStdoutSink.cpp
+    src/util/SystemClock.cpp
     src/discovery/DiscoveryPacket.cpp
     src/discovery/DiscoveryVerifier.cpp
     src/discovery/UDPDiscovery.cpp
+    src/pipeline/SecureTcpTransport.cpp
+    src/pipeline/ITransportOutput.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
@@ -159,6 +162,10 @@ target_include_directories(vehicle-sim-lib
 )
 
 target_compile_options(vehicle-sim-lib PRIVATE -g -Wall -Wextra -Werror)
+
+# TCP auth token — single credential for TCP commands and OTA
+# Can be overridden at build time: -DTCP_AUTH_TOKEN=\"my-token\"
+target_compile_definitions(vehicle-sim-lib PRIVATE TCP_AUTH_TOKEN=\"vehicle-sim-2026\")
 
 # Main executable (CLI — not built for iOS)
 if(NOT BUILD_IOS)

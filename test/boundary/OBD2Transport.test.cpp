@@ -1,7 +1,5 @@
 #include <gtest/gtest.h>
 #include <memory>
-#include <thread>
-#include <chrono>
 #include <vector>
 #include <cstdint>
 #include <string>
@@ -76,8 +74,6 @@ TEST_F(OBD2TransportTest, ForwardsDataToSubscriber) {
     std::vector<uint8_t> response = {0x41, 0x11, 0x80, 0x0D, 0x3E};
     rawMock->simulateIncomingData(response);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     ASSERT_TRUE(callbackInvoked);
     // Should have stripped terminators: [0x41, 0x11, 0x80]
     EXPECT_GE(received.size(), 3u);
@@ -117,8 +113,6 @@ TEST_F(OBD2TransportTest, StripsCarriageReturns) {
     std::vector<uint8_t> rawResponse = {0x41, 0x0D, 0x64, 0x0D, 0x3E};
     rawMock->simulateIncomingData(rawResponse);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
     // Should strip the trailing 0x0D and 0x3E
     if (!received.empty()) {
         // Last byte should NOT be 0x0D or 0x3E
@@ -147,8 +141,6 @@ TEST_F(OBD2TransportTest, ClearBufferOnDisconnect) {
 
     // Complete the data after disconnect — should NOT trigger callback
     rawMock->simulateIncomingData({0x64, 0x0D});
-
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     // Buffer should have been cleared, so partial + completion doesn't trigger
     // (Note: the first partial may or may not trigger depending on implementation,

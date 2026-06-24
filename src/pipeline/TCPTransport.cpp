@@ -1,6 +1,7 @@
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/boundary/ELM327Transport.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -33,9 +34,12 @@ void TCPTransport::resetStop() noexcept {
 
 namespace {
 
-// select() read timeout — keeps nextLine() responsive to EOF/disconnect and a
-// vanished peer. Matches the capture tool's robustness target (~0.5s).
-constexpr int READ_TIMEOUT_US = 500000;
+// select() read timeout floor — the production default (0.5s) keeps nextLine()
+// responsive to EOF/disconnect and a vanished peer, matching the capture tool's
+// robustness target. The actual per-instance timeout is injectable via the
+// constructor (readTimeoutUs_) so tests can pass a sub-millisecond value.
+// Kept as a constant for documentation / comparison only.
+constexpr int READ_TIMEOUT_US_FLOOR = 1000;  // 1ms poll floor so sub-ms injects still wake promptly
 
 // How long connect() may block. A missing/unreachable board fails fast.
 constexpr int CONNECT_TIMEOUT_S = 5;
@@ -96,10 +100,16 @@ int connectToHost(const std::string& host, int port) {
 
 } // namespace
 
-TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol)
+TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol,
+                           std::shared_ptr<ITransportOutput> output,
+                           int readTimeoutUs,
+                           int atInitDelayMs)
     : host_(std::move(host))
     , port_(port)
-    , adapterProtocol_(std::move(adapterProtocol)) {
+    , adapterProtocol_(std::move(adapterProtocol))
+    , output_(std::move(output))
+    , readTimeoutUs_(readTimeoutUs > 0 ? readTimeoutUs : 500000)
+    , atInitDelayMs_(atInitDelayMs) {
 }
 
 TCPTransport::~TCPTransport() {
@@ -128,47 +138,57 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
     const auto initSeq = boundary::ELM327Transport::buildCANMonitorInitSequence();
     for (const auto& cmd : initSeq) {
         if (!sendAll(fd, cmd.command)) {
-            std::cerr << "[tcp] Failed to send AT command: " << cmd.command;
+            output_->err("[tcp] Failed to send AT command: " + cmd.command);
             return false;
         }
-        // Brief settle so the adapter can process each command.
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(cmd.delayMs > 0 ? cmd.delayMs : 50));
+        // Brief settle so the adapter can process each command. The per-command
+        // delay is overridable via atInitDelayMs_ (constructor DI): -1 (default)
+        // keeps each command's own cmd.delayMs (production); any value >= 0 is
+        // used for every command so tests can pass 0 and skip the pacing.
+        std::this_thread::sleep_for(std::chrono::milliseconds(
+            atInitDelayMs_ >= 0 ? atInitDelayMs_ : (cmd.delayMs > 0 ? cmd.delayMs : 50)));
     }
     return true;
 }
 
-bool TCPTransport::open() {
-    if (opened_) {
-        return fd_ >= 0 && !exhausted_;
-    }
-    opened_ = true;
-
+bool TCPTransport::connectAndAuth() {
+    closeConnection();
     fd_ = connectToHost(host_, port_);
-    if (fd_ < 0) {
-        std::cerr << "[tcp] Failed to connect to " << host_ << ":" << port_ << "\n";
-        return false;
-    }
+    if (fd_ < 0) return false;
 
-    // Backstop recv timeout so a stuck peer can't wedge us even if select()
-    // reports readable spuriously.
     struct timeval rtv{};
     rtv.tv_sec = SOCKET_RCVTIMEO_MS / 1000;
     rtv.tv_usec = (SOCKET_RCVTIMEO_MS % 1000) * 1000;
     (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
 
-    // RAW (default): no init — read the stream verbatim. ELM327: send the
-    // CAN-monitor init sequence before reading. The ELM327 normaliser is a
-    // later task; today elm327 only changes the handshake.
-    if (adapterProtocol_ == "elm327") {
-        if (!sendElm327Init(fd_)) {
-            close(fd_);
-            fd_ = -1;
-            return false;
-        }
+    // Authenticate: send token, expect "OK" back
+    std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r";
+    if (!sendAll(fd_, authCmd)) { closeConnection(); return false; }
+    char authResp[64] = {};
+    int n = recv(fd_, authResp, sizeof(authResp) - 1, 0);
+    if (n <= 0 || std::string(authResp, n).find("OK") == std::string::npos) {
+        closeConnection(); return false;
     }
 
-    std::cout << "[tcp] Monitoring " << host_ << ":" << port_ << "\n";
+    if (adapterProtocol_ == "elm327") {
+        if (!sendElm327Init(fd_)) { closeConnection(); return false; }
+    }
+    return true;
+}
+
+void TCPTransport::closeConnection() noexcept {
+    if (fd_ >= 0) { close(fd_); fd_ = -1; }
+}
+
+bool TCPTransport::open() {
+    if (opened_) return fd_ >= 0 && !exhausted_;
+    opened_ = true;
+    retryCount_ = 0;
+    if (!connectAndAuth()) {
+        output_->err("[tcp] Failed to connect to " + host_ + ":" + std::to_string(port_));
+        return false;
+    }
+    output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_));
     pending_.reserve(256);
     return true;
 }
@@ -202,9 +222,15 @@ std::optional<std::string> TCPTransport::nextLine() {
         FD_ZERO(&readSet);
         FD_SET(fd_, &readSet);
 
+        // Honour the injected read timeout, but cap each select() poll at a
+        // 1ms floor so the loop still wakes promptly on stop/disconnect even
+        // when a test injects a sub-millisecond value. Production default
+        // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
+        // and the stop flag is re-checked every poll, same as before.
+        const int pollUs = std::min(readTimeoutUs_, READ_TIMEOUT_US_FLOOR);
         struct timeval tv{};
         tv.tv_sec = 0;
-        tv.tv_usec = READ_TIMEOUT_US;
+        tv.tv_usec = pollUs;
 
         int ready = select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
         if (ready < 0) {
@@ -227,9 +253,30 @@ std::optional<std::string> TCPTransport::nextLine() {
         char buffer[256];
         ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
         if (n <= 0) {
-            // Peer closed (0) or error (<0): clean disconnect → EOF.
-            exhausted_ = true;
-            return std::nullopt;
+            // Peer closed (0) or error (<0): attempt reconnect with backoff.
+            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " — reconnecting...");
+            closeConnection();
+            while (retryCount_ < MAX_RETRIES) {
+                if (g_stopRequested.load()) {
+                    output_->err("[tcp] reconnect cancelled (stop requested)");
+                    exhausted_ = true;
+                    return std::nullopt;
+                }
+                retryCount_++;
+                output_->err("[tcp] reconnect attempt " + std::to_string(retryCount_) + " in " + std::to_string(RETRY_DELAY_MS) + "ms");
+                std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_DELAY_MS));
+                if (connectAndAuth()) {
+                    output_->out("[tcp] reconnected to " + host_ + ":" + std::to_string(port_));
+                    retryCount_ = 0;
+                    break;
+                }
+            }
+            if (fd_ < 0) {
+                output_->err("[tcp] reconnect failed after " + std::to_string(MAX_RETRIES) + " attempts — giving up");
+                exhausted_ = true;
+                return std::nullopt;
+            }
+            continue;  // reconnected — resume reading
         }
 
         pending_.append(buffer, static_cast<std::size_t>(n));

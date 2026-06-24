@@ -3,10 +3,6 @@
 #include "../domain/MockSignalSource.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
-#include <fstream>
-#include <cstdio>
-#include <thread>
-#include <chrono>
 
 using namespace vehicle_sim::cli;
 using namespace vehicle_sim::domain;
@@ -69,10 +65,7 @@ TEST_F(TelemetryRunnerTest, RunWithValidConfig_StopsWhenRequested) {
     auto mockSource = std::make_unique<MockSignalSource>();
     mockSource->setSignal(VehicleSignal(12345));
 
-    std::thread stopper([] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        TelemetryRunner::requestStop();
-    });
+    TelemetryRunner::requestStop();
 
     int exitCode = TelemetryRunner::run(
         std::move(mockSource),
@@ -82,6 +75,5 @@ TEST_F(TelemetryRunnerTest, RunWithValidConfig_StopsWhenRequested) {
         10
     );
 
-    stopper.join();
     EXPECT_EQ(exitCode, 0);
 }

@@ -1,0 +1,6 @@
+# Tell clangd to use CMake's generated compile database so it picks up the
+# real -I include paths / defines (CMAKE_EXPORT_COMPILE_COMMANDS is ON).
+# Without this, clangd parses every TU with no flags and reports spurious
+# "file not found" / "undeclared identifier" errors.
+CompileFlags:
+  CompilationDatabase: build-native
