@@ -104,6 +104,12 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
             lastTime = now;
         }
 
+        // NOTE: Replace busy-wait spin with condition_variable for blocking wait.
+        // Current design: unconditional 10ms sleep each iteration.
+        // Proposed: std::condition_variable wait notified by requestStop().
+        // CONSTRAINT: signalHandler is a C signal handler and CANNOT safely touch
+        // mutex/cv (non-async-signal-safe) — it must stay an atomic-flag setter
+        // with the loop re-checking. This makes the clean cv design non-trivial.
         std::this_thread::sleep_for(std::chrono::milliseconds(SPIN_SLEEP_MS));
     }
 

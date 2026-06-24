@@ -8,6 +8,10 @@ using namespace vehicle_sim::domain;
 
 class AudiOBD2LiveDecodingTest : public ::testing::Test {
 protected:
+    // NOTE: When loading DBC content, the parser re-parses on every test.
+    // Refactor: hoist parsed DBC to SetUpTestSuite() or static lazy-init
+    // for ~120ms saving per suite. Parser is stateless so sharing is safe.
+    // Effort: M, Risk: L.
     DBCTranslationService service;
 
     void SetUp() override {
