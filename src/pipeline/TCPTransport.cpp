@@ -9,10 +9,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <unistd.h>
-
-#include <iostream>
 #include <thread>
+#include <unistd.h>
 
 namespace vehicle_sim::pipeline {
 
@@ -41,14 +39,18 @@ namespace {
 // Kept as a constant for documentation / comparison only.
 constexpr int READ_TIMEOUT_US_FLOOR = 1000;  // 1ms poll floor so sub-ms injects still wake promptly
 
-// How long connect() may block. A missing/unreachable board fails fast.
-constexpr int CONNECT_TIMEOUT_S = 5;
+// Connection/reconnect constants
+constexpr int CONNECT_TIMEOUT_S = 5;          // How long connect() may block before failing
+constexpr int SOCKET_RCVTIMEO_MS = 1000;     // SO_RCVTIMEO backstop for recv()
+constexpr std::size_t MAX_PENDING_LEN = 4096;  // Guard against runaway line buffering
 
-// SO_RCVTIMEO backstop in case select() returns readable with no data.
-constexpr int SOCKET_RCVTIMEO_MS = 1000;
+// Exponential backoff calculation
+constexpr int calculateRetryDelayMs(int retryCount) {
+    // Exponential backoff: 1s, 2s, 4s, 8s, capped at MAX_RETRY_DELAY_MS
+    int delay = TCPTransport::BASE_RETRY_DELAY_MS * (1 << std::min(retryCount, 12));
+    return std::min(delay, TCPTransport::MAX_RETRY_DELAY_MS);
+}
 
-// Guard against runaway line buffering on a noisy/garbage stream.
-constexpr std::size_t MAX_PENDING_LEN = 4096;
 
 // Resolve host:port into a connected TCP socket, or -1 on failure. Uses a
 // bounded connect() so an unreachable board can't hang the CLI.
@@ -253,7 +255,7 @@ std::optional<std::string> TCPTransport::nextLine() {
         char buffer[256];
         ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
         if (n <= 0) {
-            // Peer closed (0) or error (<0): attempt reconnect with backoff.
+            // Peer closed (0) or error (<0): attempt reconnect with exponential backoff.
             output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " — reconnecting...");
             closeConnection();
             while (retryCount_ < MAX_RETRIES) {
@@ -263,8 +265,10 @@ std::optional<std::string> TCPTransport::nextLine() {
                     return std::nullopt;
                 }
                 retryCount_++;
-                output_->err("[tcp] reconnect attempt " + std::to_string(retryCount_) + " in " + std::to_string(RETRY_DELAY_MS) + "ms");
-                std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_DELAY_MS));
+                int delayMs = calculateRetryDelayMs(retryCount_ - 1);
+                output_->err("[tcp] reconnect attempt " + std::to_string(retryCount_) + "/" + std::to_string(MAX_RETRIES) +
+                           " in " + std::to_string(delayMs) + "ms (DNS will be re-resolved)...");
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
                 if (connectAndAuth()) {
                     output_->out("[tcp] reconnected to " + host_ + ":" + std::to_string(port_));
                     retryCount_ = 0;

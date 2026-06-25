@@ -9,9 +9,9 @@
 #include <chrono>
 #include <cerrno>
 #include <cstring>
-#include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <thread>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -27,8 +27,17 @@ std::atomic<bool> g_stopRequested{false};
 constexpr size_t SECRETBOX_NONCEBYTES = 24;
 constexpr size_t SECRETBOX_MACBYTES   = 16;
 
+// Exponential backoff calculation for reconnection
+constexpr int calculateReconnectDelayMs(int retryCount) {
+    // Exponential backoff: 1s, 2s, 4s, 8s, capped at MAX_RECONNECT_DELAY_MS
+    int delay = SecureTcpTransport::BASE_RECONNECT_DELAY_MS * (1 << std::min(retryCount, 12));
+    return std::min(delay, SecureTcpTransport::MAX_RECONNECT_DELAY_MS);
+}
+
 // Resolve host:port into a connected TCP socket, or -1 on failure.
-int connectToHost(const std::string& host, int port) {
+// Re-resolves DNS on each call for hotspot DHCP roam support.
+// Returns -2 on ECONNREFUSED (connection refused - don't retry).
+int connectToHost(const std::string& host, int port, uint32_t timeoutMs) {
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -42,6 +51,7 @@ int connectToHost(const std::string& host, int port) {
     }
 
     int fd = -1;
+    bool connRefused = false;
     for (addrinfo* ai = result; ai != nullptr; ai = ai->ai_next) {
         fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (fd < 0) continue;
@@ -51,16 +61,26 @@ int connectToHost(const std::string& host, int port) {
         (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, sizeof(nosig));
 #endif
         struct timeval tv{};
-        tv.tv_sec = 5;
-        tv.tv_usec = 0;
+        tv.tv_sec = timeoutMs / 1000;
+        tv.tv_usec = (timeoutMs % 1000) * 1000;
         (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
         if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) break;
+
+        // Check if connection was refused
+        if (errno == ECONNREFUSED) {
+            connRefused = true;
+        }
+
         close(fd);
         fd = -1;
     }
 
     freeaddrinfo(result);
+
+    if (connRefused) {
+        return -2;  // Connection refused - don't retry
+    }
     return fd;
 }
 
@@ -140,22 +160,6 @@ SecureTcpTransport::~SecureTcpTransport() {
     }
 }
 
-bool SecureTcpTransport::connectTcp() {
-    fd_ = connectToHost(host_, port_);
-    if (fd_ < 0) {
-        output_->err("[secure-tcp] Failed to connect to " + host_ + ":" + std::to_string(port_));
-        return false;
-    }
-
-    // Recv timeout backstop
-    struct timeval rtv{};
-    rtv.tv_sec = 1;
-    rtv.tv_usec = 0;
-    (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
-
-    return true;
-}
-
 bool SecureTcpTransport::performHandshake() {
     // -- Step 1: Generate ephemeral X25519 keypair --
     std::array<uint8_t, X25519_PUBLIC_KEY_LEN> clientPk;
@@ -218,20 +222,60 @@ bool SecureTcpTransport::open() {
         return fd_ >= 0 && !exhausted_;
     }
     opened_ = true;
+    reconnectCount_ = 0;
 
-    if (!connectTcp()) {
-        return false;
+    while (reconnectCount_ < MAX_RECONNECT_ATTEMPTS) {
+        if (g_stopRequested.load()) {
+            output_->err("[secure-tcp] connection cancelled (stop requested)");
+            return false;
+        }
+
+        int connectResult = connectToHost(host_, port_, CONNECT_TIMEOUT_MS);
+        if (connectResult == -2) {
+            // Connection refused - don't retry, nothing is listening
+            output_->err("[secure-tcp] connection refused to " + host_ + ":" + std::to_string(port_));
+            return false;
+        }
+
+        if (connectResult < 0) {
+            // Connection failed - apply backoff and retry (network issues)
+            int delayMs = calculateReconnectDelayMs(reconnectCount_);
+            reconnectCount_++;
+            if (reconnectCount_ <= MAX_RECONNECT_ATTEMPTS) {
+                output_->err("[secure-tcp] connection attempt " + std::to_string(reconnectCount_) +
+                           "/" + std::to_string(MAX_RECONNECT_ATTEMPTS) +
+                           " failed, retrying in " + std::to_string(delayMs) + "ms...");
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+            }
+            continue;
+        }
+
+        fd_ = connectResult;
+
+        // Set recv timeout backstop
+        struct timeval rtv{};
+        rtv.tv_sec = 1;
+        rtv.tv_usec = 0;
+        (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
+
+        if (!performHandshake()) {
+            // Handshake failed - AUTHENTICATION failure, not transient
+            // Don't retry: wrong key, protocol error, or peer is untrusted
+            close(fd_);
+            fd_ = -1;
+            return false;  // Immediate failure on auth/handshake errors
+        }
+
+        // Success - reset reconnect counter
+        reconnectCount_ = 0;
+        rawBuffer_.reserve(256);
+        plaintextBuf_.reserve(256);
+        return true;
     }
 
-    if (!performHandshake()) {
-        close(fd_);
-        fd_ = -1;
-        return false;
-    }
-
-    rawBuffer_.reserve(256);
-    plaintextBuf_.reserve(256);
-    return true;
+    output_->err("[secure-tcp] failed to establish TCP connection after " +
+               std::to_string(MAX_RECONNECT_ATTEMPTS) + " attempts");
+    return false;
 }
 
 bool SecureTcpTransport::isOpen() const noexcept {

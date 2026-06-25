@@ -3,8 +3,6 @@
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
 
-#include <atomic>
-#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -81,6 +79,20 @@ public:
     /** Reset the stop flag (for tests / repeated runs). */
     static void resetStop() noexcept;
 
+    /**
+     * HELO/ACK pre-flight: send ATHELO and parse ACK response.
+     * Returns true if HELO succeeded, false otherwise.
+     * Populates deviceId (16 bytes) with device's unique identifier.
+     */
+    bool sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId);
+
+    // Connection/reconnect constants (public for utility function access)
+    static constexpr int MAX_RETRIES = 60;              // Bounded retry: ~60s total wait
+    static constexpr int BASE_RETRY_DELAY_MS = 1000;   // Initial reconnect delay
+    static constexpr int MAX_RETRY_DELAY_MS = 10000;   // Max exponential backoff
+    // Legacy alias for compatibility
+    static constexpr int RETRY_DELAY_MS = BASE_RETRY_DELAY_MS;
+
 private:
     bool sendAll(int fd, const std::string& data) noexcept;
     bool sendElm327Init(int fd) noexcept;
@@ -98,8 +110,6 @@ private:
     bool exhausted_ = false;
     // Reconnect state
     int retryCount_ = 0;
-    static constexpr int MAX_RETRIES = 0x7FFFFFFF;  // ~2 billion — effectively unlimited
-    static constexpr int RETRY_DELAY_MS = 1000;
     // Accumulated bytes not yet terminated by a line ending.
     std::string pending_;
 };

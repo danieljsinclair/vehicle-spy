@@ -14,12 +14,12 @@
 #include <cstdint>
 #include <array>
 #include <string>
-#include <vector>
 
 namespace vehicle_sim {
 namespace discovery {
 
 inline constexpr size_t ED25519_PUBLIC_KEY_LEN = 32;
+// Default clock skew for timestamp validation: 5 minutes (reasonable for devices with NTP)
 inline constexpr uint64_t DEFAULT_MAX_CLOCK_SKEW = 300;  // seconds
 
 // Load the Ed25519 public key from a raw 32-byte file (or the OTA keys dir).

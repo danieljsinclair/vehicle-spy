@@ -428,6 +428,12 @@ ota-keys:
 discover: native
 	@./build-native/vehicle-sim --discover
 
+# Debug discovery: capture UDP packets on port 3335
+dump-tcp:
+	@echo "Capturing UDP discovery packets on port 3335 (Ctrl+C to stop)..."
+	@echo "Run this in a separate terminal while: make discover"
+	@sudo tcpdump -i en0 -n -X udp port 3335
+
 
 flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 	@if [ -z "$(ESP32_HOST)" ]; then \

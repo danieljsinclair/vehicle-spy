@@ -107,6 +107,7 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
     size_mb = len(firmware_bytes) / (1024 * 1024)
     print(f"OTA: pushing {size_mb:.1f} MiB to {host}:{port}...", file=sys.stderr)
 
+    import errno
     try:
         conn.request('POST', '/update', body, headers)
         # Read response with progress indication
@@ -119,9 +120,36 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
         print(f"     The upload may have succeeded but the device took too long to", file=sys.stderr)
         print(f"     verify the signature and respond. Check if the device rebooted.", file=sys.stderr)
         return False
-    except (ConnectionRefusedError, ConnectionResetError, OSError) as exc:
-        print(f"{RED}OTA: FAILED — {exc}{NC}", file=sys.stderr)
+    except ConnectionRefusedError as exc:
+        print(f"{RED}OTA: FAILED — connection refused by {host}:{port}{NC}", file=sys.stderr)
+        print(f"     The device may be offline, the port may be incorrect, or the OTA", file=sys.stderr)
+        print(f"     server may not be running on the device.", file=sys.stderr)
         return False
+    except ConnectionResetError as exc:
+        print(f"{RED}OTA: FAILED — connection reset by {host}:{port}{NC}", file=sys.stderr)
+        print(f"     The device closed the connection unexpectedly. This may indicate", file=sys.stderr)
+        print(f"     a crash, reboot, or resource exhaustion on the device.", file=sys.stderr)
+        return False
+    except OSError as exc:
+        if exc.errno == errno.EACCES:
+            print(f"{RED}OTA: FAILED — permission denied (EACCES){NC}", file=sys.stderr)
+            print(f"     Check file permissions and firewall settings.", file=sys.stderr)
+            return False
+        elif exc.errno == errno.EADDRINUSE:
+            print(f"{RED}OTA: FAILED — address already in use (EADDRINUSE){NC}", file=sys.stderr)
+            print(f"     Another process may be using the required port.", file=sys.stderr)
+            return False
+        elif exc.errno == errno.EHOSTUNREACH:
+            print(f"{RED}OTA: FAILED — host unreachable (EHOSTUNREACH){NC}", file=sys.stderr)
+            print(f"     The device may be offline or the network route may be broken.", file=sys.stderr)
+            return False
+        elif exc.errno == errno.ETIMEDOUT:
+            print(f"{RED}OTA: FAILED — operation timed out (ETIMEDOUT){NC}", file=sys.stderr)
+            print(f"     Network connectivity issue or device is too slow to respond.", file=sys.stderr)
+            return False
+        else:
+            print(f"{RED}OTA: FAILED — OS error: {exc} (errno {exc.errno}){NC}", file=sys.stderr)
+            return False
 
     if resp.status == 200:
         print(f"{GREEN}OTA: SUCCESS — device accepted update ({resp_body.strip()}){NC}", file=sys.stderr)
