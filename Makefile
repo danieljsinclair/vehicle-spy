@@ -487,7 +487,7 @@ reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 #
 # Pattern mirrors engine-sim-bridge: token fallback, -D overrides, CE-poll gate.
 
-SONAR_PROJECT_KEY   := danieljsinclair_vehicle-sim-esp32
+SONAR_PROJECT_KEY   := danieljsinclair_vehicle-spy
 SONAR_COMPILE_DB    := $(FIRMWARE_BUILD)/compiledb/compile_commands.json
 # arduino-cli emits the sketch as a single preprocessed amalgam TU capturing
 # the full xtensa cross-compile command (ESP-IDF includes/defines). The filter
@@ -526,16 +526,16 @@ $(SONAR_REPORT): $(SONAR_COMPILE_DB_F) sonar-project.properties
 	@if [ -z "$${SONAR_TOKEN_ES}" ] && [ -z "$${SONAR_TOKEN}" ]; then \
 		echo "  ${YELLOW}No SONAR_TOKEN — skipping scan (run 'source ~/.zshrc' to enable)${NC}"; exit 0; \
 	fi
-	@echo "=== [vehicle-sim-esp32] Running sonar-scanner (quality only) ==="
+	@echo "=== [vehicle-spy] Running sonar-scanner (quality only) ==="
 	@mkdir -p $(FIRMWARE_BUILD)
 	@SONAR_TOKEN="$${SONAR_TOKEN_ES:-$${SONAR_TOKEN}}" sonar-scanner \
 		> $(SONAR_SCANNER_LOG) 2>&1; \
 		rc=$$?; \
 		if [ $$rc -ne 0 ]; then \
-			echo "${RED}=== [vehicle-sim-esp32] sonar-scanner failed (rc=$$rc); see $(SONAR_SCANNER_LOG) ===${NC}"; \
+			echo "${RED}=== [vehicle-spy] sonar-scanner failed (rc=$$rc); see $(SONAR_SCANNER_LOG) ===${NC}"; \
 			tail -n 25 $(SONAR_SCANNER_LOG); exit $$rc; \
 		fi
-	@echo "=== [vehicle-sim-esp32] Waiting for SonarCloud Compute Engine to finish ==="
+	@echo "=== [vehicle-spy] Waiting for SonarCloud Compute Engine to finish ==="
 	@TOKEN="$${SONAR_TOKEN_ES:-$${SONAR_TOKEN}}"; \
 		CETASKID=$$(grep -E '^ceTaskId=' .scannerwork/report-task.txt 2>/dev/null | cut -d= -f2); \
 		if [ -z "$$CETASKID" ]; then \
@@ -557,7 +557,7 @@ $(SONAR_REPORT): $(SONAR_COMPILE_DB_F) sonar-project.properties
 		if [ "$$status" != "SUCCESS" ]; then \
 			echo "${RED}ERROR: timed out waiting for SonarCloud CE task (last status=$$status, id=$$CETASKID)${NC}"; exit 1; \
 		fi
-	@echo "=== [vehicle-sim-esp32] Caching SonarCloud issue report ==="
+	@echo "=== [vehicle-spy] Caching SonarCloud issue report ==="
 	@TOKEN="$${SONAR_TOKEN_ES:-$${SONAR_TOKEN}}"; \
 		curl -s -u "$$TOKEN:" "https://sonarcloud.io/api/issues/search?componentKeys=$(SONAR_PROJECT_KEY)&ps=500&statuses=OPEN" \
 			> $(SONAR_REPORT) 2>/dev/null || true
@@ -574,13 +574,13 @@ sonar-summary:
 			echo "  No token and no cached report; run: source ~/.zshrc"; exit 0; \
 		fi; \
 	fi
-	@python3 scripts/sonar_summary.py $(SONAR_REPORT) --label "[vehicle-sim-esp32]"
+	@python3 scripts/sonar_summary.py $(SONAR_REPORT) --label "[vehicle-spy]"
 
 # -- End-of-make headline (ONE compact coloured line) ----------------------
 #
 # The end-of-make summary. Emits ONE scannable line for vehicle-sim:
 #
-#     [vehicle-sim] tests: PASS 836/836 | sonar: open 41 / total 41 (open-only)
+#     [vehicle-spy] tests: PASS 836/836 | sonar: open 41 / total 41 (open-only)
 #
 # Fields with no data are OMITTED gracefully (no coverage source yet -- the
 # ESP32 firmware has no unit tests, so coverage is deferred; the cov field
@@ -593,7 +593,7 @@ sonar-summary:
 # recursive `$(MAKE) -C <sub> summary`. Fixed column widths keep lines aligned.
 summary:
 	@python3 scripts/build_summary.py \
-		--label "[vehicle-sim]" \
+		--label "[vehicle-spy]" \
 		--test-log "$(TEST_REPORT)" \
 		--sonar-report "$(SONAR_REPORT)"
 	@echo "HINT: run 'make sonar-summary' to see the full SonarCloud issue report (or live if SONAR_TOKEN is set)."

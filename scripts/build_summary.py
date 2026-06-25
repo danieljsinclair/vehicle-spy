@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Emit a single compact, coloured HEADLINE line for vehicle-sim at end-of-make.
+"""Emit a single compact, coloured HEADLINE line for vehicle-spy at end-of-make.
 
-This is the END-OF-MAKE summary (the "russian doll" headline). vehicle-sim's
+This is the END-OF-MAKE summary (the "russian doll" headline). vehicle-spy's
 ``summary`` Makefile target calls this script ONCE for ITS OWN reports. The
 line is one scannable row:
 
-    [vehicle-sim] tests: PASS <passed>/<total> | sonar: open <O> / total <T> (<reason>)
+    [vehicle-spy] tests: PASS <passed>/<total> | sonar: open <O> / total <T> (<reason>)
 
 Fields for which no data exists are OMITTED gracefully (never fabricated, never
 crashed). Colours are EMIT DELIBERATELY here (plain numbers are extracted from
@@ -24,7 +24,7 @@ Colour rules (matching engine-sim-bridge/build_summary.py):
 DATA SOURCES -- plain numbers grepped from existing report files:
 
     Tests pass/fail
-        vehicle-sim's C++ suite runs via ctest over a gtest binary, teed to
+        vehicle-spy's C++ suite runs via ctest over a gtest binary, teed to
         ``build-native/test-report.txt`` (Makefile line ~103). The ctest
         summary line ``N% tests passed, M tests failed out of N`` counts ctest
         CASES (one per gtest binary -- i.e. "out of 1"), NOT gtest tests, so it
@@ -58,7 +58,7 @@ and the fixed column widths make the lines align vertically.
 
 Usage:
 
-    build_summary.py --label "[vehicle-sim]" \\
+    build_summary.py --label "[vehicle-spy]" \\
         [--test-log PATH] \\
         [--sonar-report PATH] [--removed-facet PATH] \\
         [--cov-measures PATH] [--local-cov PATH --local-type lcov|xccov]
@@ -175,7 +175,7 @@ def parse_tests(log_path):
 
 
 # ---------------------------------------------------------------------------
-# Coverage (plumbing retained; vehicle-sim has no coverage source yet so the
+# Coverage (plumbing retained; vehicle-spy has no coverage source yet so the
 # field omits gracefully until --cov-measures / --local-cov is wired in)
 # ---------------------------------------------------------------------------
 def _coverage_colour(pct):
@@ -397,7 +397,7 @@ def pad_visible(text, width):
 
 
 def emit_line(label, tests, cov, sonar):
-    """Print the single coloured headline line for vehicle-sim.
+    """Print the single coloured headline line for vehicle-spy.
 
     ``tests`` is (passed, total) or None; ``cov`` is (covered, total, pct) or
     None; ``sonar`` is (open, total, blocker_count, removed) or None. Missing
@@ -447,9 +447,9 @@ def emit_line(label, tests, cov, sonar):
 def main(argv=None):
     """Parse args and emit one headline line. Always exits 0 (display helper)."""
     p = argparse.ArgumentParser(
-        description='Emit a compact end-of-make headline line for vehicle-sim.')
+        description='Emit a compact end-of-make headline line for vehicle-spy.')
     p.add_argument('--label', required=True,
-                   help='Repo label, e.g. "[vehicle-sim]"')
+                   help='Repo label, e.g. "[vehicle-spy]"')
     p.add_argument('--test-log',
                    help='Test log (gtest PASSED/FAILED lines preferred, '
                         'ctest summary / per-test markers as fallback)')
