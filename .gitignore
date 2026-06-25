@@ -122,3 +122,6 @@ captures/
 # Python cache
 __pycache__/
 firmware-ready
+
+# SonarCloud scanner work directory + cached reports
+.scannerwork/

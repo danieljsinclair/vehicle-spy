@@ -2,6 +2,7 @@
 	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
 	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp check-esp32 \
+	        sonar-scan sonar-summary sonar-compiledb sonar-clean \
 			header
 
 # Device ID (first connected/available device, excluding unavailable)
@@ -464,6 +465,114 @@ reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 		echo "${YELLOW}WARN: no response (device may have already rebooted)${NC}"; \
 	fi
 
+# -- SonarCloud (ESP32 firmware — code quality only, no coverage) ----------
+#
+# make sonar-scan     -- generate compile_commands.json + upload to SonarCloud
+#                        (CE-polls for SUCCESS before caching the issue report)
+# make sonar-summary  -- print the cached issue counts by severity
+# make sonar-compiledb-- regenerate just the compilation database
+# make sonar-clean    -- drop cached reports + scanner work dir
+#
+# CODE QUALITY ONLY (bugs, vulnerabilities, smells, complexity). Coverage is
+# deferred until the firmware is broken into a host-testable library — there
+# are no firmware unit tests today, so synthesising coverage would be noise.
+#
+# Requires SONAR_TOKEN (or SONAR_TOKEN_ES) in the environment, plus arduino-cli
+# with the esp32:esp32 core installed. The compilation database captures the
+# xtensa cross-compile flags (ESP-IDF includes, defines, -std=gnu++11); cfamily
+# runs its own front end against them so the ESP32 toolchain is not invoked.
+#
+# Pattern mirrors engine-sim-bridge: token fallback, -D overrides, CE-poll gate.
+
+SONAR_PROJECT_KEY   := danieljsinclair_vehicle-sim-esp32
+SONAR_COMPILE_DB    := $(FIRMWARE_BUILD)/compiledb/compile_commands.json
+# arduino-cli emits the sketch as a single preprocessed amalgam TU capturing
+# the full xtensa cross-compile command (ESP-IDF includes/defines). The filter
+# script reuses that command but emits one compile-commands entry PER .ino
+# source (can-bridge.ino, ota_update.ino), forced to C++ via -x c++ so cfamily
+# parses them. See scripts/sonar_filter_compdb.py for the five fixes applied.
+SONAR_COMPILE_DB_F  := $(FIRMWARE_BUILD)/compile_commands.json
+SONAR_REPORT        := $(FIRMWARE_BUILD)/sonar-report.json
+SONAR_REMOVED_FACET := $(FIRMWARE_BUILD)/sonar-removed-facet.json
+SONAR_SCANNER_LOG   := $(FIRMWARE_BUILD)/sonar-scanner.log
+
+# Generate the compilation database from the ESP32 Arduino build without
+# compiling, then build a cfamily-compatible per-.ino compile_commands.json.
+sonar-compiledb: $(SONAR_COMPILE_DB_F)
+
+$(SONAR_COMPILE_DB_F): $(wildcard $(FIRMWARE_DIR)/*.ino) $(wildcard $(FIRMWARE_DIR)/*.h) scripts/sonar_filter_compdb.py
+	@echo "--- Generating ESP32 compilation database ${CYAN}$(SONAR_COMPILE_DB_F)${NC} ---"
+	@mkdir -p $(FIRMWARE_BUILD)/compiledb
+	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) \
+		--build-path $(FIRMWARE_BUILD)/compiledb \
+		--only-compilation-database \
+		--build-property "compiler.cpp.extra_flags=-DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"" \
+		> /dev/null 2>$(FIRMWARE_BUILD)/compiledb/arduino-cli.log || { \
+			echo "${RED}arduino-cli compile failed; see $(FIRMWARE_BUILD)/compiledb/arduino-cli.log${NC}"; \
+			tail -n 20 $(FIRMWARE_BUILD)/compiledb/arduino-cli.log; exit 1; }
+	@python3 scripts/sonar_filter_compdb.py $(SONAR_COMPILE_DB) $(SONAR_COMPILE_DB_F) "$(CURDIR)/$(FIRMWARE_DIR)"
+	@echo "${GREEN}compile_commands.json ready${NC} (firmware amalgam TU, .cpp)"
+
+# Upload to SonarCloud and poll the Compute Engine to SUCCESS before caching.
+sonar-scan: $(SONAR_COMPILE_DB) sonar-project.properties
+	@if [ -z "$${SONAR_TOKEN_ES}" ] && [ -z "$${SONAR_TOKEN}" ]; then \
+		echo "${RED}ERROR: neither SONAR_TOKEN_ES nor SONAR_TOKEN is set.${NC}"; \
+		echo "Run: source ~/.zshrc   (or export SONAR_TOKEN=<token>)"; exit 1; \
+	fi
+	@echo "=== [vehicle-sim-esp32] Running sonar-scanner (quality only) ==="
+	@mkdir -p $(FIRMWARE_BUILD)
+	@SONAR_TOKEN="$${SONAR_TOKEN_ES:-$${SONAR_TOKEN}}" sonar-scanner \
+		> $(SONAR_SCANNER_LOG) 2>&1; \
+		rc=$$?; \
+		if [ $$rc -ne 0 ]; then \
+			echo "${RED}=== [vehicle-sim-esp32] sonar-scanner failed (rc=$$rc); see $(SONAR_SCANNER_LOG) ===${NC}"; \
+			tail -n 25 $(SONAR_SCANNER_LOG); exit $$rc; \
+		fi
+	@echo "=== [vehicle-sim-esp32] Waiting for SonarCloud Compute Engine to finish ==="
+	@TOKEN="$${SONAR_TOKEN_ES:-$${SONAR_TOKEN}}"; \
+		CETASKID=$$(grep -E '^ceTaskId=' .scannerwork/report-task.txt 2>/dev/null | cut -d= -f2); \
+		if [ -z "$$CETASKID" ]; then \
+			echo "${RED}ERROR: no ceTaskId in .scannerwork/report-task.txt; cannot confirm analysis settled${NC}"; exit 1; \
+		fi; \
+		echo "  CE task: $$CETASKID"; \
+		dead=0; \
+		while [ $$dead -lt 60 ]; do \
+			status=$$(curl -s -u "$$TOKEN:" "https://sonarcloud.io/api/ce/task?id=$$CETASKID" \
+				| python3 -c "import json,sys; print(json.load(sys.stdin).get('task',{}).get('status',''))" 2>/dev/null); \
+			if [ "$$status" = "SUCCESS" ]; then \
+				echo "${GREEN}  CE task SUCCESS after $$(($$dead * 2))s${NC}"; break; \
+			fi; \
+			if [ "$$status" = "FAILED" ] || [ "$$status" = "CANCELED" ]; then \
+				echo "${RED}ERROR: SonarCloud CE task $$status (id=$$CETASKID); report did not settle${NC}"; exit 1; \
+			fi; \
+			sleep 2; dead=$$((dead + 1)); \
+		done; \
+		if [ "$$status" != "SUCCESS" ]; then \
+			echo "${RED}ERROR: timed out waiting for SonarCloud CE task (last status=$$status, id=$$CETASKID)${NC}"; exit 1; \
+		fi
+	@echo "=== [vehicle-sim-esp32] Caching SonarCloud issue report ==="
+	@TOKEN="$${SONAR_TOKEN_ES:-$${SONAR_TOKEN}}"; \
+		curl -s -u "$$TOKEN:" "https://sonarcloud.io/api/issues/search?componentKeys=$(SONAR_PROJECT_KEY)&ps=500&statuses=OPEN" \
+			> $(SONAR_REPORT) 2>/dev/null || true
+	@$(MAKE) --no-print-directory sonar-summary
+
+# Print issue counts by severity + top rules from the cached report (or live).
+sonar-summary:
+	@TOKEN="$${SONAR_TOKEN_ES:-$${SONAR_TOKEN}}"; \
+	if [ -n "$$TOKEN" ]; then \
+		curl -s -u "$$TOKEN:" "https://sonarcloud.io/api/issues/search?componentKeys=$(SONAR_PROJECT_KEY)&ps=500&statuses=OPEN&facets=impactSeverities" > $(SONAR_REPORT) 2>/dev/null || true; \
+	fi
+	@if [ ! -f "$(SONAR_REPORT)" ]; then \
+		if [ -z "$${SONAR_TOKEN_ES}" ] && [ -z "$${SONAR_TOKEN}" ]; then \
+			echo "  No token and no cached report; run: source ~/.zshrc"; exit 0; \
+		fi; \
+	fi
+	@python3 scripts/sonar_summary.py $(SONAR_REPORT) --label "[vehicle-sim-esp32]"
+
+sonar-clean:
+	@rm -f $(SONAR_REPORT) $(SONAR_REMOVED_FACET)
+	@rm -rf .scannerwork
+
 # -- Capture (native USB) --------------------------------------------------
 #
 # Capture the ESP32 serial stream to TWO timestamped files (RAW + CSV) using
@@ -540,6 +649,8 @@ help:
 	@echo "  capture-tcp      - Log CAN frames over WiFi TCP (alias: capture-tcp; requires ESP32_HOST=<esp32-ip>)"
 	@echo "  firmware-port    - Show detected ESP32 serial port"
 	@echo "  ota-keys         - Generate per-user Ed25519 OTA signing keypair + bake public key"
+	@echo "  sonar-scan       - Run SonarCloud static analysis on firmware (quality only; needs SONAR_TOKEN)"
+	@echo "  sonar-summary    - Print cached SonarCloud issue counts by severity"
 	@echo "  ios              - Build iOS app for simulator (Debug)"
 	@echo "  ios-signed       - Build signed Release for physical device"
 	@echo "  deploy           - Deploy to connected iPhone (aliases: deploy-app, deploy-ios)"
