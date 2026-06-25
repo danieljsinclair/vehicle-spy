@@ -1,119 +1,303 @@
 #!/usr/bin/env python3
-"""Display a SonarCloud issue summary for the ESP32 firmware project.
+"""Display a SonarCloud issue summary from a cached or live API report.
 
-Reads a cached ``/api/issues/search`` report (JSON) and prints OPEN issue
-counts by severity plus the top rules. Mirrors the severity taxonomy the
-SonarCloud dashboard uses (impactSeverities facet: BLOCKER/HIGH/MEDIUM/LOW/INFO).
+UNIFIED FORMAT: this script produces the SAME output layout as the engine-sim
+repos (engine-sim-bridge / engine-sim-cli / engine-sim-app), so every repo in
+the workspace prints an identical SonarCloud issues summary:
 
-The report is fetched by the Makefile (``make sonar-summary`` / ``sonar-scan``)
-with ``statuses=OPEN&facets=impactSeverities`` and cached to
-``build-firmware/sonar-report.json``.
+    === [label] BEGIN: SonarCloud issues summary ===
+
+    === label SonarCloud Issues ===
+      Open issues: N  (Total N)
+
+      Issues by severity (highest impact per issue):
+        Severity      : BLOCKER  ...
+        ...
+
+      Top issues (critical-first, OPEN set):
+        [SEVERITY] [rule] file:line - description
+        ...
+
+    === [label] END: SonarCloud issues summary ===
+
+The report is the JSON returned by ``/api/issues/search`` (filtered to
+``statuses=OPEN`` and requested with ``facets=impactSeverities`` by the
+Makefile curl). The severity breakdown is read STRAIGHT from the API's
+``impactSeverities`` facet -- the SAME server-side counting the SonarCloud
+dashboard uses -- rather than re-derived per issue in Python.
+
+Top issues are always sorted "critical-first" (highest impact severity first,
+ties broken by type severity, then by rule) so the most important findings lead,
+and each line carries the rule (e.g. ``cpp:S5421``) for a direct rule-page jump.
 
 Usage:
-    sonar_summary.py <report.json> [--label "[vehicle-sim-esp32]"] [--top N]
+    sonar_summary.py <report.json> [--label NAME] [--removed-facet <path>]
 """
 from __future__ import annotations
 
-import argparse
 import json
+import os
 import sys
-from collections import Counter
 from typing import Iterable
 
-# Dashboard severity order (highest impact first).
-SEVERITY_ORDER = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"]
+# ANSI colours (match the engine-sim palette).
+RED = "\033[31m"
+ORANGE = "\033[38;5;208m"
+YELLOW = "\033[33m"
+GREEN = "\033[32m"
+CYAN = "\033[36m"
+GREY = "\033[90m"
+BOLD = "\033[1m"
+RESET = "\033[0m"
 
-# ANSI colours (match the Makefile palette).
-RED = "\033[0;31m"
-GREEN = "\033[0;32m"
-YELLOW = "\033[1;33m"
-NC = "\033[0m"
+# Display order, worst-first. Both taxonomies use the same colour ramp.
+IMPACT_ORDER = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"]
+TYPE_ORDER = ["BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"]
+
+# Rank by severity (higher = worse). Two separate scales so impact and type
+# severities are comparable within their own taxonomy.
+IMPACT_RANK = {sev: len(IMPACT_ORDER) - i for i, sev in enumerate(IMPACT_ORDER)}
+TYPE_RANK = {sev: len(TYPE_ORDER) - i for i, sev in enumerate(TYPE_ORDER)}
 
 
-def severity_facet(data: dict) -> dict:
-    """Read the impactSeverities facet straight from the API response.
+def highest_impact_severity(issue: dict) -> str | None:
+    """Return the highest-impact severity for an issue, or ``None`` if no impacts.
 
-    This is the SAME server-side counting the dashboard widget uses, so the
-    local buckets always equal the dashboard rather than being re-derived.
+    SonarCloud may attach multiple impacts (e.g. MAINTAINABILITY + RELIABILITY)
+    to one issue; the dashboard rolls them up by the most severe. We mirror
+    that so our breakdown sums to the headline count.
+    """
+    impacts = issue.get("impacts") or []
+    best = None
+    best_rank = -1
+    for imp in impacts:
+        sev = imp.get("severity") if isinstance(imp, dict) else None
+        rank = IMPACT_RANK.get(sev, -1)
+        if sev is not None and rank > best_rank:
+            best = sev
+            best_rank = rank
+    return best
+
+
+def type_severity(issue: dict) -> str:
+    """Return the legacy ``severity`` field, defaulting to UNKNOWN if absent."""
+    return issue.get("severity") or "UNKNOWN"
+
+
+def count_by_impact(issues: Iterable[dict]) -> dict:
+    """Count issues once each by their highest-impact severity."""
+    counts: dict = {sev: 0 for sev in IMPACT_ORDER}
+    for issue in issues:
+        sev = highest_impact_severity(issue)
+        if sev in counts:
+            counts[sev] += 1
+    return counts
+
+
+def impact_severity_facet(data: dict) -> dict | None:
+    """Return the ``impactSeverities`` facet as a {severity: count} dict.
+
+    The SonarCloud dashboard's severity widget is computed server-side from
+    this same facet, so reading it directly (instead of re-deriving it per
+    issue in Python) keeps local buckets identical to the dashboard. Returns
+    ``None`` when the facet is absent so callers can fall back to per-issue
+    counting.
     """
     for facet in data.get("facets") or []:
         if facet.get("property") == "impactSeverities":
-            return {v["val"]: v.get("count", 0) for v in facet.get("values", [])}
-    return {}
+            return {v.get("val"): v.get("count", 0) for v in facet.get("values") or []}
+    return None
 
 
-def count_by_severity(issues: Iterable[dict]) -> dict:
-    """Fallback: derive severity counts per-issue if no facet is present."""
-    counts: Counter = Counter()
-    for issue in issues:
-        # An issue can have multiple impacts; take the highest-severity one.
-        impacts = issue.get("impacts") or []
-        if not impacts:
+def merge_facets(*facets: dict | None) -> dict:
+    """Sum multiple ``{severity: count}`` facet dicts (OPEN union REMOVED, etc.).
+
+    ``None`` facets are skipped. Returns a dict with all ``IMPACT_ORDER`` keys.
+    """
+    merged: dict = {sev: 0 for sev in IMPACT_ORDER}
+    for facet in facets:
+        if not facet:
             continue
-        best = max(impacts, key=lambda i: SEVERITY_ORDER.index(i.get("severity", "INFO"))
-                   if i.get("severity") in SEVERITY_ORDER else len(SEVERITY_ORDER))
-        counts[best.get("severity", "INFO")] += 1
-    return dict(counts)
+        for sev in IMPACT_ORDER:
+            merged[sev] += facet.get(sev, 0)
+    return merged
 
 
-def top_rules(issues: Iterable[dict], n: int) -> list:
-    """Return the (rule, count, severity) tuples with the most issues."""
-    rule_counts: Counter = Counter()
-    rule_severity: dict = {}
-    for issue in issues:
-        rule = issue.get("rule", "?")
-        rule_counts[rule] += 1
-        impacts = issue.get("impacts") or []
-        sev = (impacts[0].get("severity", "INFO") if impacts
-               else issue.get("severity", "INFO"))
-        if sev in SEVERITY_ORDER and (rule not in rule_severity
-                                      or SEVERITY_ORDER.index(sev) < SEVERITY_ORDER.index(rule_severity[rule])):
-            rule_severity[rule] = sev
-    return [(rule, cnt, rule_severity.get(rule, "INFO"))
-            for rule, cnt in rule_counts.most_common(n)]
+def severity_colour(severity: str) -> str:
+    """Map a severity (either taxonomy) to an ANSI colour."""
+    if severity in ("BLOCKER", "CRITICAL"):
+        return RED
+    if severity in ("HIGH", "MAJOR"):
+        return ORANGE
+    if severity in ("MEDIUM", "MINOR"):
+        return YELLOW
+    if severity == "LOW":
+        return GREEN
+    if severity == "INFO":
+        return CYAN
+    return GREEN
+
+
+def headline_colour(counts: dict) -> str:
+    """Colour the headline by the worst present severity."""
+    for sev in IMPACT_ORDER:
+        if counts.get(sev, 0) > 0:
+            return severity_colour(sev)
+    return GREEN
+
+
+def format_severity_line(label: str, counts: dict, order: list) -> None:
+    """Print one severity-count line per entry in ``order``."""
+    for sev in order:
+        colour = severity_colour(sev)
+        print(f"    {colour}● {label:<14}: {sev:<8} {counts.get(sev, 0)}{RESET}")
+
+
+def format_issue_line(issue: dict) -> None:
+    """Print a single top issue, coloured by its highest impact severity.
+
+    Format: ``[SEVERITY] [rule] file:line - message`` -- the rule (e.g.
+    ``cpp:S5421``) lets the reader jump straight to the SonarCloud rule page.
+    """
+    sev = highest_impact_severity(issue) or type_severity(issue)
+    colour = severity_colour(sev if sev in IMPACT_ORDER else "")
+    message = (issue.get("message") or "")[:70]
+    component = (issue.get("component") or "").split(":")[-1]
+    line = issue.get("line")
+    location = component + (f":{line}" if line else "")
+    rule = issue.get("rule") or "?"
+    print(f"    {colour}[{sev:<6}] [{rule}]{RESET} {location} - {message}")
+
+
+def sort_critical_first(issues: Iterable[dict]) -> list:
+    """Sort issues worst-first by impact severity, then type severity, then rule."""
+    return sorted(
+        issues,
+        key=lambda i: (
+            IMPACT_RANK.get(highest_impact_severity(i), -1),
+            TYPE_RANK.get(type_severity(i), -1),
+            i.get("rule") or "",
+        ),
+        reverse=True,
+    )
+
+
+def display_summary(
+    data: dict,
+    label: str = "SonarCloud",
+    removed_data: dict | None = None,
+) -> None:
+    """Render the issue summary wrapped in a BEGIN/END banner.
+
+    The severity breakdown is read from the API's ``impactSeverities`` facet
+    (the dashboard's own server-side counting). ``removed_data`` carries a
+    second report whose ``impactSeverities`` facet covers the ``resolutions=
+    REMOVED`` set; summing the two makes the breakdown match the dashboard
+    severity widget, which counts OPEN union REMOVED issues. When no facet is
+    present, it falls back to highest-impact-per-issue.
+    """
+    issues = data.get("issues") or []
+    fetched = len(issues)
+
+    open_facet = impact_severity_facet(data)
+    removed_facet = impact_severity_facet(removed_data) if removed_data else None
+
+    if open_facet is not None:
+        impact_counts = merge_facets(open_facet, removed_facet)
+        facet_source = "impactSeverities facet"
+    else:
+        impact_counts = count_by_impact(issues)
+        facet_source = "highest impact per issue (no facet in report)"
+
+    total = sum(impact_counts.values())
+
+    print(f"\n=== {label} BEGIN: SonarCloud issues summary ===\n")
+    print(f"=== {label} SonarCloud Issues ===")
+
+    if total == 0:
+        print(f"  {GREEN}No open issues found.{RESET}")
+        print(f"\n=== {label} END: SonarCloud issues summary ===")
+        return
+
+    open_total = sum(open_facet.values()) if open_facet else fetched
+    removed_total = sum(removed_facet.values()) if removed_facet else 0
+
+    # HEADLINE: lead with Open issues in red (prominent), then the total +
+    # relationship to removed. REMOVED = issues whose source was deleted (dead
+    # code), distinct from FIXED/FALSE-POSITIVE/WONTFIX.
+    if removed_total:
+        print(f"  {RED}{BOLD}Open issues: {open_total}{RESET}"
+              f"  {GREY}(Total {total} - {removed_total} removed){RESET}")
+    elif fetched and fetched < data.get("total", 0):
+        print(f"  {RED}{BOLD}Open issues: {open_total}{RESET}"
+              f"  {ORANGE}(showing {fetched} of {data.get('total')}){RESET}")
+    else:
+        print(f"  {RED}{BOLD}Open issues: {open_total}{RESET}"
+              f"  {GREY}(Total {total}){RESET}")
+
+    print("")
+    print(f"  Issues by severity ({facet_source}):")
+    format_severity_line("Severity", impact_counts, IMPACT_ORDER)
+
+    print("")
+    print("  Top issues (critical-first, OPEN set):")
+    for issue in sort_critical_first(issues)[:10]:
+        format_issue_line(issue)
+
+    print(f"\n=== {label} END: SonarCloud issues summary ===")
+
+
+def load_report(path: str) -> dict | None:
+    """Load and validate the SonarCloud report JSON. Returns ``None`` on error."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def _parse_args(argv: list) -> tuple:
+    if len(argv) < 2:
+        print("Usage: sonar_summary.py <report.json> [--label NAME] [--removed-facet <path>]", file=sys.stderr)
+        sys.exit(2)
+    report_path = argv[1]
+    label = "SonarCloud"
+    removed_facet_path = None
+    rest = argv[2:]
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--label" and i + 1 < len(rest):
+            label = rest[i + 1]
+            i += 2
+        elif rest[i] == "--removed-facet" and i + 1 < len(rest):
+            removed_facet_path = rest[i + 1]
+            i += 2
+        else:
+            i += 1
+    return report_path, label, removed_facet_path
 
 
 def main(argv: list | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("report", help="path to cached issues/search JSON")
-    parser.add_argument("--label", default="[vehicle-sim-esp32]",
-                        help="line prefix label")
-    parser.add_argument("--top", type=int, default=8,
-                        help="number of top rules to show")
-    args = parser.parse_args(argv)
-
+    # Avoid BrokenPipeError when the caller pipes output through `head`.
     try:
-        data = json.load(open(args.report))
-    except FileNotFoundError:
-        print(f"  {args.label} no cached report at {args.report}")
+        os.set_blocking(sys.stdout.fileno(), True)
+    except (OSError, AttributeError, ValueError):
+        pass
+
+    report_path, label, removed_facet_path = _parse_args(
+        sys.argv if argv is None else argv
+    )
+
+    data = load_report(report_path)
+    if data is None:
+        print(f"\n=== {label} BEGIN: SonarCloud issues summary ===\n")
+        print(f"  No report yet at {report_path}. Run: make sonar-scan")
+        print(f"\n=== {label} END: SonarCloud issues summary ===")
         return 0
-    except json.JSONDecodeError as exc:
-        print(f"  {args.label} invalid JSON in {args.report}: {exc}")
-        return 1
 
-    issues = data.get("issues", [])
-    total = data.get("total", len(issues))
+    removed_data = load_report(removed_facet_path) if removed_facet_path else None
 
-    # Prefer the server-side facet; fall back to per-issue counting.
-    counts = severity_facet(data)
-    if not counts and issues:
-        counts = count_by_severity(issues)
-
-    print(f"  {args.label} SonarCloud: {total} open issues")
-    for sev in SEVERITY_ORDER:
-        if sev in counts and counts[sev]:
-            print(f"    {sev:<8} {counts[sev]}")
-    if not counts:
-        print("    (no severity facet in report)")
-
-    rules = top_rules(issues, args.top)
-    if rules:
-        print(f"  {args.label} top rules:")
-        for rule, cnt, sev in rules:
-            colour = RED if sev in ("BLOCKER", "HIGH") else (YELLOW if sev == "MEDIUM" else "")
-            print(f"    {colour}{sev:<8}{NC} {cnt:>3}x  {rule}")
-
-    print(f"  {args.label} dashboard: https://sonarcloud.io/dashboard?id=danieljsinclair_vehicle-sim-esp32")
+    display_summary(data, label=label, removed_data=removed_data)
     return 0
 
 

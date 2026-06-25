@@ -2,7 +2,7 @@
 	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
 	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp check-esp32 \
-	        sonar-scan sonar-summary sonar-compiledb sonar-clean \
+	        sonar-scan sonar-summary sonar-compiledb sonar-clean summary \
 			header
 
 # Device ID (first connected/available device, excluding unavailable)
@@ -28,8 +28,11 @@ ESP32_WIFI_PASS ?=
        WHITE=\033[1;37m
 	      NC=\033[0m
 
-# Default -- build + test all platforms
-all: header test firmware ios footer
+# Default -- build + test all platforms + sonar scan (if sources changed).
+# `sonar-scan` is dependency-gated: runs only when firmware sources changed
+# (and shows the FULL sonar-summary after a real scan). When up-to-date, skips
+# silently. `summary` (the ONE-LINE headline) is ALWAYS the last output.
+all: header test firmware ios footer sonar-scan summary
 
 # Shared macro to show build config (DRY)
 define show_wifi
@@ -514,10 +517,14 @@ $(SONAR_COMPILE_DB_F): $(wildcard $(FIRMWARE_DIR)/*.ino) $(wildcard $(FIRMWARE_D
 	@echo "${GREEN}compile_commands.json ready${NC} (firmware amalgam TU, .cpp)"
 
 # Upload to SonarCloud and poll the Compute Engine to SUCCESS before caching.
-sonar-scan: $(SONAR_COMPILE_DB) sonar-project.properties
+# `sonar-scan` is a phony alias; the actual gating is via the $(SONAR_REPORT)
+# file target — only re-scans when compile_commands.json or sonar-project.properties
+# actually change (dependency-gated, not phony).
+sonar-scan: $(SONAR_REPORT)
+
+$(SONAR_REPORT): $(SONAR_COMPILE_DB_F) sonar-project.properties
 	@if [ -z "$${SONAR_TOKEN_ES}" ] && [ -z "$${SONAR_TOKEN}" ]; then \
-		echo "${RED}ERROR: neither SONAR_TOKEN_ES nor SONAR_TOKEN is set.${NC}"; \
-		echo "Run: source ~/.zshrc   (or export SONAR_TOKEN=<token>)"; exit 1; \
+		echo "  ${YELLOW}No SONAR_TOKEN — skipping scan (run 'source ~/.zshrc' to enable)${NC}"; exit 0; \
 	fi
 	@echo "=== [vehicle-sim-esp32] Running sonar-scanner (quality only) ==="
 	@mkdir -p $(FIRMWARE_BUILD)
@@ -568,6 +575,29 @@ sonar-summary:
 		fi; \
 	fi
 	@python3 scripts/sonar_summary.py $(SONAR_REPORT) --label "[vehicle-sim-esp32]"
+
+# -- End-of-make headline (ONE compact coloured line) ----------------------
+#
+# The end-of-make summary. Emits ONE scannable line for vehicle-sim:
+#
+#     [vehicle-sim] tests: PASS 836/836 | sonar: open 41 / total 41 (open-only)
+#
+# Fields with no data are OMITTED gracefully (no coverage source yet -- the
+# ESP32 firmware has no unit tests, so coverage is deferred; the cov field
+# therefore omits until a --cov-measures/--local-cov source is added).
+# Contrast with `sonar-summary` above, which prints the FULL multi-line issue
+# report. `summary` is what `all` ends with; `sonar-summary` is standalone.
+#
+# READY TO EXTEND: when the C++ core + iOS sonar projects land, add a SECOND
+# build_summary.py invocation (different --label / --sonar-report) here, or a
+# recursive `$(MAKE) -C <sub> summary`. Fixed column widths keep lines aligned.
+summary:
+	@python3 scripts/build_summary.py \
+		--label "[vehicle-sim]" \
+		--test-log "$(TEST_REPORT)" \
+		--sonar-report "$(SONAR_REPORT)"
+	@echo "HINT: run 'make sonar-summary' to see the full SonarCloud issue report (or live if SONAR_TOKEN is set)."
+	@echo 
 
 sonar-clean:
 	@rm -f $(SONAR_REPORT) $(SONAR_REMOVED_FACET)
@@ -650,7 +680,8 @@ help:
 	@echo "  firmware-port    - Show detected ESP32 serial port"
 	@echo "  ota-keys         - Generate per-user Ed25519 OTA signing keypair + bake public key"
 	@echo "  sonar-scan       - Run SonarCloud static analysis on firmware (quality only; needs SONAR_TOKEN)"
-	@echo "  sonar-summary    - Print cached SonarCloud issue counts by severity"
+	@echo "  sonar-summary    - Print cached SonarCloud issue counts by severity (FULL report)"
+	@echo "  summary          - Print ONE-LINE end-of-make headline (tests + sonar); end of 'all'"
 	@echo "  ios              - Build iOS app for simulator (Debug)"
 	@echo "  ios-signed       - Build signed Release for physical device"
 	@echo "  deploy           - Deploy to connected iPhone (aliases: deploy-app, deploy-ios)"
