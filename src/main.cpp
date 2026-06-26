@@ -1,4 +1,5 @@
 #include <iostream>
+#include <csignal>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/Orchestration.h"
@@ -14,6 +15,12 @@
 namespace {
 
 constexpr int BLE_SCAN_TIMEOUT_S = 10;
+
+// Signal handler for discovery mode - sets the stop flag when Ctrl-C is pressed
+void discoverySignalHandler(int sigNum) {
+    std::cout << "\nReceived signal " << sigNum << ", stopping discovery...\n";
+    vehicle_sim::discovery::UDPDiscovery::requestStop();
+}
 
 int runScan(vehicle_sim::BLEManager& bleManager) {
     using namespace vehicle_sim;
@@ -46,6 +53,11 @@ int runDiscovery() {
     std::cout << "Listening for ESP32 discovery broadcasts on UDP port "
               << DISCOVERY_PORT << "...\n";
     std::cout << "Press Ctrl-C to stop.\n\n";
+
+    // Install signal handler for Ctrl-C (SIGINT) - sets flag instead of relying on EINTR
+    std::signal(SIGINT, discoverySignalHandler);
+    std::signal(SIGTERM, discoverySignalHandler);
+    UDPDiscovery::resetStop();
 
     UDPDiscovery discovery;
 

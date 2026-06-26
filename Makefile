@@ -2,7 +2,7 @@
 	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
 	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp check-esp32 \
-			header
+			header discovery join-wifi join-wifi-usb
 
 # Device ID (first connected/available device, excluding unavailable)
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/unavailable/ && match($$0, /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/) { print substr($$0, RSTART, RLENGTH); exit }')
@@ -263,9 +263,10 @@ ESP32_WIFI_PASS ?=
 FIRMWARE_EXTRA_CFLAGS ?=
 
 # WiFi credentials as compiler defines (only in memory, never on disk)
+# Suppress SSID warning for discovery/discovery/join-wifi targets (not firmware-related)
 ifneq ($(ESP32_WIFI_SSID),)
 FIRMWARE_CFLAGS += -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASS=$(ESP32_WIFI_PASS)
-else
+else ifeq ($(filter discovery join-wifi join-wifi-usb,$(MAKECMDGOALS)),)
 $(warning ESP32_WIFI_SSID is not set. Firmware will use AP mode (ESP32-CAN).)
 $(warning Set: export ESP32_WIFI_SSID=manht2 ESP32_WIFI_PASS=yourpassword)
 endif
@@ -428,6 +429,10 @@ ota-keys:
 discover: native
 	@./build-native/vehicle-sim --discover
 
+# Alias for discover
+discovery: discover
+	@./build-native/vehicle-sim --discover
+
 # Debug discovery: capture UDP packets on port 3335
 dump-tcp:
 	@echo "Capturing UDP discovery packets on port 3335 (Ctrl+C to stop)..."
@@ -457,18 +462,6 @@ flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 		--host "$(ESP32_HOST)" --port 80 \
 		--keys-dir "$(OTA_KEYS_DIR)"
 
-reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
-	@if [ -z "$(ESP32_HOST)" ]; then \
-		echo "Error: ESP32_HOST is required." >&2; \
-		echo "  make reboot-over-tcp ESP32_HOST=<esp32-ip>" >&2; \
-		exit 1; \
-	fi
-	@echo "Rebooting $(ESP32_HOST):3333..."
-	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATZ\rATE0\rATREBOOT\r' | nc -w 5 "$(ESP32_HOST)" 3333 2>/dev/null; \
-	_rc=$$?; \
-	if [ $$_rc -ne 0 ]; then \
-		echo "${YELLOW}WARN: no response (device may have already rebooted)${NC}"; \
-	fi
 
 # -- Capture (native USB) --------------------------------------------------
 #
@@ -556,3 +549,61 @@ help:
 	@echo "  clean            - Clean build artifacts"
 	@echo "  scrub            - Full clean including toolchain sentinel"
 	@echo "  help             - Show this help message"
+reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp: native
+	@if [ -z "$(ESP32_HOST)" ]; then \
+			echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
+			echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
+			echo "      Set ESP32_HOST=<ip> to skip discovery."; \
+			DISCOVERED_IP=$$(./build-native/vehicle-sim --discover 2>/dev/null | \
+				grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2); \
+			if [ -z "$$DISCOVERED_IP" ]; then \
+				echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
+				echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \
+				exit 1; \
+			fi; \
+			echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
+			ESP32_HOST="$$DISCOVERED_IP"; \
+		fi
+	@echo "Rebooting $(ESP32_HOST):3333..."
+	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATZ\rATE0\rATREBOOT\r' | nc -w 5 "$(ESP32_HOST)" 3333 2>/dev/null; \
+		_rc=$$?; \
+		if [ $$_rc -ne 0 ]; then \
+			echo "${YELLOW}WARN: no response (device may have already rebooted)${NC}"; \
+		fi
+
+# -- Configure WiFi over AP -------------------------------------------------
+#
+# Configure ESP32 WiFi credentials by connecting to its AP (192.168.4.1)
+#   make join-wifi ESP32_WIFI_SSID=... ESP32_WIFI_PASS=...
+#   make join-wifi-usb ESP32_WIFI_SSID=... ESP32_WIFI_PASS=...
+#
+# Connects to device AP, AUTH, sends ATSETWIFI, waits for OK + reboot.
+
+join-wifi:
+	@if [ -z "$(ESP32_WIFI_SSID)" ] || [ -z "$(ESP32_WIFI_PASS)" ]; then \
+			echo "${RED}Error: ESP32_WIFI_SSID and ESP32_WIFI_PASS are required.${NC}" >&2; \
+			echo "  make join-wifi ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>" >&2; \
+			exit 1; \
+		fi
+	@echo "${YELLOW}--- Configuring WiFi credentials over AP (192.168.4.1:3333) ---${NC}"
+	@echo "SSID: $(ESP32_WIFI_SSID)"
+	@echo "${YELLOW}Make sure your host is connected to ESP32-CAN AP${NC}"
+	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' | nc -w 5 192.168.4.1 3333 2>/dev/null; \
+		_rc=$$?; \
+		if [ $$_rc -ne 0 ]; then \
+			echo "${RED}Failed to configure WiFi. Is the ESP32 in AP mode?${NC}" >&2; \
+			exit 1; \
+		fi; \
+		echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
+
+join-wifi-usb: firmware-port
+	@if [ -z "$(ESP32_WIFI_SSID)" ] || [ -z "$(ESP32_WIFI_PASS)" ]; then \
+			echo "${RED}Error: ESP32_WIFI_SSID and ESP32_WIFI_PASS are required.${NC}" >&2; \
+			echo "  make join-wifi-usb ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>" >&2; \
+			exit 1; \
+		fi
+	@echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"
+	@echo "SSID: $(ESP32_WIFI_SSID)"
+	@printf 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' > "$(ESP32_PORT)"
+	@echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
+	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"

@@ -17,6 +17,7 @@
 #include <sntp.h>
 #include <Preferences.h>  // NVS storage for WiFi credentials
 #include <driver/twai.h>  // TWAI for CAN communication
+#include <vector>         // Command pattern registry
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -96,6 +97,62 @@ namespace WiFiState {
         bool tcpServerNeedsRestart = false;
     };
 }
+
+// ── Forward Type Declarations (must be before any function use) ────────────────
+// These type definitions must appear after WiFiState to avoid Arduino preprocessing issues
+
+// Credential source enumeration for WiFi connection strategy
+enum class CredentialSource {
+    NONE,
+    STORED_NVS,
+    BAKED_IN
+};
+
+// WiFi state transition result
+struct StateTransition {
+    WiFiState::State nextState;
+    bool setTcpServerRestartFlag;
+    bool initNtp;
+    const char* message;  // Optional diagnostic message
+
+    StateTransition() : nextState(WiFiState::State::DISCONNECTED),
+                       setTcpServerRestartFlag(false), initNtp(false), message(nullptr) {}
+
+    StateTransition(WiFiState::State state, bool tcpRestart = false, bool ntp = false, const char* msg = nullptr)
+        : nextState(state), setTcpServerRestartFlag(tcpRestart), initNtp(ntp), message(msg) {}
+};
+
+// WiFi state handler interface (State Pattern)
+struct WiFiStateHandler {
+    virtual StateTransition execute(uint32_t now, WiFiState::Context& ctx) = 0;
+    virtual ~WiFiStateHandler() = default;
+};
+
+// AT command execution result
+struct AtCommandResult {
+    String response;
+    bool shouldReboot;
+    bool shouldFlushClient;
+
+    AtCommandResult(const char* resp = "", bool reboot = false, bool flush = false)
+        : response(resp), shouldReboot(reboot), shouldFlushClient(flush) {}
+};
+
+// AT command handler interface (Command Pattern)
+struct AtCommandHandler {
+    virtual bool matches(const String& normalizedCmd) const = 0;
+    virtual AtCommandResult execute(const String& originalCmd) const = 0;
+    virtual ~AtCommandHandler() = default;
+};
+
+// WiFi SET command parameters
+struct SetWifiParams {
+    String ssid;
+    String password;
+    bool valid;
+
+    SetWifiParams() : valid(false) {}
+};
 
 // ── NTP State ───────────────────────────────────────────────────────────────────
 namespace NtpState {
@@ -203,6 +260,19 @@ static void printTagged(const char* color, const char* message) {
 #define TCP_AUTH_TOKEN "vehicle-sim-2026"
 #endif
 
+// Discovery signing (optional): Ed25519 private key for signing discovery packets
+// If enabled, discovery packets are signed so the host can verify device authenticity.
+// Key format: 32-byte Ed25519 private seed (RFC 8032). Bake in via build flags.
+// NOTE: This is OPTIONAL. If not defined, discovery packets are unsigned (zeros).
+#ifndef VEHICLE_SIM_DISCOVERY_SIGNING_KEY
+#define VEHICLE_SIM_DISCOVERY_SIGNING_KEY
+#endif
+
+// Guarded discovery signing - only available if libsodium is linked
+#ifndef VEHICLE_SIM_ENABLE_DISCOVERY_SIGNING
+#define VEHICLE_SIM_ENABLE_DISCOVERY_SIGNING 0
+#endif
+
 // Color constants declared earlier
 
 #ifndef VEHICLE_SIM_ENABLE_OTA_SERVER
@@ -257,10 +327,19 @@ static WiFiUDP udpDiscovery;
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
 // NTP sync callback - called when time sync completes
 static void ntpSyncCallback(struct timeval* tv) {
-    ntpCtx.synced = true;
+    // Only log on first successful sync, not on periodic re-syncs
+    if (!ntpCtx.synced) {
+        ntpCtx.synced = true;
+        ntpCtx.syncAttempts = 0;
+        // Convert Unix timestamp to human-readable UTC time
+        time_t utcTime = tv->tv_sec;
+        struct tm* utcInfo = gmtime(&utcTime);
+        char timeBuf[32];
+        strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S UTC", utcInfo);
+        Serial.printf("%sNTP synced: %s%s\r\n", GREEN, timeBuf, NC);
+    }
+    // Always update last sync time for monitoring
     ntpCtx.lastSyncMs = millis();
-    ntpCtx.syncAttempts = 0;
-    Serial.printf("%sNTP synced: %ld seconds since epoch%s\r\n", GREEN, tv->tv_sec, NC);
 }
 
 // Initialize NTP sync - call this when WiFi connects
@@ -358,30 +437,133 @@ static void buildDiscoveryPacket(uint8_t* packet, const uint8_t* deviceId, uint3
     packet[41] = otaPort & 0xFF;
 
     // Signature bytes remain zeroed for unsigned discovery broadcasts.
+    // If signing is enabled, signDiscoveryPacket() will fill this in.
     memset(packet + 42, 0, 64);
 }
+
+// ── Discovery Signing (Optional/Guarded) ───────────────────────────────────────
+// Sign discovery packet with Ed25519 private key for host verification.
+// Format: Ed25519 signature (64 bytes) over packet[0..41] (first 42 bytes).
+// The signature fills the reserved 64-byte field at packet[42..105].
+//
+// PROPOSED FORMAT for host-side verification:
+//   - Signed data: packet[0..41] (42 bytes: magic, version, type, deviceId, nonce, timestamp, ports)
+//   - Signature: Ed25519 (64 bytes) at packet[42..105]
+//   - Key format: Ed25519 private seed (32 bytes), baked at build time
+//   - Public key: Host needs the corresponding public key for verification
+//
+// COORDINATION with host-engineer:
+//   The host should:
+//   1. Extract the first 42 bytes (signed payload)
+//   2. Extract the last 64 bytes (signature)
+//   3. Verify using the device's Ed25519 public key (matching the baked private key)
+//   4. Reject discovery packets with invalid signatures (or allow unsigned if key unknown)
+//
+// IMPLEMENTATION:
+//   If VEHICLE_SIM_ENABLE_DISCOVERY_SIGNING=1 and libsodium is available:
+//   - Sign the packet payload with the baked private key
+//   - Fall back to unsigned (zeros) if signing fails or key not available
+//   If disabled (default), packets remain unsigned (all zeros)
+#if VEHICLE_SIM_ENABLE_DISCOVERY_SIGNING
+#include <sodium.h>
+#include "DiscoveryPrivateKey.h"  // Baked private key header (not committed)
+
+static void signDiscoveryPacket(uint8_t* packet) {
+    // Check if crypto is initialized and key is available
+    static bool cryptoInitialized = false;
+    static bool hasSigningKey = false;
+
+    if (!cryptoInitialized) {
+        if (sodium_init() < 0) {
+            Serial.printf("%sDiscovery signing: libsodium init failed, using unsigned%s\r\n", YELLOW, NC);
+            cryptoInitialized = true;
+            return;
+        }
+        cryptoInitialized = true;
+
+        // Check if signing key is baked (non-zero)
+        // DiscoveryPrivateKey.h should define: static const uint8_t DISCOVERY_PRIVATE_KEY[32]
+        #ifdef DISCOVERY_PRIVATE_KEY
+        // Check if key is non-zero (has been baked)
+        for (size_t i = 0; i < 32; i++) {
+            if (DISCOVERY_PRIVATE_KEY[i] != 0) {
+                hasSigningKey = true;
+                break;
+            }
+        }
+        #endif
+    }
+
+    if (!hasSigningKey) {
+        // No signing key available - keep signature zeroed (unsigned)
+        return;
+    }
+
+    // Sign the packet payload (first 42 bytes)
+    // Signature format: Ed25519 over packet[0..41], result at packet[42..105]
+    unsigned long long sigLen;
+    #ifdef DISCOVERY_PRIVATE_KEY
+    int signResult = crypto_sign_detached(
+        packet + 42,              // Signature output (64 bytes)
+        &sigLen,                  // Signature length
+        packet,                   // Message to sign (42 bytes)
+        42,                       // Message length
+        DISCOVERY_PRIVATE_KEY    // Private key (32 bytes)
+    );
+
+    if (signResult != 0 || sigLen != 64) {
+        // Signing failed - keep signature zeroed (unsigned)
+        Serial.printf("%sDiscovery signing failed (code=%d), using unsigned%s\r\n",
+                        YELLOW, signResult, NC);
+        memset(packet + 42, 0, 64);
+    }
+    #else
+    // No key defined - keep unsigned
+    #endif
+}
+#else
+// Stub when signing is disabled - packets remain unsigned
+static void signDiscoveryPacket(uint8_t* packet) {
+    // Signature field already zeroed by buildDiscoveryPacket()
+    (void)packet;  // Suppress unused warning
+}
+#endif
 
 // Broadcast a discovery packet. The packet reserves the same signature field as
 // the CLI/iOS wire format; current firmware broadcasts unsigned discovery so
 // first connection remains usable before OTA keys are flashed.
 // IMPORTANT: Continues broadcasting during reconnects so host can always find device.
 static void broadcastDiscovery() {
-    const wl_status_t status = WiFi.status();
     // Always broadcast when no buddy connected - "welcome a buddy"
     // Also broadcast during reconnects so host can always find device
     const bool haveClient = client && client.connected();
-    if (!haveClient && ((WiFi.getMode() == WIFI_STA && (status == WL_CONNECTED || status == WL_DISCONNECTED)) ||
-        WiFi.getMode() == WIFI_AP)) {
+    if (haveClient) return;  // Don't broadcast if we have a buddy
 
-        uint8_t packet[Constants::DISCOVERY_PACKET_SIZE];
-        buildDiscoveryPacket(packet, discoveryDeviceId, Constants::TCP_PORT, Constants::OTA_HTTP_PORT);
-
-        // Use SDK's broadcastIP() which respects actual subnet mask
-        IPAddress broadcastIp = WiFi.broadcastIP();
-        udpDiscovery.beginPacket(broadcastIp, Constants::DISCOVERY_PORT);
-        udpDiscovery.write(packet, Constants::DISCOVERY_PACKET_SIZE);
-        udpDiscovery.endPacket();
+    // Broadcast in AP mode (always ready) or STA mode (if ready)
+    // STA mode is ready when: connected, disconnected (was connected), or connecting
+    // This allows broadcasting during initial connection and reconnects, not just when fully connected
+    if (WiFi.getMode() == WIFI_AP) {
+        // AP mode - always ready to broadcast
+    } else if (WiFi.getMode() == WIFI_STA) {
+        // STA mode - broadcast if WiFi is initialized (mode is set)
+        // Don't check status here - allow broadcasting during connection/reconnection
+        // UDP will fail silently if WiFi isn't truly ready, which is acceptable
+    } else {
+        return;  // Mode not set yet - can't broadcast
     }
+
+    uint8_t packet[Constants::DISCOVERY_PACKET_SIZE];
+    buildDiscoveryPacket(packet, discoveryDeviceId, Constants::TCP_PORT, Constants::OTA_HTTP_PORT);
+
+    // Sign discovery packet if signing is enabled (optional/guarded)
+    // Falls back to unsigned (zeros) if signing disabled or key not available
+    signDiscoveryPacket(packet);
+
+    // Use SDK's broadcastIP() which respects actual subnet mask
+    IPAddress broadcastIp = WiFi.broadcastIP();
+    udpDiscovery.beginPacket(broadcastIp, Constants::DISCOVERY_PORT);
+    udpDiscovery.write(packet, Constants::DISCOVERY_PACKET_SIZE);
+    udpDiscovery.endPacket();
 }
 
 // ── WiFi State Machine ────────────────────────────────────────────────────────
@@ -406,11 +588,242 @@ static const char* wifiStateName(WiFiState::State state) {
     }
 }
 
+// ── Credential Management (Testable Pure Functions) ────────────────────────────
+// Testable pure function: Determine credential source priority
+static CredentialSource determineCredentialSource() {
+    if (hasStoredWifiCredentials()) {
+        return CredentialSource::STORED_NVS;
+    }
+    if (WIFI_SSID != nullptr) {
+        return CredentialSource::BAKED_IN;
+    }
+    return CredentialSource::NONE;
+}
+
+// Testable pure function: Check if AP mode fallback is needed
+static bool shouldFallbackToApMode(CredentialSource source, uint32_t connectDurationMs) {
+    return (source == CredentialSource::STORED_NVS) &&
+           (connectDurationMs > Constants::WIFI_CONNECT_TIMEOUT_MS);
+}
+
+// Testable pure function: Check if initial connect timeout reached
+static bool isInitialConnectTimeout(uint32_t connectDurationMs) {
+    return connectDurationMs > (Constants::WIFI_INITIAL_CONNECT_MAX_RETRIES *
+                                Constants::WIFI_CONNECT_RETRY_INTERVAL_MS);
+}
+
+// Handler for DISCONNECTED state - determines initial connection strategy
+struct DisconnectedStateHandler : public WiFiStateHandler {
+    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
+        CredentialSource source = determineCredentialSource();
+
+        switch (source) {
+            case CredentialSource::STORED_NVS: {
+                String storedSsid, storedPass;
+                if (loadWifiCredentials(storedSsid, storedPass)) {
+                    Serial.printf("Using stored WiFi credentials: %s\r\n", storedSsid.c_str());
+                    WiFi.mode(WIFI_STA);
+                    WiFi.setHostname("esp32-can");
+                    WiFi.begin(storedSsid.c_str(), storedPass.c_str());
+                    ctx.connectStartTime = now;
+                    ctx.lastRetryMs = now;
+                    return StateTransition(WiFiState::State::CONNECTING);
+                }
+                break;
+            }
+            case CredentialSource::BAKED_IN: {
+                WiFi.disconnect(false, true);
+                WiFi.mode(WIFI_STA);
+                WiFi.setHostname("esp32-can");
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+                ctx.connectStartTime = now;
+                ctx.lastRetryMs = now;
+                Serial.printf("Connecting to %s\r\n", WIFI_SSID);
+                return StateTransition(WiFiState::State::CONNECTING);
+            }
+            case CredentialSource::NONE:
+            default:
+                Serial.printf("No WiFi credentials available, starting AP mode\r\n");
+                WiFi.mode(WIFI_AP);
+                WiFi.softAP(AP_SSID, AP_PASS);
+                const String ip = WiFi.softAPIP().toString();
+                Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
+                Serial.printf("%sConnect to AP and use ATSETWIFI command to configure WiFi%s\r\n", YELLOW, NC);
+                return StateTransition(WiFiState::State::CONNECTED_AP);
+        }
+
+        return StateTransition();  // Stay DISCONNECTED if something failed
+    }
+};
+
+// Handler for CONNECTING state - monitors connection progress
+struct ConnectingStateHandler : public WiFiStateHandler {
+    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
+        const wl_status_t status = WiFi.status();
+        const uint32_t connectDuration = now - ctx.connectStartTime;
+
+        if (status == WL_CONNECTED) {
+            const String ip = WiFi.localIP().toString();
+            Serial.printf("%s\nConnected. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
+            return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
+        }
+
+        if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+            CredentialSource source = determineCredentialSource();
+
+            if (shouldFallbackToApMode(source, connectDuration)) {
+                Serial.printf("%sStored WiFi credentials failed, falling back to AP mode%s\r\n", YELLOW, NC);
+                WiFi.mode(WIFI_AP);
+                WiFi.softAP(AP_SSID, AP_PASS);
+                const String ip = WiFi.softAPIP().toString();
+                Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
+                Serial.printf("%sConnect to AP and reconfigure WiFi with ATSETWIFI%s\r\n", YELLOW, NC);
+                return StateTransition(WiFiState::State::CONNECTED_AP);
+            }
+
+            if (shouldRetryWiFi(WiFiState::State::CONNECTING, now, ctx.lastRetryMs)) {
+                String storedSsid, storedPass;
+                bool hasStored = (source == CredentialSource::STORED_NVS) &&
+                                loadWifiCredentials(storedSsid, storedPass);
+
+                if (hasStored) {
+                    Serial.printf("%sWiFi connect failed (status=%d), retrying with stored creds...%s\r\n",
+                                    YELLOW, static_cast<int>(status), NC);
+                } else {
+                    Serial.printf("%sWiFi connect failed (status=%d), retrying...%s\r\n",
+                                    YELLOW, static_cast<int>(status), NC);
+                }
+
+                WiFi.disconnect(false, true);
+                if (hasStored) {
+                    WiFi.begin(storedSsid.c_str(), storedPass.c_str());
+                } else {
+                    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+                }
+                ctx.lastRetryMs = now;
+            }
+        } else if (isInitialConnectTimeout(connectDuration)) {
+            CredentialSource source = determineCredentialSource();
+
+            if (source == CredentialSource::STORED_NVS) {
+                Serial.printf("%sStored WiFi credentials timeout, falling back to AP mode%s\r\n", YELLOW, NC);
+                WiFi.mode(WIFI_AP);
+                WiFi.softAP(AP_SSID, AP_PASS);
+                const String ip = WiFi.softAPIP().toString();
+                Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
+                return StateTransition(WiFiState::State::CONNECTED_AP);
+            } else {
+                Serial.printf("%sInitial connect timeout, entering RECONNECTING state%s\r\n", YELLOW, NC);
+                return StateTransition(WiFiState::State::RECONNECTING);
+            }
+        } else if ((now - ctx.lastRetryMs) >= Constants::WIFI_CONNECT_RETRY_INTERVAL_MS) {
+            Serial.printf("%s.%s", GREEN, NC);
+            ctx.lastRetryMs = now;
+        }
+
+        return StateTransition();  // Stay in CONNECTING
+    }
+};
+
+// Handler for RECONNECTING state - retries indefinitely ("60 years")
+struct ReconnectingStateHandler : public WiFiStateHandler {
+    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
+        // Check if reconnection succeeded
+        if (WiFi.status() == WL_CONNECTED) {
+            const String ip = WiFi.localIP().toString();
+            Serial.printf("%sWiFi RECONNECTED. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
+            return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
+        }
+
+        // Retry indefinitely - "60 years, no point in giving up"
+        if (shouldRetryWiFi(WiFiState::State::RECONNECTING, now, ctx.lastRetryMs)) {
+            const wl_status_t status = WiFi.status();
+            Serial.printf("%sWiFi RECONNECTING: status=%d reason=%d, retrying...%s\r\n",
+                            YELLOW, static_cast<int>(status),
+                            static_cast<int>(ctx.lastDisconnectReason), NC);
+            WiFi.disconnect(false, true);
+
+            String storedSsid, storedPass;
+            if (hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass)) {
+                WiFi.begin(storedSsid.c_str(), storedPass.c_str());
+            } else {
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+            }
+            ctx.lastRetryMs = now;
+        }
+
+        return StateTransition();  // Stay in RECONNECTING
+    }
+};
+
+// Handler for CONNECTED_STA state - monitors connection health
+struct ConnectedStaStateHandler : public WiFiStateHandler {
+    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
+        if (WiFi.status() != WL_CONNECTED) {
+            return StateTransition(WiFiState::State::RECONNECTING, true, false);
+        }
+        return StateTransition();  // Stay CONNECTED_STA
+    }
+};
+
+// Handler for CONNECTED_AP state - AP mode is stable
+struct ConnectedApStateHandler : public WiFiStateHandler {
+    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
+        // AP mode stays connected unless explicitly changed - no transitions
+        return StateTransition();
+    }
+};
+
+// ── State Handler Registry (Dispatch Table) ───────────────────────────────────────
+static DisconnectedStateHandler disconnectedHandler;
+static ConnectingStateHandler connectingHandler;
+static ReconnectingStateHandler reconnectingHandler;
+static ConnectedStaStateHandler connectedStaHandler;
+static ConnectedApStateHandler connectedApHandler;
+
+static WiFiStateHandler* getStateHandler(WiFiState::State state) {
+    switch (state) {
+        case WiFiState::State::DISCONNECTED: return &disconnectedHandler;
+        case WiFiState::State::CONNECTING: return &connectingHandler;
+        case WiFiState::State::RECONNECTING: return &reconnectingHandler;
+        case WiFiState::State::CONNECTED_STA: return &connectedStaHandler;
+        case WiFiState::State::CONNECTED_AP: return &connectedApHandler;
+        default: return &disconnectedHandler;  // Fallback
+    }
+}
+
+// ── State Transition Application ───────────────────────────────────────────────────
+static void applyStateTransition(const StateTransition& transition, WiFiState::Context& ctx) {
+    if (transition.nextState == WiFiState::State::DISCONNECTED &&
+        ctx.state == WiFiState::State::DISCONNECTED) {
+        return;  // No transition
+    }
+
+    ctx.state = transition.nextState;
+
+    if (transition.setTcpServerRestartFlag) {
+        ctx.tcpServerNeedsRestart = true;
+    }
+
+    if (transition.initNtp) {
+        initNtpSync();
+    }
+}
+
 static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
     wifiCtx.lastDisconnectReason = static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
-    Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
-                    static_cast<int>(wifiCtx.lastDisconnectReason),
-                    WiFi.disconnectReasonName(wifiCtx.lastDisconnectReason), NC, WiFi.SSID().c_str());
+
+    // Special handling for AUTH_FAIL (202) - make the message more descriptive
+    if (wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_EXPIRE ||
+        wifiCtx.lastDisconnectReason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+        wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_FAIL) {
+        Serial.printf("\n%sAUTH_FAIL (%d): password rejected for SSID '%s' — check credentials%s\r\n", RED,
+                        static_cast<int>(wifiCtx.lastDisconnectReason), WiFi.SSID().c_str(), NC);
+    } else {
+        Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
+                        static_cast<int>(wifiCtx.lastDisconnectReason),
+                        WiFi.disconnectReasonName(wifiCtx.lastDisconnectReason), NC, WiFi.SSID().c_str());
+    }
 
     // Transition to RECONNECTING state - never give up
     if (wifiCtx.state == WiFiState::State::CONNECTED_STA) {
@@ -424,148 +837,14 @@ static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) 
 static void updateWiFiStateMachine() {
     const uint32_t now = millis();
 
-    switch (wifiCtx.state) {
-        case WiFiState::State::DISCONNECTED: {
-            // AP-mode OOB: Check for stored credentials, then try baked-in, else AP mode
-            String storedSsid, storedPass;
-            bool hasStored = hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass);
-            bool hasBaked = (WIFI_SSID != nullptr);
+    // Get handler for current state (dispatch table lookup)
+    WiFiStateHandler* handler = getStateHandler(wifiCtx.state);
 
-            if (hasStored) {
-                // Use stored NVS credentials (user configured via AP)
-                Serial.printf("Using stored WiFi credentials: %s\r\n", storedSsid.c_str());
-                WiFi.mode(WIFI_STA);
-                WiFi.setHostname("esp32-can");
-                WiFi.begin(storedSsid.c_str(), storedPass.c_str());
-                wifiCtx.state = WiFiState::State::CONNECTING;
-                wifiCtx.connectStartTime = now;
-                wifiCtx.lastRetryMs = now;
-            } else if (hasBaked) {
-                // Use baked-in credentials (developer mode)
-                WiFi.disconnect(false, true);   // erase stale NVS creds before fresh connect
-                WiFi.mode(WIFI_STA);
-                WiFi.setHostname("esp32-can");
-                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-                wifiCtx.state = WiFiState::State::CONNECTING;
-                wifiCtx.connectStartTime = now;
-                wifiCtx.lastRetryMs = now;
-                Serial.printf("Connecting to %s\r\n", WIFI_SSID);
-            } else {
-                // AP-mode OOB: No credentials available, start in AP mode
-                Serial.printf("No WiFi credentials available, starting AP mode\r\n");
-                WiFi.mode(WIFI_AP);
-                WiFi.softAP(AP_SSID, AP_PASS);
-                wifiCtx.state = WiFiState::State::CONNECTED_AP;
-                const String ip = WiFi.softAPIP().toString();
-                Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
-                Serial.printf("%sConnect to AP and use ATSETWIFI command to configure WiFi%s\r\n", YELLOW, NC);
-            }
-            break;
-        }
+    // Execute state handler and get transition
+    StateTransition transition = handler->execute(now, wifiCtx);
 
-        case WiFiState::State::CONNECTING: {
-            const wl_status_t status = WiFi.status();
-            if (status == WL_CONNECTED) {
-                wifiCtx.state = WiFiState::State::CONNECTED_STA;
-                const String ip = WiFi.localIP().toString();
-                Serial.printf("%s\nConnected. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
-                wifiCtx.tcpServerNeedsRestart = true;
-                // Start NTP sync for accurate discovery timestamps
-                initNtpSync();
-            } else if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
-                // Connection failed - check if using stored creds, fall back to AP mode
-                String storedSsid, storedPass;
-                bool hasStored = hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass);
-
-                if (hasStored && (now - wifiCtx.connectStartTime) > 60000) { // 1 min timeout for stored creds
-                    // Stored credentials failed, fall back to AP mode
-                    Serial.printf("%sStored WiFi credentials failed, falling back to AP mode%s\r\n", YELLOW, NC);
-                    WiFi.mode(WIFI_AP);
-                    WiFi.softAP(AP_SSID, AP_PASS);
-                    wifiCtx.state = WiFiState::State::CONNECTED_AP;
-                    const String ip = WiFi.softAPIP().toString();
-                    Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
-                    Serial.printf("%sConnect to AP and reconfigure WiFi with ATSETWIFI%s\r\n", YELLOW, NC);
-                } else if (shouldRetryWiFi(wifiCtx.state, now, wifiCtx.lastRetryMs)) {
-                    // Retry connection
-                    if (hasStored) {
-                        Serial.printf("%sWiFi connect failed (status=%d), retrying with stored creds...%s\r\n",
-                                        YELLOW, static_cast<int>(status), NC);
-                        WiFi.disconnect(false, true);
-                        WiFi.begin(storedSsid.c_str(), storedPass.c_str());
-                    } else {
-                        Serial.printf("%sWiFi connect failed (status=%d), retrying...%s\r\n",
-                                        YELLOW, static_cast<int>(status), NC);
-                        WiFi.disconnect(false, true);
-                        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-                    }
-                    wifiCtx.lastRetryMs = now;
-                }
-            } else if ((now - wifiCtx.connectStartTime) > Constants::WIFI_INITIAL_CONNECT_MAX_RETRIES * Constants::WIFI_CONNECT_RETRY_INTERVAL_MS) {
-                // Initial connect taking too long - transition to reconnecting for baked-in creds
-                // But fall back to AP mode for stored creds
-                if (hasStoredWifiCredentials()) {
-                    Serial.printf("%sStored WiFi credentials timeout, falling back to AP mode%s\r\n", YELLOW, NC);
-                    WiFi.mode(WIFI_AP);
-                    WiFi.softAP(AP_SSID, AP_PASS);
-                    wifiCtx.state = WiFiState::State::CONNECTED_AP;
-                    const String ip = WiFi.softAPIP().toString();
-                    Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
-                } else {
-                    // Initial connect taking too long - transition to reconnecting
-                    wifiCtx.state = WiFiState::State::RECONNECTING;
-                    Serial.printf("%sInitial connect timeout, entering RECONNECTING state%s\r\n", YELLOW, NC);
-                }
-            } else if ((now - wifiCtx.lastRetryMs) >= Constants::WIFI_CONNECT_RETRY_INTERVAL_MS) {
-                // Still connecting - show progress dots
-                Serial.printf("%s.%s", GREEN, NC);
-                wifiCtx.lastRetryMs = now;
-            }
-            break;
-        }
-
-        case WiFiState::State::RECONNECTING:
-            // Retry indefinitely after disconnect - "60 years, no point in giving up"
-            if (shouldRetryWiFi(wifiCtx.state, now, wifiCtx.lastRetryMs)) {
-                const wl_status_t status = WiFi.status();
-                Serial.printf("%sWiFi RECONNECTING: status=%d reason=%d, retrying...%s\r\n",
-                                YELLOW, static_cast<int>(status),
-                                static_cast<int>(wifiCtx.lastDisconnectReason), NC);
-                WiFi.disconnect(false, true);
-
-                // Use stored credentials if available, else baked-in
-                String storedSsid, storedPass;
-                if (hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass)) {
-                    WiFi.begin(storedSsid.c_str(), storedPass.c_str());
-                } else {
-                    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-                }
-                wifiCtx.lastRetryMs = now;
-            }
-            // Check if reconnection succeeded
-            if (WiFi.status() == WL_CONNECTED) {
-                wifiCtx.state = WiFiState::State::CONNECTED_STA;
-                const String ip = WiFi.localIP().toString();
-                Serial.printf("%sWiFi RECONNECTED. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
-                wifiCtx.tcpServerNeedsRestart = true;
-                // Restart NTP sync for accurate discovery timestamps after reconnect
-                initNtpSync();
-            }
-            break;
-
-        case WiFiState::State::CONNECTED_STA:
-            // Check if still connected
-            if (WiFi.status() != WL_CONNECTED) {
-                wifiCtx.state = WiFiState::State::RECONNECTING;
-                wifiCtx.tcpServerNeedsRestart = true;
-                wifiCtx.lastRetryMs = now;
-            }
-            break;
-
-        case WiFiState::State::CONNECTED_AP:
-            // AP mode stays connected unless explicitly changed
-            break;
-    }
+    // Apply transition if any
+    applyStateTransition(transition, wifiCtx);
 }
 
 static void sendPrompt(const char* response) {
@@ -578,89 +857,255 @@ static void sendSerialPrompt(const char* response) {
     Serial.flush();
 }
 
-static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)) {
-    String c = cmd;
-    c.trim();
-    c.toUpperCase();
+// ── AT Command Pattern Implementation ───────────────────────────────────────────────
 
-    if (c == "ATZ") {
+// Testable pure function: Normalize AT command (testable)
+static String normalizeAtCommand(const String& cmd) {
+    String normalized = cmd;
+    normalized.trim();
+    normalized.toUpperCase();
+    return normalized;
+}
+
+// Testable pure function: Build HELO response (testable)
+static String buildHeloResponse() {
+    char response[128];
+    int len = snprintf(response, sizeof(response),
+        "ACK DEVICE=%s FIRMWARE=%s DEVICEID=",
+        Constants::DEVICE_NAME, Constants::FIRMWARE_VERSION);
+    // Append device ID as hex (16 bytes -> 32 hex chars)
+    for (int i = 0; i < 16 && len < (int)sizeof(response) - 3; i++) {
+        len += snprintf(response + len, sizeof(response) - len, "%02X", discoveryDeviceId[i]);
+    }
+    snprintf(response + len, sizeof(response) - len, "\r");
+    return String(response);
+}
+
+// ATZ - Reset handler
+struct AtzCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATZ";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
         monitorActive = false;
-        sendPromptFn("ELM327 v2.3");
-    } else if (c == "ATE0" || c == "ATE1") {
-        sendPromptFn("OK");
-    } else if (c.startsWith("ATSP")) {
-        sendPromptFn("OK");
-    } else if (c == "ATH1" || c == "ATH0") {
-        sendPromptFn("OK");
-    } else if (c == "ATCSM1" || c == "ATCSM0") {
-        sendPromptFn("OK");
-    } else if (c == "ATMA") {
+        return AtCommandResult("ELM327 v2.3");
+    }
+};
+
+// ATE0/ATE1 - Echo handler
+struct AteCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATE0" || normalizedCmd == "ATE1";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+// ATSP - Protocol handler
+struct AtspCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd.startsWith("ATSP");
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+// ATH0/ATH1 - Headers handler
+struct AthCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATH0" || normalizedCmd == "ATH1";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+// ATCSM0/ATCSM1 - Serial monitor handler
+struct AtcsmCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATCSM0" || normalizedCmd == "ATCSM1";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+// ATMA - Monitor activation handler
+struct AtmaCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATMA";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
         monitorActive = true;
-        sendPromptFn("OK");
-    } else if (c == "ATPC") {
+        return AtCommandResult("OK");
+    }
+};
+
+// ATPC - Monitor deactivation handler
+struct AtpcCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATPC";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
         monitorActive = false;
-        sendPromptFn("OK");
-    } else if (c == "ATHELO" || c == "HELLO") {
-        // HELO/ACK pre-flight handler - confirms device identity and firmware version
-        char response[128];
-        int len = snprintf(response, sizeof(response),
-            "ACK DEVICE=%s FIRMWARE=%s DEVICEID=",
-            Constants::DEVICE_NAME, Constants::FIRMWARE_VERSION);
-        // Append device ID as hex (16 bytes -> 32 hex chars)
-        for (int i = 0; i < 16 && len < (int)sizeof(response) - 3; i++) {
-            len += snprintf(response + len, sizeof(response) - len, "%02X", discoveryDeviceId[i]);
-        }
-        snprintf(response + len, sizeof(response) - len, "\r");
-        sendPromptFn(response);
-    } else if (c.startsWith("ATSETWIFI")) {
-        // Secure SET-CREDENTIALS command: ATSETWIFI<ssid>,<pass>
-        // Requires AUTH token (secure by default) - only authenticated clients can set creds
-        // Format: ATSETWIFImynetwork,mypassword
-        String params = cmd.substring(9);  // Skip "ATSETWIFI"
+        return AtCommandResult("OK");
+    }
+};
+
+// ATHELO/HELLO - Device identification handler
+struct AtheloCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATHELO" || normalizedCmd == "HELLO";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        return AtCommandResult(buildHeloResponse().c_str());
+    }
+};
+
+// Testable pure function: Parse SETWIFI parameters (testable)
+static SetWifiParams parseSetWifiParams(const String& params) {
+    SetWifiParams result;
+
+    int commaIndex = params.indexOf(',');
+    if (commaIndex <= 0) {
+        return result;  // Invalid format
+    }
+
+    result.ssid = params.substring(0, commaIndex);
+    result.password = params.substring(commaIndex + 1);
+    result.valid = true;
+
+    return result;
+}
+
+// ATSETWIFI - WiFi credentials setter (AUTH-protected)
+struct AtsetwifiCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd.startsWith("ATSETWIFI");
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        String params = originalCmd.substring(9);  // Skip "ATSETWIFI"
         params.trim();
 
-        // Parse SSID and password (comma-separated)
-        int commaIndex = params.indexOf(',');
-        if (commaIndex <= 0) {
-            sendPromptFn("ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>");
+        SetWifiParams wifiParams = parseSetWifiParams(params);
+
+        if (!wifiParams.valid) {
             Serial.printf("%sSET-WIFI: Invalid format from authenticated client%s\r\n", RED, NC);
-        } else {
-            String newSsid = params.substring(0, commaIndex);
-            String newPass = params.substring(commaIndex + 1);
-
-            // Validate inputs
-            if (newSsid.length() == 0 || newSsid.length() > 32) {
-                sendPromptFn("ERROR Invalid SSID length (1-32 chars)");
-                Serial.printf("%sSET-WIFI: Invalid SSID length from authenticated client%s\r\n", RED, NC);
-            } else if (newPass.length() == 0 || newPass.length() > 64) {
-                sendPromptFn("ERROR Invalid password length (1-64 chars)");
-                Serial.printf("%sSET-WIFI: Invalid password length from authenticated client%s\r\n", RED, NC);
-            } else {
-                // Store credentials to NVS
-                if (storeWifiCredentials(newSsid, newPass)) {
-                    Serial.printf("%sSET-WIFI: Stored credentials for SSID: %s%s\r\n",
-                                    GREEN, newSsid.c_str(), NC);
-                    sendPromptFn("OK WiFi credentials stored. Rebooting to connect...");
-
-                    // Trigger reboot to apply new credentials
-                    client.flush();
-                    delay(250);
-                    ESP.restart();
-                } else {
-                    sendPromptFn("ERROR Failed to store credentials");
-                    Serial.printf("%sSET-WIFI: NVS storage failed%s\r\n", RED, NC);
-                }
-            }
+            return AtCommandResult("ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>");
         }
-    } else if (c == "ATI") {
-        sendPromptFn("ESP32 CAN Bridge v0.1");
-    } else if (c == "ATREBOOT") {
-        sendPromptFn("REBOOT");
-        client.flush();
-        Serial.println("REBOOT");
-        Serial.flush();
-        delay(Constants::TCP_REBOOT_DELAY_MS);
-        ESP.restart();
+
+        // Validate SSID length
+        if (wifiParams.ssid.length() == 0 || wifiParams.ssid.length() > 32) {
+            Serial.printf("%sSET-WIFI: Invalid SSID length from authenticated client%s\r\n", RED, NC);
+            return AtCommandResult("ERROR Invalid SSID length (1-32 chars)");
+        }
+
+        // Validate password length
+        if (wifiParams.password.length() == 0 || wifiParams.password.length() > 64) {
+            Serial.printf("%sSET-WIFI: Invalid password length from authenticated client%s\r\n", RED, NC);
+            return AtCommandResult("ERROR Invalid password length (1-64 chars)");
+        }
+
+        // Store credentials to NVS
+        if (storeWifiCredentials(wifiParams.ssid, wifiParams.password)) {
+            Serial.printf("%sSET-WIFI: Stored credentials for SSID: %s%s\r\n",
+                            GREEN, wifiParams.ssid.c_str(), NC);
+            return AtCommandResult("OK WiFi credentials stored. Rebooting to connect...", true, true);
+        } else {
+            Serial.printf("%sSET-WIFI: NVS storage failed%s\r\n", RED, NC);
+            return AtCommandResult("ERROR Failed to store credentials");
+        }
+    }
+};
+
+// ATI - Device info handler
+struct AtiCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATI";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        return AtCommandResult("ESP32 CAN Bridge v0.1");
+    }
+};
+
+// ATREBOOT - Reboot handler
+struct AtrebootCommandHandler : public AtCommandHandler {
+    bool matches(const String& normalizedCmd) const override {
+        return normalizedCmd == "ATREBOOT";
+    }
+
+    AtCommandResult execute(const String& originalCmd) const override {
+        return AtCommandResult("REBOOT", true, true);
+    }
+};
+
+// ── AT Command Registry (Command Pattern + OpenClosed) ──────────────────────────────
+// Adding a new command = push_back a new handler (no dispatcher change needed)
+
+static std::vector<AtCommandHandler*> atCommandHandlers;
+
+static void registerAtCommandHandlers() {
+    // Only register once
+    if (!atCommandHandlers.empty()) return;
+
+    atCommandHandlers.push_back(new AtzCommandHandler());
+    atCommandHandlers.push_back(new AteCommandHandler());
+    atCommandHandlers.push_back(new AtspCommandHandler());
+    atCommandHandlers.push_back(new AthCommandHandler());
+    atCommandHandlers.push_back(new AtcsmCommandHandler());
+    atCommandHandlers.push_back(new AtmaCommandHandler());
+    atCommandHandlers.push_back(new AtpcCommandHandler());
+    atCommandHandlers.push_back(new AtheloCommandHandler());
+    atCommandHandlers.push_back(new AtsetwifiCommandHandler());
+    atCommandHandlers.push_back(new AtiCommandHandler());
+    atCommandHandlers.push_back(new AtrebootCommandHandler());
+}
+
+// ── AT Command Dispatcher (Flat loop with registry lookup) ───────────────────────────
+static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)) {
+    // Initialize command registry on first call
+    registerAtCommandHandlers();
+
+    // Normalize command for matching
+    String normalizedCmd = normalizeAtCommand(cmd);
+
+    // Find matching handler (flat loop over registry)
+    AtCommandHandler* matchingHandler = nullptr;
+    for (auto* handler : atCommandHandlers) {
+        if (handler->matches(normalizedCmd)) {
+            matchingHandler = handler;
+            break;
+        }
+    }
+
+    // Execute or respond with unknown command
+    if (matchingHandler) {
+        AtCommandResult result = matchingHandler->execute(cmd);
+        sendPromptFn(result.response.c_str());
+
+        // Apply side effects
+        if (result.shouldFlushClient) {
+            client.flush();
+            Serial.println("REBOOT");
+            Serial.flush();
+        }
+
+        if (result.shouldReboot) {
+            delay(Constants::TCP_REBOOT_DELAY_MS);
+            ESP.restart();
+        }
     } else {
         sendPromptFn("?");
     }
@@ -744,8 +1189,42 @@ static bool isValidAuthToken(const String& received) {
     return received.equals(expected);
 }
 
+// Factory reset: check if GPIO0 (BOOT button) is held at boot
+static bool checkFactoryReset() {
+    pinMode(Constants::FACTORY_RESET_PIN, INPUT_PULLUP);
+
+    // Check if button is pressed (low = pressed on GPIO0 with pullup)
+    if (digitalRead(Constants::FACTORY_RESET_PIN) == LOW) {
+        Serial.printf("%sFactory reset: GPIO0 held at boot, waiting %lums to confirm...%s\r\n",
+                        YELLOW, Constants::FACTORY_RESET_HOLD_MS, NC);
+
+        // Wait to see if button continues to be held
+        uint32_t heldMs = 0;
+        while (heldMs < Constants::FACTORY_RESET_HOLD_MS) {
+            if (digitalRead(Constants::FACTORY_RESET_PIN) != LOW) {
+                Serial.printf("%sFactory reset: released early, cancelling%s\r\n", YELLOW, NC);
+                return false;
+            }
+            delay(100);
+            heldMs += 100;
+        }
+
+        // Button held for full duration - clear WiFi credentials
+        Serial.printf("%sFactory reset: clearing WiFi credentials and booting to AP mode%s\r\n",
+                        RED, NC);
+        clearWifiCredentials();
+        return true;
+    }
+    return false;
+}
+
 void setup() {
     Serial.begin(Constants::SERIAL_BAUD);
+
+    // Factory reset check before WiFi init - allows wiping stored credentials
+    // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
+    bool factoryReset = checkFactoryReset();
+
     WiFi.onEvent(onWiFiDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
     // TWAI init — listen-only so we never transmit on the vehicle bus

@@ -132,13 +132,63 @@ private:
     int port_ = 0;
 };
 
-// Helper: accept a connection, read the AUTH line, send "OK". Returns true if
-// auth succeeded.
-bool acceptAndAuth(LoopbackServer& server, int timeoutMs = 3000) {
+// Helper: accept connection, auth, then handle HELO/ATI handshake. Returns true if all succeeded.
+bool acceptAuthAndHelo(LoopbackServer& server, int timeoutMs = 3000) {
     if (server.acceptClient(timeoutMs) < 0) return false;
+
+    // Read AUTH
     std::string line = server.readLine(timeoutMs);
     if (line != "AUTH vehicle-sim-2026") return false;
     server.sendBytes("OK\r");
+
+    // Read ATI
+    line = server.readLine(timeoutMs);
+    if (line != "ATI") return false;
+    server.sendBytes("ESP32 CAN Bridge v0.1\r");
+
+    // Read ATHELO
+    line = server.readLine(timeoutMs);
+    if (line != "ATHELO") return false;
+
+    // Send HELO ACK with a valid device ID
+    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r");
+
+    return true;
+}
+
+// Helper for ELM327 protocol that reads commands but accumulates them for later verification
+bool acceptAuthElm327AndHeloWithCapture(LoopbackServer& server, std::string& capturedCommands, int timeoutMs = 3000) {
+    if (server.acceptClient(timeoutMs) < 0) return false;
+
+    // Read AUTH
+    std::string line = server.readLine(timeoutMs);
+    if (line != "AUTH vehicle-sim-2026") return false;
+    server.sendBytes("OK\r");
+
+    // Small delay
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Read ELM327 init sequence and accumulate for verification
+    const char* elmCommands[] = {"ATZ", "ATE0", "ATSP6", "ATH1", "ATMA"};
+    for (size_t i = 0; i < sizeof(elmCommands)/sizeof(elmCommands[0]); i++) {
+        line = server.readLine(timeoutMs);
+        if (line != elmCommands[i]) return false;
+        capturedCommands += line + "\r";  // Accumulate with \r like the original format
+        server.sendBytes("OK\r");
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    // Read ATI
+    line = server.readLine(timeoutMs);
+    if (line != "ATI") return false;
+    server.sendBytes("ESP32 CAN Bridge v0.1\r");
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Read ATHELO
+    line = server.readLine(timeoutMs);
+    if (line != "ATHELO") return false;
+    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r");
+
     return true;
 }
 
@@ -157,7 +207,7 @@ TEST(TCPTransportTest, RawProtocol_SendsAuthOnConnect) {
     std::thread th([&] { opened = t.open(); });
 
     // Accept and auth before checking open result.
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
@@ -183,7 +233,7 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
@@ -222,7 +272,7 @@ TEST(TCPTransportTest, CleanDisconnect_DetectedByNextLine) {
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
@@ -285,20 +335,17 @@ TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    std::string capturedCommands;
+    ASSERT_TRUE(acceptAuthElm327AndHeloWithCapture(server, capturedCommands));
     th.join();
     ASSERT_TRUE(opened.load());
 
-    // After AUTH, ELM327 must send the AT-init sequence (ATZ/ATE0/ATSP6/ATH1/ATMA).
-    // With atInitDelayMs=0 the bytes arrive near-instantly; the 2000ms deadline
-    // is more than enough headroom.
-    std::string sent = server.readClientBytes(
-        std::string("ATZ\rATE0\rATSP6\rATH1\rATMA\r").size(), 2000);
-    EXPECT_NE(sent.find("ATZ\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATE0\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATSP6\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATH1\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATMA\r"), std::string::npos);
+    // Verify that the ELM327 AT-init sequence was sent (captured during handshake)
+    EXPECT_NE(capturedCommands.find("ATZ\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATE0\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATSP6\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATH1\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATMA\r"), std::string::npos);
 
     server.closeClient();
     TCPTransport::requestStop();
@@ -344,7 +391,7 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 

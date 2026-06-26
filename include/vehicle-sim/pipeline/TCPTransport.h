@@ -86,6 +86,12 @@ public:
      */
     bool sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId);
 
+    /**
+     * Get the device ID from HELO handshake (32 hex chars).
+     * Returns empty string if HELO hasn't completed yet.
+     */
+    const std::string& getDeviceId() const noexcept { return deviceIdHex_; }
+
     // Connection/reconnect constants (public for utility function access)
     static constexpr int MAX_RETRIES = 60;              // Bounded retry: ~60s total wait
     static constexpr int BASE_RETRY_DELAY_MS = 1000;   // Initial reconnect delay
@@ -98,6 +104,10 @@ private:
     bool sendElm327Init(int fd) noexcept;
     bool connectAndAuth();
     void closeConnection() noexcept;
+    bool performHeloHandshake();
+#if !defined(BUILD_IOS) && !defined(TARGET_OS_IPHONE)
+    bool enterHuntingState();  // Retry old IP + listen for UDP discovery simultaneously (host-only)
+#endif
 
     std::string host_;
     int port_;
@@ -110,6 +120,8 @@ private:
     bool exhausted_ = false;
     // Reconnect state
     int retryCount_ = 0;
+    // Device ID from HELO handshake (32 hex chars, empty until HELO succeeds)
+    std::string deviceIdHex_;
     // Accumulated bytes not yet terminated by a line ending.
     std::string pending_;
 };

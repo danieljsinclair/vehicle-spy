@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import CryptoKit
+import SwiftUI
 
 enum ConnectionMode: String, CaseIterable, Codable {
     case ble = "BLE"
@@ -64,6 +65,13 @@ class VehicleViewModel: ObservableObject {
     private var wrapper: VehicleSimWrapper?
     private var updateTimer: Timer?
     private var discoveryListener: ESP32DiscoveryListener?
+    private var discoveryRetryTimer: Timer?
+    private var cancellables = Set<AnyCancellable>()
+
+    // Skip-list for IPs that failed authentication (wrong unit)
+    // These IPs will be skipped for the remainder of the session
+    // Cleared on mode switch, network change, or app restart
+    private var authFailedIPs: Set<String> = []
 
     struct DeviceEntry: Identifiable {
         let id = UUID()
@@ -78,6 +86,19 @@ class VehicleViewModel: ObservableObject {
         let savedMode = UserDefaults.standard.string(forKey: "connectionMode") ?? ""
         self.connectionMode = ConnectionMode(rawValue: savedMode) ?? .ble
         wrapper = VehicleSimWrapper()
+
+        // Subscribe to app lifecycle notifications
+        NotificationCenter.default.publisher(for: .resumeDiscovery)
+            .sink { [weak self] _ in
+                self?.resumeDiscoveryIfNeeded()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .pauseDiscovery)
+            .sink { [weak self] _ in
+                self?.pauseDiscoveryIfNeeded()
+            }
+            .store(in: &cancellables)
     }
 
     deinit {
@@ -89,6 +110,9 @@ class VehicleViewModel: ObservableObject {
     // MARK: - Connection Mode
 
     private func onConnectionModeChanged() {
+        // Clear auth-failed IP skip-list on mode switch (fresh slate)
+        authFailedIPs.removeAll()
+
         // Stop any active connection when switching modes
         if connectionState != .disconnected {
             disconnect()
@@ -113,7 +137,7 @@ class VehicleViewModel: ObservableObject {
         connectionState = .connected
         connectedDeviceName = "Demo"
         connectedDeviceAddress = "simulation"
-        connectionStatus = "Demo"
+        connectionStatus = "Demo [CLIENT]"
         startPolling()
     }
 
@@ -123,7 +147,7 @@ class VehicleViewModel: ObservableObject {
         guard wrapper != nil else { return }
         wrapper?.startBLE()
         connectionState = .connecting
-        connectionStatus = "Scanning"
+        connectionStatus = "Scanning [CLIENT]"
     }
 
     func stop() {
@@ -131,7 +155,7 @@ class VehicleViewModel: ObservableObject {
         connectionState = .disconnected
         connectedDeviceName = nil
         connectedDeviceAddress = nil
-        connectionStatus = "Disconnected"
+        connectionStatus = "Disconnected [CLIENT]"
         stopUpdates()
 
         throttlePercent = nil
@@ -177,7 +201,7 @@ class VehicleViewModel: ObservableObject {
     func connectToDevice(_ device: DeviceEntry) {
         guard wrapper != nil else { return }
         isConnecting = true
-        connectionStatus = "Connecting"
+        connectionStatus = "Connecting [CLIENT]"
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self, let wrapper = self.wrapper else { return }
@@ -193,11 +217,11 @@ class VehicleViewModel: ObservableObject {
                     self.connectedDeviceName = wrapper.connectedDeviceName
                     self.connectedDeviceAddress = wrapper.connectedDeviceAddress
                     self.discoveredDevices = []
-                    self.connectionStatus = "Connected"
+                    self.connectionStatus = "Connected [CLIENT]"
                     self.startPolling()
                 } else {
                     self.connectionState = .disconnected
-                    self.connectionStatus = "Connection Failed"
+                    self.connectionStatus = "Connection Failed [CLIENT]"
                 }
             }
         }
@@ -208,8 +232,13 @@ class VehicleViewModel: ObservableObject {
         connectionState = .disconnected
         connectedDeviceName = nil
         connectedDeviceAddress = nil
-        connectionStatus = "Disconnected"
+        connectionStatus = "Disconnected [CLIENT]"
         stopUpdates()
+
+        // Resume discovery after disconnect if in WiFi mode
+        if connectionMode == .wifi {
+            startESP32Discovery()
+        }
 
         throttlePercent = nil
         speed = nil
@@ -264,6 +293,12 @@ class VehicleViewModel: ObservableObject {
             publicKey: wifiSecurityPolicy.publicKey,
             onDiscovered: { [weak self] discovered in
                 guard let self else { return }
+
+                // Skip IPs that have previously failed authentication
+                if self.authFailedIPs.contains(discovered.address) {
+                    return
+                }
+
                 if let idx = self.discoveredESP32s.firstIndex(where: { $0.address == discovered.address }) {
                     self.discoveredESP32s[idx] = discovered
                 } else {
@@ -288,7 +323,9 @@ class VehicleViewModel: ObservableObject {
             onError: { [weak self] error in
                 guard let self else { return }
                 self.esp32DiscoveryError = error.localizedDescription
-                self.isESP32DiscoveryActive = false
+                // Don't stop discovery on error - keep retrying
+                // We'll restart the listener after a delay
+                self.scheduleDiscoveryRetry()
             }
         )
 
@@ -298,13 +335,66 @@ class VehicleViewModel: ObservableObject {
             isESP32DiscoveryActive = true
         } catch {
             esp32DiscoveryError = error.localizedDescription
+            // Schedule retry even if initial start failed
+            scheduleDiscoveryRetry()
+        }
+    }
+
+    private func scheduleDiscoveryRetry() {
+        // Retry ~once per second while app is active
+        guard discoveryRetryTimer == nil else { return }
+
+        discoveryRetryTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+            guard let self = self,
+                  self.connectionMode == .wifi,
+                  self.connectionState != .connected else {
+                self?.discoveryRetryTimer = nil
+                return
+            }
+
+            // Only retry if app is still active
+            DispatchQueue.main.async {
+                // Check if we should still be retrying
+                if self.connectionMode == .wifi &&
+                   self.connectionState != .connected &&
+                   !self.isESP32DiscoveryActive {
+                    self.discoveryRetryTimer = nil
+                    self.startESP32Discovery()
+                } else {
+                    self.discoveryRetryTimer = nil
+                }
+            }
         }
     }
 
     func stopESP32Discovery() {
         discoveryListener?.stop()
         discoveryListener = nil
+        discoveryRetryTimer?.invalidate()
+        discoveryRetryTimer = nil
         isESP32DiscoveryActive = false
+    }
+
+    // MARK: - Discovery Lifecycle (App Background/Foreground)
+
+    private func resumeDiscoveryIfNeeded() {
+        guard connectionMode == .wifi else { return }
+
+        // Clear auth-failed IP skip-list on app resume (network rejoin)
+        authFailedIPs.removeAll()
+
+        if !isESP32DiscoveryActive {
+            startESP32Discovery()
+        }
+    }
+
+    private func pauseDiscoveryIfNeeded() {
+        // Only pause discovery if we're not connected
+        guard connectionMode == .wifi,
+              connectionState != .connected else { return }
+
+        // Stop the listener but we'll restart when app becomes active
+        stopESP32Discovery()
     }
 
     /// Manually connect to a discovered ESP32 at its CAN port.
@@ -312,13 +402,20 @@ class VehicleViewModel: ObservableObject {
     func connectToESP32(_ esp32: DiscoveredESP32) {
         guard wrapper != nil else { return }
 
+        // Check if this IP has previously failed authentication
+        if authFailedIPs.contains(esp32.address) {
+            wifiSecurityError = "This device previously failed authentication"
+            connectionStatus = "Skipping: Auth Failed Previously [CLIENT]"
+            return
+        }
+
         // Security policy check
         do {
             try wifiSecurityPolicy.allowConnection(discovered: esp32)
             wifiSecurityError = nil
         } catch {
             wifiSecurityError = error.localizedDescription
-            connectionStatus = "Refused: Unverified Device"
+            connectionStatus = "Refused: Unverified Device [CLIENT]"
             return
         }
 
@@ -346,27 +443,129 @@ class VehicleViewModel: ObservableObject {
         let port = esp32.canPort
         let tcpTarget = "tcp:\(address):\(port)"
 
-        connectionStatus = "Connecting to \(address):\(port)"
+        // Pause discovery during connection attempt
+        stopESP32Discovery()
+
+        connectionStatus = "Connecting to \(address):\(port) [CLIENT]"
         connectionState = .connecting
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self, let wrapper = self.wrapper else { return }
+            guard let self = self else { return }
 
-            let success = wrapper.connect(toDevice: tcpTarget,
-                                          deviceName: "ESP32 CAN Bridge",
-                                          vehicleType: self.selectedVehicle)
+            // Refined retry policy: hunt for available devices
+            // Auth failure = skip this IP and keep hunting, not "give up"
+            var retryCount = 0
+            let maxRetries = 60 // ~60 seconds total
+            var targetDevice = esp32
+            var foundNewCandidate = false
 
-            DispatchQueue.main.async {
+            while retryCount < maxRetries {
+                guard let wrapper = self.wrapper else { break }
+
+                // Check if we're still in WiFi mode
+                DispatchQueue.main.async {
+                    if self.connectionMode != .wifi {
+                        // Mode changed, abort connection attempt
+                        return
+                    }
+                }
+
+                let currentAddress = targetDevice.host
+                let currentPort = targetDevice.canPort
+                let currentTarget = "tcp:\(currentAddress):\(currentPort)"
+
+                let success = wrapper.connect(toDevice: currentTarget,
+                                              deviceName: "ESP32 CAN Bridge",
+                                              vehicleType: self.selectedVehicle)
+
                 if success {
-                    self.connectionState = .connected
-                    self.connectedDeviceName = "ESP32 CAN Bridge"
-                    self.connectedDeviceAddress = "\(address):\(port)"
-                    self.connectionStatus = "Connected to ESP32"
-                    self.autoConnectedESP32 = esp32
-                    self.startPolling()
-                } else {
-                    self.connectionState = .disconnected
-                    self.connectionStatus = "Connection Failed"
+                    DispatchQueue.main.async {
+                        self.connectionState = .connected
+                        self.connectedDeviceName = "ESP32 CAN Bridge"
+                        self.connectedDeviceAddress = "\(currentAddress):\(currentPort)"
+                        let deviceIdHex = targetDevice.deviceId.map { String(format: "%02X", $0) }.joined()
+                        if !deviceIdHex.isEmpty {
+                            self.connectionStatus = "Connected to ESP32 [CLIENT] [ESP32:\(deviceIdHex)]"
+                        } else {
+                            self.connectionStatus = "Connected to ESP32 [CLIENT]"
+                        }
+                        self.autoConnectedESP32 = targetDevice
+                        self.startPolling()
+                        // Discovery remains stopped when successfully connected
+                    }
+                    return
+                }
+
+                // Connection failed - assume auth failure (wrong unit)
+                // Add this IP to skip-list and keep hunting for other devices
+                DispatchQueue.main.async {
+                    // Add failed IP to skip-list
+                    self.authFailedIPs.insert(currentAddress)
+
+                    // Remove this device from discovered list
+                    self.discoveredESP32s.removeAll { $0.address == currentAddress }
+
+                    self.connectionStatus = "Auth Failed - Skipping \(currentAddress), hunting... [CLIENT]"
+                }
+
+                // Resume discovery to find other ESP32 devices on the network
+                DispatchQueue.main.async {
+                    if self.connectionMode == .wifi && self.connectionState != .connected {
+                        self.startESP32Discovery()
+                    }
+                }
+
+                // Wait for discovery to find new devices (with timeout)
+                var waitedMs = 0
+                let discoveryTimeoutMs = 5000 // Wait up to 5s for new discovery
+                let checkIntervalMs = 100
+
+                while waitedMs < discoveryTimeoutMs && !foundNewCandidate {
+                    Thread.sleep(forTimeInterval: Double(checkIntervalMs) / 1000.0)
+                    waitedMs += checkIntervalMs
+
+                    // Check if we found a new candidate
+                    DispatchQueue.main.sync {
+                        if let newCandidate = self.discoveredESP32s.first(where: { device in
+                            // Skip IPs in auth-failed list
+                            !self.authFailedIPs.contains(device.address)
+                        }) {
+                            targetDevice = newCandidate
+                            foundNewCandidate = true
+                        }
+                    }
+
+                    // Exit if mode changed or connected elsewhere
+                    DispatchQueue.main.sync {
+                        if self.connectionMode != .wifi || self.connectionState == .connected {
+                            return
+                        }
+                    }
+                }
+
+                // If we found a new candidate, retry with it; otherwise, give up
+                if foundNewCandidate {
+                    retryCount = 0 // Reset retry count for new device
+                    foundNewCandidate = false
+                    // Pause discovery again for new connection attempt
+                    DispatchQueue.main.async {
+                        self.stopESP32Discovery()
+                    }
+                    continue
+                }
+
+                // No new device found, stop hunting
+                break
+            }
+
+            // Hunting failed - no more candidates
+            DispatchQueue.main.async {
+                self.connectionState = .disconnected
+                self.connectionStatus = "No more devices found - stopped hunting [CLIENT]"
+
+                // Resume discovery for next attempt
+                if self.connectionMode == .wifi {
+                    self.startESP32Discovery()
                 }
             }
         }

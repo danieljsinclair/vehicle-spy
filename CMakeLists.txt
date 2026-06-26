@@ -166,6 +166,12 @@ target_compile_options(vehicle-sim-lib PRIVATE -g -Wall -Wextra -Werror)
 # Can be overridden at build time: -DTCP_AUTH_TOKEN=\"my-token\"
 target_compile_definitions(vehicle-sim-lib PRIVATE TCP_AUTH_TOKEN=\"vehicle-sim-2026\")
 
+# Propagate BUILD_IOS as preprocessor define for conditional compilation
+# This allows #ifndef BUILD_IOS guards in C++ code to work correctly
+if(BUILD_IOS)
+    target_compile_definitions(vehicle-sim-lib PRIVATE BUILD_IOS=1)
+endif()
+
 # Main executable (CLI — not built for iOS)
 if(NOT BUILD_IOS)
 add_executable(vehicle-sim

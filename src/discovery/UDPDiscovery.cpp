@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <ctime>
 #include <cerrno>
+#include <atomic>
 
 // Platform-specific socket headers
 #ifdef __APPLE__
@@ -19,6 +20,14 @@
 
 namespace vehicle_sim {
 namespace discovery {
+
+// Global stop flag for discovery poll (set by signal handler, polled by poll())
+// Using a flag instead of EINTR because macOS's SA_RESTART causes poll() to
+// auto-restart after signals, never returning EINTR. The flag is checked each
+// 100ms iteration, ensuring Ctrl-C responds within ~100ms.
+namespace {
+    std::atomic<bool> g_discoveryStopRequested{false};
+}  // namespace
 
 // Get current Unix epoch seconds
 static uint64_t nowEpoch() {
@@ -171,6 +180,11 @@ public:
         auto start = std::chrono::steady_clock::now();
 
         while (remainingMs > 0) {
+            // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
+            if (g_discoveryStopRequested.load()) {
+                break;
+            }
+
             int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
             if (ret < 0) {
                 if (errno == EINTR) break;  // SIGINT/SIGTERM: stop the poll immediately
@@ -248,6 +262,14 @@ void UDPDiscovery::setMaxClockSkew(uint64_t seconds) {
 
 void UDPDiscovery::setDeviceCallback(DeviceCallback cb) {
     impl_->setDeviceCallback(cb);
+}
+
+void UDPDiscovery::requestStop() noexcept {
+    g_discoveryStopRequested.store(true);
+}
+
+void UDPDiscovery::resetStop() noexcept {
+    g_discoveryStopRequested.store(false);
 }
 
 } // namespace discovery

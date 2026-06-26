@@ -92,6 +92,9 @@ firmware/can-bridge/OtaPublicKey.h
 *.pem
 ed25519*
 
+# Per-user discovery signing keys (NEVER committed)
+firmware/can-bridge/DiscoveryPrivateKey.h
+
 # built assets
 image/build/
 

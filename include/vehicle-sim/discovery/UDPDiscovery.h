@@ -21,6 +21,7 @@
 #include <chrono>
 #include <array>
 #include <functional>
+#include <atomic>
 
 namespace vehicle_sim::discovery {
 
@@ -72,6 +73,13 @@ public:
 
     // Set a callback that fires for each valid discovery packet received.
     void setDeviceCallback(DeviceCallback cb);
+
+    // Request that poll() stop at the next iteration (called from signal handler).
+    // This is a static method that sets a global flag checked by poll().
+    static void requestStop() noexcept;
+
+    // Reset the stop flag (for repeated runs).
+    static void resetStop() noexcept;
 
 private:
     class Impl;
