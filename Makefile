@@ -556,27 +556,48 @@ test-ios: app-icons
 		2>&1 | tail -5 || true
 
 # coverage-ios: xcodebuild test -enableCodeCoverage, extract xccov, convert to
-# SonarCloud XML. Tolerates test FAILURES (coverage is collected regardless;
-# latent app bugs are reported separately, not allowed to block the scan).
-# Re-runs only when iOS sources/tests, the converter, or properties change.
+# SonarCloud XML. Tolerates test FAILURES and hard crashes: writes the xcresult
+# to a TIMESTAMPED path (so a crash mid-run doesn't clobber a prior good bundle)
+# and, if no readable bundle can be extracted, emits an EMPTY coverage XML +
+# warning rather than failing -- the scan then proceeds with C++ coverage only.
+# (A deterministic app crash -- e.g. misaligned-pointer in DiscoveryPacket.parse
+# -- currently prevents iOS coverage; fixing that is a separate product item.)
+IOS_XCRESULT_DIR := $(BUILD_IOS_DIR)/xcresults
 $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project.properties
 	@echo "=== [vehicle-spy] Running iOS tests with coverage ==="
-	@set -o pipefail; xcodebuild test \
+	@mkdir -p $(IOS_XCRESULT_DIR)
+	@_run=$$(date +%Y%m%d-%H%M%S); \
+	set -o pipefail; xcodebuild test \
 		-project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj \
 		-scheme VehicleSimApp -configuration Debug \
 		-destination 'platform=iOS Simulator,name=$(IOS_SIMULATOR),arch=arm64' \
 		-enableCodeCoverage YES \
 		-derivedDataPath $(BUILD_IOS_DIR) \
+		-resultBundlePath $(IOS_XCRESULT_DIR)/run-$$_run.xcresult \
 		CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
 		2>&1 | tail -5 || true
 	@echo "=== [vehicle-spy] Extracting xccov coverage ==="
-	@xcresult=$$(find $(BUILD_IOS_DIR) -name '*.xcresult' -type d | head -1) && \
-		xcrun xccov view --report --json "$$xcresult" > $(COVERAGE_JSON_IOS)
-	@python3 scripts/xccov_to_sonar.py \
-		--input $(COVERAGE_JSON_IOS) \
-		--output $(COVERAGE_XML_IOS) \
-		--project-root $(CURDIR) \
-		--exclude-targets VehicleSimTests.xctest
+	@# Try bundles newest-first; a hard crash can leave the newest incomplete.
+	@_got=0; \
+	for b in $$(find $(IOS_XCRESULT_DIR) -name '*.xcresult' -type d 2>/dev/null | sort -r); do \
+		if xcrun xccov view --report --json "$$b" > $(COVERAGE_JSON_IOS) 2>/dev/null \
+			&& [ -s $(COVERAGE_JSON_IOS) ]; then \
+			echo "  using: $$b"; _got=1; break; \
+		fi; \
+	done; \
+	if [ "$$_got" != "1" ]; then \
+		echo "${YELLOW}WARNING: no readable xcresult bundle (iOS tests likely crashed -- a latent app bug);${NC}"; \
+		echo "${YELLOW}         emitting empty iOS coverage. C++ coverage + quality still upload.${NC}"; \
+		printf '<?xml version="1.0" encoding="UTF-8"?>\n<coverage version="1"/>\n' > $(COVERAGE_XML_IOS); \
+		printf '' > $(COVERAGE_JSON_IOS); \
+	fi
+	@if [ -s $(COVERAGE_JSON_IOS) ]; then \
+		python3 scripts/xccov_to_sonar.py \
+			--input $(COVERAGE_JSON_IOS) \
+			--output $(COVERAGE_XML_IOS) \
+			--project-root $(CURDIR) \
+			--exclude-targets VehicleSimTests.xctest; \
+	fi
 
 coverage-ios: $(COVERAGE_XML_IOS)
 
