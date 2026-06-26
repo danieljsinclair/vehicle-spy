@@ -19,6 +19,15 @@
 #include <driver/twai.h>  // TWAI for CAN communication
 #include <vector>         // Command pattern registry
 
+// ── StatusLED Class Definitions ─────────────────────────────────────────────────────
+// Declarative pattern-based LED implementation with SOLID principles and TDD
+#include "StatusLED.h"
+#include "HardwareStatusLEDOutput.h"
+
+// Use firmware namespace for StatusLED components
+using firmware::StatusLED;
+using firmware::HardwareStatusLEDOutput;
+
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
     // Network ports
@@ -318,6 +327,11 @@ static bool monitorActive = false;
 static uint32_t serialQuietUntilMs = 0;
 static WiFiState::Context wifiCtx;
 
+// ── Status LED ─────────────────────────────────────────────────────────────────
+// Visual feedback using the blue LED on GPIO2
+static HardwareStatusLEDOutput ledOutput(2);  // GPIO2 for ESP32 blue LED
+static StatusLED statusLed(&ledOutput);
+
 // ── UDP Discovery Broadcast ──────────────────────────────────────────────
 // Broadcasts unsigned discovery packets on UDP port 3335 so that CLI and iOS
 // apps can auto-discover this ESP32 without manual IP configuration.
@@ -354,6 +368,10 @@ static void initNtpSync() {
     ntpCtx.syncAttempts++;
     if (ntpCtx.syncAttempts > Constants::NTP_SYNC_RETRY_MAX) {
         Serial.printf("%sNTP sync: max attempts reached, using fallback time%s\r\n", YELLOW, NC);
+        // Only show ERROR_NO_NTP_SERVICE in STA mode (AP mode has no internet by design)
+        if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED) {
+            statusLed.setPattern(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
+        }
         return;
     }
 
@@ -801,6 +819,25 @@ static void applyStateTransition(const StateTransition& transition, WiFiState::C
 
     ctx.state = transition.nextState;
 
+    // Update LED pattern based on WiFi state
+    switch (transition.nextState) {
+        case WiFiState::State::DISCONNECTED:
+            statusLed.setPattern(StatusLED::Pattern::WIFI_SEARCHING);
+            break;
+        case WiFiState::State::CONNECTING:
+            statusLed.setPattern(StatusLED::Pattern::WIFI_SEARCHING);
+            break;
+        case WiFiState::State::CONNECTED_STA:
+            statusLed.setPattern(StatusLED::Pattern::WIFI_CONNECTED);
+            break;
+        case WiFiState::State::CONNECTED_AP:
+            statusLed.setPattern(StatusLED::Pattern::AP_MODE);
+            break;
+        case WiFiState::State::RECONNECTING:
+            statusLed.setPattern(StatusLED::Pattern::WIFI_SEARCHING);
+            break;
+    }
+
     if (transition.setTcpServerRestartFlag) {
         ctx.tcpServerNeedsRestart = true;
     }
@@ -819,6 +856,7 @@ static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) 
         wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_FAIL) {
         Serial.printf("\n%sAUTH_FAIL (%d): password rejected for SSID '%s' — check credentials%s\r\n", RED,
                         static_cast<int>(wifiCtx.lastDisconnectReason), WiFi.SSID().c_str(), NC);
+        statusLed.setPattern(StatusLED::Pattern::AUTH_FAILURE);
     } else {
         Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
                         static_cast<int>(wifiCtx.lastDisconnectReason),
@@ -1221,6 +1259,9 @@ static bool checkFactoryReset() {
 void setup() {
     Serial.begin(Constants::SERIAL_BAUD);
 
+    // Initialize StatusLED first - turns LED OFF, then sets BOOT pattern
+    statusLed.init();
+
     // Factory reset check before WiFi init - allows wiping stored credentials
     // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
     bool factoryReset = checkFactoryReset();
@@ -1290,6 +1331,9 @@ void loop() {
     // Update WiFi state machine - handles reconnection indefinitely
     updateWiFiStateMachine();
 
+    // Update StatusLED pattern (non-blocking, must be called each loop iteration)
+    statusLed.update(millis());
+
     // Restart TCP server if WiFi reconnected with new IP
     restartTcpServerIfNeeded();
 
@@ -1346,6 +1390,7 @@ void loop() {
                                 GREEN, client.remoteIP().toString().c_str(), NC);
                 client.println("OK");
                 client.flush();
+                statusLed.setPattern(StatusLED::Pattern::CLIENT_CONNECTED);
             }
         }
     }
@@ -1364,6 +1409,11 @@ void loop() {
     if (!haveClient && monitorActive) {
         monitorActive = false;
         resetDiscoveryBackoff();  // Reset backoff timer to welcome a new buddy
+        // Revert LED pattern to WiFi state
+        if (wifiCtx.state == WiFiState::State::CONNECTED_STA ||
+            wifiCtx.state == WiFiState::State::CONNECTED_AP) {
+            statusLed.setPattern(StatusLED::Pattern::WIFI_CONNECTED);
+        }
     }
 
     drainSerialATCommands();
@@ -1382,3 +1432,4 @@ void loop() {
     }
 #endif
 }
+

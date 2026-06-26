@@ -108,6 +108,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/discovery/UDPDiscovery.cpp
     src/pipeline/SecureTcpTransport.cpp
     src/pipeline/ITransportOutput.cpp
+    firmware/can-bridge/StatusLED.cpp
+    firmware/can-bridge/HardwareStatusLEDOutput.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
@@ -156,6 +158,8 @@ target_include_directories(vehicle-sim-lib
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/firmware
+    ${CMAKE_CURRENT_SOURCE_DIR}/firmware/can-bridge
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )

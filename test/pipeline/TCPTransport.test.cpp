@@ -202,7 +202,11 @@ TEST(TCPTransportTest, RawProtocol_SendsAuthOnConnect) {
 
     // Start the transport open in a thread so we can accept+auth before it times out.
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"raw");
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -229,7 +233,11 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -268,7 +276,11 @@ TEST(TCPTransportTest, CleanDisconnect_DetectedByNextLine) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -324,14 +336,17 @@ TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    // Pass the StdOut output explicitly so the readTimeoutUs positional default
-    // is kept and the atInitDelayMs positional (0) zeroes the inter-command
-    // pacing — otherwise the ~5 AT commands × ~50-300ms settle ≈ 700ms of pure
-    // wall-clock waste in this test. The AT commands are still SENT, so the
-    // assertions below still hold; only the sleeps between them are skipped.
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms.
+    // Inject short socket recv timeout (10ms) so auth handshake recv() returns promptly.
+    // ELM327 needs a slightly longer timeout than raw tests due to multiple recv() calls
+    // during init sequence, but 10ms is still much faster than production 1000ms.
+    // The atInitDelayMs positional (0) zeroes the inter-command pacing — otherwise
+    // the ~5 AT commands × ~50-300ms settle ≈ 700ms of pure wall-clock waste in
+    // this test. The AT commands are still SENT, so the assertions below still
+    // hold; only the sleeps between them are skipped.
     TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/500000,
-                   /*atInitDelayMs=*/0);
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/0, /*socketRecvTimeoutMs=*/10);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -358,7 +373,9 @@ TEST(TCPTransportTest, Elm327InitFailure_OpenReturnsFalse) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "elm327");
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "elm327",
+                   std::make_shared<StdOut>(), 500000, -1, 1);
     // Open the transport; it will start sending AUTH then AT-init.
     // Close the server-side client immediately so the send fails.
     std::atomic<bool> opened{false};
@@ -382,12 +399,14 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    // Inject a tiny read timeout (1us) so nextLine()'s select() poll returns
+    // Inject a tiny read timeout (1ms) so nextLine()'s select() poll returns
     // promptly and re-checks the stop flag in ~0 ms instead of waiting the full
     // 0.5s production poll. The default output (StdOut) is passed explicitly so
     // the read-timeout positional arg can be supplied.
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1);
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -416,7 +435,9 @@ TEST(TCPTransportTest, AuthRejected_OpenReturnsFalse) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), 500000, -1, 1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 

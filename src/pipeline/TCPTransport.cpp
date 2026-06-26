@@ -46,7 +46,6 @@ constexpr int READ_TIMEOUT_US_FLOOR = 1000;  // 1ms poll floor so sub-ms injects
 
 // Connection/reconnect constants
 constexpr int CONNECT_TIMEOUT_S = 5;          // How long connect() may block before failing
-constexpr int SOCKET_RCVTIMEO_MS = 1000;     // SO_RCVTIMEO backstop for recv()
 constexpr std::size_t MAX_PENDING_LEN = 4096;  // Guard against runaway line buffering
 
 
@@ -103,13 +102,15 @@ int connectToHost(const std::string& host, int port) {
 TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol,
                            std::shared_ptr<ITransportOutput> output,
                            int readTimeoutUs,
-                           int atInitDelayMs)
+                           int atInitDelayMs,
+                           int socketRecvTimeoutMs)
     : host_(std::move(host))
     , port_(port)
     , adapterProtocol_(std::move(adapterProtocol))
     , output_(std::move(output))
     , readTimeoutUs_(readTimeoutUs > 0 ? readTimeoutUs : 500000)
-    , atInitDelayMs_(atInitDelayMs) {
+    , atInitDelayMs_(atInitDelayMs)
+    , socketRecvTimeoutMs_(socketRecvTimeoutMs > 0 ? socketRecvTimeoutMs : 1000) {
 }
 
 TCPTransport::~TCPTransport() {
@@ -173,8 +174,8 @@ bool TCPTransport::connectAndAuth() {
     if (fd_ < 0) return false;
 
     struct timeval rtv{};
-    rtv.tv_sec = SOCKET_RCVTIMEO_MS / 1000;
-    rtv.tv_usec = (SOCKET_RCVTIMEO_MS % 1000) * 1000;
+    rtv.tv_sec = socketRecvTimeoutMs_ / 1000;
+    rtv.tv_usec = (socketRecvTimeoutMs_ % 1000) * 1000;
     (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
 
     // Authenticate: send token, expect "OK" back
@@ -581,7 +582,15 @@ std::optional<std::string> TCPTransport::nextLine() {
         char buffer[256];
         ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
         if (n <= 0) {
-            // Peer closed (0) or error (<0): attempt reconnection.
+            // Peer closed (0) or error (<0): attempt reconnection, unless stop
+            // was requested (e.g. test cleanup or Ctrl+C). The stop flag is
+            // checked before entering expensive hunting logic so tests that call
+            // requestStop() before nextLine() terminate promptly instead of
+            // waiting for exponential backoff.
+            if (g_stopRequested.load()) {
+                exhausted_ = true;
+                return std::nullopt;
+            }
             if (!deviceIdHex_.empty()) {
             output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " [ESP32:" + deviceIdHex_ + "] — reconnecting [CLIENT]...");
         } else {
