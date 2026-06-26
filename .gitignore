@@ -127,3 +127,4 @@ firmware-ready
 
 # SonarCloud scanner work directory + cached reports
 .scannerwork/
+sonar-cfamily-taint-analysis-reproducer.tar.xz
