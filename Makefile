@@ -732,7 +732,7 @@ summary:
 	@python3 scripts/build_summary.py \
 		--label "[vehicle-spy]" \
 		--test-log "$(TEST_REPORT)" \
-		--xcresult-glob "$(BUILD_IOS_DIR)/Logs/Test/*.xcresult" \
+		--xcresult-glob "$(IOS_XCRESULT_DIR)/run-*.xcresult" \
 		--cov-measures "$(SONAR_MEASURES)" \
 		--local-cov "$(COVERAGE_LCOV)" --local-type lcov \
 		--local-cov "$(COVERAGE_JSON_IOS)" --local-type xccov \
