@@ -34,12 +34,19 @@ DATA SOURCES -- plain numbers grepped from existing report files:
         back to the ctest summary / per-test markers only when gtest lines are
         absent (e.g. a pure-ctest repo reusing this helper).
 
+        The iOS suite runs via ``xcodebuild test`` (no greppable ctest log);
+        its counts come from the .xcresult bundle's ResultMetrics via
+        ``--xcresult-glob`` (ported from engine-sim-bridge's build_summary).
+        When both C++ and iOS counts are present they are SUMMED into one row.
+
     Coverage
-        None yet (ESP32 firmware coverage is deferred -- no firmware unit
-        tests today, so synthesising coverage would be noise). The cov field
-        is therefore OMITTED. The plumbing (cov-measures / local lcov/xccov)
-        is retained from engine-sim so a future coverage source slots in by
-        adding ``--cov-measures`` / ``--local-cov`` to the summary target.
+        C++ core coverage from the lcov export (``build-cov/lcov.info``) and
+        iOS coverage from the xccov export (``build-ios/coverage.json``), read
+        via ``--local-cov`` + ``--local-type lcov|xccov`` (repeatable: when
+        both are given they are SUMMED). The preferred source is the cached
+        SonarCloud ``sonar-measures.json`` (``--cov-measures``); local files
+        are the fallback when no token/report exists. ESP32 firmware has no
+        coverage (no firmware unit tests).
 
     Sonar open/total
         The cached ``build-firmware/sonar-report.json`` (the
@@ -59,9 +66,10 @@ and the fixed column widths make the lines align vertically.
 Usage:
 
     build_summary.py --label "[vehicle-spy]" \\
-        [--test-log PATH] \\
+        [--test-log PATH] [--xcresult-glob GLOB] \\
         [--sonar-report PATH] [--removed-facet PATH] \\
-        [--cov-measures PATH] [--local-cov PATH --local-type lcov|xccov]
+        [--cov-measures PATH]
+        [--local-cov PATH --local-type lcov|xccov]  (repeatable)
 
 Exit codes: 0 always (a missing file / parse failure is reported in-line,
 never a crash -- this is a display helper, not a build step).
@@ -175,6 +183,84 @@ def parse_tests(log_path):
 
 
 # ---------------------------------------------------------------------------
+# iOS tests (xcresult ResultMetrics -- ported from engine-sim-bridge)
+# ---------------------------------------------------------------------------
+def _shell_quote(value):
+    """Single-quote ``value`` for safe shell interpolation (sh style)."""
+    if not value:
+        return "''"
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _xcresult_metric(metrics, key):
+    """Read an int metric from an xcresult metrics dict, or None.
+
+    xcresult JSON wraps each value as ``{"_type": {"_name": "Int"},
+    "_value": "<n>"}``. Returns the int value or None when absent/unparseable.
+    """
+    if not isinstance(metrics, dict):
+        return None
+    node = metrics.get(key)
+    if not isinstance(node, dict):
+        return None
+    try:
+        return int(node.get('_value'))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_xcresult_tests(glob_pattern):
+    """Return (passed, total) from the NEWEST xcresult matching ``glob_pattern``.
+
+    iOS app tests run via ``xcodebuild test`` (no greppable ctest log). The
+    cleanest count source is the action's ResultMetrics in the .xcresult bundle
+    xcodebuild writes: it carries ``testsCount`` (total) and ``testsFailedCount``
+    (failures; absent or 0 when all pass). Returns None when no bundle exists,
+    xcresulttool is unavailable, or the metrics are absent so the caller OMITS
+    the tests field gracefully.
+    """
+    if not glob_pattern:
+        return None
+    import glob as _glob
+    import tempfile
+    bundles = sorted(_glob.glob(glob_pattern), key=os.path.getmtime)
+    if not bundles:
+        return None
+    xcresult = bundles[-1]
+    fd, dump_path = tempfile.mkstemp(prefix='build_summary_xcresult_', suffix='.json')
+    os.close(fd)
+    try:
+        # --legacy gives the stable JSON shape with metrics at the top level.
+        rc = os.system(
+            'xcrun xcresulttool get --legacy --format json --path {} >{}'.format(
+                _shell_quote(xcresult), _shell_quote(dump_path)))
+        if rc != 0:
+            return None
+        with open(dump_path, errors='replace') as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    finally:
+        try:
+            os.unlink(dump_path)
+        except OSError:
+            pass
+    metrics = data.get('metrics') or {}
+    total = _xcresult_metric(metrics, 'testsCount')
+    if total is None:
+        for action in (data.get('actions', {}) or {}).get('_values', []) or []:
+            am = (action.get('actionResult', {}) or {}).get('metrics', {})
+            total = _xcresult_metric(am, 'testsCount')
+            if total is not None:
+                metrics = am
+                break
+    if total is None:
+        return None
+    failed = _xcresult_metric(metrics, 'testsFailedCount') or 0
+    return total - failed, total
+
+
+# ---------------------------------------------------------------------------
 # Coverage (plumbing retained; vehicle-spy has no coverage source yet so the
 # field omits gracefully until --cov-measures / --local-cov is wired in)
 # ---------------------------------------------------------------------------
@@ -260,21 +346,78 @@ def _lcov_coverage(path):
     return hit, total, pct
 
 
+def _xccov_coverage(path):
+    """Aggregate (covered, total, pct) from an xccov JSON report.
+
+    Sums ``coveredLines``/``executableLines`` across all targets (the xccov
+    ``--report --json`` top-level aggregates + per-target). Returns None when
+    the file is absent/unparseable or has no executable lines.
+    """
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path) as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    covered = 0
+    total = 0
+    # Per-target sums (the most reliable: top-level aggregates can be absent).
+    for target in data.get('targets', []) or []:
+        try:
+            total += int(target.get('executableLines', 0) or 0)
+            covered += int(target.get('coveredLines', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+    if total == 0:
+        # Fall back to top-level aggregates if present.
+        try:
+            total = int(data.get('executableLines', 0) or 0)
+            covered = int(data.get('coveredLines', 0) or 0)
+        except (TypeError, ValueError):
+            return None
+    if total == 0:
+        return None
+    pct = 100.0 * covered / total
+    return covered, total, pct
+
+
 def local_coverage(path, local_type):
     """Return (covered, total, pct) for the local source, or None if unavailable."""
     if not path or local_type == 'none':
         return None
     if local_type == 'lcov':
         return _lcov_coverage(path)
+    if local_type == 'xccov':
+        return _xccov_coverage(path)
     return None
 
 
-def coverage_for(cov_measures_path, local_cov_path, local_type):
-    """Prefer cached SonarCloud measures, else local. None when neither present."""
+def coverage_for(cov_measures_path, local_cov_pairs):
+    """Coverage from cached SonarCloud measures, else summed local sources.
+
+    ``local_cov_pairs`` is a list of (path, type). When multiple local sources
+    are given (C++ lcov + iOS xccov) their covered/total are SUMMED and the pct
+    recomputed over the union. None when no source yields data.
+    """
     cov = _measures_coverage(cov_measures_path)
     if cov is not None:
         return cov
-    return local_coverage(local_cov_path, local_type)
+    covered = 0
+    total = 0
+    found = False
+    for path, local_type in local_cov_pairs:
+        one = local_coverage(path, local_type)
+        if one is None:
+            continue
+        found = True
+        c, t, _ = one
+        covered += c or 0
+        total += t or 0
+    if not found or total == 0:
+        return None
+    pct = 100.0 * covered / total
+    return covered, total, pct
 
 
 # ---------------------------------------------------------------------------
@@ -453,13 +596,20 @@ def main(argv=None):
     p.add_argument('--test-log',
                    help='Test log (gtest PASSED/FAILED lines preferred, '
                         'ctest summary / per-test markers as fallback)')
+    p.add_argument('--xcresult-glob',
+                   help='Glob for the NEWEST .xcresult bundle (iOS tests); '
+                        'testsCount/testsFailedCount are read via xcresulttool. '
+                        'When given alongside --test-log the counts are SUMMED.')
     p.add_argument('--cov-measures',
                    help='Cached sonar-measures.json (preferred coverage source)')
-    p.add_argument('--local-cov',
-                   help='Local coverage file (lcov.info)')
-    p.add_argument('--local-type', choices=('lcov', 'none'),
-                   default='none',
-                   help='Local coverage source type (default: none)')
+    # Repeatable --local-cov / --local-type pairs (C++ lcov + iOS xccov).
+    p.add_argument('--local-cov', action='append', default=[],
+                   help='Local coverage file (repeatable). Pairs positionally '
+                        'with --local-type.')
+    p.add_argument('--local-type', action='append', default=[],
+                   choices=('lcov', 'xccov', 'none'),
+                   help='Local coverage source type for the Nth --local-cov '
+                        '(repeatable; default lcov).')
     p.add_argument('--sonar-report',
                    help='Cached sonar-report.json (issues/search response)')
     p.add_argument('--removed-facet',
@@ -467,9 +617,22 @@ def main(argv=None):
                         '(makes total = open + removed)')
     args = p.parse_args(argv)
 
+    # Zip --local-cov/--local-type into (path, type) pairs. If fewer types than
+    # paths were given, default the remainder to 'lcov' (the common case).
+    types = list(args.local_type)
+    while len(types) < len(args.local_cov):
+        types.append('lcov')
+    local_pairs = list(zip(args.local_cov, types))
+
     try:
         tests = parse_tests(args.test_log)
-        cov = coverage_for(args.cov_measures, args.local_cov, args.local_type)
+        xc_tests = parse_xcresult_tests(args.xcresult_glob)
+        if tests is not None and xc_tests is not None:
+            # Sum C++ (gtest log) + iOS (xcresult) into one row.
+            tests = (tests[0] + xc_tests[0], tests[1] + xc_tests[1])
+        elif xc_tests is not None:
+            tests = xc_tests
+        cov = coverage_for(args.cov_measures, local_pairs)
         sonar = parse_sonar(args.sonar_report, args.removed_facet)
         emit_line(args.label, tests, cov, sonar)
     except Exception as exc:  # never crash a display target
