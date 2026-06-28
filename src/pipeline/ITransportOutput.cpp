@@ -23,8 +23,11 @@ void TaggedOutput::setDeviceId(const std::string& deviceId) {
 }
 
 void TaggedOutput::out(const std::string& msg) {
-    // Default to client (for backward compatibility)
-    outClient(msg);
+    // Neutral contract: emit an UNTAGGED line. The base-class ITransportOutput::out
+    // is documented as the neutral (no-tag) output path, so the TaggedOutput
+    // override must honour that — callers who want the [CLIENT → <id>] tag must
+    // call outClient() explicitly. See L4 contract-erosion fix.
+    base_->out(msg);
 }
 
 void TaggedOutput::outClient(const std::string& msg) {

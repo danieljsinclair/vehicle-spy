@@ -79,6 +79,7 @@ if(APPLE)
     target_link_libraries(vehicle-sim-tests PRIVATE ${FOUNDATION})
 endif()
 
+# firmware paths: kept PRIVATE on vehicle-sim-lib (not propagated), so test target adds them explicitly.
 target_include_directories(vehicle-sim-tests
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..

@@ -19,6 +19,8 @@
 #include <driver/twai.h>  // TWAI for CAN communication
 #include <vector>         // Command pattern registry
 
+// DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
+
 // ── StatusLED Class Definitions ─────────────────────────────────────────────────────
 // Declarative pattern-based LED implementation with SOLID principles and TDD
 #include "StatusLED.h"

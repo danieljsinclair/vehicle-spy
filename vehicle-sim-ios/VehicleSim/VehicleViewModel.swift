@@ -79,6 +79,12 @@ class VehicleViewModel: ObservableObject {
     // Cleared on mode switch, network change, or app restart
     private var authFailedIPs: Set<String> = []
 
+    // Cap for authFailedIPs to prevent unbounded growth (L5). If the set grows
+    // beyond this, it is cleared — these IPs are only a session-local skip-list,
+    // so dropping stale entries is safe and bounded by the number of distinct
+    // devices seen between clears.
+    private let maxAuthFailedIPs = 50
+
     struct DeviceEntry: Identifiable {
         let id = UUID()
         let name: String
@@ -505,7 +511,10 @@ class VehicleViewModel: ObservableObject {
                 // Connection failed - assume auth failure (wrong unit)
                 // Add this IP to skip-list and keep hunting for other devices
                 DispatchQueue.main.async {
-                    // Add failed IP to skip-list
+                    // Add failed IP to skip-list (bounded — see maxAuthFailedIPs)
+                    if self.authFailedIPs.count >= self.maxAuthFailedIPs {
+                        self.authFailedIPs.removeAll()
+                    }
                     self.authFailedIPs.insert(currentAddress)
 
                     // Remove this device from discovered list
