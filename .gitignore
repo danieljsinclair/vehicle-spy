@@ -3,6 +3,8 @@ build/
 build-ios/
 build-native/
 build-firmware/
+build-cov/
+build-sonar/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
@@ -125,3 +127,7 @@ captures/
 # Python cache
 __pycache__/
 firmware-ready
+
+# SonarCloud scanner work directory + cached reports
+.scannerwork/
+sonar-cfamily-taint-analysis-reproducer.tar.xz

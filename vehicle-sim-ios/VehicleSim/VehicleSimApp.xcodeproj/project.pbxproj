@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		T1000001 /* DiscoveryPacketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000001 /* DiscoveryPacketTests.swift */; };
+		T1000002 /* DiscoveryVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000002 /* DiscoveryVerifierTests.swift */; };
+		T1000003 /* TCPTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003 /* TCPTransportTests.swift */; };
+		T1000004 /* WiFiSecurityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000004 /* WiFiSecurityPolicyTests.swift */; };
 		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
 		B1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002 /* ContentView.swift */; };
 		B1000003 /* VehicleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003 /* VehicleViewModel.swift */; };
@@ -133,7 +137,23 @@
 		B2P00011 /* CaptureLog.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CaptureLog.cpp; path = ../../src/domain/CaptureLog.cpp; sourceTree = "<group>"; };
 		B2P00012 /* USBTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = USBTransport.cpp; path = ../../src/pipeline/USBTransport.cpp; sourceTree = "<group>"; };
 		B2P00013 /* Elm327Normaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Normaliser.cpp; path = ../../src/pipeline/Elm327Normaliser.cpp; sourceTree = "<group>"; };
-		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };/* End PBXFileReference section */
+		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };
+		T2000001 /* DiscoveryPacketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryPacketTests.swift; path = ../VehicleSimTests/DiscoveryPacketTests.swift; sourceTree = "<group>"; };
+		T2000002 /* DiscoveryVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryVerifierTests.swift; path = ../VehicleSimTests/DiscoveryVerifierTests.swift; sourceTree = "<group>"; };
+		T2000003 /* TCPTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TCPTransportTests.swift; path = ../VehicleSimTests/TCPTransportTests.swift; sourceTree = "<group>"; };
+		T2000004 /* WiFiSecurityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WiFiSecurityPolicyTests.swift; path = ../VehicleSimTests/WiFiSecurityPolicyTests.swift; sourceTree = "<group>"; };
+		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXContainerItemProxy section */
+		T9000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B7000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B5000001;
+			remoteInfo = VehicleSimApp;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B3000001 /* Frameworks */ = {
@@ -141,6 +161,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				B1000030 /* CoreBluetooth.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		T3000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -161,6 +188,7 @@
 			children = (
 				B4000002,
 				B4000004 /* Core (C++) */,
+				T4000001 /* VehicleSimTests */,
 				B4000003 /* Products */,
 				B4D00001 /* DBC Resources */,
 				62BAA8EC2FA20D550073A3EE /* Recovered References */,
@@ -187,6 +215,7 @@
 			isa = PBXGroup;
 			children = (
 				B2000080 /* VehicleSimApp.app */,
+				T2000080 /* VehicleSimTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -246,6 +275,17 @@
 			name = "Core (C++)";
 			sourceTree = "<group>";
 		};
+		T4000001 /* VehicleSimTests */ = {
+			isa = PBXGroup;
+			children = (
+				T2000001 /* DiscoveryPacketTests.swift */,
+				T2000002 /* DiscoveryVerifierTests.swift */,
+				T2000003 /* TCPTransportTests.swift */,
+				T2000004 /* WiFiSecurityPolicyTests.swift */,
+			);
+			name = VehicleSimTests;
+			sourceTree = "<group>";
+		};
 		B4D00001 /* DBC Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -275,7 +315,32 @@
 			productReference = B2000080 /* VehicleSimApp.app */;
 			productType = "com.apple.product-type.application";
 		};
+		T5000001 /* VehicleSimTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = T6000001 /* Build configuration list for PBXNativeTarget "VehicleSimTests" */;
+			buildPhases = (
+				T3000001 /* Frameworks */,
+				T3000002 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				T9000002 /* PBXTargetDependency */,
+			);
+			name = VehicleSimTests;
+			productName = VehicleSimTests;
+			productReference = T2000080 /* VehicleSimTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+		T9000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B5000001 /* VehicleSimApp */;
+			targetProxy = T9000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		B7000001 /* Project object */ = {
@@ -287,6 +352,10 @@
 				TargetAttributes = {
 					B5000001 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					T5000001 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = B5000001;
 					};
 				};
 			};
@@ -304,6 +373,7 @@
 			projectRoot = "";
 			targets = (
 				B5000001 /* VehicleSimApp */,
+				T5000001 /* VehicleSimTests */,
 			);
 		};
 /* End PBXProject section */
@@ -384,6 +454,17 @@
 				B1P00015 /* ITransportOutput.cpp in Sources */,			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		T3000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				T1000001 /* DiscoveryPacketTests.swift in Sources */,
+				T1000002 /* DiscoveryVerifierTests.swift in Sources */,
+				T1000003 /* TCPTransportTests.swift in Sources */,
+				T1000004 /* WiFiSecurityPolicyTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -462,6 +543,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.axxiant.vehiclesim;
+				PRODUCT_MODULE_NAME = VehicleSim;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -541,6 +623,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.axxiant.vehiclesim;
+				PRODUCT_MODULE_NAME = VehicleSim;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -615,7 +698,90 @@
 		};
 /* End XCBuildConfiguration section */
 
+/* Begin XCBuildConfiguration (test target) section */
+		T8000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 2KQ24XG2P4;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../../include",
+					"$(PROJECT_DIR)/../../src",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				PRODUCT_BUNDLE_IDENTIFIER = com.axxiant.vehiclesim.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OBJC_BRIDGING_HEADER = "VehicleSim-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VehicleSimApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VehicleSimApp";
+			};
+			name = Debug;
+		};
+		T8000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 2KQ24XG2P4;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../../include",
+					"$(PROJECT_DIR)/../../src",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = com.axxiant.vehiclesim.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OBJC_BRIDGING_HEADER = "VehicleSim-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VehicleSimApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/VehicleSimApp";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration (test target) section */
+
 /* Begin XCConfigurationList section */
+		T6000001 /* Build configuration list for PBXNativeTarget "VehicleSimTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				T8000001 /* Debug */,
+				T8000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		B6000001 /* Build configuration list for PBXNativeTarget "VehicleSimApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
