@@ -138,8 +138,8 @@ target_link_libraries(vehicle-sim-lib
 )
 
 # Link libsodium for discovery signature verification
-find_path(SODIUM_INCLUDE_DIR sodium.h PATHS /opt/homebrew/include)
-find_library(SODIUM_LIBRARY sodium PATHS /opt/homebrew/lib)
+find_path(SODIUM_INCLUDE_DIR NAMES sodium.h PATH_SUFFIXES include)
+find_library(SODIUM_LIBRARY NAMES sodium PATH_SUFFIXES lib)
 if(SODIUM_LIBRARY AND SODIUM_INCLUDE_DIR)
     target_include_directories(vehicle-sim-lib PRIVATE ${SODIUM_INCLUDE_DIR})
     target_link_libraries(vehicle-sim-lib PRIVATE ${SODIUM_LIBRARY})
@@ -158,17 +158,18 @@ target_include_directories(vehicle-sim-lib
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/firmware
-    ${CMAKE_CURRENT_SOURCE_DIR}/firmware/can-bridge
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/firmware
+    ${CMAKE_CURRENT_SOURCE_DIR}/firmware/can-bridge
 )
 
 target_compile_options(vehicle-sim-lib PRIVATE -g -Wall -Wextra -Werror)
 
-# TCP auth token — single credential for TCP commands and OTA
-# Can be overridden at build time: -DTCP_AUTH_TOKEN=\"my-token\"
-target_compile_definitions(vehicle-sim-lib PRIVATE TCP_AUTH_TOKEN=\"vehicle-sim-2026\")
+# TCP auth token — single credential for TCP commands and OTA.
+# Injected by the root Makefile via -DTCP_AUTH_TOKEN=$(ESP32_TCP_TOKEN).
+# No default here: the Makefile is the single source of truth.
+# If building CMake directly, pass -DTCP_AUTH_TOKEN=\"your-token\" explicitly.
 
 # Propagate BUILD_IOS as preprocessor define for conditional compilation
 # This allows #ifndef BUILD_IOS guards in C++ code to work correctly

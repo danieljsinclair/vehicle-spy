@@ -163,7 +163,10 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
         if (ready > 0) {
             char resp[256] = {};
             int n = recv(fd, resp, sizeof(resp) - 1, 0);
-            (void)n;  // Response is discarded (typically "OK" or similar)
+            if (n <= 0) {
+                output_->err("[tcp] ELM327 init: no response to AT command (peer closed or error)");
+                return false;
+            }
         }
         // If no response within timeout, continue anyway - device may be slow
 

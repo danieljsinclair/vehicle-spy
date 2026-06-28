@@ -1,7 +1,7 @@
 .PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
 	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
-	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp check-esp32 \
+	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
 	        sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary sonar-compiledb sonar-compiledb-cpp sonar-compiledb-merge sonar-clean summary \
 	        coverage-run coverage-clean test-ios coverage-ios coverage-summary \
 			header discovery join-wifi join-wifi-usb
@@ -19,6 +19,9 @@ ESPTOOL       ?= $(ESPTOOL_DIR)/esptool
 ESPTOOL_MERGE_CMD ?= $(shell if [ -x "$(ESPTOOL)" ] && "$(ESPTOOL)" --help 2>/dev/null | grep -q 'merge-bin'; then printf 'merge-bin'; else printf 'merge_bin'; fi)
 ESP32_HOST    ?=
 ESP32_WIFI_PASS ?=
+# Shared auto-discovery command: extracts the first TCP IP from the vehicle-sim discovery output.
+# Used in flash/reboot recipes when ESP32_HOST is not set.
+ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2
 
          RED=\033[0;31m
        GREEN=\033[0;32m
@@ -88,7 +91,7 @@ scrub: clean
 
 build-native/Makefile: CMakeLists.txt
 	@mkdir -p build-native
-	@cd build-native && cmake .. -DBUILD_IOS=OFF -DBUILD_TESTS=ON
+	@cd build-native && cmake .. -DBUILD_IOS=OFF -DBUILD_TESTS=ON -DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"
 
 native macos osx: build-native/Makefile
 	@$(MAKE) -C build-native all
@@ -451,8 +454,7 @@ flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 		echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
 		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
 		echo "      Set ESP32_HOST=<ip> to skip discovery."; \
-		DISCOVERED_IP=$$(./build-native/vehicle-sim --discover 2>/dev/null | \
-			grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2); \
+		DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
 		if [ -z "$$DISCOVERED_IP" ]; then \
 			echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
 			echo "  Is the ESP32 on the same network? Try: make flash-over-tcp ESP32_HOST=<ip>" >&2; \
@@ -466,6 +468,7 @@ flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 	@echo "--- Pushing signed firmware to $(ESP32_HOST):80 ---"
 	@python3 scripts/ota-push.py $(FIRMWARE_BUILD)/can-bridge.ino.bin \
 		--host "$(ESP32_HOST)" --port 80 \
+		--password "$(ESP32_TCP_TOKEN)" \
 		--keys-dir "$(OTA_KEYS_DIR)"
 
 
@@ -1021,8 +1024,7 @@ reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp: native
 			echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
 			echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
 			echo "      Set ESP32_HOST=<ip> to skip discovery."; \
-			DISCOVERED_IP=$$(./build-native/vehicle-sim --discover 2>/dev/null | \
-				grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2); \
+			DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
 			if [ -z "$$DISCOVERED_IP" ]; then \
 				echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
 				echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \

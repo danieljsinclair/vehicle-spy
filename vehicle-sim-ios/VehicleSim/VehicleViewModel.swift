@@ -67,6 +67,7 @@ class VehicleViewModel: ObservableObject {
     private var discoveryListener: ESP32DiscoveryListener?
     private var discoveryRetryTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    private let connectionWorkQueue = OperationQueue()
 
     // Skip-list for IPs that failed authentication (wrong unit)
     // These IPs will be skipped for the remainder of the session

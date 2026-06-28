@@ -630,8 +630,38 @@ static bool isInitialConnectTimeout(uint32_t connectDurationMs) {
                                 Constants::WIFI_CONNECT_RETRY_INTERVAL_MS);
 }
 
+// ── WiFi Interface (Abstraction for Unit Testing) ────────────────────────────────
+struct IWiFi {
+    virtual void setMode(wifi_mode_t mode) = 0;
+    virtual void begin(const char* ssid, const char* pass) = 0;
+    virtual void disconnect(bool wifiOff, bool eraseAP) = 0;
+    virtual wl_status_t status() const = 0;
+    virtual IPAddress localIP() const = 0;
+    virtual IPAddress softAPIP() const = 0;
+    virtual void softAP(const char* ssid, const char* pass) = 0;
+    virtual void setHostname(const char* name) = 0;
+    virtual ~IWiFi() = default;
+};
+
+struct RealWiFi : public IWiFi {
+    void setMode(wifi_mode_t mode) override { WiFi.mode(mode); }
+    void begin(const char* ssid, const char* pass) override { WiFi.begin(ssid, pass); }
+    void disconnect(bool wifiOff, bool eraseAP) override { WiFi.disconnect(wifiOff, eraseAP); }
+    wl_status_t status() const override { return WiFi.status(); }
+    IPAddress localIP() const override { return WiFi.localIP(); }
+    IPAddress softAPIP() const override { return WiFi.softAPIP(); }
+    void softAP(const char* ssid, const char* pass) override { WiFi.softAP(ssid, pass); }
+    void setHostname(const char* name) override { WiFi.setHostname(name); }
+};
+
+static RealWiFi realWifi;
+extern IWiFi& wifi;
+
 // Handler for DISCONNECTED state - determines initial connection strategy
 struct DisconnectedStateHandler : public WiFiStateHandler {
+    IWiFi& wifi_;
+    explicit DisconnectedStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         CredentialSource source = determineCredentialSource();
 
@@ -640,9 +670,9 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
                 String storedSsid, storedPass;
                 if (loadWifiCredentials(storedSsid, storedPass)) {
                     Serial.printf("Using stored WiFi credentials: %s\r\n", storedSsid.c_str());
-                    WiFi.mode(WIFI_STA);
-                    WiFi.setHostname("esp32-can");
-                    WiFi.begin(storedSsid.c_str(), storedPass.c_str());
+                    wifi_.setMode(WIFI_STA);
+                    wifi_.setHostname("esp32-can");
+                    wifi_.begin(storedSsid.c_str(), storedPass.c_str());
                     ctx.connectStartTime = now;
                     ctx.lastRetryMs = now;
                     return StateTransition(WiFiState::State::CONNECTING);
@@ -650,10 +680,10 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
                 break;
             }
             case CredentialSource::BAKED_IN: {
-                WiFi.disconnect(false, true);
-                WiFi.mode(WIFI_STA);
-                WiFi.setHostname("esp32-can");
-                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+                wifi_.disconnect(false, true);
+                wifi_.setMode(WIFI_STA);
+                wifi_.setHostname("esp32-can");
+                wifi_.begin(WIFI_SSID, WIFI_PASSWORD);
                 ctx.connectStartTime = now;
                 ctx.lastRetryMs = now;
                 Serial.printf("Connecting to %s\r\n", WIFI_SSID);
@@ -662,9 +692,9 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
             case CredentialSource::NONE:
             default:
                 Serial.printf("No WiFi credentials available, starting AP mode\r\n");
-                WiFi.mode(WIFI_AP);
-                WiFi.softAP(AP_SSID, AP_PASS);
-                const String ip = WiFi.softAPIP().toString();
+                wifi_.setMode(WIFI_AP);
+                wifi_.softAP(AP_SSID, AP_PASS);
+                const String ip = wifi_.softAPIP().toString();
                 Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
                 Serial.printf("%sConnect to AP and use ATSETWIFI command to configure WiFi%s\r\n", YELLOW, NC);
                 return StateTransition(WiFiState::State::CONNECTED_AP);
@@ -676,12 +706,15 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
 
 // Handler for CONNECTING state - monitors connection progress
 struct ConnectingStateHandler : public WiFiStateHandler {
+    IWiFi& wifi_;
+    explicit ConnectingStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        const wl_status_t status = WiFi.status();
+        const wl_status_t status = wifi_.status();
         const uint32_t connectDuration = now - ctx.connectStartTime;
 
         if (status == WL_CONNECTED) {
-            const String ip = WiFi.localIP().toString();
+            const String ip = wifi_.localIP().toString();
             Serial.printf("%s\nConnected. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
             return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
         }
@@ -691,9 +724,9 @@ struct ConnectingStateHandler : public WiFiStateHandler {
 
             if (shouldFallbackToApMode(source, connectDuration)) {
                 Serial.printf("%sStored WiFi credentials failed, falling back to AP mode%s\r\n", YELLOW, NC);
-                WiFi.mode(WIFI_AP);
-                WiFi.softAP(AP_SSID, AP_PASS);
-                const String ip = WiFi.softAPIP().toString();
+                wifi_.setMode(WIFI_AP);
+                wifi_.softAP(AP_SSID, AP_PASS);
+                const String ip = wifi_.softAPIP().toString();
                 Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
                 Serial.printf("%sConnect to AP and reconfigure WiFi with ATSETWIFI%s\r\n", YELLOW, NC);
                 return StateTransition(WiFiState::State::CONNECTED_AP);
@@ -745,27 +778,30 @@ struct ConnectingStateHandler : public WiFiStateHandler {
 
 // Handler for RECONNECTING state - retries indefinitely ("60 years")
 struct ReconnectingStateHandler : public WiFiStateHandler {
+    IWiFi& wifi_;
+    explicit ReconnectingStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         // Check if reconnection succeeded
-        if (WiFi.status() == WL_CONNECTED) {
-            const String ip = WiFi.localIP().toString();
+        if (wifi_.status() == WL_CONNECTED) {
+            const String ip = wifi_.localIP().toString();
             Serial.printf("%sWiFi RECONNECTED. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
             return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
         }
 
         // Retry indefinitely - "60 years, no point in giving up"
         if (shouldRetryWiFi(WiFiState::State::RECONNECTING, now, ctx.lastRetryMs)) {
-            const wl_status_t status = WiFi.status();
+            const wl_status_t status = wifi_.status();
             Serial.printf("%sWiFi RECONNECTING: status=%d reason=%d, retrying...%s\r\n",
                             YELLOW, static_cast<int>(status),
                             static_cast<int>(ctx.lastDisconnectReason), NC);
-            WiFi.disconnect(false, true);
+            wifi_.disconnect(false, true);
 
             String storedSsid, storedPass;
             if (hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass)) {
-                WiFi.begin(storedSsid.c_str(), storedPass.c_str());
+                wifi_.begin(storedSsid.c_str(), storedPass.c_str());
             } else {
-                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+                wifi_.begin(WIFI_SSID, WIFI_PASSWORD);
             }
             ctx.lastRetryMs = now;
         }
@@ -793,9 +829,9 @@ struct ConnectedApStateHandler : public WiFiStateHandler {
 };
 
 // ── State Handler Registry (Dispatch Table) ───────────────────────────────────────
-static DisconnectedStateHandler disconnectedHandler;
-static ConnectingStateHandler connectingHandler;
-static ReconnectingStateHandler reconnectingHandler;
+static DisconnectedStateHandler disconnectedHandler(wifi);
+static ConnectingStateHandler connectingHandler(wifi);
+static ReconnectingStateHandler reconnectingHandler(wifi);
 static ConnectedStaStateHandler connectedStaHandler;
 static ConnectedApStateHandler connectedApHandler;
 
@@ -810,6 +846,9 @@ static WiFiStateHandler* getStateHandler(WiFiState::State state) {
     }
 }
 
+#ifdef ARDUINO
+IWiFi& wifi = realWifi;
+#endif
 // ── State Transition Application ───────────────────────────────────────────────────
 static void applyStateTransition(const StateTransition& transition, WiFiState::Context& ctx) {
     if (transition.nextState == WiFiState::State::DISCONNECTED &&
