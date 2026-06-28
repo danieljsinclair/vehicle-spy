@@ -67,7 +67,12 @@ class VehicleViewModel: ObservableObject {
     private var discoveryListener: ESP32DiscoveryListener?
     private var discoveryRetryTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
-    private let connectionWorkQueue = OperationQueue()
+    private let connectionWorkQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 1
+        q.qualityOfService = .userInitiated
+        return q
+    }()
 
     // Skip-list for IPs that failed authentication (wrong unit)
     // These IPs will be skipped for the remainder of the session
@@ -450,7 +455,7 @@ class VehicleViewModel: ObservableObject {
         connectionStatus = "Connecting to \(address):\(port) [CLIENT]"
         connectionState = .connecting
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        connectionWorkQueue.addOperation { [weak self] in
             guard let self = self else { return }
 
             // Refined retry policy: hunt for available devices
@@ -521,11 +526,17 @@ class VehicleViewModel: ObservableObject {
                 let discoveryTimeoutMs = 5000 // Wait up to 5s for new discovery
                 let checkIntervalMs = 100
 
-                while waitedMs < discoveryTimeoutMs && !foundNewCandidate {
+                var shouldAbort = false
+
+                while waitedMs < discoveryTimeoutMs && !foundNewCandidate && !shouldAbort {
                     Thread.sleep(forTimeInterval: Double(checkIntervalMs) / 1000.0)
                     waitedMs += checkIntervalMs
 
-                    // Check if we found a new candidate
+                    // Check if we found a new candidate.
+                    // Synchronous read of main-affine state: connectionWorkQueue is a
+                    // standalone OperationQueue that main never waits on, so .main.sync
+                    // here cannot deadlock. Synchronous assignment ensures the loop
+                    // observes the new candidate on this iteration, not ~100ms later.
                     DispatchQueue.main.sync {
                         if let newCandidate = self.discoveredESP32s.first(where: { device in
                             // Skip IPs in auth-failed list
@@ -539,12 +550,17 @@ class VehicleViewModel: ObservableObject {
                     // Exit if mode changed or connected elsewhere
                     DispatchQueue.main.sync {
                         if self.connectionMode != .wifi || self.connectionState == .connected {
-                            return
+                            shouldAbort = true
                         }
                     }
                 }
 
                 // If we found a new candidate, retry with it; otherwise, give up
+                if shouldAbort {
+                    // Mode changed or connected elsewhere — stop hunting explicitly
+                    break
+                }
+
                 if foundNewCandidate {
                     retryCount = 0 // Reset retry count for new device
                     foundNewCandidate = false
