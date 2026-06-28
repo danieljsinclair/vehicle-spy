@@ -9,6 +9,8 @@ Usage:
 
 Requirements: libsodium (via ctypes, uses system libsodium)
 """
+
+# stdlib — module-level: used in main() and push_ota() unconditionally
 import argparse
 import base64
 import ctypes
@@ -22,16 +24,21 @@ RED = "\033[31m"
 GREEN = "\033[32m"
 NC = "\033[0m"  # No Color
 
+
 def load_sodium():
     sodium = ctypes.CDLL(ctypes.util.find_library('sodium'))
     if sodium.sodium_init() < 0:
         sys.exit("sodium_init failed")
     return sodium
 
+
 def sign_firmware(sodium, image_path, priv_key_path):
     """Sign a firmware image with Ed25519ph (RFC 8032 pre-hashed)."""
-    # Read private key and extract the raw 32-byte seed from PKCS#8 DER.
+    # subprocess is an optional dependency — only loaded when the user
+    # actually invokes sign_firmware(), so the script can still run
+    # (and fail meaningfully) without openssl being on PATH during import.
     import subprocess
+
     der = subprocess.check_output(['openssl', 'pkey', '-in', priv_key_path, '-outform', 'DER'])
     assert len(der) >= 48, f"private key DER too short ({len(der)} bytes)"
     seed_tag_offset = der.find(b'\x04\x20', 10)
@@ -71,16 +78,25 @@ def sign_firmware(sodium, image_path, priv_key_path):
     assert sig_len.value == 64
     return bytes(sig.raw[:64])
 
+
 def derive_public_key(priv_key_path):
     """Derive the public key from the private key for OtaPublicKey.h generation."""
+    # subprocess only used here — kept at function level (same rationale as sign_firmware)
     import subprocess
+
     pub_pem = subprocess.check_output(['openssl', 'pkey', '-in', priv_key_path, '-pubout', '-outform', 'DER'])
     # DER: 12-byte header + 32 raw bytes
     raw_pub = pub_pem[-32:]
     return bytes(raw_pub)
 
+
 def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
     """Push signed firmware to ESP32 via HTTP multipart POST."""
+    # time and errno are scoped to this function ��� kept here to avoid
+    # pulling them in for scripts/usage modes that skip push_ota() entirely.
+    import time as _time
+    import errno
+
     boundary = "----OTABoundary7d2c4a9e1f"
 
     body = b''
@@ -103,11 +119,9 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
         'Connection': 'close',
     }
 
-    import time as _time
     size_mb = len(firmware_bytes) / (1024 * 1024)
     print(f"OTA: pushing {size_mb:.1f} MiB to {host}:{port}...", file=sys.stderr)
 
-    import errno
     try:
         conn.request('POST', '/update', body, headers)
         # Read response with progress indication
@@ -159,6 +173,7 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
         print(f"{RED}OTA: FAILED — HTTP {resp.status}: {resp_body}{NC}", file=sys.stderr)
         return False
 
+
 def main():
     parser = argparse.ArgumentParser(description='Sign and push firmware to ESP32 over HTTP OTA')
     parser.add_argument('firmware', help='Path to firmware .bin')
@@ -188,6 +203,7 @@ def main():
 
     success = push_ota(args.host, args.port, args.username, args.password, firmware_bytes, sig)
     sys.exit(0 if success else 1)
+
 
 if __name__ == '__main__':
     main()
