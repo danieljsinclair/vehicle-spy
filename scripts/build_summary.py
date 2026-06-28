@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Emit a single compact, coloured HEADLINE line for vehicle-spy at end-of-make.
+"""Emit a single compact, coloured HEADLINE line per SonarCloud project.
 
-This is the END-OF-MAKE summary (the "russian doll" headline). vehicle-spy's
-``summary`` Makefile target calls this script ONCE for ITS OWN reports. The
-line is one scannable row:
+This is the END-OF-MAKE summary (the "russian doll" headline). The
+``summary`` Makefile target calls this script ONCE PER PROJECT (three
+invocations: vehicle-spy, vehicle-spy-ios, vehicle-spy-esp32). Each
+invocation emits one scannable row; the fixed column widths make the three
+lines align vertically:
 
-    [vehicle-spy] tests: PASS <passed>/<total> | sonar: open <O> / total <T> (<reason>)
+    [vehicle-spy]         tests: PASS <passed>/<total> | cov: <pct>% | sonar: open <O> / total <T> (<reason>)
+    [vehicle-spy-ios]     tests: PASS <passed>/<total> | cov: <pct>% | sonar: open <O> / total <T> (<reason>)
+    [vehicle-spy-esp32] tests: N/A                  | cov: N/A     | sonar: open <O> / total <T> (<reason>)
 
 Fields for which no data exists are OMITTED gracefully (never fabricated, never
 crashed). Colours are EMIT DELIBERATELY here (plain numbers are extracted from
@@ -34,42 +38,53 @@ DATA SOURCES -- plain numbers grepped from existing report files:
         back to the ctest summary / per-test markers only when gtest lines are
         absent (e.g. a pure-ctest repo reusing this helper).
 
-        The iOS suite runs via ``xcodebuild test`` (no greppable ctest log);
-        its counts come from the .xcresult bundle's ResultMetrics via
-        ``--xcresult-glob`` (ported from engine-sim-bridge's build_summary).
-        When both C++ and iOS counts are present they are SUMMED into one row.
+        The iOS suite (vehicle-spy-ios) runs via ``xcodebuild test`` (no
+        greppable ctest log); its counts come from the .xcresult bundle's
+        ResultMetrics via ``--xcresult-glob`` (ported from engine-sim-bridge's
+        build_summary). The firmware project has no tests (N/A).
 
     Coverage
-        C++ core coverage from the lcov export (``build-cov/lcov.info``) and
-        iOS coverage from the xccov export (``build-ios/coverage.json``), read
-        via ``--local-cov`` + ``--local-type lcov|xccov`` (repeatable: when
-        both are given they are SUMMED). The preferred source is the cached
-        SonarCloud ``sonar-measures.json`` (``--cov-measures``); local files
-        are the fallback when no token/report exists. ESP32 firmware has no
-        coverage (no firmware unit tests).
+        C++ core coverage (vehicle-spy) from the lcov export
+        (``build-cov/lcov.info``); iOS coverage (vehicle-spy-ios) from the
+        xccov export (``build-ios/coverage.json``). Each is read via
+        ``--local-cov`` + ``--local-type lcov|xccov``. The preferred source is
+        the cached SonarCloud ``sonar-measures.json`` (``--cov-measures``); local
+        files are the fallback when no token/report exists. The firmware
+        project has no coverage (no firmware unit tests).
 
     Sonar open/total
-        The cached ``build-firmware/sonar-report.json`` (the
-        ``/api/issues/search?statuses=OPEN`` response the sonar-summary target
-        curls). ``open`` is derived from the ``impactSeverities`` facet when
-        present (the dashboard's own server-side count), else from the
-        per-issue impacts/legacy severity. ``total`` is ``open + removed``;
-        ``removed`` comes from a separate removed-facet report
-        (``--removed-facet``). When that file is absent ``total`` falls back
-        to ``open`` and a GREY ``(open-only)`` marker notes the fallback.
+        The cached ``sonar-report.json`` (the ``/api/issues/search?statuses=OPEN``
+        response the sonar-summary target curls). ``open`` is derived from the
+        ``impactSeverities`` facet when present (the dashboard's own
+        server-side count), else from the per-issue impacts/legacy severity.
+        ``total`` is ``open + removed``; ``removed`` comes from a separate
+        removed-facet report (``--removed-facet``). When that file is absent
+        ``total`` falls back to ``open`` and a GREY ``(open-only)`` marker
+        notes the fallback.
 
-READY TO EXTEND: when the C++ core + iOS sonar projects are added later, run
-this script a SECOND time with a different ``--label`` and ``--sonar-report``
-(or add ``--cov-measures`` for the C++ core). Each invocation is independent
-and the fixed column widths make the lines align vertically.
+The Makefile's ``summary`` target invokes this script three times: once for
+``vehicle-spy`` (C++ core: tests + coverage + sonar), once for
+``vehicle-spy-ios`` (iOS app: tests + coverage + sonar), and once for
+``vehicle-spy-esp32`` (ESP32: sonar only, no tests/coverage). Each
+invocation is independent and the fixed column widths make the lines align
+vertically.
 
-Usage:
+Usage (Makefile summary target calls this three times, once per project):
 
     build_summary.py --label "[vehicle-spy]" \\
-        [--test-log PATH] [--xcresult-glob GLOB] \\
+        [--test-log PATH] \\
         [--sonar-report PATH] [--removed-facet PATH] \\
         [--cov-measures PATH]
         [--local-cov PATH --local-type lcov|xccov]  (repeatable)
+
+    build_summary.py --label "[vehicle-spy-ios]" \\
+        [--xcresult-glob GLOB] \\
+        [--sonar-report PATH] [--removed-facet PATH] \\
+        [--cov-measures PATH]
+        [--local-cov PATH --local-type xccov]
+
+    build_summary.py --label "[vehicle-spy-esp32]" \\
+        [--sonar-report PATH] [--removed-facet PATH]
 
 Exit codes: 0 always (a missing file / parse failure is reported in-line,
 never a crash -- this is a display helper, not a build step).
@@ -539,15 +554,27 @@ def pad_visible(text, width):
     return text + (' ' * pad if pad > 0 else '')
 
 
+def _separator():
+    """Return the plain `` | `` separator (no ANSI, visible width 3)."""
+    return ' {}|{} '.format(GREY, RESET)
+
+
 def emit_line(label, tests, cov, sonar):
-    """Print the single coloured headline line for vehicle-spy.
+    """Print the single coloured headline line for a SonarCloud project.
 
     ``tests`` is (passed, total) or None; ``cov`` is (covered, total, pct) or
     None; ``sonar`` is (open, total, blocker_count, removed) or None. Missing
     fields are OMITTED so the line never prints garbage.
-    """
-    parts = []
 
+    Columns are positioned ABSOLUTELY: each field is padded to its column
+    width, so the sonar column starts at the same character position whether
+    or not tests/cov are present. This keeps the three (or N) headline lines
+    vertically aligned regardless of which fields each project has.
+    """
+    sep = _separator()
+    segments = []
+
+    # tests column (always reserve width so subsequent columns align)
     if tests is not None:
         passed, total = tests
         failed = total - passed
@@ -557,8 +584,11 @@ def emit_line(label, tests, cov, sonar):
         else:
             tests_str = '{}tests: PASS {}/{}{}'.format(
                 GREEN, passed, total, RESET)
-        parts.append(pad_visible(tests_str, COL_WIDTH_TESTS))
+        segments.append(pad_visible(tests_str, COL_WIDTH_TESTS))
+    else:
+        segments.append(' ' * COL_WIDTH_TESTS)
 
+    # cov column (always reserve width so sonar column aligns)
     if cov is not None:
         covered, total, pct = cov
         colour = _coverage_colour(pct)
@@ -567,8 +597,11 @@ def emit_line(label, tests, cov, sonar):
                 colour, pct, RESET, GREY, covered, total, RESET)
         else:
             cov_str = '{}cov: {:.1f}%{}'.format(colour, pct, RESET)
-        parts.append(pad_visible(cov_str, COL_WIDTH_COV))
+        segments.append(pad_visible(cov_str, COL_WIDTH_COV))
+    else:
+        segments.append(' ' * COL_WIDTH_COV)
 
+    # sonar column (always present for a scanned project)
     if sonar is not None:
         open_count, total, blocker_count, removed = sonar
         colour = _sonar_colour(blocker_count, open_count)
@@ -579,9 +612,9 @@ def emit_line(label, tests, cov, sonar):
             note = reason
         sonar_str = '{}sonar: open {} / total {}{} {}{}{}'.format(
             colour, open_count, total, RESET, GREY, note, RESET)
-        parts.append(pad_visible(sonar_str, COL_WIDTH_SONAR))
+        segments.append(pad_visible(sonar_str, COL_WIDTH_SONAR))
 
-    body = ' {}|{} '.format(GREY, RESET).join(parts) if parts else \
+    body = sep.join(segments) if segments else \
         '{}(no summary data){}'.format(GREY, RESET)
     label_str = pad_visible('{}{}{}'.format(BOLD, label, RESET), COL_WIDTH_LABEL)
     print('{} {}'.format(label_str, body))
@@ -590,7 +623,8 @@ def emit_line(label, tests, cov, sonar):
 def main(argv=None):
     """Parse args and emit one headline line. Always exits 0 (display helper)."""
     p = argparse.ArgumentParser(
-        description='Emit a compact end-of-make headline line for vehicle-spy.')
+        description='Emit a compact end-of-make headline line for vehicle-spy / '
+                    'vehicle-spy-ios / vehicle-spy-esp32.')
     p.add_argument('--label', required=True,
                    help='Repo label, e.g. "[vehicle-spy]"')
     p.add_argument('--test-log',
