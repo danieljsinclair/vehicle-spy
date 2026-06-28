@@ -119,6 +119,15 @@ TCPTransport::~TCPTransport() {
     }
 }
 
+// ELM327 init pacing: honours the overridable atInitDelayMs_ while never
+// regressing to hard-coded defaults that tests can't control.
+int TCPTransport::perCommandDelayMs(int cmdDelayMs) const {
+    if (atInitDelayMs_ >= 0) {
+        return atInitDelayMs_;  // tests / callers override every command
+    }
+    return cmdDelayMs > 0 ? cmdDelayMs : 50;
+}
+
 bool TCPTransport::sendAll(int fd, const std::string& data) noexcept {
     std::size_t sent = 0;
     while (sent < data.size()) {
@@ -158,12 +167,8 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
         }
         // If no response within timeout, continue anyway - device may be slow
 
-        // Brief settle so the adapter can process each command. The per-command
-        // delay is overridable via atInitDelayMs_ (constructor DI): -1 (default)
-        // keeps each command's own cmd.delayMs (production); any value >= 0 is
-        // used for every command so tests can pass 0 and skip the pacing.
-        std::this_thread::sleep_for(std::chrono::milliseconds(
-            atInitDelayMs_ >= 0 ? atInitDelayMs_ : (cmd.delayMs > 0 ? cmd.delayMs : 50)));
+        // Pace each AT command so the adapter can process it before the next one.
+        std::this_thread::sleep_for(std::chrono::milliseconds(perCommandDelayMs(cmd.delayMs)));
     }
     return true;
 }

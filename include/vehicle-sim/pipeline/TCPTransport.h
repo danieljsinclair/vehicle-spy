@@ -108,6 +108,7 @@ public:
 private:
     bool sendAll(int fd, const std::string& data) noexcept;
     bool sendElm327Init(int fd) noexcept;
+    int perCommandDelayMs(int cmdDelayMs) const;
     bool connectAndAuth();
     void closeConnection() noexcept;
     bool performHeloHandshake();
