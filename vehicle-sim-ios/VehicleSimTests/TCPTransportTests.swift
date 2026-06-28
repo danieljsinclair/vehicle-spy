@@ -11,7 +11,7 @@ final class TCPTransportTests: XCTestCase {
 
     func testWrapperInitiallyDisconnected() {
         let wrapper = VehicleSimWrapper()
-        XCTAssertEqual(wrapper.connectionState, ConnectionStateDisconnected)
+        XCTAssertEqual(wrapper.connectionState.rawValue, 0)  // ConnectionStateDisconnected
         XCTAssertNil(wrapper.connectedDeviceName)
         XCTAssertNil(wrapper.connectedDeviceAddress)
     }
@@ -69,7 +69,7 @@ final class TCPTransportTests: XCTestCase {
     func testStopClearsConnectionState() {
         let wrapper = VehicleSimWrapper()
         wrapper.stop()
-        XCTAssertEqual(wrapper.connectionState, ConnectionStateDisconnected)
+        XCTAssertEqual(wrapper.connectionState.rawValue, 0)  // ConnectionStateDisconnected
         XCTAssertNil(wrapper.connectedDeviceName)
         XCTAssertNil(wrapper.connectedDeviceAddress)
     }
@@ -79,17 +79,17 @@ final class TCPTransportTests: XCTestCase {
     func testDemoModeConnects() {
         let wrapper = VehicleSimWrapper()
         wrapper.startDemo()
-        XCTAssertEqual(wrapper.connectionState, ConnectionStateConnected)
+        XCTAssertEqual(wrapper.connectionState.rawValue, 2)  // ConnectionStateConnected
         XCTAssertEqual(wrapper.connectedDeviceName, "Demo")
     }
 
     func testStopAfterDemoClearsState() {
         let wrapper = VehicleSimWrapper()
         wrapper.startDemo()
-        XCTAssertEqual(wrapper.connectionState, ConnectionStateConnected)
+        XCTAssertEqual(wrapper.connectionState.rawValue, 2)  // ConnectionStateConnected
 
         wrapper.stop()
-        XCTAssertEqual(wrapper.connectionState, ConnectionStateDisconnected)
+        XCTAssertEqual(wrapper.connectionState.rawValue, 0)  // ConnectionStateDisconnected
         XCTAssertNil(wrapper.throttlePercent)
     }
 
@@ -141,7 +141,7 @@ final class TCPTransportTests: XCTestCase {
     func testConnectingWhileConnectedStopsPrevious() {
         let wrapper = VehicleSimWrapper()
         wrapper.startDemo()
-        XCTAssertEqual(wrapper.connectionState, ConnectionStateConnected)
+        XCTAssertEqual(wrapper.connectionState.rawValue, 2)  // ConnectionStateConnected
 
         // Attempt a TCP connection (will fail because host is unreachable,
         // but should cleanly stop the demo first)
@@ -154,7 +154,7 @@ final class TCPTransportTests: XCTestCase {
         // (the previous demo connection was stopped)
         // Give a brief moment for the background thread to fail
         Thread.sleep(forTimeInterval: 0.5)
-        XCTAssertEqual(wrapper.connectionState, ConnectionStateDisconnected)
+        XCTAssertEqual(wrapper.connectionState.rawValue, 0)  // ConnectionStateDisconnected
     }
 
     // MARK: - Bluetooth State

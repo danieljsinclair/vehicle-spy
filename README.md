@@ -174,7 +174,7 @@ make reboot-over-tcp ESP32_HOST=192.168.68.60  # Reboot ESP32 over TCP
 ```bash
 make check-esp32 ESP32_HOST=192.168.68.60   # Is the device on the network?
 # If unreachable: device may be in AP mode (ESP32-CAN) or bootlooping
-# Re-flash over USB: make flash ESP32_WIFI_SSID=manht2 ESP32_WIFI_PASS=...
+# Re-flash over USB: make flash ESP32_WIFI_SSID=yourSSID ESP32_WIFI_PASS=...
 ```
 
 ## iOS App
