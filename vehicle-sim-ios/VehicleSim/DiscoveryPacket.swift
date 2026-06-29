@@ -143,9 +143,9 @@ struct DiscoveryPacket: Equatable {
 
 extension UInt16 {
     init(bigEndianBytes data: Data) {
-        self = data.withUnsafeBytes { ptr in
-            UInt16(bigEndian: ptr.load(as: UInt16.self))
-        }
+        precondition(data.count == MemoryLayout<UInt16>.size,
+                     "UInt16 bigEndianBytes requires exactly \(MemoryLayout<UInt16>.size) bytes")
+        self = UInt16(bigEndianBytes: data[data.startIndex], data[data.startIndex + 1])
     }
 
     init(bigEndianBytes first: UInt8, _ second: UInt8) {
@@ -160,9 +160,11 @@ extension UInt16 {
 
 extension UInt64 {
     init(bigEndianBytes data: Data) {
-        self = data.withUnsafeBytes { ptr in
-            UInt64(bigEndian: ptr.load(as: UInt64.self))
-        }
+        precondition(data.count == MemoryLayout<UInt64>.size,
+                     "UInt64 bigEndianBytes requires exactly \(MemoryLayout<UInt64>.size) bytes")
+        let s = data.startIndex
+        self = UInt64(bigEndianBytes: data[s], data[s + 1], data[s + 2], data[s + 3],
+                      data[s + 4], data[s + 5], data[s + 6], data[s + 7])
     }
 
     init(bigEndianBytes b0: UInt8, _ b1: UInt8, _ b2: UInt8, _ b3: UInt8,
