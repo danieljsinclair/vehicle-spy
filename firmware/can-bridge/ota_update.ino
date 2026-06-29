@@ -39,7 +39,8 @@ static bool hexToByte(char c, uint8_t& v) {
 static bool parseHexSig(const String& hex, uint8_t* out) {
     if (hex.length() != 128) return false;
     for (size_t i = 0; i < 64; i++) {
-        uint8_t hi = 0, lo = 0;
+        uint8_t hi = 0;
+        uint8_t lo = 0;
         if (!hexToByte(hex[i*2], hi) || !hexToByte(hex[i*2+1], lo)) return false;
         out[i] = (hi << 4) | lo;
     }
