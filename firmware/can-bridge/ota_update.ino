@@ -42,7 +42,7 @@ static bool parseHexSig(const String& hex, uint8_t* out) {
         uint8_t hi = 0;
         uint8_t lo = 0;
         if (!hexToByte(hex[i*2], hi) || !hexToByte(hex[i*2+1], lo)) return false;
-        out[i] = (hi << 4) | lo;
+        out[i] = static_cast<uint8_t>((hi << 4) | lo);
     }
     return true;
 }

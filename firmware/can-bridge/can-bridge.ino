@@ -195,7 +195,7 @@ static void drainSerialATCommands() {
     static String serialCmd;
 
     while (Serial.available()) {
-        const char c = Serial.read();
+        const char c = static_cast<char>(Serial.read());
         if (c == '\r' || c == '\n') {
             if (!serialCmd.isEmpty()) {
                 handleSerialAT(serialCmd);
