@@ -60,7 +60,7 @@ final class ESP32DiscoveryListener {
     init(
         publicKey: Curve25519.Signing.PublicKey? = nil,
         onDiscovered: @escaping @Sendable (DiscoveredESP32) -> Void,
-        onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in },
+        onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in /* no-op: default error handler does nothing when no handler is provided */ },
         queue: DispatchQueue = .global(qos: .userInitiated)
     ) {
         self.verifier = DiscoveryVerifier(publicKey: publicKey)
