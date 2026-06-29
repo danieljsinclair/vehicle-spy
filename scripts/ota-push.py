@@ -9,6 +9,8 @@ Usage:
 
 Requirements: libsodium (via ctypes, uses system libsodium)
 """
+
+# stdlib — module-level: used in main() and push_ota() unconditionally
 import argparse
 import base64
 import ctypes
@@ -22,16 +24,20 @@ RED = "\033[31m"
 GREEN = "\033[32m"
 NC = "\033[0m"  # No Color
 
+
 def load_sodium():
     sodium = ctypes.CDLL(ctypes.util.find_library('sodium'))
     if sodium.sodium_init() < 0:
         sys.exit("sodium_init failed")
     return sodium
 
+
 def sign_firmware(sodium, image_path, priv_key_path):
     """Sign a firmware image with Ed25519ph (RFC 8032 pre-hashed)."""
-    # Read private key and extract the raw 32-byte seed from PKCS#8 DER.
+    # subprocess: only invoked from sign_firmware/derive_public_key; kept at function scope
+    # so the rest of the script's argparse/push flow can be imported without openssl on PATH.
     import subprocess
+
     der = subprocess.check_output(['openssl', 'pkey', '-in', priv_key_path, '-outform', 'DER'])
     assert len(der) >= 48, f"private key DER too short ({len(der)} bytes)"
     seed_tag_offset = der.find(b'\x04\x20', 10)
@@ -71,16 +77,24 @@ def sign_firmware(sodium, image_path, priv_key_path):
     assert sig_len.value == 64
     return bytes(sig.raw[:64])
 
+
 def derive_public_key(priv_key_path):
     """Derive the public key from the private key for OtaPublicKey.h generation."""
+    # subprocess only used here — kept at function level (same rationale as sign_firmware)
     import subprocess
+
     pub_pem = subprocess.check_output(['openssl', 'pkey', '-in', priv_key_path, '-pubout', '-outform', 'DER'])
     # DER: 12-byte header + 32 raw bytes
     raw_pub = pub_pem[-32:]
     return bytes(raw_pub)
 
+
 def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
     """Push signed firmware to ESP32 via HTTP multipart POST."""
+    # time and errno: scoped to push_ota to keep the module-level import surface minimal.
+    import time
+    import errno
+
     boundary = "----OTABoundary7d2c4a9e1f"
 
     body = b''
@@ -103,7 +117,6 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
         'Connection': 'close',
     }
 
-    import time as _time
     size_mb = len(firmware_bytes) / (1024 * 1024)
     print(f"OTA: pushing {size_mb:.1f} MiB to {host}:{port}...", file=sys.stderr)
 
@@ -119,9 +132,36 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
         print(f"     The upload may have succeeded but the device took too long to", file=sys.stderr)
         print(f"     verify the signature and respond. Check if the device rebooted.", file=sys.stderr)
         return False
-    except (ConnectionRefusedError, ConnectionResetError, OSError) as exc:
-        print(f"{RED}OTA: FAILED — {exc}{NC}", file=sys.stderr)
+    except ConnectionRefusedError as exc:
+        print(f"{RED}OTA: FAILED — connection refused by {host}:{port}{NC}", file=sys.stderr)
+        print(f"     The device may be offline, the port may be incorrect, or the OTA", file=sys.stderr)
+        print(f"     server may not be running on the device.", file=sys.stderr)
         return False
+    except ConnectionResetError as exc:
+        print(f"{RED}OTA: FAILED — connection reset by {host}:{port}{NC}", file=sys.stderr)
+        print(f"     The device closed the connection unexpectedly. This may indicate", file=sys.stderr)
+        print(f"     a crash, reboot, or resource exhaustion on the device.", file=sys.stderr)
+        return False
+    except OSError as exc:
+        if exc.errno == errno.EACCES:
+            print(f"{RED}OTA: FAILED — permission denied (EACCES){NC}", file=sys.stderr)
+            print(f"     Check file permissions and firewall settings.", file=sys.stderr)
+            return False
+        elif exc.errno == errno.EADDRINUSE:
+            print(f"{RED}OTA: FAILED — address already in use (EADDRINUSE){NC}", file=sys.stderr)
+            print(f"     Another process may be using the required port.", file=sys.stderr)
+            return False
+        elif exc.errno == errno.EHOSTUNREACH:
+            print(f"{RED}OTA: FAILED — host unreachable (EHOSTUNREACH){NC}", file=sys.stderr)
+            print(f"     The device may be offline or the network route may be broken.", file=sys.stderr)
+            return False
+        elif exc.errno == errno.ETIMEDOUT:
+            print(f"{RED}OTA: FAILED — operation timed out (ETIMEDOUT){NC}", file=sys.stderr)
+            print(f"     Network connectivity issue or device is too slow to respond.", file=sys.stderr)
+            return False
+        else:
+            print(f"{RED}OTA: FAILED — OS error: {exc} (errno {exc.errno}){NC}", file=sys.stderr)
+            return False
 
     if resp.status == 200:
         print(f"{GREEN}OTA: SUCCESS — device accepted update ({resp_body.strip()}){NC}", file=sys.stderr)
@@ -131,13 +171,14 @@ def push_ota(host, port, username, password, firmware_bytes, sig_bytes):
         print(f"{RED}OTA: FAILED — HTTP {resp.status}: {resp_body}{NC}", file=sys.stderr)
         return False
 
+
 def main():
     parser = argparse.ArgumentParser(description='Sign and push firmware to ESP32 over HTTP OTA')
     parser.add_argument('firmware', help='Path to firmware .bin')
     parser.add_argument('--host', required=True, help='ESP32 IP/hostname')
     parser.add_argument('--port', type=int, default=80, help='HTTP port (default: 80)')
     parser.add_argument('--username', default='ota', help='HTTP Basic Auth username')
-    parser.add_argument('--password', default='vehicle-sim', help='HTTP Basic Auth password')
+    parser.add_argument('--password', required=True, help='HTTP Basic Auth password (default: vehicle-sim; Makefile passes ESP32_TCP_TOKEN at build time)')
     parser.add_argument('--keys-dir', default=os.path.expanduser('~/.vehicle-sim/ota'),
                         help='Directory containing ed25519.pem')
     args = parser.parse_args()
@@ -160,6 +201,7 @@ def main():
 
     success = push_ota(args.host, args.port, args.username, args.password, firmware_bytes, sig)
     sys.exit(0 if success else 1)
+
 
 if __name__ == '__main__':
     main()

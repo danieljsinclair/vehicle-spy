@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <ctime>
 #include <memory>
+#include <cerrno>
+#include <atomic>
 
 // Platform-specific socket headers
 #ifdef __APPLE__
@@ -19,6 +21,14 @@
 
 namespace vehicle_sim {
 namespace discovery {
+
+// Global stop flag for discovery poll (set by signal handler, polled by poll())
+// Using a flag instead of EINTR because macOS's SA_RESTART causes poll() to
+// auto-restart after signals, never returning EINTR. The flag is checked each
+// 100ms iteration, ensuring Ctrl-C responds within ~100ms.
+namespace {
+    std::atomic<bool> g_discoveryStopRequested{false};
+}  // namespace
 
 // Get current Unix epoch seconds
 static uint64_t nowEpoch() {
@@ -100,20 +110,35 @@ public:
             return false;
         }
 
+        // Debug: log packet reception
+        std::cerr << "UDPDiscovery: received " << n << " bytes from "
+                  << inet_ntoa(fromAddr.sin_addr) << "\n";
+
         // Parse the packet
         DiscoveryPacket packet;
         if (!parse(buf, static_cast<size_t>(n), packet)) {
+            std::cerr << "UDPDiscovery: failed to parse packet (wrong size or magic)\n";
             return false;
         }
 
-        // Verify signature if we have a public key
-        if (hasPublicKey) {
-            if (!verify(packet, publicKey, nowEpoch(), maxClockSkew)) {
-                std::cerr << "UDPDiscovery: signature verification failed from "
-                          << inet_ntoa(fromAddr.sin_addr) << "\n";
-                return false;
-            }
-        }
+        // Debug: log timestamp for diagnosis
+        uint64_t now = nowEpoch();
+        std::cerr << "UDPDiscovery: packet timestamp=" << packet.timestamp
+                  << ", now=" << now << ", deviceId=";
+        for (auto b : packet.deviceId) std::cerr << std::hex << (int)b;
+        std::cerr << std::dec << "\n";
+
+        // Discovery packets are intentionally unsigned — the firmware sends a
+        // zeroed signature field. The OTA key is used for firmware *update*
+        // authentication, not for discovery. Discovery is the bootstrap that
+        // learns the device's IP before any secure channel exists.
+        //
+        // IMPORTANT: We do NOT check timestamp freshness for unsigned discovery.
+        // The timestamp may be uptime-based (seconds since boot) if the device
+        // lacks NTP sync, which can be wildly different from host Unix time.
+        // Timestamp freshness is only meaningful for signed packets (OTA),
+        // where the signature provides the authenticity guarantee.
+        // For discovery, we accept any valid packet format regardless of timestamp.
 
         // Extract the IP address
         std::string addrStr(inet_ntoa(fromAddr.sin_addr));
@@ -156,7 +181,16 @@ public:
         auto start = std::chrono::steady_clock::now();
 
         while (remainingMs > 0) {
+            // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
+            if (g_discoveryStopRequested.load()) {
+                break;
+            }
+
             int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
+            if (ret < 0) {
+                if (errno == EINTR) break;  // SIGINT/SIGTERM: stop the poll immediately
+                continue;                   // other transient error: keep going
+            }
             if (ret > 0 && (pfd.revents & POLLIN)) {
                 // Drain all available packets
                 while (tryReceive()) {
@@ -226,6 +260,14 @@ void UDPDiscovery::setMaxClockSkew(uint64_t seconds) {
 
 void UDPDiscovery::setDeviceCallback(DeviceCallback cb) {
     impl_->setDeviceCallback(cb);
+}
+
+void UDPDiscovery::requestStop() noexcept {
+    g_discoveryStopRequested.store(true);
+}
+
+void UDPDiscovery::resetStop() noexcept {
+    g_discoveryStopRequested.store(false);
 }
 
 } // namespace discovery

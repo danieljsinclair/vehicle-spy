@@ -3,8 +3,6 @@
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
 
-#include <atomic>
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -40,27 +38,33 @@ namespace vehicle_sim::pipeline {
 class TCPTransport final : public ITransport {
 public:
     /**
-     * @param host             IPv4/hostname of the CAN-bridge.
-     * @param port             TCP port (firmware default 3333).
-     * @param adapterProtocol  "raw" (no init) or "elm327" (send AT-init).
-     * @param output           Where to emit human-readable status/error lines.
-     * @param readTimeoutUs    Max wait (microseconds) for a select() read before
-     *                         re-checking the stop flag. Defaults to 500000 (0.5s)
-     *                         — matches the capture tool's robustness target.
-     *                         Injectable so tests can pass a tiny value and see a
-     *                         requestStop() in ~0 ms instead of waiting out the
-     *                         full production poll. Production default unchanged.
-     * @param atInitDelayMs    Inter-command pacing (milliseconds) between ELM327
-     *                         AT-init commands. -1 (default) means use each
-     *                         command's own cmd.delayMs (production behaviour —
-     *                         a real adapter needs the settle time). Any value
-     *                         >= 0 overrides every command's delay to that value,
-     *                         so tests can pass 0 and skip the ~700ms of pacing.
+     * @param host               IPv4/hostname of the CAN-bridge.
+     * @param port               TCP port (firmware default 3333).
+     * @param adapterProtocol    "raw" (no init) or "elm327" (send AT-init).
+     * @param output             Where to emit human-readable status/error lines.
+     * @param readTimeoutUs      Max wait (microseconds) for a select() read before
+     *                           re-checking the stop flag. Defaults to 500000 (0.5s)
+     *                           — matches the capture tool's robustness target.
+     *                           Injectable so tests can pass a tiny value and see a
+     *                           requestStop() in ~0 ms instead of waiting out the
+     *                           full production poll. Production default unchanged.
+     * @param atInitDelayMs      Inter-command pacing (milliseconds) between ELM327
+     *                           AT-init commands. -1 (default) means use each
+     *                           command's own cmd.delayMs (production behaviour —
+     *                           a real adapter needs the settle time). Any value
+     *                           >= 0 overrides every command's delay to that value,
+     *                           so tests can pass 0 and skip the ~700ms of pacing.
+     * @param socketRecvTimeoutMs Socket SO_RCVTIMEO (milliseconds) for recv().
+     *                           Defaults to 1000ms (production). Injectable so
+     *                           tests can pass 1ms and avoid waiting the full
+     *                           second on auth/handshake recv timeouts. Production
+     *                           default unchanged.
      */
     TCPTransport(std::string_view host, int port, std::string_view adapterProtocol = "raw",
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
                  int readTimeoutUs = 500000,
-                 int atInitDelayMs = -1);
+                 int atInitDelayMs = -1,
+                 int socketRecvTimeoutMs = 1000);
 
     ~TCPTransport() override;
 
@@ -82,11 +86,41 @@ public:
     /** Reset the stop flag (for tests / repeated runs). */
     static void resetStop() noexcept;
 
+    /**
+     * HELO/ACK pre-flight: send ATHELO and parse ACK response.
+     * Returns true if HELO succeeded, false otherwise.
+     * Populates deviceId (16 bytes) with device's unique identifier.
+     */
+    bool sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId);
+
+    /**
+     * Get the device ID from HELO handshake (32 hex chars).
+     * Returns empty string if HELO hasn't completed yet.
+     */
+    const std::string& getDeviceId() const noexcept { return deviceIdHex_; }
+
+    // Connection/reconnect constants (public for utility function access)
+    static constexpr int MAX_RETRIES = 60;              // Bounded retry: ~60s total wait
+    static constexpr int BASE_RETRY_DELAY_MS = 1000;   // Initial reconnect delay
+    static constexpr int MAX_RETRY_DELAY_MS = 10000;   // Max exponential backoff
+    // Legacy alias for compatibility
+    static constexpr int RETRY_DELAY_MS = BASE_RETRY_DELAY_MS;
+
+    // L3: tag literals shared across the C++ layer. iOS has its own equivalents.
+    static constexpr const char* kClientTag = " [CLIENT]";
+    static constexpr const char* kEsp32TagPrefix = "ESP32";
+
 private:
     bool sendAll(int fd, std::string_view data) noexcept;
     bool sendElm327Init(int fd) noexcept;
+    // Falls back to DEFAULT_PER_COMMAND_DELAY_MS (50ms) when no positive value is supplied
+    int perCommandDelayMs(int cmdDelayMs) const;
     bool connectAndAuth();
     void closeConnection() noexcept;
+    bool performHeloHandshake();
+#if !defined(BUILD_IOS) && !defined(TARGET_OS_IPHONE)
+    bool enterHuntingState();  // Retry old IP + listen for UDP discovery simultaneously (host-only)
+#endif
 
     std::string host_;
     int port_;
@@ -94,13 +128,14 @@ private:
     std::shared_ptr<ITransportOutput> output_;
     int readTimeoutUs_ = 500000;
     int atInitDelayMs_ = -1;
+    int socketRecvTimeoutMs_ = 1000;
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;
     // Reconnect state
     int retryCount_ = 0;
-    static constexpr int MAX_RETRIES = 0x7FFFFFFF;  // ~2 billion — effectively unlimited
-    static constexpr int RETRY_DELAY_MS = 1000;
+    // Device ID from HELO handshake (32 hex chars, empty until HELO succeeds)
+    std::string deviceIdHex_;
     // Accumulated bytes not yet terminated by a line ending.
     std::string pending_;
 };

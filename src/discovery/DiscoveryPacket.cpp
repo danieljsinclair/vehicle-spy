@@ -96,9 +96,8 @@ bool parse(const uint8_t* data, size_t len, DiscoveryPacket& out) {
 
     // Timestamp
     out.timestamp = readBigEndian64(data + 30);
-    if (out.timestamp == 0) {
-        return false;
-    }
+    // Allow timestamp == 0 for devices without NTP sync yet
+    // (they'll use uptime-based time which may start at 0 or small values)
 
     // CAN port
     out.canPort = readBigEndian16(data + 38);

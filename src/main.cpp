@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string_view>
+#include <csignal>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/Orchestration.h"
@@ -11,11 +12,16 @@
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "vehicle-sim/discovery/UDPDiscovery.h"
-#include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 namespace {
 
 constexpr int BLE_SCAN_TIMEOUT_S = 10;
+
+// Signal handler for discovery mode - sets the stop flag when Ctrl-C is pressed
+void discoverySignalHandler(int sigNum) {
+    std::cout << "\nReceived signal " << sigNum << ", stopping discovery...\n";
+    vehicle_sim::discovery::UDPDiscovery::requestStop();
+}
 
 int runScan(vehicle_sim::BLEManager& bleManager) {
     using namespace vehicle_sim;
@@ -49,20 +55,17 @@ int runDiscovery() {
               << DISCOVERY_PORT << "...\n";
     std::cout << "Press Ctrl-C to stop.\n\n";
 
+    // Install signal handler for Ctrl-C (SIGINT) - sets flag instead of relying on EINTR
+    std::signal(SIGINT, discoverySignalHandler);
+    std::signal(SIGTERM, discoverySignalHandler);
+    UDPDiscovery::resetStop();
+
     UDPDiscovery discovery;
 
-    // Try to load the OTA public key for signature verification
-    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey;
-    std::string keyPath = std::string(getenv("HOME") ? getenv("HOME") : "")
-                          + "/.vehicle-sim/ota/ed25519_pub.raw";
-    if (loadPublicKey(keyPath, publicKey)) {
-        discovery.setPublicKey(publicKey);
-        std::cout << "Loaded OTA public key from " << keyPath << "\n";
-        std::cout << "Signature verification: ENABLED\n\n";
-    } else {
-        std::cout << "No OTA public key found at " << keyPath << "\n";
-        std::cout << "Signature verification: DISABLED (accepting all broadcasts)\n\n";
-    }
+    // Note: Discovery packets are intentionally unsigned (per commit 8a0acde).
+    // Signature verification is only used for OTA updates, not discovery.
+    // Discovery is the bootstrap that learns device IPs before any secure channel exists.
+    std::cout << "Discovery mode: UNSIGNED (accepting all broadcasts)\n\n";
 
     if (!discovery.start()) {
         std::cerr << "Failed to start UDP discovery listener on port "
@@ -104,13 +107,7 @@ std::string autoDiscoverESP32(std::chrono::seconds timeout = std::chrono::second
 
     UDPDiscovery discovery;
 
-    // Try to load the OTA public key
-    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey;
-    std::string keyPath = std::string(getenv("HOME") ? getenv("HOME") : "")
-                          + "/.vehicle-sim/ota/ed25519_pub.raw";
-    if (loadPublicKey(keyPath, publicKey)) {
-        discovery.setPublicKey(publicKey);
-    }
+    // Note: Discovery packets are intentionally unsigned (per commit 8a0acde).
 
     if (!discovery.start()) {
         std::cerr << "Failed to start UDP discovery\n";

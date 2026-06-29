@@ -251,9 +251,12 @@ TEST(DiscoveryPacketParse, WrongPacketType) {
 }
 
 TEST(DiscoveryPacketParse, ZeroTimestamp) {
+    // Timestamp == 0 is now allowed for devices without NTP sync
+    // (they use uptime-based time which may start at 0)
     auto data = buildValidPacketData(0);
     DiscoveryPacket pkt;
-    EXPECT_FALSE(parse(data, pkt));
+    EXPECT_TRUE(parse(data, pkt));
+    EXPECT_EQ(pkt.timestamp, 0u);
 }
 
 TEST(DiscoveryPacketParse, ZeroCanPort) {

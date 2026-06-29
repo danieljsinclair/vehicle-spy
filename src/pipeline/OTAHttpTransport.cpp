@@ -196,29 +196,75 @@ const std::string& OTAHttpTransport::lastError() const noexcept {
 }
 
 std::string OTAHttpTransport::recvResponse(int timeoutMs) noexcept {
-    std::string response;
-    char buffer[4096];
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    std::string out;
+    auto deadline = std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(timeoutMs);
+    char buf[4096];  // Larger buffer for full response body
+    bool headersComplete = false;
 
     while (std::chrono::steady_clock::now() < deadline) {
         fd_set rs;
         FD_ZERO(&rs);
         FD_SET(fd_, &rs);
-        auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(
-            deadline - std::chrono::steady_clock::now());
-        if (remaining.count() <= 0) break;
+        // Poll for at most the time remaining until the deadline (capped at
+        // 100ms), so a small timeout is actually honoured — otherwise select's
+        // 100ms poll floor would round any sub-100ms timeout up to ~100ms.
+        auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               deadline - std::chrono::steady_clock::now()).count();
+        if (remainingMs <= 0) {
+            // Timeout: distinguish from clean EOF
+            if (!headersComplete) {
+                // Timed out before headers complete
+                return out;  // Empty or partial
+            }
+            break;  // Headers complete, timeout reading body is OK
+        }
+        const auto pollMs = std::min<decltype(remainingMs)>(remainingMs, 100);
         timeval tv{};
-        tv.tv_sec = static_cast<time_t>(remaining.count() / 1000000);
-        tv.tv_usec = static_cast<suseconds_t>(remaining.count() % 1000000);
+        tv.tv_sec = 0;
+        tv.tv_usec = static_cast<suseconds_t>(pollMs * 1000);
         int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv);
         if (r > 0) {
-            ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
-            if (n <= 0) break;
-            response.append(buffer, static_cast<size_t>(n));
-        } else if (r < 0) {
-            if (errno == EINTR) continue;
+            ssize_t n = recv(fd_, buf, sizeof(buf), 0);
+            if (n < 0) {
+                // Error on socket
+                break;
+            }
+            if (n == 0) {
+                // Clean EOF from server
+                break;
+            }
+            out.append(buf, static_cast<size_t>(n));
+            if (!headersComplete && out.find("\r\n\r\n") != std::string::npos) {
+                headersComplete = true;
+            }
+        } else if (r < 0 && errno != EINTR) {
+            // Select error (not signal interrupt)
             break;
         }
     }
-    return response;
+
+    // If we have headers but the device is sending a large error body,
+    // try to drain the remainder briefly (devices may send detailed error messages)
+    if (headersComplete) {
+        // Drain any remaining bytes with a short timeout
+        auto drainDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+        while (std::chrono::steady_clock::now() < drainDeadline) {
+            fd_set rs;
+            FD_ZERO(&rs);
+            FD_SET(fd_, &rs);
+            timeval tv{};
+            tv.tv_usec = 50 * 1000;  // 50ms poll
+            int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv);
+            if (r > 0) {
+                ssize_t n = recv(fd_, buf, sizeof(buf), 0);
+                if (n <= 0) break;  // EOF or error
+                out.append(buf, static_cast<size_t>(n));
+            } else {
+                break;  // Timeout or error
+            }
+        }
+    }
+
+    return out;
 }

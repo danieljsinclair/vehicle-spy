@@ -36,7 +36,6 @@
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <array>
-#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -83,23 +82,29 @@ public:
     //! Reset the stop flag (for tests / repeated runs).
     static void resetStop() noexcept;
 
+    // Wire format constants (public for utility function access)
+    static constexpr size_t X25519_PUBLIC_KEY_LEN = 32;
+    static constexpr size_t X25519_SECRET_KEY_LEN = 32;
+    static constexpr size_t SESSION_KEY_LEN = 32;  // crypto_kx_SESSIONKEYBYTES
+    static constexpr size_t NONCE_LEN = 24;         // crypto_secretbox_xchacha20poly1305_NONCEBYTES
+    static constexpr size_t TAG_LEN = 16;           // crypto_secretbox_xchacha20poly1305_MACBYTES
+
+    // Connection/reconnect constants (public for utility function access)
+    static constexpr uint32_t CONNECT_TIMEOUT_MS = 5000;      // TCP connect timeout
+    static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 10000;   // Handshake (crypto) timeout
+    static constexpr uint32_t RECV_TIMEOUT_US = 500000;       // Data phase recv timeout (0.5s)
+    static constexpr int MAX_RECONNECT_ATTEMPTS = 10;        // Bounded reconnection attempts
+    static constexpr int BASE_RECONNECT_DELAY_MS = 1000;      // Initial reconnect delay
+    static constexpr int MAX_RECONNECT_DELAY_MS = 10000;      // Max exponential backoff
+    static constexpr size_t MAX_LINE_LEN = 4096;
+
 private:
     // ── Wire format ──────────────────────────────────────────────────────
     // Handshake: client_pubkey(32) | server_pubkey(32) | server_sig(64)
     // Data frame: nonce(24) | ciphertext(len) | tag(16)
     //   Total overhead per frame: 24 + 16 = 40 bytes.
 
-    static constexpr size_t X25519_PUBLIC_KEY_LEN = 32;
-    static constexpr size_t X25519_SECRET_KEY_LEN = 32;
-    static constexpr size_t SESSION_KEY_LEN = 32;  // crypto_kx_SESSIONKEYBYTES
-    static constexpr size_t NONCE_LEN = 24;         // crypto_secretbox_xchacha20poly1305_NONCEBYTES
-    static constexpr size_t TAG_LEN = 16;           // crypto_secretbox_xchacha20poly1305_MACBYTES
-    static constexpr uint32_t HANDSHAKE_TIMEOUT_MS = 5000;
-    static constexpr uint32_t RECV_TIMEOUT_US = 500000;
-    static constexpr size_t MAX_LINE_LEN = 4096;
-
     // Low-level helpers
-    bool connectTcp();
     bool performHandshake();
     std::optional<std::string> readEncryptedLine();
 
@@ -112,6 +117,8 @@ private:
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;
+    // Reconnect state
+    int reconnectCount_ = 0;
 
     // Session keys (derived after handshake)
     std::array<uint8_t, SESSION_KEY_LEN> txKey_{};  // client → server (unused for now; CAN is read-only)

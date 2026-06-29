@@ -132,13 +132,63 @@ private:
     int port_ = 0;
 };
 
-// Helper: accept a connection, read the AUTH line, send "OK". Returns true if
-// auth succeeded.
-bool acceptAndAuth(LoopbackServer& server, int timeoutMs = 3000) {
+// Helper: accept connection, auth, then handle HELO/ATI handshake. Returns true if all succeeded.
+bool acceptAuthAndHelo(LoopbackServer& server, int timeoutMs = 3000) {
     if (server.acceptClient(timeoutMs) < 0) return false;
+
+    // Read AUTH
     std::string line = server.readLine(timeoutMs);
     if (line != "AUTH vehicle-sim-2026") return false;
     server.sendBytes("OK\r");
+
+    // Read ATI
+    line = server.readLine(timeoutMs);
+    if (line != "ATI") return false;
+    server.sendBytes("ESP32 CAN Bridge v0.1\r");
+
+    // Read ATHELO
+    line = server.readLine(timeoutMs);
+    if (line != "ATHELO") return false;
+
+    // Send HELO ACK with a valid device ID
+    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r");
+
+    return true;
+}
+
+// Helper for ELM327 protocol that reads commands but accumulates them for later verification
+bool acceptAuthElm327AndHeloWithCapture(LoopbackServer& server, std::string& capturedCommands, int timeoutMs = 3000) {
+    if (server.acceptClient(timeoutMs) < 0) return false;
+
+    // Read AUTH
+    std::string line = server.readLine(timeoutMs);
+    if (line != "AUTH vehicle-sim-2026") return false;
+    server.sendBytes("OK\r");
+
+    // Small delay
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Read ELM327 init sequence and accumulate for verification
+    const char* elmCommands[] = {"ATZ", "ATE0", "ATSP6", "ATH1", "ATMA"};
+    for (size_t i = 0; i < sizeof(elmCommands)/sizeof(elmCommands[0]); i++) {
+        line = server.readLine(timeoutMs);
+        if (line != elmCommands[i]) return false;
+        capturedCommands += line + "\r";  // Accumulate with \r like the original format
+        server.sendBytes("OK\r");
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    // Read ATI
+    line = server.readLine(timeoutMs);
+    if (line != "ATI") return false;
+    server.sendBytes("ESP32 CAN Bridge v0.1\r");
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Read ATHELO
+    line = server.readLine(timeoutMs);
+    if (line != "ATHELO") return false;
+    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r");
+
     return true;
 }
 
@@ -152,12 +202,16 @@ TEST(TCPTransportTest, RawProtocol_SendsAuthOnConnect) {
 
     // Start the transport open in a thread so we can accept+auth before it times out.
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"raw");
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
     // Accept and auth before checking open result.
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
@@ -179,11 +233,15 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
@@ -218,11 +276,15 @@ TEST(TCPTransportTest, CleanDisconnect_DetectedByNextLine) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
@@ -274,31 +336,31 @@ TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    // Pass the StdOut output explicitly so the readTimeoutUs positional default
-    // is kept and the atInitDelayMs positional (0) zeroes the inter-command
-    // pacing — otherwise the ~5 AT commands × ~50-300ms settle ≈ 700ms of pure
-    // wall-clock waste in this test. The AT commands are still SENT, so the
-    // assertions below still hold; only the sleeps between them are skipped.
+    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms.
+    // Inject short socket recv timeout (10ms) so auth handshake recv() returns promptly.
+    // ELM327 needs a slightly longer timeout than raw tests due to multiple recv() calls
+    // during init sequence, but 10ms is still much faster than production 1000ms.
+    // The atInitDelayMs positional (0) zeroes the inter-command pacing — otherwise
+    // the ~5 AT commands × ~50-300ms settle ≈ 700ms of pure wall-clock waste in
+    // this test. The AT commands are still SENT, so the assertions below still
+    // hold; only the sleeps between them are skipped.
     TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/500000,
-                   /*atInitDelayMs=*/0);
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/0, /*socketRecvTimeoutMs=*/10);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    std::string capturedCommands;
+    ASSERT_TRUE(acceptAuthElm327AndHeloWithCapture(server, capturedCommands));
     th.join();
     ASSERT_TRUE(opened.load());
 
-    // After AUTH, ELM327 must send the AT-init sequence (ATZ/ATE0/ATSP6/ATH1/ATMA).
-    // With atInitDelayMs=0 the bytes arrive near-instantly; the 2000ms deadline
-    // is more than enough headroom.
-    std::string sent = server.readClientBytes(
-        std::string("ATZ\rATE0\rATSP6\rATH1\rATMA\r").size(), 2000);
-    EXPECT_NE(sent.find("ATZ\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATE0\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATSP6\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATH1\r"), std::string::npos);
-    EXPECT_NE(sent.find("ATMA\r"), std::string::npos);
+    // Verify that the ELM327 AT-init sequence was sent (captured during handshake)
+    EXPECT_NE(capturedCommands.find("ATZ\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATE0\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATSP6\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATH1\r"), std::string::npos);
+    EXPECT_NE(capturedCommands.find("ATMA\r"), std::string::npos);
 
     server.closeClient();
     TCPTransport::requestStop();
@@ -311,7 +373,9 @@ TEST(TCPTransportTest, Elm327InitFailure_OpenReturnsFalse) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "elm327");
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "elm327",
+                   std::make_shared<StdOut>(), 500000, -1, 1);
     // Open the transport; it will start sending AUTH then AT-init.
     // Close the server-side client immediately so the send fails.
     std::atomic<bool> opened{false};
@@ -335,16 +399,18 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    // Inject a tiny read timeout (1us) so nextLine()'s select() poll returns
+    // Inject a tiny read timeout (1ms) so nextLine()'s select() poll returns
     // promptly and re-checks the stop flag in ~0 ms instead of waiting the full
     // 0.5s production poll. The default output (StdOut) is passed explicitly so
     // the read-timeout positional arg can be supplied.
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1);
+                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
+                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
-    ASSERT_TRUE(acceptAndAuth(server));
+    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
@@ -369,7 +435,9 @@ TEST(TCPTransportTest, AuthRejected_OpenReturnsFalse) {
     ASSERT_TRUE(server.init());
 
     TCPTransport::resetStop();
-    TCPTransport t("127.0.0.1", server.port(), "raw");
+    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    TCPTransport t("127.0.0.1", server.port(), "raw",
+                   std::make_shared<StdOut>(), 500000, -1, 1);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 

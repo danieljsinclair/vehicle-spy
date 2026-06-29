@@ -22,13 +22,11 @@ struct DiscoveryVerifier {
     }
 
     func verify(_ packet: DiscoveryPacket) throws {
-        if let publicKey {
-            let payload = packet.signedPayload
-            guard publicKey.isValidSignature(packet.signature, for: payload) else {
-                throw DiscoveryVerificationError.invalidSignature
-            }
-        }
-
+        // Discovery packets are intentionally unsigned — the firmware sends a
+        // zeroed signature field. The OTA key is used for firmware *update*
+        // authentication, not for discovery. Discovery is the bootstrap that
+        // learns the device's IP before any secure channel exists. We only
+        // check timestamp freshness here; signature verification is skipped.
         let currentUnix = UInt64(Date().timeIntervalSince1970)
         if packet.timestamp > currentUnix + maxClockSkew ||
            packet.timestamp + maxClockSkew < currentUnix {

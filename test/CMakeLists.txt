@@ -58,6 +58,7 @@ add_executable(vehicle-sim-tests
     discovery/DiscoveryVerifier.test.cpp
     pipeline/SecureTcpTransport.test.cpp
     util/IClock.test.cpp
+    firmware/StatusLED.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests
@@ -78,10 +79,13 @@ if(APPLE)
     target_link_libraries(vehicle-sim-tests PRIVATE ${FOUNDATION})
 endif()
 
+# firmware paths: kept PRIVATE on vehicle-sim-lib (not propagated), so test target adds them explicitly.
 target_include_directories(vehicle-sim-tests
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../firmware
+    ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/can-bridge
     ${SODIUM_INCLUDE_DIR}
 )
 
