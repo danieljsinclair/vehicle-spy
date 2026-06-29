@@ -204,7 +204,6 @@ namespace vehicle_sim {
 // C++ Implementation starts here
 BLEManagerMacOS::BLEManagerMacOS()
     : BLEManagerBase()  // Initialize base class
-    , connected_(false)
 {
     // Create delegate and assign to member variable
     BLEMacOSDelegate* delegate = [[BLEMacOSDelegate alloc] init];

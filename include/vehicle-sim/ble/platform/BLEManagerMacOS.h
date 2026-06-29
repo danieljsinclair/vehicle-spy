@@ -98,10 +98,6 @@ private:
     void* delegate_ = nullptr;
 #endif
 
-    // Connection state (atomic for thread-safe access)
-    std::atomic<bool> connected_;
-    std::string connected_device_id_;
-
     // Platform-specific helper methods
     bool waitForBluetoothReady(int timeout_ms);
     CBPeripheral* findPeripheralByAddress(const std::string& address);
