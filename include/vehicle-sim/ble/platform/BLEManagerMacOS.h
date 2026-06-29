@@ -10,10 +10,10 @@
         #import <CoreBluetooth/CoreBluetooth.h>
     #else
         // Forward declarations when not in Objective-C mode
-        typedef struct objc_object CBCentralManager;
-        typedef struct objc_object CBPeripheral;
-        typedef struct objc_object CBCharacteristic;
-        typedef struct objc_object CBService;
+        using CBCentralManager = struct objc_object;
+        using CBPeripheral = struct objc_object;
+        using CBCharacteristic = struct objc_object;
+        using CBService = struct objc_object;
     #endif
 #endif
 
