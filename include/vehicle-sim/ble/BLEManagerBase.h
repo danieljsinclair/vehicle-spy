@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <functional>
 #include <memory>
@@ -108,7 +109,7 @@ public:
      * @param device_identifier Device UUID or address
      * @return true if connection initiated successfully
      */
-    virtual bool connect(const std::string& device_identifier) = 0;
+    virtual bool connect(std::string_view device_identifier) = 0;
 
     /**
      * Disconnect from the current device.
@@ -238,7 +239,7 @@ public:
      * Routes data to OBD2Protocol handler which manages vehicle detection.
      * @param asciiData Raw ASCII response from adapter
      */
-    void processOBD2Data(const std::string& asciiData);
+    void processOBD2Data(std::string_view asciiData);
 
     /**
      * Convert RSSI to signal quality string.
@@ -362,18 +363,18 @@ protected:
      * Invoke the connection callback (if set).
      * Thread-safe.
      */
-    void invokeConnectionCallback(bool connected, const std::string& device_id);
+    void invokeConnectionCallback(bool connected, std::string_view device_id);
 
     /**
      * Update connection state and invoke callback.
      */
-    void setConnectionState(bool connected, const std::string& device_id = "");
+    void setConnectionState(bool connected, std::string_view device_id = "");
 
     /**
      * Get the discovered device by address.
      * Thread-safe.
      */
-    std::optional<BLEDeviceInfo> findDeviceByAddress(const std::string& address) const;
+    std::optional<BLEDeviceInfo> findDeviceByAddress(std::string_view address) const;
 
     /**
      * Parse ASCII response from ELM327 adapter to binary OBD2 data.
@@ -385,7 +386,7 @@ protected:
     /**
      * Send an ASCII command string over BLE as raw bytes.
      */
-    void sendASCII(const std::string& command);
+    void sendASCII(std::string_view command);
 
     /**
      * Send a sequence of AT commands, waiting for the ELM327 '>' prompt

@@ -29,7 +29,7 @@ std::optional<double> DBCSignalMapper::mapSignal(
 std::optional<double> DBCSignalMapper::mapSignal(
     const std::vector<std::uint8_t>& frame,
     std::uint16_t canId,
-    const std::string& signalName,
+    std::string_view signalName,
     const std::unordered_map<std::uint16_t,
         std::vector<DBCSignalDefinition>>& definitions
 ) noexcept {
@@ -47,7 +47,7 @@ std::optional<double> DBCSignalMapper::mapSignal(
 std::optional<std::int32_t> DBCSignalMapper::mapGearSignal(
     const std::vector<std::uint8_t>& frame,
     std::uint16_t canId,
-    const std::string& signalName,
+    std::string_view signalName,
     const std::unordered_map<std::uint16_t,
         std::vector<DBCSignalDefinition>>& definitions
 ) noexcept {

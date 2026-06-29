@@ -19,7 +19,7 @@ public:
 
     // BLEPlatform interface
     std::vector<BLEDeviceInfo> scanForDevices(int timeout_seconds) override;
-    bool connect(const std::string& device_identifier) override;
+    bool connect(std::string_view device_identifier) override;
     void disconnect() override;
     void setDeviceFoundCallback(DeviceCallback callback) override;
     void setDataReceivedCallback(DataCallback callback) override;

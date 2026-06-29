@@ -7,17 +7,18 @@
 #include <algorithm>
 #include <thread>
 #include <chrono>
+#include <string_view>
 
 namespace vehicle_sim {
 namespace {
 
-std::string padToWidth(const std::string& s, int width) {
+std::string padToWidth(std::string_view s, int width) {
     int displayWidth = 0;
     for (size_t i = 0; i < s.size(); ++i) {
         displayWidth += (static_cast<unsigned char>(s[i]) & 0xC0) != 0x80 ? 1 : 0;
     }
-    if (displayWidth >= width) return s;
-    return s + std::string(width - displayWidth, ' ');
+    if (displayWidth >= width) return std::string(s);
+    return std::string(s) + std::string(width - displayWidth, ' ');
 }
 
 } // anonymous namespace
@@ -55,7 +56,7 @@ void BLEManagerBase::setConnectionCallback(ConnectionCallback callback) {
 // OBD2 Command Building
 // ================================================
 
-void BLEManagerBase::sendASCII(const std::string& command) {
+void BLEManagerBase::sendASCII(std::string_view command) {
     std::vector<uint8_t> bytes(command.begin(), command.end());
     send(bytes);
 }
@@ -93,7 +94,7 @@ std::vector<uint8_t> BLEManagerBase::parseASCIIResponseToBinary(const std::vecto
 bool BLEManagerBase::initializeELM327() {
     std::cout << "[BLEManagerBase] Initializing ELM327 adapter..." << std::endl;
 
-    obd2_protocol_.setSendCallback([this](const std::string& cmd) { sendASCII(cmd); });
+    obd2_protocol_.setSendCallback([this](std::string_view cmd) { sendASCII(cmd); });
 
     // Send initialization sequence with prompt-driven pacing.
     // Each AT command must complete (ELM327 sends '>' prompt) before
@@ -115,7 +116,7 @@ std::optional<domain::VehicleDetectionResult> BLEManagerBase::initializeOBD2With
     return obd2_protocol_.detectVehicle();
 }
 
-void BLEManagerBase::processOBD2Data(const std::string& asciiData) {
+void BLEManagerBase::processOBD2Data(std::string_view asciiData) {
     obd2_protocol_.processIncomingData(asciiData);
 }
 
@@ -300,7 +301,7 @@ void BLEManagerBase::clearDiscoveredDevices() {
     discovered_devices_.clear();
 }
 
-std::optional<BLEDeviceInfo> BLEManagerBase::findDeviceByAddress(const std::string& address) const {
+std::optional<BLEDeviceInfo> BLEManagerBase::findDeviceByAddress(std::string_view address) const {
     std::lock_guard<std::mutex> lock(devices_mutex_);
 
     for (const auto& device : discovered_devices_) {
@@ -375,13 +376,13 @@ void BLEManagerBase::invokeDataCallback(const std::vector<uint8_t>& data) {
     }
 }
 
-void BLEManagerBase::invokeConnectionCallback(bool connected, const std::string& device_id) {
+void BLEManagerBase::invokeConnectionCallback(bool connected, std::string_view device_id) {
     if (connection_callback_) {
-        connection_callback_(connected, device_id);
+        connection_callback_(connected, std::string(device_id));
     }
 }
 
-void BLEManagerBase::setConnectionState(bool connected, const std::string& device_id) {
+void BLEManagerBase::setConnectionState(bool connected, std::string_view device_id) {
     connected_ = connected;
     connected_device_id_ = device_id;
     invokeConnectionCallback(connected, device_id);

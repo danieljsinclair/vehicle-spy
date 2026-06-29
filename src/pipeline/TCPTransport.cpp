@@ -100,13 +100,13 @@ int connectToHost(const std::string& host, int port) {
 
 } // namespace
 
-TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol,
+TCPTransport::TCPTransport(std::string_view host, int port, std::string_view adapterProtocol,
                            std::shared_ptr<ITransportOutput> output,
                            int readTimeoutUs,
                            int atInitDelayMs)
-    : host_(std::move(host))
+    : host_(host)
     , port_(port)
-    , adapterProtocol_(std::move(adapterProtocol))
+    , adapterProtocol_(adapterProtocol)
     , output_(std::move(output))
     , readTimeoutUs_(readTimeoutUs > 0 ? readTimeoutUs : 500000)
     , atInitDelayMs_(atInitDelayMs) {
@@ -118,7 +118,7 @@ TCPTransport::~TCPTransport() {
     }
 }
 
-bool TCPTransport::sendAll(int fd, const std::string& data) noexcept {
+bool TCPTransport::sendAll(int fd, std::string_view data) noexcept {
     std::size_t sent = 0;
     while (sent < data.size()) {
         ssize_t n = send(fd, data.data() + sent, data.size() - sent, 0);

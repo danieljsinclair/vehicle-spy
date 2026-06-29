@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <cstdint>
 #include <optional>
@@ -26,7 +27,7 @@ namespace vehicle_sim::boundary {
  */
 class OBD2Protocol {
 public:
-    using SendCallback = std::function<void(const std::string& asciiCommand)>;
+    using SendCallback = std::function<void(std::string_view asciiCommand)>;
 
     OBD2Protocol();
     ~OBD2Protocol() = default;
@@ -41,7 +42,7 @@ public:
      * @brief Process incoming ASCII data from ELM327 adapter.
      * @param asciiData Raw ASCII response from adapter
      */
-    void processIncomingData(const std::string& asciiData);
+    void processIncomingData(std::string_view asciiData);
 
     /**
      * @brief Send ELM327 initialization sequence.

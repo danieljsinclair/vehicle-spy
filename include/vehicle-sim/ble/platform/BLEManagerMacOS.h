@@ -40,7 +40,7 @@ public:
 
     // BLEPlatform interface (required by BLEManagerBase)
     std::vector<BLEDeviceInfo> scanForDevices(int timeout_seconds) override;
-    bool connect(const std::string& device_identifier) override;
+    bool connect(std::string_view device_identifier) override;
     void disconnect() override;
     void send(const std::vector<uint8_t>& data) override;
     bool isConnected() const override;

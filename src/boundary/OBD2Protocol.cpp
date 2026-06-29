@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <chrono>
+#include <string_view>
 
 namespace vehicle_sim::boundary {
 
@@ -12,8 +13,8 @@ void OBD2Protocol::setSendCallback(SendCallback callback) {
     sendCallback_ = std::move(callback);
 }
 
-void OBD2Protocol::processIncomingData(const std::string& asciiData) {
-    auto binaryData = ELM327Transport::parseOBD2Response(asciiData);
+void OBD2Protocol::processIncomingData(std::string_view asciiData) {
+    auto binaryData = ELM327Transport::parseOBD2Response(std::string(asciiData));
     if (!binaryData) {
         return;
     }

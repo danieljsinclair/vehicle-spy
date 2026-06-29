@@ -10,12 +10,13 @@
 #include <cctype>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 namespace vehicle_sim::pipeline {
 
 namespace {
 
-bool startsWith(const std::string& s, const std::string& prefix) noexcept {
+bool startsWith(std::string_view s, std::string_view prefix) noexcept {
     return s.size() >= prefix.size() &&
            s.compare(0, prefix.size(), prefix) == 0;
 }
@@ -25,29 +26,29 @@ std::string toLower(std::string s) {
     return s;
 }
 
-bool isFile(const std::string& target) noexcept { return startsWith(target, "file:"); }
-bool isDemo(const std::string& target) noexcept { return target == "demo"; }
-bool isTcp(const std::string& target) noexcept { return startsWith(target, "tcp:"); }
-bool isUsb(const std::string& target) noexcept { return startsWith(target, "usb:"); }
+bool isFile(std::string_view target) noexcept { return startsWith(target, "file:"); }
+bool isDemo(std::string_view target) noexcept { return target == "demo"; }
+bool isTcp(std::string_view target) noexcept { return startsWith(target, "tcp:"); }
+bool isUsb(std::string_view target) noexcept { return startsWith(target, "usb:"); }
 
 } // namespace
 
 // Parse "tcp:<host>:<port>" or "tcp:<host>" (port defaults to 3333). Returns
 // false if the target is not a well-formed tcp: form. This is the single
 // canonical TCP-target parser for the engine.
-bool parseTcpTarget(const std::string& target, std::string& hostOut, int& portOut) noexcept {
-    const std::string prefix = "tcp:";
+bool parseTcpTarget(std::string_view target, std::string& hostOut, int& portOut) noexcept {
+    constexpr std::string_view prefix = "tcp:";
     if (!startsWith(target, prefix)) return false;
 
-    const std::string body = target.substr(prefix.size());
+    std::string_view body = target.substr(prefix.size());
     if (body.empty()) return false;
 
     // Split on the LAST ':' so the port (if present) follows it; a bare
     // "tcp:<host>" keeps the default port.
     auto lastColon = body.rfind(':');
-    if (lastColon != std::string::npos) {
-        const std::string hostPart = body.substr(0, lastColon);
-        const std::string portPart = body.substr(lastColon + 1);
+    if (lastColon != std::string_view::npos) {
+        std::string_view hostPart = body.substr(0, lastColon);
+        std::string_view portPart = body.substr(lastColon + 1);
 
         // The port must be all-digits and non-empty to count as a port;
         // otherwise treat the whole body as a host (defensive against odd
@@ -56,10 +57,10 @@ bool parseTcpTarget(const std::string& target, std::string& hostOut, int& portOu
             std::all_of(portPart.begin(), portPart.end(),
                         [](unsigned char c) { return std::isdigit(c); })) {
             try {
-                int port = std::stoi(portPart);
+                int port = std::stoi(std::string(portPart));
                 if (port < 1 || port > 65535) return false;
                 if (hostPart.empty()) return false;
-                hostOut = hostPart;
+                hostOut = std::string(hostPart);
                 portOut = port;
                 return true;
             } catch (...) {
@@ -69,16 +70,16 @@ bool parseTcpTarget(const std::string& target, std::string& hostOut, int& portOu
     }
 
     // No usable port token → whole body is the host, default port.
-    hostOut = body;
+    hostOut = std::string(body);
     portOut = 3333;
     return true;
 }
 
 std::string resolveAdapterProtocol(
-    const std::string& connectTarget,
-    const std::string& adapterProtocol) noexcept {
+    std::string_view connectTarget,
+    std::string_view adapterProtocol) noexcept {
     // An explicit, recognised override always wins.
-    const auto lowered = toLower(adapterProtocol);
+    const auto lowered = toLower(std::string(adapterProtocol));
     if (lowered == "raw" || lowered == "elm327") {
         return lowered;
     }
@@ -92,11 +93,11 @@ std::string resolveAdapterProtocol(
 }
 
 PipelineSource buildPipelineSource(
-    const std::string& connectTarget,
-    const std::string& adapterProtocol) {
+    std::string_view connectTarget,
+    std::string_view adapterProtocol) {
 
     if (isFile(connectTarget)) {
-        std::string path = connectTarget.substr(5);
+        std::string path(connectTarget.substr(5));
         PipelineSource src;
         src.transport = std::make_unique<FileTransport>(std::move(path));
         src.normaliser = std::make_unique<CaptureNormaliser>();
@@ -133,7 +134,7 @@ PipelineSource buildPipelineSource(
     if (isUsb(connectTarget)) {
         const auto effective = resolveAdapterProtocol(connectTarget, adapterProtocol);
         PipelineSource src;
-        src.transport = std::make_unique<USBTransport>(connectTarget.substr(4));
+        src.transport = std::make_unique<USBTransport>(std::string(connectTarget.substr(4)));
         if (effective == "elm327") {
             src.normaliser = std::make_unique<Elm327Normaliser>();
         } else {

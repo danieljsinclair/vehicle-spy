@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
 // TCP auth token — injected at build time via compiler define
 // Makefile passes -DTCP_AUTH_TOKEN=\"...\" for firmware; CMakeLists.txt sets it for native
@@ -56,7 +57,7 @@ public:
      *                         >= 0 overrides every command's delay to that value,
      *                         so tests can pass 0 and skip the ~700ms of pacing.
      */
-    TCPTransport(std::string host, int port, std::string adapterProtocol = "raw",
+    TCPTransport(std::string_view host, int port, std::string_view adapterProtocol = "raw",
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
                  int readTimeoutUs = 500000,
                  int atInitDelayMs = -1);
@@ -82,7 +83,7 @@ public:
     static void resetStop() noexcept;
 
 private:
-    bool sendAll(int fd, const std::string& data) noexcept;
+    bool sendAll(int fd, std::string_view data) noexcept;
     bool sendElm327Init(int fd) noexcept;
     bool connectAndAuth();
     void closeConnection() noexcept;

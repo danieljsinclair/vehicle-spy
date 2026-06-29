@@ -30,9 +30,9 @@ std::vector<BLEDeviceInfo> BLEManagerMock::scanForDevices(int /*timeout_seconds*
     return mock_devices_;
 }
 
-bool BLEManagerMock::connect(const std::string& device_identifier) {
+bool BLEManagerMock::connect(std::string_view device_identifier) {
     connected_ = true;
-    connected_device_id_ = device_identifier;
+    connected_device_id_ = std::string(device_identifier);
     return true;
 }
 

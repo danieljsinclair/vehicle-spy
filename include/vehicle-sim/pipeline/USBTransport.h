@@ -6,6 +6,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace vehicle_sim::pipeline {
 
@@ -16,7 +17,7 @@ namespace vehicle_sim::pipeline {
  */
 class USBTransport final : public ITransport {
 public:
-    USBTransport(std::string port, int baud = 115200,
+    USBTransport(std::string_view port, int baud = 115200,
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>());
     ~USBTransport() override;
 

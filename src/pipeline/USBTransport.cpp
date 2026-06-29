@@ -37,8 +37,8 @@ void USBTransport::resetStop() noexcept {
     g_stopRequested.store(false, std::memory_order_relaxed);
 }
 
-USBTransport::USBTransport(std::string port, int baud, std::shared_ptr<ITransportOutput> output)
-    : port_(std::move(port))
+USBTransport::USBTransport(std::string_view port, int baud, std::shared_ptr<ITransportOutput> output)
+    : port_(port)
     , baud_(baud)
     , output_(std::move(output)) {
 }

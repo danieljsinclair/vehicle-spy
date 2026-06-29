@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string_view>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/Orchestration.h"
@@ -137,7 +138,7 @@ std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
     if (!opts.log_base.empty()) {
         return opts.log_base;
     }
-    auto stripSuffix = [](std::string s, const std::string& suffix) {
+    auto stripSuffix = [](std::string s, std::string_view suffix) {
         if (s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0) {
             s.erase(s.size() - suffix.size());
         }

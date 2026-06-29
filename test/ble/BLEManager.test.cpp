@@ -16,7 +16,7 @@ using testing::Eq;
 class MockBLEManagerBase : public BLEManagerBase {
 public:
     MOCK_METHOD(std::vector<BLEDeviceInfo>, scanForDevices, (int timeout_seconds), (override));
-    MOCK_METHOD(bool, connect, (const std::string& device_identifier), (override));
+    MOCK_METHOD(bool, connect, (std::string_view device_identifier), (override));
     MOCK_METHOD(void, disconnect, (), (override));
     MOCK_METHOD(void, send, (const std::vector<uint8_t>& data), (override));
     MOCK_METHOD(bool, isConnected, (), (const, override));
@@ -198,7 +198,7 @@ TEST(BLEManagerBaseTest, ParsesASCIIResponseToBinary)
     class TestBLEManager : public BLEManagerBase {
     public:
         std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
-        bool connect(const std::string&) override { return false; }
+        bool connect(std::string_view) override { return false; }
         void disconnect() override {}
         void send(const std::vector<uint8_t>&) override {}
         bool isConnected() const override { return false; }
@@ -229,7 +229,7 @@ TEST(BLEManagerBaseTest, SkipsPromptAndEcho)
     class TestBLEManager : public BLEManagerBase {
     public:
         std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
-        bool connect(const std::string&) override { return false; }
+        bool connect(std::string_view) override { return false; }
         void disconnect() override {}
         void send(const std::vector<uint8_t>&) override {}
         bool isConnected() const override { return false; }
@@ -258,7 +258,7 @@ TEST(BLEManagerBaseTest, BuildsAndSendsOBD2QueryWithELM327Encoding)
     class TestBLEManager : public BLEManagerBase {
     public:
         std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
-        bool connect(const std::string&) override { return false; }
+        bool connect(std::string_view) override { return false; }
         void disconnect() override {}
         std::vector<uint8_t> lastSent;
 
@@ -309,7 +309,7 @@ namespace {
 class PromptTestBLEManager : public BLEManagerBase {
 public:
     std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
-    bool connect(const std::string&) override { return false; }
+    bool connect(std::string_view) override { return false; }
     void disconnect() override {}
     std::vector<uint8_t> lastSent;
     int sendCount = 0;

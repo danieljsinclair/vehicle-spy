@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include "vehicle-sim/domain/DBCSignalDefinition.h"
 #include "vehicle-sim/domain/Gear.h"
@@ -58,7 +59,7 @@ public:
     [[nodiscard]] static std::optional<double> mapSignal(
         const std::vector<std::uint8_t>& frame,
         std::uint16_t canId,
-        const std::string& signalName,
+        std::string_view signalName,
         const std::unordered_map<std::uint16_t,
             std::vector<DBCSignalDefinition>>& definitions
     ) noexcept;
@@ -83,7 +84,7 @@ public:
     [[nodiscard]] static std::optional<std::int32_t> mapGearSignal(
         const std::vector<std::uint8_t>& frame,
         std::uint16_t canId,
-        const std::string& signalName,
+        std::string_view signalName,
         const std::unordered_map<std::uint16_t,
             std::vector<DBCSignalDefinition>>& definitions
     ) noexcept;
