@@ -45,16 +45,16 @@ final class ESP32DiscoveryListener {
     private let queue: DispatchQueue
 
     private let lock = NSLock()
-    private var _listener: NWListener?
-    private var _isListening = false
+    private var listenerStorage: NWListener?
+    private var isListeningStorage = false
 
     private var listener: NWListener? {
-        get { lock.withLock { _listener } }
-        set { lock.withLock { _listener = newValue } }
+        get { lock.withLock { listenerStorage } }
+        set { lock.withLock { listenerStorage = newValue } }
     }
 
     var isListening: Bool {
-        lock.withLock { _isListening }
+        lock.withLock { isListeningStorage }
     }
 
     init(
@@ -89,13 +89,13 @@ final class ESP32DiscoveryListener {
             switch state {
             case .ready:
                 self.logger.info("Discovery listener ready on port \(DiscoveryConstants.broadcastPort)")
-                self.lock.withLock { self._isListening = true }
+                self.lock.withLock { self.isListeningStorage = true }
             case .failed(let error):
                 self.logger.error("Discovery listener failed: \(error.localizedDescription)")
-                self.lock.withLock { self._isListening = false }
+                self.lock.withLock { self.isListeningStorage = false }
                 self.onError(.listenerFailed(error))
             case .cancelled:
-                self.lock.withLock { self._isListening = false }
+                self.lock.withLock { self.isListeningStorage = false }
             default:
                 break
             }
@@ -108,7 +108,7 @@ final class ESP32DiscoveryListener {
     func stop() {
         listener?.cancel()
         listener = nil
-        lock.withLock { _isListening = false }
+        lock.withLock { isListeningStorage = false }
     }
 
     deinit {
