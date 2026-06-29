@@ -13,6 +13,7 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <driver/twai.h>
 
 // TCP auth token — injected at build time, never stored on disk
 #ifndef TCP_AUTH_TOKEN
@@ -24,8 +25,6 @@ static const char* const RED    = "\033[0;31m";
 static const char* const GREEN  = "\033[0;32m";
 static const char* const PURPLE = "\033[0;35m";
 static const char* const NC     = "\033[0m";
-
-#include <driver/twai.h>
 
 #ifndef VEHICLE_SIM_ENABLE_OTA_SERVER
 #define VEHICLE_SIM_ENABLE_OTA_SERVER 1
