@@ -85,6 +85,10 @@ class VehicleViewModel: ObservableObject {
     // devices seen between clears.
     private let maxAuthFailedIPs = 50
 
+    // L3: tag literals shared across the iOS layer. C++ has its own equivalents.
+    private let clientTag = " [CLIENT]"
+    private let esp32TagPrefix = " [ESP32:"
+
     struct DeviceEntry: Identifiable {
         let id = UUID()
         let name: String
@@ -149,7 +153,7 @@ class VehicleViewModel: ObservableObject {
         connectionState = .connected
         connectedDeviceName = "Demo"
         connectedDeviceAddress = "simulation"
-        connectionStatus = "Demo [CLIENT]"
+        connectionStatus = "Demo" + clientTag
         startPolling()
     }
 
@@ -159,7 +163,7 @@ class VehicleViewModel: ObservableObject {
         guard wrapper != nil else { return }
         wrapper?.startBLE()
         connectionState = .connecting
-        connectionStatus = "Scanning [CLIENT]"
+        connectionStatus = "Scanning" + clientTag
     }
 
     func stop() {
@@ -167,7 +171,7 @@ class VehicleViewModel: ObservableObject {
         connectionState = .disconnected
         connectedDeviceName = nil
         connectedDeviceAddress = nil
-        connectionStatus = "Disconnected [CLIENT]"
+        connectionStatus = "Disconnected" + clientTag
         stopUpdates()
 
         throttlePercent = nil
@@ -213,7 +217,7 @@ class VehicleViewModel: ObservableObject {
     func connectToDevice(_ device: DeviceEntry) {
         guard wrapper != nil else { return }
         isConnecting = true
-        connectionStatus = "Connecting [CLIENT]"
+        connectionStatus = "Connecting" + clientTag
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self, let wrapper = self.wrapper else { return }
@@ -229,11 +233,11 @@ class VehicleViewModel: ObservableObject {
                     self.connectedDeviceName = wrapper.connectedDeviceName
                     self.connectedDeviceAddress = wrapper.connectedDeviceAddress
                     self.discoveredDevices = []
-                    self.connectionStatus = "Connected [CLIENT]"
+                    self.connectionStatus = "Connected" + clientTag
                     self.startPolling()
                 } else {
                     self.connectionState = .disconnected
-                    self.connectionStatus = "Connection Failed [CLIENT]"
+                    self.connectionStatus = "Connection Failed" + clientTag
                 }
             }
         }
@@ -244,7 +248,7 @@ class VehicleViewModel: ObservableObject {
         connectionState = .disconnected
         connectedDeviceName = nil
         connectedDeviceAddress = nil
-        connectionStatus = "Disconnected [CLIENT]"
+        connectionStatus = "Disconnected" + clientTag
         stopUpdates()
 
         // Resume discovery after disconnect if in WiFi mode
@@ -417,7 +421,7 @@ class VehicleViewModel: ObservableObject {
         // Check if this IP has previously failed authentication
         if authFailedIPs.contains(esp32.address) {
             wifiSecurityError = "This device previously failed authentication"
-            connectionStatus = "Skipping: Auth Failed Previously [CLIENT]"
+            connectionStatus = "Skipping: Auth Failed Previously" + clientTag
             return
         }
 
@@ -427,7 +431,7 @@ class VehicleViewModel: ObservableObject {
             wifiSecurityError = nil
         } catch {
             wifiSecurityError = error.localizedDescription
-            connectionStatus = "Refused: Unverified Device [CLIENT]"
+            connectionStatus = "Refused: Unverified Device" + clientTag
             return
         }
 
@@ -458,7 +462,7 @@ class VehicleViewModel: ObservableObject {
         // Pause discovery during connection attempt
         stopESP32Discovery()
 
-        connectionStatus = "Connecting to \(address):\(port) [CLIENT]"
+        connectionStatus = "Connecting to \(address):\(port)" + clientTag
         connectionState = .connecting
 
         connectionWorkQueue.addOperation { [weak self] in
@@ -497,9 +501,9 @@ class VehicleViewModel: ObservableObject {
                         self.connectedDeviceAddress = "\(currentAddress):\(currentPort)"
                         let deviceIdHex = targetDevice.deviceId.map { String(format: "%02X", $0) }.joined()
                         if !deviceIdHex.isEmpty {
-                            self.connectionStatus = "Connected to ESP32 [CLIENT] [ESP32:\(deviceIdHex)]"
+                            self.connectionStatus = "Connected to ESP32" + clientTag + esp32TagPrefix + deviceIdHex + "]"
                         } else {
-                            self.connectionStatus = "Connected to ESP32 [CLIENT]"
+                            self.connectionStatus = "Connected to ESP32" + clientTag
                         }
                         self.autoConnectedESP32 = targetDevice
                         self.startPolling()
@@ -520,7 +524,7 @@ class VehicleViewModel: ObservableObject {
                     // Remove this device from discovered list
                     self.discoveredESP32s.removeAll { $0.address == currentAddress }
 
-                    self.connectionStatus = "Auth Failed - Skipping \(currentAddress), hunting... [CLIENT]"
+                    self.connectionStatus = "Auth Failed - Skipping \(currentAddress), hunting..." + clientTag
                 }
 
                 // Resume discovery to find other ESP32 devices on the network
@@ -587,7 +591,7 @@ class VehicleViewModel: ObservableObject {
             // Hunting failed - no more candidates
             DispatchQueue.main.async {
                 self.connectionState = .disconnected
-                self.connectionStatus = "No more devices found - stopped hunting [CLIENT]"
+                self.connectionStatus = "No more devices found - stopped hunting" + clientTag
 
                 // Resume discovery for next attempt
                 if self.connectionMode == .wifi {

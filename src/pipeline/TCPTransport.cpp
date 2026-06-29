@@ -47,6 +47,7 @@ constexpr int READ_TIMEOUT_US_FLOOR = 1000;  // 1ms poll floor so sub-ms injects
 // Connection/reconnect constants
 constexpr int CONNECT_TIMEOUT_S = 5;          // How long connect() may block before failing
 constexpr std::size_t MAX_PENDING_LEN = 4096;  // Guard against runaway line buffering
+constexpr int DEFAULT_PER_COMMAND_DELAY_MS = 50;  // Fallback per-command delay when none is supplied
 
 
 // Resolve host:port into a connected TCP socket, or -1 on failure. Uses a
@@ -121,11 +122,12 @@ TCPTransport::~TCPTransport() {
 
 // ELM327 init pacing: honours the overridable atInitDelayMs_ while never
 // regressing to hard-coded defaults that tests can't control.
+// Single call site (sendElm327Init) — kept as a named method to document the override point, not for reuse.
 int TCPTransport::perCommandDelayMs(int cmdDelayMs) const {
     if (atInitDelayMs_ >= 0) {
         return atInitDelayMs_;  // tests / callers override every command
     }
-    return cmdDelayMs > 0 ? cmdDelayMs : 50;
+    return cmdDelayMs > 0 ? cmdDelayMs : DEFAULT_PER_COMMAND_DELAY_MS;
 }
 
 bool TCPTransport::sendAll(int fd, const std::string& data) noexcept {
@@ -427,7 +429,7 @@ bool TCPTransport::enterHuntingState() {
                     discoveredIp = device.address;
                     discoveryFound.store(true);
                     output_->out("[tcp] Discovery: found device at new IP " + device.address +
-                               " (was " + host_ + ") [ESP32:" + deviceIdHex_.substr(0, 8) + "]");
+                               " (was " + host_ + ")" + kEsp32TagPrefix + deviceIdHex_.substr(0, 8) + "]");
                     break;
                 }
             }
@@ -450,7 +452,7 @@ bool TCPTransport::enterHuntingState() {
 
         output_->err("[tcp] hunting: retrying old IP " + host_ + ":" + std::to_string(port_) +
                    " (attempt " + std::to_string(retryCount_) + "/" + std::to_string(MAX_RETRIES) +
-                   " in " + std::to_string(delayMs) + "ms) [CLIENT]...");
+                   " in " + std::to_string(delayMs) + "ms)" + kClientTag + "...");
 
         // Sleep for backoff delay, but check periodically if discovery found new IP
         int checkInterval = 100;  // Check every 100ms
@@ -467,7 +469,7 @@ bool TCPTransport::enterHuntingState() {
         if (connectAndAuth()) {
             reconnected = true;
             output_->out("[tcp] hunting: reconnected to old IP " + host_ + ":" + std::to_string(port_) +
-                       " [ESP32:" + deviceIdHex_.substr(0, 8) + "] [CLIENT]");
+                       kEsp32TagPrefix + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
             break;  // Old IP won
         }
     }
@@ -489,12 +491,12 @@ bool TCPTransport::enterHuntingState() {
         // Discovery found new IP first - switch and reconnect
         std::string oldHost = host_;
         host_ = discoveredIp;
-        output_->out("[tcp] hunting: switching to discovered IP " + host_ + " (was " + oldHost + ") [CLIENT]");
+        output_->out("[tcp] hunting: switching to discovered IP " + host_ + " (was " + oldHost + ")" + kClientTag);
 
         // Attempt connection to new IP immediately
         if (connectAndAuth()) {
             output_->out("[tcp] hunting: connected to new IP " + host_ + ":" + std::to_string(port_) +
-                       " [ESP32:" + deviceIdHex_.substr(0, 8) + "] [CLIENT]");
+                       kEsp32TagPrefix + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
             retryCount_ = 0;
             return true;
         } else {
@@ -522,9 +524,9 @@ bool TCPTransport::open() {
         return false;
     }
     if (!deviceIdHex_.empty()) {
-        output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + " [CLIENT] [ESP32:" + deviceIdHex_ + "]");
+        output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + kClientTag + kEsp32TagPrefix + deviceIdHex_ + "]");
     } else {
-        output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + " [CLIENT]");
+        output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + kClientTag);
     }
     pending_.reserve(256);
     return true;
@@ -600,9 +602,9 @@ std::optional<std::string> TCPTransport::nextLine() {
                 return std::nullopt;
             }
             if (!deviceIdHex_.empty()) {
-            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " [ESP32:" + deviceIdHex_ + "] — reconnecting [CLIENT]...");
+            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + kEsp32TagPrefix + deviceIdHex_ + "] — reconnecting" + kClientTag + "...");
         } else {
-            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " — reconnecting [CLIENT]...");
+            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " — reconnecting" + kClientTag + "...");
         }
             closeConnection();
 

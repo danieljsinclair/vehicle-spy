@@ -154,6 +154,8 @@ if(APPLE)
     )
 endif()
 
+# L2: firmware/can-bridge paths kept PRIVATE here (not propagated to consumers);
+# test/CMakeLists.txt re-adds them explicitly for StatusLED.test.cpp.
 target_include_directories(vehicle-sim-lib
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

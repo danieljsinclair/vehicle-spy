@@ -34,10 +34,8 @@ def load_sodium():
 
 def sign_firmware(sodium, image_path, priv_key_path):
     """Sign a firmware image with Ed25519ph (RFC 8032 pre-hashed)."""
-    # subprocess is only needed for the openssl CLI invocation in
-    # sign_firmware() and derive_public_key(); keeping it at function scope
-    # means the rest of the script's argparse/sign/push flow can still be
-    # imported and inspected without openssl on PATH.
+    # subprocess: only invoked from sign_firmware/derive_public_key; kept at function scope
+    # so the rest of the script's argparse/push flow can be imported without openssl on PATH.
     import subprocess
 
     der = subprocess.check_output(['openssl', 'pkey', '-in', priv_key_path, '-outform', 'DER'])
