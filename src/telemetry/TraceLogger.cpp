@@ -1,5 +1,6 @@
 #include "vehicle-sim/telemetry/TraceLogger.h"
 #include "vehicle-sim/domain/Gear.h"
+#include "vehicle-sim/domain/VehicleSimExceptions.h"
 
 #include <sstream>
 #include <iomanip>
@@ -12,7 +13,7 @@ TraceLogger::TraceLogger(std::string filePath, std::string vehicleId)
     , vehicleId_(std::move(vehicleId))
 {
     if (!file_) {
-        throw std::runtime_error("Failed to open trace file: " + filePath);
+        throw domain::TelemetryFileException(filePath);
     }
     writeHeader();
 }

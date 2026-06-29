@@ -1,8 +1,8 @@
 #include "vehicle-sim/telemetry/RawTraceLogger.h"
+#include "vehicle-sim/domain/VehicleSimExceptions.h"
 
 #include <iomanip>
 #include <sstream>
-#include <stdexcept>
 
 namespace vehicle_sim::telemetry {
 
@@ -10,7 +10,7 @@ RawTraceLogger::RawTraceLogger(std::string filePath)
     : file_(filePath, std::ios::app)
 {
     if (!file_) {
-        throw std::runtime_error("Failed to open raw trace file: " + filePath);
+        throw domain::TelemetryFileException(filePath);
     }
     file_ << "# vehicle-sim raw CAN capture\n";
     file_ << "# format: timestamp_utc_ms,data_hex\n";
@@ -55,4 +55,4 @@ RawTraceLogger& RawTraceLogger::operator=(RawTraceLogger&& other) noexcept {
     return *this;
 }
 
-}
+} // namespace vehicle_sim::telemetry
