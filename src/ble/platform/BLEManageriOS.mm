@@ -274,7 +274,7 @@ std::vector<BLEDeviceInfo> BLEManageriOS::scanForDevices(int timeout_seconds) {
     return discovered_devices_;
 }
 
-bool BLEManageriOS::connect(const std::string& device_identifier) {
+bool BLEManageriOS::connect(std::string_view device_identifier) {
     std::cout << "[BLEManageriOS] Attempting to connect to: " << device_identifier << std::endl;
 
     if (!central_manager_) {
@@ -293,7 +293,8 @@ bool BLEManageriOS::connect(const std::string& device_identifier) {
         const_cast<BLEDeviceInfo&>(*device).peripheral = nullptr;
     } else {
         // Try to retrieve by UUID if not in discovered list
-        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:device_identifier.c_str()]];
+        std::string identifier_str(device_identifier);
+        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:identifier_str.c_str()]];
         if (uuid) {
             NSArray* peripherals = [central_manager_ retrievePeripheralsWithIdentifiers:@[uuid]];
             if (peripherals.count > 0) {
@@ -316,7 +317,7 @@ bool BLEManageriOS::connect(const std::string& device_identifier) {
 
     // Connection is async - report success if no immediate error
     connected_ = true;
-    connected_device_id_ = device_identifier;
+    connected_device_id_ = std::string(device_identifier);
 
     // Update base class state
     setConnectionState(true, device_identifier);
