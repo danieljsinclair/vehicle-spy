@@ -429,7 +429,7 @@ bool TCPTransport::enterHuntingState() {
                     discoveredIp = device.address;
                     discoveryFound.store(true);
                     output_->out("[tcp] Discovery: found device at new IP " + device.address +
-                               " (was " + host_ + ")" + kEsp32TagPrefix + deviceIdHex_.substr(0, 8) + "]");
+                               " (was " + host_ + ")" + " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]");
                     break;
                 }
             }
@@ -469,7 +469,7 @@ bool TCPTransport::enterHuntingState() {
         if (connectAndAuth()) {
             reconnected = true;
             output_->out("[tcp] hunting: reconnected to old IP " + host_ + ":" + std::to_string(port_) +
-                       kEsp32TagPrefix + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
+                       " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
             break;  // Old IP won
         }
     }
@@ -496,7 +496,7 @@ bool TCPTransport::enterHuntingState() {
         // Attempt connection to new IP immediately
         if (connectAndAuth()) {
             output_->out("[tcp] hunting: connected to new IP " + host_ + ":" + std::to_string(port_) +
-                       kEsp32TagPrefix + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
+                       " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
             retryCount_ = 0;
             return true;
         } else {
@@ -524,7 +524,7 @@ bool TCPTransport::open() {
         return false;
     }
     if (!deviceIdHex_.empty()) {
-        output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + kClientTag + kEsp32TagPrefix + deviceIdHex_ + "]");
+        output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + kClientTag + " [" + kEsp32TagPrefix + ":" + deviceIdHex_ + "]");
     } else {
         output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + kClientTag);
     }
@@ -602,7 +602,7 @@ std::optional<std::string> TCPTransport::nextLine() {
                 return std::nullopt;
             }
             if (!deviceIdHex_.empty()) {
-            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + kEsp32TagPrefix + deviceIdHex_ + "] — reconnecting" + kClientTag + "...");
+            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " [" + kEsp32TagPrefix + ":" + deviceIdHex_ + "] — reconnecting" + kClientTag + "...");
         } else {
             output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " — reconnecting" + kClientTag + "...");
         }

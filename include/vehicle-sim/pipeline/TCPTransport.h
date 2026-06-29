@@ -105,9 +105,14 @@ public:
     // Legacy alias for compatibility
     static constexpr int RETRY_DELAY_MS = BASE_RETRY_DELAY_MS;
 
+    // L3: tag literals shared across the C++ layer. iOS has its own equivalents.
+    static constexpr const char* kClientTag = " [CLIENT]";
+    static constexpr const char* kEsp32TagPrefix = "ESP32";
+
 private:
     bool sendAll(int fd, const std::string& data) noexcept;
     bool sendElm327Init(int fd) noexcept;
+    // Falls back to DEFAULT_PER_COMMAND_DELAY_MS (50ms) when no positive value is supplied
     int perCommandDelayMs(int cmdDelayMs) const;
     bool connectAndAuth();
     void closeConnection() noexcept;

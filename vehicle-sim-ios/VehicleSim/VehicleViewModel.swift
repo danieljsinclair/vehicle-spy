@@ -87,7 +87,7 @@ class VehicleViewModel: ObservableObject {
 
     // L3: tag literals shared across the iOS layer. C++ has its own equivalents.
     private let clientTag = " [CLIENT]"
-    private let esp32TagPrefix = " [ESP32:"
+    private let esp32TagPrefix = "ESP32"
 
     struct DeviceEntry: Identifiable {
         let id = UUID()
@@ -233,11 +233,11 @@ class VehicleViewModel: ObservableObject {
                     self.connectedDeviceName = wrapper.connectedDeviceName
                     self.connectedDeviceAddress = wrapper.connectedDeviceAddress
                     self.discoveredDevices = []
-                    self.connectionStatus = "Connected" + clientTag
+                    self.connectionStatus = "Connected" + self.clientTag
                     self.startPolling()
                 } else {
                     self.connectionState = .disconnected
-                    self.connectionStatus = "Connection Failed" + clientTag
+                    self.connectionStatus = "Connection Failed" + self.clientTag
                 }
             }
         }
@@ -501,9 +501,9 @@ class VehicleViewModel: ObservableObject {
                         self.connectedDeviceAddress = "\(currentAddress):\(currentPort)"
                         let deviceIdHex = targetDevice.deviceId.map { String(format: "%02X", $0) }.joined()
                         if !deviceIdHex.isEmpty {
-                            self.connectionStatus = "Connected to ESP32" + clientTag + esp32TagPrefix + deviceIdHex + "]"
+                            self.connectionStatus = "Connected to ESP32" + self.clientTag + " [" + self.esp32TagPrefix + ":" + deviceIdHex + "]"
                         } else {
-                            self.connectionStatus = "Connected to ESP32" + clientTag
+                            self.connectionStatus = "Connected to ESP32" + self.clientTag
                         }
                         self.autoConnectedESP32 = targetDevice
                         self.startPolling()
@@ -524,7 +524,7 @@ class VehicleViewModel: ObservableObject {
                     // Remove this device from discovered list
                     self.discoveredESP32s.removeAll { $0.address == currentAddress }
 
-                    self.connectionStatus = "Auth Failed - Skipping \(currentAddress), hunting..." + clientTag
+                    self.connectionStatus = "Auth Failed - Skipping \(currentAddress), hunting..." + self.clientTag
                 }
 
                 // Resume discovery to find other ESP32 devices on the network
@@ -591,7 +591,7 @@ class VehicleViewModel: ObservableObject {
             // Hunting failed - no more candidates
             DispatchQueue.main.async {
                 self.connectionState = .disconnected
-                self.connectionStatus = "No more devices found - stopped hunting" + clientTag
+                self.connectionStatus = "No more devices found - stopped hunting" + self.clientTag
 
                 // Resume discovery for next attempt
                 if self.connectionMode == .wifi {
