@@ -12,6 +12,8 @@
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include "OtaPublicKey.h"
+#include <string_view>
+#include <array>
 
 extern "C" {
 #include <sodium.h>

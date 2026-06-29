@@ -14,6 +14,8 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <driver/twai.h>
+#include <string_view>
+#include <array>
 
 // TCP auth token — injected at build time, never stored on disk
 #ifndef TCP_AUTH_TOKEN
@@ -21,10 +23,10 @@
 #endif
 
 // ANSI color codes for serial output
-static const char* const RED    = "\033[0;31m";
-static const char* const GREEN  = "\033[0;32m";
-static const char* const PURPLE = "\033[0;35m";
-static const char* const NC     = "\033[0m";
+constexpr std::string_view RED    = "\033[0;31m";
+constexpr std::string_view GREEN  = "\033[0;32m";
+constexpr std::string_view PURPLE = "\033[0;35m";
+constexpr std::string_view NC     = "\033[0m";
 
 #ifndef VEHICLE_SIM_ENABLE_OTA_SERVER
 #define VEHICLE_SIM_ENABLE_OTA_SERVER 1
@@ -60,8 +62,8 @@ static constexpr const char* WIFI_SSID = nullptr;
 static constexpr const char* WIFI_PASSWORD = nullptr;
 #endif
 
-static constexpr const char* AP_SSID = "ESP32-CAN";
-static constexpr const char* AP_PASS = "cancan12";
+constexpr std::string_view AP_SSID = "ESP32-CAN";
+constexpr std::string_view AP_PASS = "cancan12";
 
 static constexpr gpio_num_t TWAI_TX = GPIO_NUM_22;
 static constexpr gpio_num_t TWAI_RX = GPIO_NUM_21;
