@@ -299,7 +299,7 @@ $(FIRMWARE_CRED_SENTINEL): $(FIRMWARE_DIR)/*.ino FORCE
 	_old=$$(cat $@ 2>/dev/null || true); \
 	if [ "$$_new" != "$$_old" ]; then \
 		printf '%s\n' "$$_new" > $@; \
-		echo "  ${CYAN}WiFi credentials changed${NC} -> rebuilding firmware..."; \
+		echo "  ${YELLOW}WiFi credentials changed${NC} -> ${GREEN}rebuilding firmware...${NC}"; \
 	fi
 
 $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(wildcard $(FIRMWARE_DIR)/*.ino)
@@ -889,7 +889,12 @@ coverage-summary:
 # file is what ``all`` consumes, not phony output.
 SUMMARY_FILE := build-sonar/summary.txt
 
+# summary: ALWAYS displays the 3-line headline (phony), regenerating the
+# file only when inputs changed.  Separating display from generation means
+# the headline prints even when nothing was rebuilt.
+.PHONY: summary
 summary: $(SUMMARY_FILE)
+	@cat $(SUMMARY_FILE)
 
 $(SUMMARY_FILE): $(SONAR_MEASURES) $(SONAR_IOS_MEASURES) $(SONAR_ESP32_MEASURES) \
 		$(COVERAGE_LCOV) $(COVERAGE_JSON_IOS) \
@@ -919,8 +924,7 @@ $(SUMMARY_FILE): $(SONAR_MEASURES) $(SONAR_IOS_MEASURES) $(SONAR_ESP32_MEASURES)
 		--removed-facet "$(SONAR_ESP32_REMOVED_FACET)" \
 		>> $$_tmp; \
 	echo "HINT: run 'make sonar-summary' (full issues) or 'make coverage-summary' (coverage %)." >> $$_tmp; \
-	mv $$_tmp $@; \
-	cat $@
+	mv $$_tmp $@
 
 sonar-clean:
 	@rm -f $(SONAR_REPORT) $(SONAR_REMOVED_FACET) $(SONAR_MEASURES)
