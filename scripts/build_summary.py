@@ -533,7 +533,7 @@ def parse_sonar(report_path, removed_facet_path=None):
 # are ZERO display-width, so padding is computed on the VISIBLE text via
 # pad_visible). Sized for the widest realistic value per column.
 COL_WIDTH_LABEL = 19
-COL_WIDTH_TESTS = 18
+COL_WIDTH_TESTS = 20
 COL_WIDTH_COV = 20
 COL_WIDTH_SONAR = 39
 
@@ -574,19 +574,21 @@ def emit_line(label, tests, cov, sonar):
     sep = _separator()
     segments = []
 
-    # tests column (always reserve width so subsequent columns align)
+    # tests column (always reserve width so subsequent columns align).
+    # FAIL format is compact ("FAIL 5/51") so it fits COL_WIDTH_TESTS;
+    # the verbose "passed, N failed" form overflows and misaligns columns.
     if tests is not None:
         passed, total = tests
         failed = total - passed
         if failed > 0:
-            tests_str = '{}tests: FAIL ({}/{} passed, {} failed){}'.format(
-                RED, passed, total, failed, RESET)
+            tests_str = '{}tests: FAIL {}/{}{}'.format(
+                RED, failed, total, RESET)
         else:
             tests_str = '{}tests: PASS {}/{}{}'.format(
                 GREEN, passed, total, RESET)
         segments.append(pad_visible(tests_str, COL_WIDTH_TESTS))
     else:
-        segments.append(' ' * COL_WIDTH_TESTS)
+        segments.append(pad_visible('{}tests: N/A{}'.format(GREY, RESET), COL_WIDTH_TESTS))
 
     # cov column (always reserve width so sonar column aligns)
     if cov is not None:
@@ -599,7 +601,7 @@ def emit_line(label, tests, cov, sonar):
             cov_str = '{}cov: {:.1f}%{}'.format(colour, pct, RESET)
         segments.append(pad_visible(cov_str, COL_WIDTH_COV))
     else:
-        segments.append(' ' * COL_WIDTH_COV)
+        segments.append(pad_visible('{}cov: N/A{}'.format(GREY, RESET), COL_WIDTH_COV))
 
     # sonar column (always present for a scanned project)
     if sonar is not None:
