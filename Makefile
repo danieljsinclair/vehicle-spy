@@ -3,7 +3,7 @@
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
 	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp check-esp32 \
 	        sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary sonar-compiledb sonar-compiledb-cpp sonar-compiledb-merge sonar-clean summary \
-	        coverage-run coverage-clean test-ios coverage-ios coverage-summary \
+	        coverage-run coverage-clean coverage-summary \
 			header
 
 # Device ID (first connected/available device, excluding unavailable)
@@ -592,22 +592,30 @@ IOS_COV_INPUTS    := $(shell find vehicle-sim-ios/VehicleSim vehicle-sim-ios/Veh
 # or
 #   ** TEST FAILED **
 IOS_TEST_LOG := $(BUILD_IOS_DIR)/ios-test.log
-test-ios: app-icons
+
+# test-ios: run the iOS unit-test bundle on the simulator (no coverage).
+# File-artefact target: re-runs only when the log is missing or the app
+# sources / Makefile have changed since the last run. The log is the
+# artefact Make tracks; the coloured PASSED/FAILED line is just display.
+test-ios: $(IOS_TEST_LOG)
+
+$(IOS_TEST_LOG): app-icons $(IOS_COV_INPUTS)
 	@echo "=== [vehicle-spy] Running iOS tests on simulator $(IOS_SIMULATOR) ==="
-	@xcodebuild test \
+	@_run=$$(date +%Y%m%d-%H%M%S); \
+	xcodebuild test \
 		-project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj \
 		-scheme VehicleSimApp -configuration Debug \
 		-destination 'platform=iOS Simulator,name=$(IOS_SIMULATOR),arch=arm64' \
 		-derivedDataPath $(BUILD_IOS_DIR) \
 		CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
-		> $(IOS_TEST_LOG) 2>&1 || true
-	@_line=$$(grep -E 'Executed [0-9]+ tests' $(IOS_TEST_LOG) | tail -1 | sed 's/^/  /'); \
-	if grep -q 'Test Suite.*passed' $(IOS_TEST_LOG) 2>/dev/null; then \
+		> $@ 2>&1 || true
+	@_line=$$(grep -E 'Executed [0-9]+ tests' $@ | tail -1 | sed 's/^/  /'); \
+	if grep -q 'Test Suite.*passed' $@ 2>/dev/null; then \
 		echo "  $(GREEN)iOS tests: PASSED — $$_line$(NC)"; \
-	elif grep -q 'Test Suite.*failed' $(IOS_TEST_LOG) 2>/dev/null; then \
+	elif grep -q 'Test Suite.*failed' $@ 2>/dev/null; then \
 		echo "  $(RED)iOS tests: FAILED — $$_line$(NC)"; \
 	else \
-		echo "  $(YELLOW)iOS tests: unknown (see $(IOS_TEST_LOG))$(NC)"; fi
+		echo "  $(YELLOW)iOS tests: unknown (see $@)$(NC)"; fi
 
 # coverage-ios: xcodebuild test -enableCodeCoverage, extract xccov, convert to
 # SonarCloud XML. Tolerates test FAILURES and hard crashes: writes the xcresult
