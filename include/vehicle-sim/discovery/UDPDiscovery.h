@@ -21,6 +21,7 @@
 #include <chrono>
 #include <array>
 #include <functional>
+#include <memory>
 
 namespace vehicle_sim::discovery {
 
@@ -75,7 +76,7 @@ public:
 
 private:
     class Impl;
-    Impl* impl_;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace vehicle_sim::discovery

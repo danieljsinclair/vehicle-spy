@@ -4,6 +4,7 @@
 #include <cstring>
 #include <algorithm>
 #include <ctime>
+#include <memory>
 
 // Platform-specific socket headers
 #ifdef __APPLE__
@@ -195,12 +196,9 @@ public:
     }
 };
 
-UDPDiscovery::UDPDiscovery() : impl_(new Impl()) {}
+UDPDiscovery::UDPDiscovery() : impl_(std::make_unique<Impl>()) {}
 
-UDPDiscovery::~UDPDiscovery() {
-    stop();
-    delete impl_;
-}
+UDPDiscovery::~UDPDiscovery() = default;
 
 bool UDPDiscovery::start() {
     return impl_->start();
