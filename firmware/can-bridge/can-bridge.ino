@@ -149,7 +149,8 @@ static void sendSerialPrompt(const char* response) {
     Serial.flush();
 }
 
-static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)) {
+template <typename F>
+static void handleATCommand(const String& cmd, F&& sendPromptFn) {
     String c = cmd;
     c.trim();
     c.toUpperCase();
