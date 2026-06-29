@@ -7,8 +7,6 @@ namespace vehicle_sim::domain {
 
 BLESignalSource::BLESignalSource(BLEManager* bleManager) noexcept
     : bleManager_(bleManager)
-    , latestSignal_(0)
-    , connected_(false)
 {
 }
 
@@ -17,7 +15,7 @@ BLESignalSource::~BLESignalSource() {
 }
 
 VehicleSignal BLESignalSource::latestSignal() const noexcept {
-    std::lock_guard<std::mutex> lock(signalMutex_);
+    std::scoped_lock lock(signalMutex_);
     return latestSignal_;
 }
 
@@ -49,7 +47,7 @@ void BLESignalSource::onDataReceived(const std::vector<std::uint8_t>& data) {
     std::vector<std::uint8_t> frameData(data.begin() + 2, data.end());
 
     {
-        std::lock_guard<std::mutex> lock(signalMutex_);
+        std::scoped_lock lock(signalMutex_);
         accumulatedFrames_[canId] = frameData;
 
         // TODO: Use DBCTranslationService to translate accumulated frames

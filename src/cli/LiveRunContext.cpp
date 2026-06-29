@@ -19,7 +19,7 @@ namespace {
 // and polled by live transports with select() timeouts. For the demo transport
 // the loop is bounded so no flag is needed, but the handler is installed
 // uniformly so Ctrl+C works for every live source.
-std::atomic<bool> g_liveRunning(true);
+std::atomic g_liveRunning(true);
 
 void liveSignalHandler(int sigNum) {
     std::cout << "\nReceived signal " << sigNum << ", shutting down..." << std::endl;

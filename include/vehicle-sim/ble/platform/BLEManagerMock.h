@@ -32,7 +32,7 @@ public:
     void setDeviceList(const std::vector<BLEDeviceInfo>& devices);
 
 private:
-    bool connected_;
+    bool connected_{false};
     std::string connected_device_id_;
     DeviceCallback device_callback_;
     DataCallback data_callback_;

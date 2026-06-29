@@ -8,7 +8,7 @@
 #include <thread>
 
 namespace {
-    std::atomic<bool> g_running(true);
+    std::atomic g_running(true);
 
     void signalHandler(int sigNum) {
         std::cout << "\nReceived signal " << sigNum << ", shutting down..." << std::endl;

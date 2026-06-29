@@ -17,12 +17,7 @@ static std::uint64_t nowUtcMs() {
 // Define the PIMPL implementation
 class VehicleSimulator::Impl {
 public:
-    Impl()
-        : running_(false)
-        , tick_(0)
-        , speed_(0.0)
-        , lastSpeed_(0.0)
-    {}
+    Impl() = default;
 
     ~Impl() = default;
 
@@ -114,10 +109,10 @@ public:
     }
 
 private:
-    bool running_;
-    int tick_;
-    double speed_;
-    double lastSpeed_;
+    bool running_{false};
+    int tick_{0};
+    double speed_{0.0};
+    double lastSpeed_{0.0};
     domain::VehicleSignal latestSignal_{0, std::nullopt, std::nullopt, std::nullopt, std::nullopt};
     TelemetryCallback callback_;
 };

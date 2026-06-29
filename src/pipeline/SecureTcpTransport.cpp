@@ -21,7 +21,7 @@ namespace pipeline {
 
 namespace {
 
-std::atomic<bool> g_stopRequested{false};
+std::atomic g_stopRequested{false};
 
 // Readable aliases for the constants we need
 constexpr size_t SECRETBOX_NONCEBYTES = 24;

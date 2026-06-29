@@ -7,9 +7,6 @@ namespace vehicle_sim::domain {
 
 DemoSignalSource::DemoSignalSource(int intervalMs) noexcept
     : intervalMs_(intervalMs)
-    , running_(false)
-    , latestSignal_(0)
-    , phase_(0.0)
 {
 }
 
@@ -18,7 +15,7 @@ DemoSignalSource::~DemoSignalSource() {
 }
 
 VehicleSignal DemoSignalSource::latestSignal() const noexcept {
-    std::lock_guard<std::mutex> lock(signalMutex_);
+    std::scoped_lock lock(signalMutex_);
     return latestSignal_;
 }
 
@@ -100,7 +97,7 @@ void DemoSignalSource::generateSignals() {
         );
 
         {
-            std::lock_guard<std::mutex> lock(signalMutex_);
+            std::scoped_lock lock(signalMutex_);
             latestSignal_ = signal;
         }
 

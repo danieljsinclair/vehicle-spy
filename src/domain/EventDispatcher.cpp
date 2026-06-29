@@ -14,7 +14,7 @@ namespace vehicle_sim::domain {
  */
 class EventDispatcher::Impl {
 public:
-    Impl() : nextToken_(1) {}
+    Impl() : nextToken_{1} {}
 
     /**
      * Register a new consumer

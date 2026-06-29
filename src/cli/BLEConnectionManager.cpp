@@ -10,9 +10,6 @@ constexpr int MIN_RAW_DATA_LOG_LENGTH = 3;
 
 BLEConnectionManager::BLEConnectionManager(std::unique_ptr<BLEManager> bleManager) noexcept
     : bleManager_(std::move(bleManager))
-    , isConnected_(false)
-    , polling_(false)
-    , protocol_(domain::VehicleProtocol::OBD2)
 {
 }
 

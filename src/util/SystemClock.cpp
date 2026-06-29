@@ -34,7 +34,7 @@ bool SystemClock::waitForImpl(
 FakeClock::FakeClock(time_point initial) noexcept : now_(initial) {}
 
 IClock::time_point FakeClock::now() const {
-    std::lock_guard<std::mutex> guard(mutex_);
+    std::scoped_lock guard(mutex_);
     return now_;
 }
 
@@ -51,7 +51,7 @@ void FakeClock::advance(duration d) {
     std::condition_variable* cv = nullptr;
     std::mutex* consumerMutex = nullptr;
     {
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         cv = registeredCv_;
         if (registeredLock_ != nullptr) {
             consumerMutex = registeredLock_->mutex();
@@ -60,7 +60,7 @@ void FakeClock::advance(duration d) {
 
     if (cv == nullptr) {
         // No waiter parked: bump now_ under FakeClock::mutex_ only.
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         now_ += d;
         return;
     }
@@ -72,8 +72,8 @@ void FakeClock::advance(duration d) {
     // the lock to re-park in a way that misses our notify, because cv.wait
     // atomically re-checks the predicate on wake under this same lock.
     {
-        std::lock_guard<std::mutex> consumerGuard(*consumerMutex);
-        std::lock_guard<std::mutex> fakeGuard(mutex_);
+        std::scoped_lock consumerGuard(*consumerMutex);
+        std::scoped_lock fakeGuard(mutex_);
         now_ += d;
     }
     // Notify on the cv the waiter is actually parked on. Notifying is done
@@ -103,7 +103,7 @@ bool FakeClock::waitForImpl(
     // Register ourselves as the active waiter. The caller's `lock` is held on
     // entry and remains held; we keep it held across the cv.wait below.
     {
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         registeredCv_ = &cv;
         registeredLock_ = &lock;
     }
@@ -118,7 +118,7 @@ bool FakeClock::waitForImpl(
 
     // Unregister on the way out (under FakeClock::mutex_).
     {
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         registeredCv_ = nullptr;
         registeredLock_ = nullptr;
     }

@@ -36,8 +36,7 @@ std::string padToWidth(std::string_view s, int width) {
 // ================================================
 
 BLEManagerBase::BLEManagerBase()
-    : connected_(false),
-      vehicle_detector_(std::make_unique<domain::VehicleDetector>()) {
+{
 }
 
 void BLEManagerBase::setDeviceFoundCallback(DeviceCallback callback) {
@@ -203,7 +202,7 @@ bool BLEManagerBase::waitForPrompt(int timeout_ms) {
 
 void BLEManagerBase::notifyPrompt() {
     {
-        std::lock_guard<std::mutex> lock(prompt_mutex_);
+        std::scoped_lock lock(prompt_mutex_);
         prompt_ready_ = true;
     }
     prompt_cv_.notify_one();
@@ -276,7 +275,7 @@ void BLEManagerBase::stopCANMonitor() {
 // ================================================
 
 void BLEManagerBase::addDiscoveredDevice(const BLEDeviceInfo& device) {
-    std::lock_guard<std::mutex> lock(devices_mutex_);
+    std::scoped_lock lock(devices_mutex_);
 
     // Check for duplicates
     for (const auto& existing : discovered_devices_) {
@@ -297,12 +296,12 @@ void BLEManagerBase::addDiscoveredDevice(const BLEDeviceInfo& device) {
 }
 
 void BLEManagerBase::clearDiscoveredDevices() {
-    std::lock_guard<std::mutex> lock(devices_mutex_);
+    std::scoped_lock lock(devices_mutex_);
     discovered_devices_.clear();
 }
 
 std::optional<BLEDeviceInfo> BLEManagerBase::findDeviceByAddress(std::string_view address) const {
-    std::lock_guard<std::mutex> lock(devices_mutex_);
+    std::scoped_lock lock(devices_mutex_);
 
     for (const auto& device : discovered_devices_) {
         if (device.address == address) {
@@ -327,7 +326,7 @@ void BLEManagerBase::invokeDataCallback(const std::vector<uint8_t>& data) {
     // Always track raw BLE activity (before any parsing/dropping)
     ble_notification_count_++;
     {
-        std::lock_guard<std::mutex> lock(raw_mutex_);
+        std::scoped_lock lock(raw_mutex_);
         std::ostringstream hex;
         for (size_t i = 0; i < std::min(data.size(), size_t(16)); ++i) {
             hex << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(data[i]) << " ";

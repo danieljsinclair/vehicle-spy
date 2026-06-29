@@ -264,7 +264,7 @@ public:
      * Get hex dump of the last raw bytes received from BLE (before parsing).
      */
     [[nodiscard]] std::string lastRawHex() const {
-        std::lock_guard<std::mutex> lock(raw_mutex_);
+        std::scoped_lock lock(raw_mutex_);
         return last_raw_hex_;
     }
 
@@ -282,7 +282,7 @@ protected:
     mutable std::mutex devices_mutex_;
     std::vector<BLEDeviceInfo> discovered_devices_;
 
-    std::atomic<bool> connected_;
+    std::atomic<bool> connected_{false};
     std::string connected_device_id_;
 
     // Callbacks (thread-safe via mutex where needed)
@@ -325,7 +325,7 @@ protected:
     std::atomic<bool> can_mode_{false};
 
     // Vehicle auto-detection (passive CAN ID observation)
-    std::unique_ptr<domain::VehicleDetector> vehicle_detector_;
+    std::unique_ptr<domain::VehicleDetector> vehicle_detector_{std::make_unique<domain::VehicleDetector>()};
 
     // Raw BLE activity tracking (counts every notification before parsing)
     std::atomic<int> ble_notification_count_{0};

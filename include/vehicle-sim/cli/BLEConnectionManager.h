@@ -83,9 +83,9 @@ public:
 
 private:
     std::unique_ptr<BLEManager> bleManager_;
-    bool isConnected_;
-    bool polling_;
-    domain::VehicleProtocol protocol_;
+    bool isConnected_{false};
+    bool polling_{false};
+    domain::VehicleProtocol protocol_{domain::VehicleProtocol::OBD2};
 };
 
 } // namespace vehicle_sim::cli

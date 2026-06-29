@@ -26,10 +26,10 @@ private:
 
     BLEManager* bleManager_;  // Non-owning reference - wrapper owns it
     mutable std::mutex signalMutex_;
-    VehicleSignal latestSignal_;
+    VehicleSignal latestSignal_{0};
 
     std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> accumulatedFrames_;
-    bool connected_;
+    bool connected_{false};
 };
 
 } // namespace vehicle_sim::domain

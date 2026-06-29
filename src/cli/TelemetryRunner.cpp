@@ -10,7 +10,7 @@
 #include <csignal>
 
 namespace {
-    std::atomic<bool> g_running(true);
+    std::atomic g_running(true);
     constexpr int SPIN_SLEEP_MS = 10;
 
     void signalHandler(int sigNum) {

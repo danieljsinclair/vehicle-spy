@@ -6,8 +6,7 @@ namespace vehicle_sim {
 
 TelemetryFormatter::TelemetryFormatter(Format format)
     : format_(format)
-    , include_headers_(true)
-    , delimiter_(',') {
+{
 }
 
 void TelemetryFormatter::setFormat(Format format) {

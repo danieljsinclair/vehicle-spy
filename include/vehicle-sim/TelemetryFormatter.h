@@ -27,8 +27,8 @@ public:
 
 private:
     Format format_;
-    bool include_headers_;
-    char delimiter_;
+    bool include_headers_{true};
+    char delimiter_{','};
 };
 
 } // namespace vehicle_sim

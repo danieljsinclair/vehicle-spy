@@ -134,7 +134,7 @@ private:
     std::optional<bool> isElectric_;
 
     // Timing
-    std::chrono::steady_clock::time_point startTime_;
+    std::chrono::steady_clock::time_point startTime_{std::chrono::steady_clock::now()};
 
     // Raw frame ring buffer
     static constexpr int MAX_FRAME_HISTORY = 50;

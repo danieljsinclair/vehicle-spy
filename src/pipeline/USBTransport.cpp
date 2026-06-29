@@ -14,7 +14,7 @@
 namespace vehicle_sim::pipeline {
 
 namespace {
-std::atomic<bool> g_stopRequested{false};
+std::atomic g_stopRequested{false};
 
 constexpr int READ_TIMEOUT_US = 500000;
 constexpr std::size_t MAX_PENDING_LEN = 4096;

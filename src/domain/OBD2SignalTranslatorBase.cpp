@@ -4,14 +4,7 @@
 
 namespace vehicle_sim::domain {
 
-OBD2SignalTranslatorBase::OBD2SignalTranslatorBase()
-    : lastThrottle_(0.0)
-    , lastSpeed_(0.0)
-    , lastAcceleration_(0.0)
-    , lastBrake_(0.0)
-    , lastTimestamp_(0)
-    , currentData_(nullptr)
-{}
+OBD2SignalTranslatorBase::OBD2SignalTranslatorBase() = default;
 
 OBD2SignalTranslatorBase::~OBD2SignalTranslatorBase() = default;
 
@@ -47,7 +40,7 @@ std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
     const std::uint64_t effectiveTs = timestampUtcMs.value_or(getCurrentTimestamp());
 
     {
-        std::lock_guard<std::mutex> lock(state_mutex_);
+        std::scoped_lock lock(state_mutex_);
         updateSignalField(pid, value);
         lastTimestamp_ = effectiveTs;
 

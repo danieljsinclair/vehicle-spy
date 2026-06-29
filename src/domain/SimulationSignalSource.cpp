@@ -4,8 +4,6 @@ namespace vehicle_sim::domain {
 
 SimulationSignalSource::SimulationSignalSource(std::unique_ptr<VehicleSimulator> simulator) noexcept
     : simulator_(std::move(simulator))
-    , running_(false)
-    , latestSignal_(0)
 {
 }
 
@@ -14,7 +12,7 @@ SimulationSignalSource::~SimulationSignalSource() {
 }
 
 VehicleSignal SimulationSignalSource::latestSignal() const noexcept {
-    std::lock_guard<std::mutex> lock(signalMutex_);
+    std::scoped_lock lock(signalMutex_);
     return latestSignal_;
 }
 

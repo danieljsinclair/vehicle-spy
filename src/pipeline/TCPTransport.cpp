@@ -21,7 +21,7 @@ namespace vehicle_sim::pipeline {
 // without hanging. A single flag serves all TCPTransport instances — only one
 // live transport runs per process.
 namespace {
-std::atomic<bool> g_stopRequested{false};
+std::atomic g_stopRequested{false};
 }  // namespace
 
 void TCPTransport::requestStop() noexcept {

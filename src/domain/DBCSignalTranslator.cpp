@@ -32,7 +32,7 @@ std::optional<VehicleSignal> DBCSignalTranslator::translate(
     // Extract 8-byte data payload (bytes 2-9) directly into the accumulated
     // map slot, avoiding a transient vector allocation + move.
     {
-        std::lock_guard<std::mutex> lock(frames_mutex_);
+        std::scoped_lock lock(frames_mutex_);
         auto& slot = accumulatedFrames_[canId];
         slot.assign(rawData.begin() + CAN_DATA_OFFSET,
                     rawData.begin() + CAN_FRAME_SIZE);
@@ -53,7 +53,7 @@ std::optional<VehicleSignal> DBCSignalTranslator::translate(
     // (Previously the entire unordered_map<uint16_t,vector<uint8_t>> was copied
     // on every frame — the dominant cost of replay.) build() never calls back
     // into translate(), so this is safe and presents a consistent snapshot.
-    std::lock_guard<std::mutex> lock(frames_mutex_);
+    std::scoped_lock lock(frames_mutex_);
     return factory_.build(accumulatedFrames_, effectiveTs);
 }
 
@@ -72,7 +72,7 @@ std::vector<std::uint16_t> DBCSignalTranslator::getSupportedCANIds() const noexc
 }
 
 void DBCSignalTranslator::reset() noexcept {
-    std::lock_guard<std::mutex> lock(frames_mutex_);
+    std::scoped_lock lock(frames_mutex_);
     accumulatedFrames_.clear();
 }
 
