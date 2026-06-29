@@ -919,7 +919,8 @@ $(SUMMARY_FILE): $(SONAR_MEASURES) $(SONAR_IOS_MEASURES) $(SONAR_ESP32_MEASURES)
 		--removed-facet "$(SONAR_ESP32_REMOVED_FACET)" \
 		>> $$_tmp; \
 	echo "HINT: run 'make sonar-summary' (full issues) or 'make coverage-summary' (coverage %)." >> $$_tmp; \
-	mv $$_tmp $@
+	mv $$_tmp $@; \
+	cat $@
 
 sonar-clean:
 	@rm -f $(SONAR_REPORT) $(SONAR_REMOVED_FACET) $(SONAR_MEASURES)
