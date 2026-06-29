@@ -198,7 +198,7 @@ static void drainSerialATCommands() {
     while (Serial.available()) {
         const char c = Serial.read();
         if (c == '\r' || c == '\n') {
-            if (serialCmd.length() > 0) {
+            if (!serialCmd.isEmpty()) {
                 handleSerialAT(serialCmd);
                 serialQuietUntilMs = millis() + 250;
                 serialCmd = "";
@@ -374,7 +374,7 @@ void loop() {
     if (haveClient && !monitorActive && client.available()) {
         client.setTimeout(100);  // fast response — don't wait 1s for more data
         String cmd = client.readStringUntil('\r');
-        if (cmd.length() > 0) handleAT(cmd);
+        if (!cmd.isEmpty()) handleAT(cmd);
     }
 
     drainSerialATCommands();
