@@ -194,7 +194,7 @@ void BLEManagerBase::stopOBD2Polling() {
 }
 
 bool BLEManagerBase::waitForPrompt(int timeout_ms) {
-    std::unique_lock<std::mutex> lock(prompt_mutex_);
+    std::unique_lock lock(prompt_mutex_);
     prompt_ready_ = false;
     return prompt_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
         [this] { return prompt_ready_; });

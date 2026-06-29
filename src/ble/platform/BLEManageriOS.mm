@@ -488,13 +488,13 @@ void BLEManageriOS::onCharacteristicDiscovered(CBCharacteristic* characteristic)
     }
 
     if (gotWrite || gotNotify) {
-        std::lock_guard<std::mutex> lock(characteristics_mutex_);
+        std::scoped_lock lock(characteristics_mutex_);
         characteristics_cv_.notify_all();
     }
 }
 
 bool BLEManageriOS::waitForCharacteristics(int timeout_ms) {
-    std::unique_lock<std::mutex> lock(characteristics_mutex_);
+    std::unique_lock lock(characteristics_mutex_);
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
     while (!write_characteristic_ || !notify_characteristic_) {

@@ -32,7 +32,7 @@ public:
      * Unregister a consumer by token
      */
     void unregisterConsumer(unsigned int token) {
-        std::lock_guard<std::mutex> lock(consumersMutex_);
+        std::lock_guard lock(consumersMutex_);
 
         auto it = std::find_if(consumers_.begin(), consumers_.end(),
             [token](const Consumer& c) { return c.token == token && c.active; });
@@ -50,7 +50,7 @@ public:
 
         // Copy active callbacks to minimize lock time during dispatch
         {
-            std::lock_guard<std::mutex> lock(consumersMutex_);
+            std::lock_guard lock(consumersMutex_);
             for (const auto& consumer : consumers_) {
                 if (consumer.active) {
                     activeCallbacks.push_back(consumer.callback);
@@ -70,7 +70,7 @@ public:
      * Clear all consumers
      */
     void clear() {
-        std::lock_guard<std::mutex> lock(consumersMutex_);
+        std::lock_guard lock(consumersMutex_);
         consumers_.clear();
     }
 
