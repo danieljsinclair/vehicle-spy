@@ -85,7 +85,7 @@ namespace Constants {
     // Factory reset pin hook (future implementation)
     // GPIO pin for factory reset: hold during boot → wipe stored WiFi NVS → boot to AP mode
     // Same firmware, no reflash needed. Pin pull-up recommended; active-low logic.
-    // MARKER: FACTORY_RESET_HOOK - not TODO: (Sonar), future implementation
+    // MARKER: FACTORY_RESET_HOOK (future implementation, not an open task)
     static constexpr gpio_num_t FACTORY_RESET_PIN = GPIO_NUM_0;  // Boot button (GPIO0)
     static constexpr uint32_t FACTORY_RESET_HOLD_MS = 3000;      // Hold 3 seconds to trigger
 }
