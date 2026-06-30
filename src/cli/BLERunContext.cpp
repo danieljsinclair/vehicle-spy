@@ -108,7 +108,7 @@ int BLERunContext::runWithAutoDetection(const std::string& address,
 
 int BLERunContext::runWithProtocol(const std::string& address,
                                      domain::VehicleProtocol protocol,
-                                     domain::DBCTranslationService& translationService) {
+                                     const domain::DBCTranslationService& translationService) {
     auto bleManager = std::make_unique<BLEManager>();
     BLEConnectionManager connMgr(std::move(bleManager));
 

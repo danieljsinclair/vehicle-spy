@@ -20,7 +20,7 @@ private:
                                      domain::DBCTranslationService& translationService);
     static int runWithProtocol(const std::string& address,
                                 domain::VehicleProtocol protocol,
-                                domain::DBCTranslationService& translationService);
+                                const domain::DBCTranslationService& translationService);
 
     struct MonitorStats {
         std::atomic<int> signalCount{0};
