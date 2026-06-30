@@ -1,4 +1,5 @@
 #include <iostream>
+#include <memory>
 #include <string_view>
 #include <csignal>
 #include "vehicle-sim/BLEManager.h"
@@ -11,17 +12,13 @@
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
+#include "vehicle-sim/pipeline/SignalStopBroker.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/discovery/UDPDiscovery.h"
 
 namespace {
 
 constexpr int BLE_SCAN_TIMEOUT_S = 10;
-
-// Signal handler for discovery mode - sets the stop flag when Ctrl-C is pressed
-void discoverySignalHandler(int sigNum) {
-    std::cout << "\nReceived signal " << sigNum << ", stopping discovery...\n";
-    vehicle_sim::discovery::UDPDiscovery::requestStop();
-}
 
 int runScan(vehicle_sim::BLEManager& bleManager) {
     using namespace vehicle_sim;
@@ -50,17 +47,22 @@ int runScan(vehicle_sim::BLEManager& bleManager) {
 // Run UDP discovery and list found ESP32s.
 int runDiscovery() {
     using namespace vehicle_sim::discovery;
+    using namespace vehicle_sim::pipeline;
 
     std::cout << "Listening for ESP32 discovery broadcasts on UDP port "
               << DISCOVERY_PORT << "...\n";
     std::cout << "Press Ctrl-C to stop.\n\n";
 
-    // Install signal handler for Ctrl-C (SIGINT) - sets flag instead of relying on EINTR
-    std::signal(SIGINT, discoverySignalHandler);
-    std::signal(SIGTERM, discoverySignalHandler);
-    UDPDiscovery::resetStop();
+    // Cooperative stop: the shared StopToken is published to the broker and
+    // polled by discovery; the signal handler flips it via the async-signal-safe
+    // onStopSignal (one atomic load + one atomic store — no cout/endl).
+    auto stop = std::make_shared<StopToken>();
+    signal_stop_broker::brokerSet(stop.get());
+    std::signal(SIGINT, signal_stop_broker::onStopSignal);
+    std::signal(SIGTERM, signal_stop_broker::onStopSignal);
+    struct BrokerClear { ~BrokerClear(){ signal_stop_broker::brokerClear(); } } clearer;
 
-    UDPDiscovery discovery;
+    UDPDiscovery discovery{stop};
 
     // Note: Discovery packets are intentionally unsigned (per commit 8a0acde).
     // Signature verification is only used for OTA updates, not discovery.
@@ -155,7 +157,6 @@ std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
 int main(int argc, char* argv[]) {
     using namespace vehicle_sim;
 
-    cli::registerSignalHandlers();
     cli::printBanner();
 
     domain::DBCTranslationService translationService;

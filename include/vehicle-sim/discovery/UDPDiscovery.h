@@ -15,6 +15,7 @@
 
 #include "vehicle-sim/discovery/DiscoveryPacket.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
 #include <string>
 #include <vector>
@@ -45,6 +46,7 @@ public:
     using DeviceCallback = std::function<void(const DiscoveredDevice&)>;
 
     UDPDiscovery();
+    explicit UDPDiscovery(std::shared_ptr<pipeline::StopToken> stop);
     ~UDPDiscovery();
 
     // Non-copyable
@@ -74,13 +76,6 @@ public:
 
     // Set a callback that fires for each valid discovery packet received.
     void setDeviceCallback(const DeviceCallback& cb);
-
-    // Request that poll() stop at the next iteration (called from signal handler).
-    // This is a static method that sets a global flag checked by poll().
-    static void requestStop() noexcept;
-
-    // Reset the stop flag (for repeated runs).
-    static void resetStop() noexcept;
 
 private:
     class Impl;

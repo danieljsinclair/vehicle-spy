@@ -3,21 +3,31 @@
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/domain/VehicleDetector.h"
+#include "vehicle-sim/pipeline/SignalStopBroker.h"
+#include "vehicle-sim/pipeline/StopToken.h"
+#include <csignal>
 #include <iostream>
 #include <iomanip>
 #include <thread>
 
 namespace {
-    std::atomic g_running(true);
-
-    void signalHandler(int sigNum) {
-        std::cout << "\nReceived signal " << sigNum << ", shutting down..." << std::endl;
-        g_running = false;
-    }
-
     constexpr int BLE_HEALTH_CHECK_MS = 500;
     constexpr int NO_DATA_WARNING_S = 5;
     constexpr int DRIVE_MODE_HINT_COUNT = 3;
+
+    // Publish the live StopToken to the broker and install the async-signal-safe
+    // handler (one atomic load + one atomic store — no cout/endl). Cleared on
+    // scope exit. Mirrors LiveRunContext's LiveStopScope.
+    struct BleStopScope {
+        vehicle_sim::pipeline::StopToken& token;
+        explicit BleStopScope(vehicle_sim::pipeline::StopToken& t) noexcept : token(t) {
+            token.reset();
+            vehicle_sim::pipeline::signal_stop_broker::brokerSet(&token);
+            std::signal(SIGINT, vehicle_sim::pipeline::signal_stop_broker::onStopSignal);
+            std::signal(SIGTERM, vehicle_sim::pipeline::signal_stop_broker::onStopSignal);
+        }
+        ~BleStopScope() { vehicle_sim::pipeline::signal_stop_broker::brokerClear(); }
+    };
 }
 
 namespace vehicle_sim::cli {
@@ -25,19 +35,20 @@ namespace vehicle_sim::cli {
 int BLERunContext::run(const std::string& address,
                         const std::string& vehicleType,
                         domain::DBCTranslationService& translationService) {
-    ::signal(SIGINT, signalHandler);
-    ::signal(SIGTERM, signalHandler);
+    pipeline::StopToken stop;
+    BleStopScope stopScope(stop);
 
     if (vehicleType == "auto") {
-        return runWithAutoDetection(address, translationService);
+        return runWithAutoDetection(address, translationService, stop);
     }
 
     auto context = resolveVehicleContext(vehicleType, translationService);
-    return runWithProtocol(address, context.protocol, translationService);
+    return runWithProtocol(address, context.protocol, translationService, stop);
 }
 
 int BLERunContext::runWithAutoDetection(const std::string& address,
-                                          domain::DBCTranslationService& translationService) {
+                                          domain::DBCTranslationService& translationService,
+                                          pipeline::StopToken& stop) {
     std::cout << "[Auto-detect] Connecting to BLE adapter for VIN detection..." << std::endl;
 
     auto bleManager = std::make_unique<BLEManager>();
@@ -103,12 +114,13 @@ int BLERunContext::runWithAutoDetection(const std::string& address,
     std::cout << "[Auto-detect] Detected: " << configId << "\n";
 
     auto context = resolveVehicleContext(configId, translationService);
-    return runWithProtocol(address, context.protocol, translationService);
+    return runWithProtocol(address, context.protocol, translationService, stop);
 }
 
 int BLERunContext::runWithProtocol(const std::string& address,
                                      domain::VehicleProtocol protocol,
-                                     const domain::DBCTranslationService& translationService) {
+                                     const domain::DBCTranslationService& translationService,
+                                     pipeline::StopToken& stop) {
     auto bleManager = std::make_unique<BLEManager>();
     BLEConnectionManager connMgr(std::move(bleManager));
 
@@ -130,7 +142,7 @@ int BLERunContext::runWithProtocol(const std::string& address,
 
     auto lastActivity = std::chrono::steady_clock::now();
 
-    while (connMgr.isConnected() && !connMgr.connectionLost() && g_running) {
+    while (connMgr.isConnected() && !connMgr.connectionLost() && !stop.stopRequested()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(BLE_HEALTH_CHECK_MS));
 
         {

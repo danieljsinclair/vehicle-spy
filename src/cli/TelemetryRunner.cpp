@@ -4,19 +4,11 @@
 #include "vehicle-sim/telemetry/TraceLogger.h"
 #include "vehicle-sim/telemetry/RawTraceLogger.h"
 #include <iostream>
-#include <atomic>
 #include <thread>
 #include <chrono>
-#include <csignal>
 
 namespace {
-    std::atomic g_running(true);
     constexpr int SPIN_SLEEP_MS = 10;
-
-    void signalHandler(int sigNum) {
-        std::cout << "\nReceived signal " << sigNum << ", shutting down..." << std::endl;
-        g_running = false;
-    }
 
     struct TelemetryPipeline {
         vehicle_sim::domain::EventDispatcher dispatcher;
@@ -63,7 +55,8 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
                           const domain::VehicleConfig* config,
                           const std::string& logCsvPath,
                           const std::string& logRawPath,
-                          int pollIntervalMs) {
+                          int pollIntervalMs,
+                          pipeline::StopToken& stop) {
     if (!config) {
         std::cerr << "Vehicle config is null\n";
         return 1;
@@ -85,7 +78,7 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
     auto lastTime = std::chrono::steady_clock::now();
     const auto interval = std::chrono::milliseconds(pollIntervalMs);
 
-    while (g_running) {
+    while (!stop.stopRequested()) {
         auto now = std::chrono::steady_clock::now();
         if (auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime);
             elapsed >= interval) {
@@ -116,20 +109,6 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
     std::cout << "\n\nTelemetry ended. Total signals processed: " << signalCount << "\n";
     std::cout << "Goodbye!\n";
     return 0;
-}
-
-// Register signal handlers (called from main)
-void registerSignalHandlers() {
-    std::signal(SIGINT, signalHandler);
-    std::signal(SIGTERM, signalHandler);
-}
-
-void TelemetryRunner::resetRunningState() {
-    g_running = true;
-}
-
-void TelemetryRunner::requestStop() {
-    g_running = false;
 }
 
 } // namespace vehicle_sim::cli

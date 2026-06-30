@@ -22,15 +22,11 @@
 
 namespace vehicle_sim::discovery {
 
-// Global stop flag for discovery poll (set by signal handler, polled by poll())
-// Using a flag instead of EINTR because macOS's SA_RESTART causes poll() to
-// auto-restart after signals, never returning EINTR. The flag is checked each
-// 100ms iteration, ensuring Ctrl-C responds within ~100ms.
-namespace {
-    std::atomic g_discoveryStopRequested{false};
-}  // namespace
+// The injected StopToken (set by the signal handler via SignalStopBroker,
+// polled by poll()) is used instead of EINTR because macOS's SA_RESTART causes
+// poll() to auto-restart after signals, never returning EINTR. It is checked
+// each 100ms iteration, ensuring Ctrl-C responds within ~100ms.
 
-// Get current Unix epoch seconds
 static uint64_t nowEpoch() {
     return static_cast<uint64_t>(std::time(nullptr));
 }
@@ -46,6 +42,9 @@ public:
     std::vector<DiscoveredDevice> pending;
     // Track already-seen addresses for deduplication
     std::vector<std::string> seenAddresses;
+    // Cooperative stop signal (injected; shared with the caller's signal handler
+    // via SignalStopBroker). Polled each iteration so Ctrl+C ends poll() promptly.
+    std::shared_ptr<pipeline::StopToken> stop_ = std::make_shared<pipeline::StopToken>();
 
     bool start() {
         if (sockfd >= 0) {
@@ -233,7 +232,7 @@ public:
             // there is a single break in the loop.
             auto iteration = [&]() {
                 // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
-                if (g_discoveryStopRequested.load()) {
+                if (stop_->stopRequested()) {
                     return false;
                 }
 
@@ -289,6 +288,13 @@ public:
 
 UDPDiscovery::UDPDiscovery() : impl_(std::make_unique<Impl>()) {}
 
+UDPDiscovery::UDPDiscovery(std::shared_ptr<pipeline::StopToken> stop)
+    : impl_(std::make_unique<Impl>()) {
+    if (stop) {
+        impl_->stop_ = std::move(stop);
+    }
+}
+
 UDPDiscovery::~UDPDiscovery() = default;
 
 bool UDPDiscovery::start() {
@@ -317,14 +323,6 @@ void UDPDiscovery::setMaxClockSkew(uint64_t seconds) {
 
 void UDPDiscovery::setDeviceCallback(const DeviceCallback& cb) {
     impl_->setDeviceCallback(cb);
-}
-
-void UDPDiscovery::requestStop() noexcept {
-    g_discoveryStopRequested.store(true);
-}
-
-void UDPDiscovery::resetStop() noexcept {
-    g_discoveryStopRequested.store(false);
 }
 
 } // namespace vehicle_sim::discovery
