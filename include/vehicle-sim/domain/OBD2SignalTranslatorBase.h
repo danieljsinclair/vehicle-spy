@@ -75,59 +75,32 @@ protected:
         const std::vector<std::uint8_t>& data
     ) const noexcept;
 
-    /**
-     * Update state after extracting a PID value.
-     * Override to customize which VehicleSignal field each PID updates.
-     *
-     * Default: stores value directly by field name matched to PID.
-     * Subclasses can override to implement custom mapping.
-     *
-     * NOTE: invoked by translate() while state_mutex_ is held; overriding
-     * implementations must NOT acquire state_mutex_ (it is non-recursive and
-     * would deadlock) and must mutate the last-known state via the protected
-     * setLast*() helpers only.
-     *
-     * The `lockProof` parameter is a capability token: it is a reference to the
-     * std::scoped_lock that translate() holds on state_mutex_, so the compiler
-     * guarantees every caller of updateSignalField()/setLast*() already holds the
-     * lock (you cannot construct the proof without taking it). It is not used at
-     * runtime. This makes the previously comment-only lock contract type-enforced.
-     *
-     * @param pid The PID that was extracted
-     * @param value The numeric value extracted
-     * @param lockProof Reference to the scoped_lock translate() holds on
-     *                 state_mutex_ — proof the caller holds the lock.
-     */
-    virtual void updateSignalField(
-        std::uint8_t pid,
-        double value,
-        std::scoped_lock<std::mutex>& lockProof
-    ) const noexcept;
-
     [[nodiscard]] std::uint64_t getCurrentTimestamp() const noexcept;
 
 private:
-    // State accumulated across multiple PID responses. Private so all access
-    // is channelled through translate()'s single locked read/modify/snapshot.
+    // State accumulated across multiple PID responses. All access is channelled
+    // through applyUpdateAndSnapshot(), which holds state_mutex_ across the
+    // read/modify/snapshot, so every mutation and read of these fields happens
+    // under that single lock.
     mutable std::mutex state_mutex_;
-
-    // Last-known values (updated when matching PID is seen)
     mutable double lastThrottle_ = 0.0;
     mutable double lastSpeed_ = 0.0;
     mutable double lastAcceleration_ = 0.0;
     mutable double lastBrake_ = 0.0;
     mutable std::uint64_t lastTimestamp_ = 0;
 
-    // Pre-locked write helpers for the accumulated state. Private so the only
-    // callers are updateSignalField()/translate(), both of which run while
-    // state_mutex_ is held — keeping every mutation behind the lock. Each takes
-    // a scoped_lock& capability token (the lock translate() holds) so the lock
-    // contract is type-enforced: the helpers cannot be called without already
-    // holding state_mutex_. The token is unused at runtime.
-    void setLastThrottle(double v, std::scoped_lock<std::mutex>&) const noexcept { lastThrottle_ = v; }
-    void setLastSpeed(double v, std::scoped_lock<std::mutex>&) const noexcept { lastSpeed_ = v; }
-    void setLastAcceleration(double v, std::scoped_lock<std::mutex>&) const noexcept { lastAcceleration_ = v; }
-    void setLastBrake(double v, std::scoped_lock<std::mutex>&) const noexcept { lastBrake_ = v; }
+    // The single locked critical section. Acquires state_mutex_ at entry, routes
+    // the extracted value to its last-known field, stamps the timestamp, and
+    // snapshots the accumulated state into a VehicleSignal — all under one
+    // acquisition so the emitted signal is atomic. The field writes are lexically
+    // inside this function, so every mutation of the last-known state is
+    // provably under state_mutex_. Called by translate() WITHOUT pre-holding the
+    // lock (state_mutex_ is non-recursive). Returns the snapshot.
+    [[nodiscard]] VehicleSignal applyUpdateAndSnapshot(
+        std::uint8_t pid,
+        double value,
+        std::uint64_t effectiveTimestamp
+    ) const noexcept;
 };
 
 } // namespace vehicle_sim::domain

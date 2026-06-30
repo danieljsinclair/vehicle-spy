@@ -39,25 +39,45 @@ std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
     // (replay path); otherwise fall back to wall-clock now() (live/BLE path).
     const std::uint64_t effectiveTs = timestampUtcMs.value_or(getCurrentTimestamp());
 
-    {
-        std::scoped_lock lock(state_mutex_);
-        updateSignalField(pid, value, lock);
-        lastTimestamp_ = effectiveTs;
+    // The full locked critical section (field routing + timestamp + snapshot)
+    // lives in applyUpdateAndSnapshot(); translate() does NOT pre-hold the lock,
+    // since state_mutex_ is non-recursive and applyUpdateAndSnapshot() takes it.
+    return applyUpdateAndSnapshot(pid, value, effectiveTs);
+}
 
-        return VehicleSignal(
-            lastTimestamp_,
-            lastThrottle_,
-            lastSpeed_,
-            lastAcceleration_,
-            lastBrake_,
-            std::nullopt,  // steeringAngleDeg
-            std::nullopt,  // motorRpm
-            std::nullopt,  // motorHvVoltage
-            std::nullopt,  // motorHvCurrent
-            std::nullopt,  // motorTorqueNm
-            std::nullopt   // gearSelector
-        );
+VehicleSignal OBD2SignalTranslatorBase::applyUpdateAndSnapshot(
+    std::uint8_t pid,
+    double value,
+    std::uint64_t effectiveTimestamp
+) const noexcept {
+    // One acquisition covers the field routing, the timestamp write, and the
+    // snapshot, so the emitted VehicleSignal is atomic with the update. The
+    // field writes are lexically inside this locked function (not factored out)
+    // so every mutation of the last-known state is provably under state_mutex_.
+    std::scoped_lock lock(state_mutex_);
+
+    switch (pid) {
+        case PID_THROTTLE_POSITION: case PID_ACCELERATOR_POS_D: case PID_ACCELERATOR_POS_P: lastThrottle_ = value; break;
+        case PID_VEHICLE_SPEED: lastSpeed_ = value; break;
+        case PID_ENGINE_LOAD: lastAcceleration_ = (value / 100.0) * 2.0 - 1.0; break;
+        case PID_BRAKE_PRESSURE: lastBrake_ = value; break;
+        default: break;
     }
+    lastTimestamp_ = effectiveTimestamp;
+
+    return VehicleSignal(
+        lastTimestamp_,
+        lastThrottle_,
+        lastSpeed_,
+        lastAcceleration_,
+        lastBrake_,
+        std::nullopt,  // steeringAngleDeg
+        std::nullopt,  // motorRpm
+        std::nullopt,  // motorHvVoltage
+        std::nullopt,  // motorHvCurrent
+        std::nullopt,  // motorTorqueNm
+        std::nullopt   // gearSelector
+    );
 }
 
 double OBD2SignalTranslatorBase::extractPIDValue(
@@ -66,25 +86,6 @@ double OBD2SignalTranslatorBase::extractPIDValue(
 ) const noexcept {
     // Default: no PIDs recognized
     return 0.0;
-}
-
-void OBD2SignalTranslatorBase::updateSignalField(
-    std::uint8_t pid,
-    double value,
-    std::scoped_lock<std::mutex>& lockProof
-) const noexcept {
-    // Default mapping. translate() holds state_mutex_ across this call and the
-    // subsequent snapshot, so the last-known state is updated atomically; route
-    // the writes through the pre-locked setLast*() helpers (see header — they
-    // must NOT lock, since state_mutex_ is already held here). lockProof is the
-    // capability token proving translate() holds the lock; forwarded to setLast*().
-    switch (pid) {
-        case PID_THROTTLE_POSITION: case PID_ACCELERATOR_POS_D: case PID_ACCELERATOR_POS_P: setLastThrottle(value, lockProof); break;
-        case PID_VEHICLE_SPEED: setLastSpeed(value, lockProof); break;
-        case PID_ENGINE_LOAD: setLastAcceleration((value / 100.0) * 2.0 - 1.0, lockProof); break;
-        case PID_BRAKE_PRESSURE: setLastBrake(value, lockProof); break;
-        default: break;
-    }
 }
 
 std::uint64_t OBD2SignalTranslatorBase::getCurrentTimestamp() const noexcept {
