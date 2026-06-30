@@ -56,7 +56,7 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
                           const std::string& logCsvPath,
                           const std::string& logRawPath,
                           int pollIntervalMs,
-                          pipeline::StopToken& stop) {
+                          const pipeline::StopToken& stop) {
     if (!config) {
         std::cerr << "Vehicle config is null\n";
         return 1;

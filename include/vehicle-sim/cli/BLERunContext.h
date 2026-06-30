@@ -18,11 +18,11 @@ public:
 private:
     static int runWithAutoDetection(const std::string& address,
                                      domain::DBCTranslationService& translationService,
-                                     pipeline::StopToken& stop);
+                                     const pipeline::StopToken& stop);
     static int runWithProtocol(const std::string& address,
                                 domain::VehicleProtocol protocol,
                                 const domain::DBCTranslationService& translationService,
-                                pipeline::StopToken& stop);
+                                const pipeline::StopToken& stop);
 
     struct MonitorStats {
         std::atomic<int> signalCount{0};

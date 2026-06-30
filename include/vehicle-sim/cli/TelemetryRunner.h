@@ -39,7 +39,7 @@ public:
                    const std::string& logCsvPath,
                    const std::string& logRawPath,
                    int pollIntervalMs,
-                   pipeline::StopToken& stop);
+                   const pipeline::StopToken& stop);
 };
 
 } // namespace vehicle_sim::cli

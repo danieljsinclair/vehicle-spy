@@ -54,7 +54,7 @@ int BLERunContext::run(const std::string& address,
 
 int BLERunContext::runWithAutoDetection(const std::string& address,
                                           domain::DBCTranslationService& translationService,
-                                          pipeline::StopToken& stop) {
+                                          const pipeline::StopToken& stop) {
     std::cout << "[Auto-detect] Connecting to BLE adapter for VIN detection..." << std::endl;
 
     auto bleManager = std::make_unique<BLEManager>();
@@ -126,7 +126,7 @@ int BLERunContext::runWithAutoDetection(const std::string& address,
 int BLERunContext::runWithProtocol(const std::string& address,
                                      domain::VehicleProtocol protocol,
                                      const domain::DBCTranslationService& translationService,
-                                     pipeline::StopToken& stop) {
+                                     const pipeline::StopToken& stop) {
     auto bleManager = std::make_unique<BLEManager>();
     BLEConnectionManager connMgr(std::move(bleManager));
 
