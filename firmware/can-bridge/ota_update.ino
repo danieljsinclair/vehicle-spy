@@ -15,6 +15,9 @@
 #include "OtaPublicKey.h"
 #include <string_view>
 #include <array>
+extern "C" {
+#include <sodium.h>
+}
 
 // ── Named Constants ────────────────────────────────────────────────────────────
 namespace OtaConstants {
@@ -32,10 +35,6 @@ namespace OtaConstants {
     static constexpr int HTTP_FORBIDDEN = 403;
     static constexpr int HTTP_INSUFFICIENT_STORAGE = 507;
     static constexpr int HTTP_BAD_REQUEST = 400;
-}
-
-extern "C" {
-#include <sodium.h>
 }
 
 static const char* OTA_SIG_HDR = "X-Firmware-Signature";
