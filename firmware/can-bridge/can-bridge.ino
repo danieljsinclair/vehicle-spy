@@ -862,7 +862,12 @@ static void applyStateTransition(const StateTransition& transition, WiFiState::C
         return;  // No transition
     }
 
+    const WiFiState::State previousState = ctx.state;
     ctx.state = transition.nextState;
+
+    // Debug: log the state transition (fires only on a real state change)
+    Serial.printf("%s[WiFi] %s -> %s%s\r\n", PURPLE,
+                  wifiStateName(previousState), wifiStateName(ctx.state), NC);
 
     // Update LED pattern based on WiFi state
     switch (transition.nextState) {
@@ -1354,6 +1359,9 @@ void setup() {
     WiFi.macAddress(mac);
     memset(discoveryDeviceId, 0, 16);
     memcpy(discoveryDeviceId, mac, 6);
+
+    // Tagged boot diagnostic (carries the device-id tag once it is known)
+    printTagged(GREEN, "CAN bridge ready");
 
     // Start UDP discovery
 #if VEHICLE_SIM_ENABLE_DISCOVERY
