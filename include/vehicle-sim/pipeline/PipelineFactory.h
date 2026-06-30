@@ -2,6 +2,7 @@
 
 #include "vehicle-sim/pipeline/IAdapterNormaliser.h"
 #include "vehicle-sim/pipeline/ITransport.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
 #include <memory>
 #include <string>
@@ -70,6 +71,7 @@ struct PipelineSource {
  */
 [[nodiscard]] PipelineSource buildPipelineSource(
     std::string_view connectTarget,
-    std::string_view adapterProtocol);
+    std::string_view adapterProtocol,
+    std::shared_ptr<StopToken> stop = nullptr);
 
 } // namespace vehicle_sim::pipeline

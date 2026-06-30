@@ -5,6 +5,7 @@
 #include "vehicle-sim/pipeline/PipelineReplay.h"
 #include "vehicle-sim/pipeline/RawFrameNormaliser.h"
 #include "vehicle-sim/pipeline/TCPTransport.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/domain/CaptureLog.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
@@ -47,10 +48,12 @@ class TCPSignalSource final : public ISignalSource {
 public:
     TCPSignalSource(std::unique_ptr<ITransport> transport,
                     std::unique_ptr<IAdapterNormaliser> normaliser,
-                    DBCTranslationService& translationService)
+                    DBCTranslationService& translationService,
+                    std::shared_ptr<pipeline::StopToken> stop)
         : transport_(std::move(transport))
         , normaliser_(std::move(normaliser))
         , translationService_(translationService)
+        , stop_(std::move(stop))
     {}
 
     ~TCPSignalSource() override {
@@ -69,7 +72,7 @@ public:
         if (running_.exchange(true)) {
             return; // already running
         }
-        TCPTransport::resetStop();
+        stop_->reset();
         if (!transport_->open()) {
             running_ = false;
             return;
@@ -84,7 +87,7 @@ public:
             return;
         }
         // Request the transport to return nullopt at its next select() timeout.
-        TCPTransport::requestStop();
+        stop_->requestStop();
         if (worker_.joinable()) {
             worker_.join();
         }
@@ -94,6 +97,7 @@ private:
     std::unique_ptr<ITransport> transport_;
     std::unique_ptr<IAdapterNormaliser> normaliser_;
     DBCTranslationService& translationService_;
+    std::shared_ptr<pipeline::StopToken> stop_;
     std::atomic<bool> running_{false};
     std::thread worker_;
     std::optional<VehicleSignal> latestSignal_;
@@ -394,12 +398,16 @@ private:
         _protocol = VehicleProtocol::OBD2;
     }
 
-    // Create TCP transport and raw frame normaliser
-    auto transport = std::make_unique<TCPTransport>(host, port, "raw");
+    // Create TCP transport and raw frame normaliser. The StopToken is shared
+    // between the transport and the signal source so stop() flips the flag the
+    // transport's hot loop polls.
+    auto stop = std::make_shared<pipeline::StopToken>();
+    auto transport = std::make_unique<TCPTransport>(host, port, "raw",
+                                                    std::make_shared<pipeline::StdOut>(), 500000, -1, 1000, stop);
     auto normaliser = std::make_unique<RawFrameNormaliser>();
 
     // Open the transport to verify connectivity before starting the thread
-    TCPTransport::resetStop();
+    stop->reset();
     if (!transport->open()) {
         NSLog(@"[VehicleSimWrapper] Failed to open TCP transport to %s:%d", host.c_str(), port);
         return NO;
@@ -407,7 +415,7 @@ private:
 
     // Create the TCP signal source (takes ownership of transport + normaliser)
     auto tcpSource = std::make_unique<TCPSignalSource>(
-        std::move(transport), std::move(normaliser), *_translationService);
+        std::move(transport), std::move(normaliser), *_translationService, stop);
 
     _signalSource = std::move(tcpSource);
     _signalSource->start();

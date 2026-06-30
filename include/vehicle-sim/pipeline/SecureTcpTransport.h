@@ -33,6 +33,7 @@
 
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <array>
@@ -62,7 +63,8 @@ public:
         int port,
         const std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN>& publicKey,
         std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
-        int recvTimeoutUs = static_cast<int>(RECV_TIMEOUT_US)
+        int recvTimeoutUs = static_cast<int>(RECV_TIMEOUT_US),
+        std::shared_ptr<StopToken> stop = std::make_shared<StopToken>()
     );
 
     ~SecureTcpTransport() override;
@@ -76,10 +78,13 @@ public:
     [[nodiscard]] bool isOpen() const noexcept override;
     std::optional<std::string> nextLine() override;
 
-    //! Request that nextLine() return nullopt at the next opportunity.
-    static void requestStop() noexcept;
-    //! Reset the stop flag (for tests / repeated runs).
-    static void resetStop() noexcept;
+    //! Request that nextLine() return nullopt at the next opportunity. The
+    //! shared StopToken (injected at construction, owned by the live run-context)
+    //! is the cooperative stop signal; the signal handler flips it via
+    //! SignalStopBroker. requestStop()/reset() are async-signal-safe atomic ops.
+    void requestStop() noexcept { stop_->requestStop(); }
+    //! Reset the stop token (for tests / repeated runs).
+    void resetStop() noexcept { stop_->reset(); }
 
     // Wire format constants (public for utility function access)
     static constexpr size_t X25519_PUBLIC_KEY_LEN = 32;
@@ -124,6 +129,7 @@ private:
     int port_;
     std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey_;
     std::shared_ptr<ITransportOutput> output_;
+    std::shared_ptr<StopToken> stop_;
     int recvTimeoutUs_ = static_cast<int>(RECV_TIMEOUT_US);
 
     int fd_ = -1;

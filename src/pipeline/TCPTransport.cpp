@@ -20,22 +20,6 @@
 
 namespace vehicle_sim::pipeline {
 
-// Process-wide stop flag, set by requestStop() (from a signal handler) and
-// polled by nextLine() on each select() timeout so a live stream stops cleanly
-// without hanging. A single flag serves all TCPTransport instances — only one
-// live transport runs per process.
-namespace {
-std::atomic g_stopRequested{false};
-}  // namespace
-
-void TCPTransport::requestStop() noexcept {
-    g_stopRequested.store(true);
-}
-
-void TCPTransport::resetStop() noexcept {
-    g_stopRequested.store(false);
-}
-
 namespace {
 
 // select() read timeout floor — the production default (0.5s) keeps nextLine()
@@ -104,11 +88,13 @@ TCPTransport::TCPTransport(std::string_view host, int port, std::string_view ada
                            std::shared_ptr<ITransportOutput> output,
                            int readTimeoutUs,
                            int atInitDelayMs,
-                           int socketRecvTimeoutMs)
+                           int socketRecvTimeoutMs,
+                           std::shared_ptr<StopToken> stop)
     : host_(host)
     , port_(port)
     , adapterProtocol_(adapterProtocol)
     , output_(std::move(output))
+    , stop_(std::move(stop))
     , readTimeoutUs_(readTimeoutUs > 0 ? readTimeoutUs : 500000)
     , atInitDelayMs_(atInitDelayMs)
     , socketRecvTimeoutMs_(socketRecvTimeoutMs > 0 ? socketRecvTimeoutMs : 1000) {
@@ -397,7 +383,7 @@ bool TCPTransport::enterHuntingState() {
         }
 
         // Keep polling until connection succeeds or we're told to stop
-        while (!shouldStopDiscovery.load() && !g_stopRequested.load()) {
+        while (!shouldStopDiscovery.load() && !stop_->stopRequested()) {
             auto devices = hunter.poll(std::chrono::milliseconds(500));
 
             // Check if we found our device (or first available if no deviceId)
@@ -438,7 +424,7 @@ bool TCPTransport::enterHuntingState() {
     bool reconnected = false;
     retryCount_ = 0;
 
-    while (retryCount_ < MAX_RETRIES && !discoveryFound.load() && !g_stopRequested.load()) {
+    while (retryCount_ < MAX_RETRIES && !discoveryFound.load() && !stop_->stopRequested()) {
         retryCount_++;
         int delayMs = calculateRetryDelayMs(retryCount_ - 1);
 
@@ -575,7 +561,7 @@ ssize_t TCPTransport::readSocketIntoPending() {
 }
 
 bool TCPTransport::shouldStop() const {
-    return g_stopRequested.load();
+    return stop_->stopRequested();
 }
 
 std::optional<std::string> TCPTransport::nextLine() {

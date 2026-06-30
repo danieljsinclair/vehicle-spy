@@ -2,8 +2,8 @@
 
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
-#include <atomic>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -18,7 +18,8 @@ namespace vehicle_sim::pipeline {
 class USBTransport final : public ITransport {
 public:
     explicit USBTransport(std::string_view port, int baud = 115200,
-                 std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>());
+                 std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
+                 std::shared_ptr<StopToken> stop = std::make_shared<StopToken>());
     ~USBTransport() override;
 
     USBTransport(const USBTransport&) = delete;
@@ -32,17 +33,20 @@ public:
 
     /**
      * Request that nextLine() return nullopt at the next select() timeout.
-     * Used by the live run context's signal handler to stop a live stream
-     * cleanly without hanging. Safe to call from a signal handler (atomic).
+     * The shared StopToken (injected at construction, owned by the live
+     * run-context) is the cooperative stop signal; the signal handler flips it
+     * via SignalStopBroker. requestStop()/reset() are async-signal-safe atomic
+     * ops on the token.
      */
-    static void requestStop() noexcept;
-    /** Reset the stop flag (for tests / repeated runs). */
-    static void resetStop() noexcept;
+    void requestStop() noexcept { stop_->requestStop(); }
+    /** Reset the stop token (for tests / repeated runs). */
+    void resetStop() noexcept { stop_->reset(); }
 
 private:
     std::string port_;
     int baud_;
     std::shared_ptr<ITransportOutput> output_;
+    std::shared_ptr<StopToken> stop_;
     int fd_ = -1;
     bool opened_ = false;
     bool exhausted_ = false;

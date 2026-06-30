@@ -21,8 +21,6 @@ namespace vehicle_sim::pipeline {
 
 namespace {
 
-std::atomic g_stopRequested{false};
-
 // Readable aliases for the constants we need
 constexpr size_t SECRETBOX_NONCEBYTES = 24;
 constexpr size_t SECRETBOX_MACBYTES   = 16;
@@ -127,24 +125,18 @@ bool doSendAll(int fd, const uint8_t* data, size_t len) {
 
 } // namespace
 
-void SecureTcpTransport::requestStop() noexcept {
-    g_stopRequested.store(true);
-}
-
-void SecureTcpTransport::resetStop() noexcept {
-    g_stopRequested.store(false);
-}
-
 SecureTcpTransport::SecureTcpTransport(
     std::string host,
     int port,
     const std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN>& publicKey,
     std::shared_ptr<ITransportOutput> output,
-    int recvTimeoutUs)
+    int recvTimeoutUs,
+    std::shared_ptr<StopToken> stop)
     : host_(std::move(host))
     , port_(port)
     , publicKey_(publicKey)
     , output_(std::move(output))
+    , stop_(std::move(stop))
     , recvTimeoutUs_(recvTimeoutUs)
 {
     // Ensure libsodium is initialised (idempotent).
@@ -224,7 +216,7 @@ bool SecureTcpTransport::open() {
     reconnectCount_ = 0;
 
     while (reconnectCount_ < MAX_RECONNECT_ATTEMPTS) {
-        if (g_stopRequested.load()) {
+        if (stop_->stopRequested()) {
             output_->err("[secure-tcp] connection cancelled (stop requested)");
             return false;
         }
@@ -343,7 +335,7 @@ bool SecureTcpTransport::pollRecvOrExhaust() {
         return false;
     }
     if (ready == 0) {
-        if (g_stopRequested.load()) {
+        if (stop_->stopRequested()) {
             exhausted_ = true;
             return false;
         }

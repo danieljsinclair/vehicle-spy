@@ -93,7 +93,8 @@ std::string resolveAdapterProtocol(
 
 PipelineSource buildPipelineSource(
     std::string_view connectTarget,
-    std::string_view adapterProtocol) {
+    std::string_view adapterProtocol,
+    std::shared_ptr<StopToken> stop) {
 
     if (isFile(connectTarget)) {
         std::string path(connectTarget.substr(5));
@@ -120,8 +121,12 @@ PipelineSource buildPipelineSource(
         // so resolve the effective protocol here before selecting a normaliser.
         // elm327 -> ELM327 monitor dialect; anything else -> raw live frames.
         const auto effective = resolveAdapterProtocol(connectTarget, adapterProtocol);
+        // Live transports share the caller's StopToken so the signal handler can
+        // flip one flag they all poll; default to a fresh token if none supplied.
+        if (!stop) stop = std::make_shared<StopToken>();
         PipelineSource src;
-        src.transport = std::make_unique<TCPTransport>(std::move(host), port, adapterProtocol);
+        src.transport = std::make_unique<TCPTransport>(std::move(host), port, adapterProtocol,
+                                                       std::make_shared<StdOut>(), 500000, -1, 1000, stop);
         if (effective == "elm327") {
             src.normaliser = std::make_unique<Elm327Normaliser>();
         } else {
@@ -132,8 +137,10 @@ PipelineSource buildPipelineSource(
 
     if (isUsb(connectTarget)) {
         const auto effective = resolveAdapterProtocol(connectTarget, adapterProtocol);
+        if (!stop) stop = std::make_shared<StopToken>();
         PipelineSource src;
-        src.transport = std::make_unique<USBTransport>(std::string(connectTarget.substr(4)));
+        src.transport = std::make_unique<USBTransport>(std::string(connectTarget.substr(4)),
+                                                       115200, std::make_shared<StdOut>(), stop);
         if (effective == "elm327") {
             src.normaliser = std::make_unique<Elm327Normaliser>();
         } else {

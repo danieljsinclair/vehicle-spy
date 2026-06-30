@@ -2,6 +2,7 @@
 
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
 #include <memory>
 #include <string>
@@ -64,7 +65,8 @@ public:
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
                  int readTimeoutUs = 500000,
                  int atInitDelayMs = -1,
-                 int socketRecvTimeoutMs = 1000);
+                 int socketRecvTimeoutMs = 1000,
+                 std::shared_ptr<StopToken> stop = std::make_shared<StopToken>());
 
     ~TCPTransport() override;
 
@@ -79,12 +81,14 @@ public:
 
     /**
      * Request that nextLine() return nullopt at the next select() timeout.
-     * Used by the live run context's signal handler to stop a live stream
-     * cleanly without hanging. Safe to call from a signal handler (atomic).
+     * The shared StopToken (injected at construction, owned by the live
+     * run-context) is the cooperative stop signal; the signal handler flips it
+     * via SignalStopBroker. requestStop()/reset() are async-signal-safe atomic
+     * ops on the token.
      */
-    static void requestStop() noexcept;
-    /** Reset the stop flag (for tests / repeated runs). */
-    static void resetStop() noexcept;
+    void requestStop() noexcept { stop_->requestStop(); }
+    /** Reset the stop token (for tests / repeated runs). */
+    void resetStop() noexcept { stop_->reset(); }
 
     /**
      * HELO/ACK pre-flight: send ATHELO and parse ACK response.
@@ -126,6 +130,7 @@ private:
     int port_;
     std::string adapterProtocol_;
     std::shared_ptr<ITransportOutput> output_;
+    std::shared_ptr<StopToken> stop_;
     int readTimeoutUs_ = 500000;
     int atInitDelayMs_ = -1;
     int socketRecvTimeoutMs_ = 1000;
@@ -160,8 +165,8 @@ private:
     // extraction from pending_ stays in nextLine().
     ssize_t readSocketIntoPending();
 
-    // g_stopRequested is process-global (set by a signal handler); re-load it
-    // per call rather than caching across the read loop.
+    // stop_ is the injected cooperative stop signal (shared with the live
+    // run-context); re-load it per call rather than caching across the read loop.
     bool shouldStop() const;
 };
 

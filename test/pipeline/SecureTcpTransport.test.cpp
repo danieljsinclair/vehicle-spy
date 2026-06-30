@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 #include "vehicle-sim/pipeline/SecureTcpTransport.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <sodium.h>
@@ -21,8 +22,11 @@
 
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <thread>
 #include <vector>
+
+namespace { std::shared_ptr<vehicle_sim::pipeline::StopToken> g_testStop = std::make_shared<vehicle_sim::pipeline::StopToken>(); }
 
 using namespace vehicle_sim::pipeline;
 using namespace vehicle_sim::discovery;
@@ -266,8 +270,8 @@ TEST(SecureTcpTransportTest, HandshakeSuccess_WithCorrectKey) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     // Run the server handshake on a thread
     std::atomic<bool> serverOk{false};
@@ -295,9 +299,9 @@ TEST(SecureTcpTransportTest, HandshakeFails_WithWrongKey) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
     // Client has the WRONG public key
-    SecureTcpTransport t("127.0.0.1", server.port(), clientKp.publicKey);
+    SecureTcpTransport t("127.0.0.1", server.port(), clientKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -321,8 +325,8 @@ TEST(SecureTcpTransportTest, EncryptedDataRoundTrip) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -376,8 +380,8 @@ TEST(SecureTcpTransportTest, ConnectionRefused_OpenReturnsFalse) {
     close(refuseFd);
 
     auto kp = MockSecureServer::generateKeypair();
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", port, kp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", port, kp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
     EXPECT_FALSE(t.open());
     EXPECT_FALSE(t.isOpen());
 }
@@ -391,8 +395,8 @@ TEST(SecureTcpTransportTest, CleanDisconnect_ReturnsNullopt) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -419,11 +423,11 @@ TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
     // Tiny recv poll (1ms) so the stop flag is re-checked near-instantly,
     // instead of waiting the production 500ms poll floor.
     SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey,
-                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000);
+                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -437,7 +441,7 @@ TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(t.open());
 
     // Request stop from "signal handler"
-    SecureTcpTransport::requestStop();
+    g_testStop->requestStop();
 
     auto start = std::chrono::steady_clock::now();
     auto r = t.nextLine();
@@ -448,7 +452,7 @@ TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
     EXPECT_LT(elapsed.count(), 1500) << "stop should be prompt";
 
     serverThread.join();
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
 }
 
 // ── Test: multiple lines in sequence ────────────────────────────────────────
@@ -460,8 +464,8 @@ TEST(SecureTcpTransportTest, MultipleLines_InSequence) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -511,8 +515,8 @@ TEST(SecureTcpTransportTest, SingleFrameSplitAcrossTwoSegments_Reassembled) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -541,8 +545,8 @@ TEST(SecureTcpTransportTest, TamperedCiphertext_AfterHandshake_ReturnsNulloptAnd
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -570,10 +574,10 @@ TEST(SecureTcpTransportTest, RawBufferOverflow_ReturnsNulloptAndCloses) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
     // Short poll so the client re-checks data promptly during the flood.
     SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey,
-                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000);
+                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -592,5 +596,5 @@ TEST(SecureTcpTransportTest, RawBufferOverflow_ReturnsNulloptAndCloses) {
     EXPECT_FALSE(t.isOpen());
 
     serverThread.join();
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
 }

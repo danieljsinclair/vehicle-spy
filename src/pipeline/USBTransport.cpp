@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cerrno>
-#include <csignal>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/select.h>
@@ -15,7 +14,6 @@
 namespace vehicle_sim::pipeline {
 
 namespace {
-std::atomic g_stopRequested{false};
 
 constexpr int READ_TIMEOUT_US = 500000;
 constexpr std::size_t MAX_PENDING_LEN = 4096;
@@ -30,18 +28,12 @@ bool setNonBlocking(int fd) noexcept {
 
 } // namespace
 
-void USBTransport::requestStop() noexcept {
-    g_stopRequested.store(true);
-}
-
-void USBTransport::resetStop() noexcept {
-    g_stopRequested.store(false);
-}
-
-USBTransport::USBTransport(std::string_view port, int baud, std::shared_ptr<ITransportOutput> output)
+USBTransport::USBTransport(std::string_view port, int baud, std::shared_ptr<ITransportOutput> output,
+                           std::shared_ptr<StopToken> stop)
     : port_(port)
     , baud_(baud)
-    , output_(std::move(output)) {
+    , output_(std::move(output))
+    , stop_(std::move(stop)) {
 }
 
 USBTransport::~USBTransport() {
@@ -125,7 +117,7 @@ std::optional<std::string> USBTransport::nextLine() {
     }
 
     while (true) {
-        if (g_stopRequested.load()) {
+        if (stop_->stopRequested()) {
             exhausted_ = true;
             return std::nullopt;
         }
@@ -154,7 +146,7 @@ std::optional<std::string> USBTransport::nextLine() {
             return std::nullopt;
         }
 
-        if (g_stopRequested.load()) {
+        if (stop_->stopRequested()) {
             exhausted_ = true;
             return std::nullopt;
         }
