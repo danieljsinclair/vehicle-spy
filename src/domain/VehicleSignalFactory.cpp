@@ -1,6 +1,5 @@
 #include "vehicle-sim/domain/VehicleSignalFactory.h"
 #include "vehicle-sim/domain/DBCSignalMapper.h"
-#include "vehicle-sim/domain/Gear.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
 
 #include <array>
