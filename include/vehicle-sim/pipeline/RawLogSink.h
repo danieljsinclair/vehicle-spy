@@ -37,6 +37,15 @@ public:
     RawLogSink& operator=(RawLogSink&&) noexcept;
 
     /**
+     * Closes the raw output file. This class manages a file handle with custom
+     * move semantics (the move-assign already closes its prior file), so an
+     * explicit destructor completes the Rule-of-Five. Closing an already-closed
+     * std::ofstream is a safe no-op, so this is behaviour-identical to the
+     * implicit member destruction.
+     */
+    ~RawLogSink();
+
+    /**
      * Write one raw transport line prefixed with a wall-clock UTC millisecond
      * timestamp, appending a newline. Output format: "<utc_ms>,<line>\n".
      * No-op if invalid.

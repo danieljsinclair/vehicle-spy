@@ -20,6 +20,12 @@ RawLogSink& RawLogSink::operator=(RawLogSink&& other) noexcept {
     return *this;
 }
 
+RawLogSink::~RawLogSink() {
+    if (file_.is_open()) {
+        file_.close();
+    }
+}
+
 void RawLogSink::writeLine(const std::string& line) noexcept {
     if (!file_.is_open()) {
         return;
