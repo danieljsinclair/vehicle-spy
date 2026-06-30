@@ -12,8 +12,7 @@ namespace vehicle_sim::domain {
  */
 class VehicleSimException : public std::runtime_error {
 public:
-    explicit VehicleSimException(const std::string& message)
-        : std::runtime_error(message) {}
+    using std::runtime_error::runtime_error;
 };
 
 /**
