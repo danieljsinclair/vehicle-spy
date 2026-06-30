@@ -197,9 +197,7 @@ bool TCPTransport::connectAndAuth() {
         closeConnection(); return false;
     }
 
-    if (adapterProtocol_ == "elm327") {
-        if (!sendElm327Init(fd_)) { closeConnection(); return false; }
-    }
+    if (adapterProtocol_ == "elm327" && !sendElm327Init(fd_)) { closeConnection(); return false; }
 
     // Perform HELO handshake to validate device and capture deviceId
     if (!performHeloHandshake()) {
@@ -233,11 +231,9 @@ bool parseHexByte(const std::string& s, std::size_t offset, uint8_t& out) {
 
 bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     // First ensure we have an authenticated connection.
-    if (fd_ < 0) {
-        if (!connectAndAuth()) {
-            output_->err("[tcp] HELO pre-flight: connection failed");
-            return false;
-        }
+    if (fd_ < 0 && !connectAndAuth()) {
+        output_->err("[tcp] HELO pre-flight: connection failed");
+        return false;
     }
 
     // Send ATI (device info query)
