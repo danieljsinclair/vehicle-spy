@@ -146,29 +146,39 @@ std::vector<DBCValueEntry> parseValueEntries(const std::string& rest) {
     std::size_t pos = 0;
 
     while (pos < rest.size()) {
-        while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t' || rest[pos] == ';')) ++pos;
-        if (pos >= rest.size()) break;
+        // Parse one "<num> \"<label>\"" entry from `pos`. Each malformed-input
+        // or end-of-input condition returns false so the loop has a single break;
+        // on success the entry is appended and true is returned to continue.
+        auto parseOne = [&]() -> bool {
+            while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t' || rest[pos] == ';')) ++pos;
+            if (pos >= rest.size()) return false;
 
-        std::size_t valStart = pos;
-        while (pos < rest.size() && rest[pos] != ' ' && rest[pos] != '\t') ++pos;
-        if (pos == valStart) break;
+            std::size_t valStart = pos;
+            while (pos < rest.size() && rest[pos] != ' ' && rest[pos] != '\t') ++pos;
+            if (pos == valStart) return false;
 
-        std::int64_t numVal = 0;
-        {
-            auto sv = std::string_view(rest.data() + valStart, pos - valStart);
-            auto [p, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), numVal);
-            if (ec != std::errc{}) break;
+            std::int64_t numVal = 0;
+            {
+                auto sv = std::string_view(rest.data() + valStart, pos - valStart);
+                auto [p, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), numVal);
+                if (ec != std::errc{}) return false;
+            }
+
+            while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t')) ++pos;
+
+            if (pos >= rest.size() || rest[pos] != '"') return false;
+            ++pos;
+            auto endQuote = rest.find('"', pos);
+            if (endQuote == std::string::npos) return false;
+
+            entries.push_back({numVal, rest.substr(pos, endQuote - pos)});
+            pos = endQuote + 1;
+            return true;
+        };
+
+        if (!parseOne()) {
+            break;
         }
-
-        while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t')) ++pos;
-
-        if (pos >= rest.size() || rest[pos] != '"') break;
-        ++pos;
-        auto endQuote = rest.find('"', pos);
-        if (endQuote == std::string::npos) break;
-
-        entries.push_back({numVal, rest.substr(pos, endQuote - pos)});
-        pos = endQuote + 1;
     }
 
     return entries;

@@ -180,21 +180,31 @@ public:
         auto start = std::chrono::steady_clock::now();
 
         while (remainingMs > 0) {
-            // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
-            if (g_discoveryStopRequested.load()) {
-                break;
-            }
-
-            int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
-            if (ret < 0) {
-                if (errno == EINTR) break;  // SIGINT/SIGTERM: stop the poll immediately
-                continue;                   // other transient error: keep going
-            }
-            if (ret > 0 && (pfd.revents & POLLIN)) {
-                // Drain all available packets
-                while (tryReceive()) {
-                    // keep draining
+            // One poll iteration; returns whether the loop should keep going.
+            // Both early-exit paths (stop flag, EINTR) funnel through Stop so
+            // there is a single break in the loop.
+            auto iteration = [&]() -> bool {
+                // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
+                if (g_discoveryStopRequested.load()) {
+                    return false;
                 }
+
+                int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
+                if (ret < 0) {
+                    if (errno == EINTR) return false;  // SIGINT/SIGTERM: stop the poll immediately
+                    return true;                        // other transient error: keep going
+                }
+                if (ret > 0 && (pfd.revents & POLLIN)) {
+                    // Drain all available packets
+                    while (tryReceive()) {
+                        // keep draining
+                    }
+                }
+                return true;
+            };
+
+            if (!iteration()) {
+                break;
             }
 
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
