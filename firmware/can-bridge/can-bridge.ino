@@ -669,7 +669,8 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
 
         switch (source) {
             case CredentialSource::STORED_NVS: {
-                String storedSsid, storedPass;
+                String storedSsid;
+                String storedPass;
                 if (loadWifiCredentials(storedSsid, storedPass)) {
                     Serial.printf("Using stored WiFi credentials: %s\r\n", storedSsid.c_str());
                     wifi_.setMode(WIFI_STA);
@@ -735,7 +736,8 @@ struct ConnectingStateHandler : public WiFiStateHandler {
             }
 
             if (shouldRetryWiFi(WiFiState::State::CONNECTING, now, ctx.lastRetryMs)) {
-                String storedSsid, storedPass;
+                String storedSsid;
+                String storedPass;
                 bool hasStored = (source == CredentialSource::STORED_NVS) &&
                                 loadWifiCredentials(storedSsid, storedPass);
 
@@ -799,7 +801,8 @@ struct ReconnectingStateHandler : public WiFiStateHandler {
                             static_cast<int>(ctx.lastDisconnectReason), NC);
             wifi_.disconnect(false, true);
 
-            String storedSsid, storedPass;
+            String storedSsid;
+            String storedPass;
             if (hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass)) {
                 wifi_.begin(storedSsid.c_str(), storedPass.c_str());
             } else {
