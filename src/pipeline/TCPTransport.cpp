@@ -564,6 +564,21 @@ int TCPTransport::selectReady() const {
     return select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
 }
 
+ssize_t TCPTransport::readSocketIntoPending() {
+    std::array<char, 256> buffer;
+    ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
+    if (n > 0) {
+        pending_.append(buffer.data(), static_cast<std::size_t>(n));
+
+        // Defensive cap so a peer that never sends a line ending can't grow
+        // the buffer without bound.
+        if (pending_.size() > MAX_PENDING_LEN) {
+            pending_.clear();
+        }
+    }
+    return n;
+}
+
 std::optional<std::string> TCPTransport::nextLine() {
     if (!canRead()) {
         return std::nullopt;
@@ -594,8 +609,7 @@ std::optional<std::string> TCPTransport::nextLine() {
             continue;
         }
 
-        std::array<char, 256> buffer;
-        ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
+        ssize_t n = readSocketIntoPending();
         if (n <= 0) {
             // Peer closed (0) or error (<0): attempt reconnection, unless stop
             // was requested (e.g. test cleanup or Ctrl+C). The stop flag is
@@ -627,14 +641,6 @@ std::optional<std::string> TCPTransport::nextLine() {
             exhausted_ = true;
             return std::nullopt;
 #endif
-        }
-
-        pending_.append(buffer.data(), static_cast<std::size_t>(n));
-
-        // Defensive cap so a peer that never sends a line ending can't grow
-        // the buffer without bound.
-        if (pending_.size() > MAX_PENDING_LEN) {
-            pending_.clear();
         }
 
         // Try to extract a complete line from the newly buffered bytes.

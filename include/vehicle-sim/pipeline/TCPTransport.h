@@ -153,6 +153,12 @@ private:
     // select() ready count (negative on error). EINTR retry and the
     // exhausted_/stop mutations stay in nextLine(), the caller.
     int selectReady() const;
+
+    // recv() one chunk (256 bytes) into a local buffer and append it to
+    // pending_ (with the MAX_PENDING_LEN runaway cap). Returns the recv byte
+    // count — <= 0 means peer-closed/error, handled by the caller. Line
+    // extraction from pending_ stays in nextLine().
+    ssize_t readSocketIntoPending();
 };
 
 } // namespace vehicle_sim::pipeline
