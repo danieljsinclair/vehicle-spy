@@ -1,4 +1,5 @@
 #include "vehicle-sim/util/IClock.h"
+#include <cassert>
 
 namespace vehicle_sim::util {
 
@@ -77,6 +78,8 @@ void FakeClock::advance(duration d) {
     // because cv.wait atomically re-checks the predicate on wake under this
     // same consumer lock.
     {
+        // Document the proven invariant: cv != nullptr guarantees registeredLock_ != nullptr
+        assert(consumerMutex != nullptr && "consumerMutex must be non-null when cv is registered");
         std::scoped_lock guard(*consumerMutex, mutex_);
         now_ += d;
     }
