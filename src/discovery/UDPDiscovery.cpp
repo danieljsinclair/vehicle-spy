@@ -184,7 +184,7 @@ public:
             // One poll iteration; returns whether the loop should keep going.
             // Both early-exit paths (stop flag, EINTR) funnel through Stop so
             // there is a single break in the loop.
-            auto iteration = [&]() -> bool {
+            auto iteration = [&]() {
                 // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
                 if (g_discoveryStopRequested.load()) {
                     return false;

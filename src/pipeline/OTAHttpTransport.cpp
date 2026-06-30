@@ -208,7 +208,7 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) const noexcept {
         // (timeout-after-headers, socket error, clean EOF, select error) are
         // expressed as the result so the loop has a single break.
         enum class IterResult { KeepGoing, Stop, ReturnPartial };
-        auto iteration = [&]() -> IterResult {
+        auto iteration = [&]() {
             fd_set rs;
             FD_ZERO(&rs);
             FD_SET(fd_, &rs);

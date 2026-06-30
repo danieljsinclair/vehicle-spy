@@ -149,7 +149,7 @@ std::vector<DBCValueEntry> parseValueEntries(const std::string& rest) {
         // Parse one "<num> \"<label>\"" entry from `pos`. Each malformed-input
         // or end-of-input condition returns false so the loop has a single break;
         // on success the entry is appended and true is returned to continue.
-        auto parseOne = [&]() -> bool {
+        auto parseOne = [&]() {
             while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t' || rest[pos] == ';')) ++pos;
             if (pos >= rest.size()) return false;
 
