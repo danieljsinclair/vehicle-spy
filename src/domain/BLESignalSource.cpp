@@ -41,7 +41,7 @@ void BLESignalSource::onDataReceived(const std::vector<std::uint8_t>& data) {
     if (data.size() < 2) return;
 
     // Extract CAN ID (little-endian from BLE)
-    std::uint16_t canId = static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[0]) | (static_cast<std::uint16_t>(data[1]) << 8));
+    auto canId = static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[0]) | (static_cast<std::uint16_t>(data[1]) << 8));
 
     // Store frame data (bytes 2-9)
     std::vector<std::uint8_t> frameData(data.begin() + 2, data.end());

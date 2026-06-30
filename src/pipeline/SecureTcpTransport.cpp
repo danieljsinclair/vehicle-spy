@@ -287,7 +287,7 @@ std::optional<std::string> SecureTcpTransport::readEncryptedLine() {
 
     while (true) {
         if (rawBuffer_.size() >= SECRETBOX_NONCEBYTES + 2) {
-            uint16_t frameLen = static_cast<uint16_t>(
+            auto frameLen = static_cast<uint16_t>(
                 (static_cast<uint16_t>(
                     static_cast<unsigned char>(rawBuffer_[SECRETBOX_NONCEBYTES])) << 8)
                 | static_cast<uint16_t>(static_cast<unsigned char>(rawBuffer_[SECRETBOX_NONCEBYTES + 1])));

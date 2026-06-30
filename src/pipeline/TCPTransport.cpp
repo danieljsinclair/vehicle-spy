@@ -163,7 +163,7 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
         tv.tv_usec = 100000;  // 100ms timeout for response
         if (int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv); ready > 0) {
             std::array<char, 256> resp{};
-            int n = static_cast<int>(recv(fd, resp.data(), resp.size() - 1, 0));
+            auto n = static_cast<int>(recv(fd, resp.data(), resp.size() - 1, 0));
             if (n <= 0) {
                 output_->err("[tcp] ELM327 init: no response to AT command (peer closed or error)");
                 return false;
@@ -190,7 +190,7 @@ bool TCPTransport::connectAndAuth() {
     // Authenticate: send token, expect "OK" back
     if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(fd_, authCmd)) { closeConnection(); return false; }
     std::array<char, 64> authResp{};
-    if (int n = static_cast<int>(recv(fd_, authResp.data(), authResp.size() - 1, 0));
+    if (auto n = static_cast<int>(recv(fd_, authResp.data(), authResp.size() - 1, 0));
         n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
         closeConnection(); return false;
     }
@@ -247,7 +247,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     int totalAti = 0;
     bool atiComplete = false;
     while (totalAti < static_cast<int>(atiResp.size() - 1) && !atiComplete) {
-        int n = static_cast<int>(recv(fd_, atiResp.data() + totalAti, atiResp.size() - 1 - static_cast<std::size_t>(totalAti), 0));
+        auto n = static_cast<int>(recv(fd_, atiResp.data() + totalAti, atiResp.size() - 1 - static_cast<std::size_t>(totalAti), 0));
         if (n <= 0) {
             // Timeout or error - ATI response is optional, continue
             break;
@@ -283,7 +283,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     int totalHelo = 0;
     bool heloComplete = false;
     while (totalHelo < static_cast<int>(heloResp.size() - 1) && !heloComplete) {
-        int n = static_cast<int>(recv(fd_, heloResp.data() + totalHelo, heloResp.size() - 1 - static_cast<std::size_t>(totalHelo), 0));
+        auto n = static_cast<int>(recv(fd_, heloResp.data() + totalHelo, heloResp.size() - 1 - static_cast<std::size_t>(totalHelo), 0));
         if (n <= 0) {
             // Timeout or error
             break;
