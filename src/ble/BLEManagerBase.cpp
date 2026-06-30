@@ -14,8 +14,8 @@ namespace {
 
 std::string padToWidth(std::string_view s, int width) {
     int displayWidth = 0;
-    for (size_t i = 0; i < s.size(); ++i) {
-        displayWidth += (static_cast<unsigned char>(s[i]) & 0xC0) != 0x80 ? 1 : 0;
+    for (unsigned char c : s) {
+        displayWidth += (c & 0xC0) != 0x80 ? 1 : 0;
     }
     if (displayWidth >= width) return std::string(s);
     return std::string(s) + std::string(width - displayWidth, ' ');

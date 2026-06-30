@@ -24,12 +24,10 @@ namespace {
     bool isErrorMessage(const std::string& str) {
         std::string upper = str;
         std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-        for (const auto& error : ERROR_MESSAGES) {
-            if (upper.find(error) != std::string::npos) {
-                return true;
-            }
-        }
-        return false;
+        return std::any_of(ERROR_MESSAGES.begin(), ERROR_MESSAGES.end(),
+                           [&](const std::string& error) {
+                               return upper.find(error) != std::string::npos;
+                           });
     }
 
     std::uint8_t hexCharToByte(char c) {

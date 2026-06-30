@@ -1,5 +1,6 @@
 #include "vehicle-sim/domain/CaptureLog.h"
 
+#include <algorithm>
 #include <charconv>
 #include <fstream>
 
@@ -33,21 +34,19 @@ std::optional<std::uint32_t> parseHex(std::string_view s) noexcept {
 
 bool isHex(std::string_view s) noexcept {
     if (s.empty()) return false;
-    for (char c : s) {
+    return std::all_of(s.begin(), s.end(), [](char c) {
         const auto u = static_cast<unsigned char>(c);
         const bool digit = u >= '0' && u <= '9';
         const bool lower = u >= 'a' && u <= 'f';
         const bool upper = u >= 'A' && u <= 'F';
-        if (!(digit || lower || upper)) return false;
-    }
-    return true;
+        return digit || lower || upper;
+    });
 }
 
 bool isBlank(std::string_view s) noexcept {
-    for (char c : s) {
-        if (c != ' ' && c != '\r' && c != '\n' && c != '\t') return false;
-    }
-    return true;
+    return std::all_of(s.begin(), s.end(), [](char c) {
+        return c == ' ' || c == '\r' || c == '\n' || c == '\t';
+    });
 }
 
 // Parse a legacy CSV row "timestampMs,canId,dlc,dataHex" (the caller has

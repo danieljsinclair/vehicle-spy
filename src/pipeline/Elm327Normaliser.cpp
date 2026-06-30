@@ -18,14 +18,13 @@ constexpr std::uint32_t CAN_11BIT_MAX = 0x7FFu;   // 11-bit standard CAN ID ceil
 
 bool isHex(std::string_view s) noexcept {
     if (s.empty()) return false;
-    for (char c : s) {
+    return std::all_of(s.begin(), s.end(), [](char c) {
         const auto u = static_cast<unsigned char>(c);
         const bool digit = u >= '0' && u <= '9';
         const bool lower = u >= 'a' && u <= 'f';
         const bool upper = u >= 'A' && u <= 'F';
-        if (!(digit || lower || upper)) return false;
-    }
-    return true;
+        return digit || lower || upper;
+    });
 }
 
 // Mirror RawFrameNormaliser's rtrim so the two live normalisers agree on how
@@ -40,10 +39,9 @@ std::string_view rtrim(std::string_view s) noexcept {
 }
 
 bool isBlank(std::string_view s) noexcept {
-    for (char c : s) {
-        if (c != ' ' && c != '\r' && c != '\n' && c != '\t') return false;
-    }
-    return true;
+    return std::all_of(s.begin(), s.end(), [](char c) {
+        return c == ' ' || c == '\r' || c == '\n' || c == '\t';
+    });
 }
 
 std::optional<std::uint32_t> parseHex(std::string_view s) noexcept {
@@ -86,12 +84,10 @@ bool isAdapterChatter(std::string_view trimmed) noexcept {
         "SEARCHING", "ELM327", "UNABLE TO CONNECT", "BUS ERROR",
         "BUFFER FULL", "CAN ERROR", "BUS INIT", "ERROR",
     };
-    for (auto kw : kKnown) {
-        if (upper == kw) return true;
-    }
     // Version banners like "ELM327 v2.3" or "v1.5" start non-hex and are caught
     // by the isHex gate; nothing to do here.
-    return false;
+    return std::any_of(std::begin(kKnown), std::end(kKnown),
+                       [&](std::string_view kw) { return upper == kw; });
 }
 
 } // namespace

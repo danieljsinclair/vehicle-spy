@@ -222,8 +222,8 @@ bool VehicleDetector::feedVINResponse(const std::vector<std::uint8_t>& response)
             if (response[i] != 0x00) newPart += static_cast<char>(response[i]);
         }
     } else if (response.size() >= 1) {
-        for (size_t i = 0; i < response.size(); ++i) {
-            if (response[i] != 0x00) newPart += static_cast<char>(response[i]);
+        for (auto b : response) {
+            if (b != 0x00) newPart += static_cast<char>(b);
         }
     } else {
         return false;
