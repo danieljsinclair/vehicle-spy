@@ -118,8 +118,8 @@ NormaliserResult Elm327Normaliser::parseMonitorLine(const std::string& line) noe
     // 11-bit CAN ID occupies up to 3 hex digits. More digits => not an 11-bit
     // monitor frame. (29-bit extended IDs are out of scope; a future change
     // can add an explicit extended-frame path here.)
-    // TODO(#18): detect & handle 29-bit extended CAN IDs when ATSP6/ATH1
-    //            extended-frame output is exercised on real hardware.
+    // MARKER(#18): detect & handle 29-bit extended CAN IDs when ATSP6/ATH1
+    //              extended-frame output is exercised on real hardware.
     if (tokens[0].size() > 3) {
         return NormaliserResult::malformed();
     }

@@ -50,8 +50,9 @@ void BLESignalSource::onDataReceived(const std::vector<std::uint8_t>& data) {
         std::scoped_lock lock(signalMutex_);
         accumulatedFrames_[canId] = frameData;
 
-        // TODO: Use DBCTranslationService to translate accumulated frames
-        // For now, store raw data - actual translation will be added later
+        // MARKER: use DBCTranslationService to translate accumulated frames —
+        // tracked separately. For now, store raw data; actual translation will
+        // be added later.
     }
 }
 
