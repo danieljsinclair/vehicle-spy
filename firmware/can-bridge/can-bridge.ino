@@ -218,8 +218,8 @@ static bool loadWifiCredentials(String& ssid, String& pass) {
     if (ssidLen > 0 && passLen > 0) {
         char ssidBuf[33];  // Max SSID length
         char passBuf[65];  // Max password length
-        ssidLen = wifiCredentials.getString(NVS_WIFI_SSID, ssidBuf, sizeof(ssidBuf));
-        passLen = wifiCredentials.getString(NVS_WIFI_PASS, passBuf, sizeof(passBuf));
+        (void)wifiCredentials.getString(NVS_WIFI_SSID, ssidBuf, sizeof(ssidBuf));
+        (void)wifiCredentials.getString(NVS_WIFI_PASS, passBuf, sizeof(passBuf));
         wifiCredentials.end();
         ssid = String(ssidBuf);
         pass = String(passBuf);
@@ -1305,7 +1305,7 @@ void setup() {
 
     // Factory reset check before WiFi init - allows wiping stored credentials
     // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
-    bool factoryReset = checkFactoryReset();
+    (void)checkFactoryReset();
 
     WiFi.onEvent(onWiFiDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
