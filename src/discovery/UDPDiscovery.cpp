@@ -7,7 +7,6 @@
 #include <ctime>
 #include <memory>
 #include <cerrno>
-#include <atomic>
 
 // Platform-specific socket headers
 #ifdef __APPLE__

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "vehicle-sim/domain/DBCTranslationService.h"
-#include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/pipeline/StopToken.h"
 #include <atomic>
 #include <string>

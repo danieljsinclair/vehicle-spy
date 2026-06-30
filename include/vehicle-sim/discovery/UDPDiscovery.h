@@ -23,7 +23,6 @@
 #include <array>
 #include <functional>
 #include <memory>
-#include <atomic>
 
 namespace vehicle_sim::discovery {
 

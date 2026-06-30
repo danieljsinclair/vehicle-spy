@@ -5,7 +5,6 @@
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/Orchestration.h"
-#include "vehicle-sim/cli/TelemetryRunner.h"
 #include "vehicle-sim/cli/BLERunContext.h"
 #include "vehicle-sim/cli/ReplayRunContext.h"
 #include "vehicle-sim/cli/LiveRunContext.h"
