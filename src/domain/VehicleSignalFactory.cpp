@@ -62,7 +62,7 @@ void VehicleSignalFactory::resolveMappings() {
         const auto numericSlot = numericSlotFor(fieldName);
         const bool isGear = (fieldName == "gearSelector");
 
-        if (!numericSlot && !isGear) {
+        if (!numericSlot.has_value() && !isGear) {
             // Mapped to a field VehicleSignal does not expose (e.g. gearRequested).
             resolved_.push_back({FieldKind::Ignored, 0, nullptr, 0});
             continue;
@@ -128,12 +128,12 @@ VehicleSignal VehicleSignalFactory::build(
                 field.def->name,
                 parseResult_.signalsByCanId
             );
-            if (gearValue) {
+            if (gearValue.has_value()) {
                 gear = *gearValue;
             }
         } else {
             auto value = DBCSignalMapper::mapSignal(frameIt->second, *field.def);
-            if (value) {
+            if (value.has_value()) {
                 numeric[field.outputIndex] = *value;
             }
         }

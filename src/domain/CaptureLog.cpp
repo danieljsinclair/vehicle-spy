@@ -81,7 +81,7 @@ CaptureLineParse parseLegacyCsv(std::string_view tsField,
     auto ts = parseDecimal(fields[0]);
     auto canId = parseHex(fields[1]);
     auto dlc = parseDecimal(fields[2]);
-    if (!ts || !canId || !dlc || *dlc > CAN_PAYLOAD_BYTES) {
+    if (!ts.has_value() || !canId.has_value() || !dlc.has_value() || *dlc > CAN_PAYLOAD_BYTES) {
         out.result = CaptureParseResult::Malformed;
         return out;
     }
@@ -94,7 +94,7 @@ CaptureLineParse parseLegacyCsv(std::string_view tsField,
     RawFrame frame;
     for (std::size_t i = 0; i < hex.size(); i += 2) {
         auto byte = parseHex(hex.substr(i, 2));
-        if (!byte) {
+        if (!byte.has_value()) {
             out.result = CaptureParseResult::Malformed;
             return out;
         }
@@ -117,7 +117,7 @@ CaptureLineParse parseVerbatim(std::string_view tsField,
                                std::string_view payload) noexcept {
     CaptureLineParse out;
     auto ts = parseDecimal(tsField);
-    if (!ts) {
+    if (!ts.has_value()) {
         out.result = CaptureParseResult::Malformed;
         return out;
     }
@@ -161,14 +161,14 @@ CaptureLineParse parseVerbatim(std::string_view tsField,
     RawFrame frame;
     frame.timestampMs = *ts;
     auto canId = parseHex(tokens[0]);
-    if (!canId) {
+    if (!canId.has_value()) {
         out.result = CaptureParseResult::Malformed;
         return out;
     }
     frame.canId = *canId;
     for (std::size_t t = 1; t < tokens.size(); ++t) {
         auto byte = parseHex(tokens[t]);
-        if (!byte || *byte > 0xFFu) {
+        if (!byte.has_value() || *byte > 0xFFu) {
             out.result = CaptureParseResult::Malformed;
             return out;
         }

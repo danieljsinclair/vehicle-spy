@@ -98,7 +98,7 @@ NormaliserResult RawFrameNormaliser::parseLiveLine(const std::string& line) noex
     }
 
     auto canId = parseHex(tokens[0]);
-    if (!canId) {
+    if (!canId.has_value()) {
         return NormaliserResult::malformed();
     }
 
@@ -107,7 +107,7 @@ NormaliserResult RawFrameNormaliser::parseLiveLine(const std::string& line) noex
     frame.canId = *canId;
     for (std::size_t t = 1; t < tokens.size(); ++t) {
         auto byte = parseHex(tokens[t]);
-        if (!byte || *byte > 0xFFu) {
+        if (!byte.has_value() || *byte > 0xFFu) {
             return NormaliserResult::malformed();
         }
         frame.data[t - 1] = static_cast<std::uint8_t>(*byte);

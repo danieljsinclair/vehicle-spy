@@ -140,7 +140,7 @@ NormaliserResult Elm327Normaliser::parseMonitorLine(const std::string& line) noe
     }
 
     auto canId = parseHex(tokens[0]);
-    if (!canId) {
+    if (!canId.has_value()) {
         return NormaliserResult::malformed();
     }
     if (*canId > CAN_11BIT_MAX) {
@@ -152,7 +152,7 @@ NormaliserResult Elm327Normaliser::parseMonitorLine(const std::string& line) noe
     frame.canId = *canId;
     for (std::size_t t = 1; t < tokens.size(); ++t) {
         auto byte = parseHex(tokens[t]);
-        if (!byte || *byte > 0xFFu) {
+        if (!byte.has_value() || *byte > 0xFFu) {
             return NormaliserResult::malformed();
         }
         frame.data[t - 1] = static_cast<std::uint8_t>(*byte);

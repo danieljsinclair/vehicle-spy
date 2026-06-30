@@ -123,7 +123,7 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
     // Process remaining hex
     while (hexStr.length() >= 2) {
         auto byte = parseHexByte(hexStr.substr(0, 2));
-        if (byte) {
+        if (byte.has_value()) {
             result.push_back(*byte);
         } else {
             return std::nullopt;
@@ -317,7 +317,7 @@ std::optional<CANFrame> ELM327Transport::parseCANFrame(const std::string& line) 
             return std::nullopt;
         }
         auto byte = parseHexByte(tokens[i]);
-        if (!byte) {
+        if (!byte.has_value()) {
             return std::nullopt;
         }
         data.push_back(*byte);

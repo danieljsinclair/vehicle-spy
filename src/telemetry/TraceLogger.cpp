@@ -49,16 +49,16 @@ void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
     // hv_voltage, hv_current, torque, gear). timestamp and vehicle_id are NOT
     // counted — only DBC-translated signals.
     int populatedCount = 0;
-    if (signal.getThrottlePercent())  ++populatedCount;
-    if (signal.getSpeedKmh())         ++populatedCount;
-    if (signal.getAccelerationG())    ++populatedCount;
-    if (signal.getBrakePercent())     ++populatedCount;
-    if (signal.getSteeringAngleDeg()) ++populatedCount;
-    if (signal.getMotorRpm())         ++populatedCount;
-    if (signal.getMotorHvVoltage())   ++populatedCount;
-    if (signal.getMotorHvCurrent())   ++populatedCount;
-    if (signal.getMotorTorqueNm())    ++populatedCount;
-    if (gear)                         ++populatedCount;
+    if (signal.getThrottlePercent().has_value())  ++populatedCount;
+    if (signal.getSpeedKmh().has_value())         ++populatedCount;
+    if (signal.getAccelerationG().has_value())    ++populatedCount;
+    if (signal.getBrakePercent().has_value())     ++populatedCount;
+    if (signal.getSteeringAngleDeg().has_value()) ++populatedCount;
+    if (signal.getMotorRpm().has_value())         ++populatedCount;
+    if (signal.getMotorHvVoltage().has_value())   ++populatedCount;
+    if (signal.getMotorHvCurrent().has_value())   ++populatedCount;
+    if (signal.getMotorTorqueNm().has_value())    ++populatedCount;
+    if (gear.has_value())                         ++populatedCount;
 
     file_ << signal.getTimestampUtcMs() << ","
           << vehicleId_ << ","
@@ -71,7 +71,7 @@ void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
           << formatOptional(signal.getMotorHvVoltage()) << ","
           << formatOptional(signal.getMotorHvCurrent()) << ","
           << formatOptional(signal.getMotorTorqueNm()) << ","
-          << (gear ? domain::Gear::labelOr(*gear, std::to_string(*gear)) : "") << ","
+          << (gear.has_value() ? domain::Gear::labelOr(*gear, std::to_string(*gear)) : "") << ","
           << populatedCount
           << "\n";
     file_.flush();
