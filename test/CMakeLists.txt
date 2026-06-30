@@ -14,6 +14,7 @@ add_executable(vehicle-sim-tests
     domain/CANSignalDecoderShared.test.cpp
     domain/DBCParser.test.cpp
     domain/DBCFileParser.test.cpp
+    domain/DBCSignalMapperContract.test.cpp
     domain/VehicleSignalFactory.test.cpp
     domain/EventDispatcher.test.cpp
     domain/VehicleDetector.test.cpp
