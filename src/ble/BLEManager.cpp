@@ -4,16 +4,11 @@
 
 #if defined(__APPLE__)
     #include <TargetConditionals.h>
-    #if TARGET_OS_OSX
-        #define PLATFORM_MACOS 1
-    #elif TARGET_OS_IPHONE
-        #define PLATFORM_IOS 1
-    #endif
 #endif
 
-#if defined(PLATFORM_MACOS)
+#if defined(__APPLE__) && TARGET_OS_OSX
 #include "vehicle-sim/ble/platform/BLEManagerMacOS.h"
-#elif defined(PLATFORM_IOS)
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
 #include "vehicle-sim/ble/platform/BLEManageriOS.h"
 #endif
 
@@ -24,10 +19,10 @@ BLEManager::BLEManager() = default;
 BLEManager::~BLEManager() = default;
 
 std::unique_ptr<BLEManagerBase> BLEManager::createDefaultPlatform() {
-#if defined(PLATFORM_MACOS)
+#if defined(__APPLE__) && TARGET_OS_OSX
     std::cout << "[BLEManager] Creating macOS BLE platform" << std::endl;
     return std::make_unique<BLEManagerMacOS>();
-#elif defined(PLATFORM_IOS)
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
     std::cout << "[BLEManager] Creating iOS BLE platform" << std::endl;
     return std::make_unique<BLEManageriOS>();
 #else
