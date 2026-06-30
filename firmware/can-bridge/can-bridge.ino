@@ -371,7 +371,7 @@ static void initNtpSync() {
     if (ntpCtx.syncAttempts > Constants::NTP_SYNC_RETRY_MAX) {
         Serial.printf("%sNTP sync: max attempts reached, using fallback time%s\r\n", YELLOW, NC);
         // Only show ERROR_NO_NTP_SERVICE in STA mode (AP mode has no internet by design)
-        if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED) {
+        if (WiFiClass::getMode() == WIFI_STA && WiFiClass::status() == WL_CONNECTED) {
             statusLed.setPattern(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
         }
         return;
@@ -562,9 +562,9 @@ static void broadcastDiscovery() {
     // Broadcast in AP mode (always ready) or STA mode (if ready)
     // STA mode is ready when: connected, disconnected (was connected), or connecting
     // This allows broadcasting during initial connection and reconnects, not just when fully connected
-    if (WiFi.getMode() == WIFI_AP) {
+    if (WiFiClass::getMode() == WIFI_AP) {
         // AP mode - always ready to broadcast
-    } else if (WiFi.getMode() == WIFI_STA) {
+    } else if (WiFiClass::getMode() == WIFI_STA) {
         // STA mode - broadcast if WiFi is initialized (mode is set)
         // Don't check status here - allow broadcasting during connection/reconnection
         // UDP will fail silently if WiFi isn't truly ready, which is acceptable
@@ -646,14 +646,14 @@ struct IWiFi {
 };
 
 struct RealWiFi : public IWiFi {
-    void setMode(wifi_mode_t mode) override { WiFi.mode(mode); }
+    void setMode(wifi_mode_t mode) override { WiFiClass::mode(mode); }
     void begin(const char* ssid, const char* pass) override { WiFi.begin(ssid, pass); }
     void disconnect(bool wifiOff, bool eraseAP) override { WiFi.disconnect(wifiOff, eraseAP); }
-    wl_status_t status() const override { return WiFi.status(); }
+    wl_status_t status() const override { return WiFiClass::status(); }
     IPAddress localIP() const override { return WiFi.localIP(); }
     IPAddress softAPIP() const override { return WiFi.softAPIP(); }
     void softAP(const char* ssid, const char* pass) override { WiFi.softAP(ssid, pass); }
-    void setHostname(const char* name) override { WiFi.setHostname(name); }
+    void setHostname(const char* name) override { WiFiClass::setHostname(name); }
 };
 
 static RealWiFi realWifi;
@@ -760,7 +760,7 @@ struct ConnectingStateHandler : public WiFiStateHandler {
 
             if (source == CredentialSource::STORED_NVS) {
                 Serial.printf("%sStored WiFi credentials timeout, falling back to AP mode%s\r\n", YELLOW, NC);
-                WiFi.mode(WIFI_AP);
+                WiFiClass::mode(WIFI_AP);
                 WiFi.softAP(AP_SSID, AP_PASS);
                 const String ip = WiFi.softAPIP().toString();
                 Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
@@ -815,7 +815,7 @@ struct ReconnectingStateHandler : public WiFiStateHandler {
 // Handler for CONNECTED_STA state - monitors connection health
 struct ConnectedStaStateHandler : public WiFiStateHandler {
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        if (WiFi.status() != WL_CONNECTED) {
+        if (WiFiClass::status() != WL_CONNECTED) {
             return StateTransition(WiFiState::State::RECONNECTING, true, false);
         }
         return StateTransition();  // Stay CONNECTED_STA
