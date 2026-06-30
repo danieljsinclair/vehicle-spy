@@ -1,8 +1,8 @@
 #include "vehicle-sim/boundary/ELM327Transport.h"
 
-#include <sstream>
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <cctype>
 #include <string_view>
 #include <unordered_set>
@@ -109,11 +109,10 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
             // Process accumulated hex when we hit a non-hex character
             while (hexStr.length() >= 2) {
-                if (auto byte = parseHexByte(hexStr.substr(0, 2)); byte.has_value()) {
-                    result.push_back(*byte);
-                } else {
-                    return std::nullopt; // Invalid hex found
-                }
+                // hexStr is isxdigit-guarded (line 100), so parseHexByte always succeeds
+                auto byte = parseHexByte(hexStr.substr(0, 2));
+                assert(byte.has_value() && "hexStr contains only isxdigit characters");
+                result.push_back(*byte);
                 hexStr = hexStr.substr(2);
             }
         }
@@ -121,11 +120,10 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
     // Process remaining hex
     while (hexStr.length() >= 2) {
-        if (auto byte = parseHexByte(hexStr.substr(0, 2)); byte.has_value()) {
-            result.push_back(*byte);
-        } else {
-            return std::nullopt;
-        }
+        // hexStr is isxdigit-guarded (line 100), so parseHexByte always succeeds
+        auto byte = parseHexByte(hexStr.substr(0, 2));
+        assert(byte.has_value() && "hexStr contains only isxdigit characters");
+        result.push_back(*byte);
         hexStr = hexStr.substr(2);
     }
 
