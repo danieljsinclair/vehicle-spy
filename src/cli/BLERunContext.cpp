@@ -27,6 +27,12 @@ namespace {
             std::signal(SIGTERM, vehicle_sim_onStopSignal);
         }
         ~BleStopScope() { vehicle_sim::pipeline::signal_stop_broker::brokerClear(); }
+        // RAII scope guard: non-copyable, non-movable — copying would dangle the
+        // StopToken& reference and double-clear the broker on destruction.
+        BleStopScope(const BleStopScope&) = delete;
+        BleStopScope& operator=(const BleStopScope&) = delete;
+        BleStopScope(BleStopScope&&) = delete;
+        BleStopScope& operator=(BleStopScope&&) = delete;
     };
 }
 

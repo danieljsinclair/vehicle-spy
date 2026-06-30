@@ -59,7 +59,16 @@ int runDiscovery() {
     signal_stop_broker::brokerSet(stop.get());
     std::signal(SIGINT, vehicle_sim_onStopSignal);
     std::signal(SIGTERM, vehicle_sim_onStopSignal);
-    struct BrokerClear { ~BrokerClear(){ signal_stop_broker::brokerClear(); } } clearer;
+    // RAII scope guard: non-copyable, non-movable — clears the broker on scope exit.
+    struct BrokerClear {
+        BrokerClear() = default;
+        ~BrokerClear() { signal_stop_broker::brokerClear(); }
+        BrokerClear(const BrokerClear&) = delete;
+        BrokerClear& operator=(const BrokerClear&) = delete;
+        BrokerClear(BrokerClear&&) = delete;
+        BrokerClear& operator=(BrokerClear&&) = delete;
+    };
+    BrokerClear clearer;
 
     UDPDiscovery discovery{stop};
 

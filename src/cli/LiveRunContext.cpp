@@ -29,6 +29,12 @@ struct LiveStopScope {
         std::signal(SIGTERM, vehicle_sim_onStopSignal);
     }
     ~LiveStopScope() { pipeline::signal_stop_broker::brokerClear(); }
+    // RAII scope guard: non-copyable, non-movable — copying would dangle the
+    // StopToken& reference and double-clear the broker on destruction.
+    LiveStopScope(const LiveStopScope&) = delete;
+    LiveStopScope& operator=(const LiveStopScope&) = delete;
+    LiveStopScope(LiveStopScope&&) = delete;
+    LiveStopScope& operator=(LiveStopScope&&) = delete;
 };
 
 } // namespace
