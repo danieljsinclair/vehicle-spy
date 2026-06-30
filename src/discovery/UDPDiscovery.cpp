@@ -19,8 +19,7 @@
 #include <errno.h>
 #endif
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
 // Global stop flag for discovery poll (set by signal handler, polled by poll())
 // Using a flag instead of EINTR because macOS's SA_RESTART causes poll() to
@@ -270,5 +269,4 @@ void UDPDiscovery::resetStop() noexcept {
     g_discoveryStopRequested.store(false);
 }
 
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery

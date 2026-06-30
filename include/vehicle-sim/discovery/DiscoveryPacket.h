@@ -31,8 +31,7 @@
 #include <vector>
 #include <string_view>
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
 // ── Constants (single source of truth) ───────────────────────────────────
 
@@ -92,7 +91,6 @@ bool parse(const uint8_t* data, size_t len, DiscoveryPacket& out);
 // Parse from a byte vector.
 bool parse(const std::vector<uint8_t>& data, DiscoveryPacket& out);
 
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery
 
 #endif // VEHICLE_SIM_DISCOVERY_PACKET_H

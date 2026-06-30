@@ -2,8 +2,7 @@
 #include <cstring>
 #include <algorithm>
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
 static void writeBigEndian(uint8_t* dst, uint16_t value) {
     dst[0] = static_cast<uint8_t>((value >> 8) & 0xFF);
@@ -119,5 +118,4 @@ bool parse(const std::vector<uint8_t>& data, DiscoveryPacket& out) {
     return parse(data.data(), data.size(), out);
 }
 
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery

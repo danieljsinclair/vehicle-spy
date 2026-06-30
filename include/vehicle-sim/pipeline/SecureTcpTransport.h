@@ -41,8 +41,7 @@
 #include <optional>
 #include <string>
 
-namespace vehicle_sim {
-namespace pipeline {
+namespace vehicle_sim::pipeline {
 
 class SecureTcpTransport final : public ITransport {
 public:
@@ -130,7 +129,6 @@ private:
     std::string plaintextBuf_;
 };
 
-} // namespace pipeline
-} // namespace vehicle_sim
+} // namespace vehicle_sim::pipeline
 
 #endif // VEHICLE_SIM_PIPELINE_SECURE_TCP_TRANSPORT_H

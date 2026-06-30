@@ -16,8 +16,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-namespace vehicle_sim {
-namespace pipeline {
+namespace vehicle_sim::pipeline {
 
 namespace {
 
@@ -395,5 +394,4 @@ std::optional<std::string> SecureTcpTransport::nextLine() {
     }
 }
 
-} // namespace pipeline
-} // namespace vehicle_sim
+} // namespace vehicle_sim::pipeline

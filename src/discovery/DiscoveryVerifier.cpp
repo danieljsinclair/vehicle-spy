@@ -4,8 +4,7 @@
 #include <fstream>
 #include <cstring>
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
 bool loadPublicKey(const std::string& path,
                    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN>& out) {
@@ -66,5 +65,4 @@ bool verify(const DiscoveryPacket& packet,
     return verifySignature(packet, publicKey);
 }
 
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery
