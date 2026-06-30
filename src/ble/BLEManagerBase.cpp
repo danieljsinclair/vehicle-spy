@@ -80,12 +80,10 @@ std::vector<uint8_t> BLEManagerBase::parseASCIIResponseToBinary(const std::vecto
     // Use ELM327Transport to parse ASCII hex to binary
     auto binaryData = boundary::ELM327Transport::parseOBD2Response(response);
 
-    if (binaryData) {
-        return *binaryData;
-    }
-
-    // Not a valid OBD2 response - could be prompt, echo, or error
-    return {};
+    // Not a valid OBD2 response (could be prompt, echo, or error) yields an
+    // empty payload. value_or({}) is non-deduced, so the empty vector type is
+    // spelled explicitly.
+    return binaryData.value_or(std::vector<uint8_t>{});
 }
 
 bool BLEManagerBase::initializeELM327() {
