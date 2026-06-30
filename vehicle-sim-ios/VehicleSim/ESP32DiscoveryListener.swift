@@ -172,14 +172,16 @@ private extension NWEndpoint {
     var hostAddressString: String {
         switch self {
         case .hostPort(let host, _):
-            switch host {
-            case .ipv4(let addr):
+            // Equivalent to a switch over host (.ipv4/.ipv6/.name + @unknown default),
+            // expressed as if/else per swift:S1301. The final else is the future-proofed
+            // fallback for any @unknown case added to NWEndpoint.Host in a later SDK.
+            if case .ipv4(let addr) = host {
                 return addr.debugDescription
-            case .ipv6(let addr):
+            } else if case .ipv6(let addr) = host {
                 return addr.debugDescription
-            case .name(let name, _):
+            } else if case .name(let name, _) = host {
                 return name
-            @unknown default:
+            } else {
                 return "unknown"
             }
         default:
