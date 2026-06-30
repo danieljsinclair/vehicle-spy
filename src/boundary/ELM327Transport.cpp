@@ -108,7 +108,7 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
             // Process accumulated hex when we hit a non-hex character
             while (hexStr.length() >= 2) {
-                if (auto byte = parseHexByte(hexStr.substr(0, 2)); byte) {
+                if (auto byte = parseHexByte(hexStr.substr(0, 2)); byte.has_value()) {
                     result.push_back(*byte);
                 } else {
                     return std::nullopt; // Invalid hex found
