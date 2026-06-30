@@ -138,6 +138,10 @@ private:
     std::string deviceIdHex_;
     // Accumulated bytes not yet terminated by a line ending.
     std::string pending_;
+
+    // True when nextLine() may legitimately read more: the transport was
+    // opened, holds a live descriptor, and has not been marked EOF/exhausted.
+    bool canRead() const noexcept { return opened_ && fd_ >= 0 && !exhausted_; }
 };
 
 } // namespace vehicle_sim::pipeline

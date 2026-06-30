@@ -534,7 +534,7 @@ bool TCPTransport::isOpen() const noexcept {
 }
 
 std::optional<std::string> TCPTransport::nextLine() {
-    if (!opened_ || fd_ < 0 || exhausted_) {
+    if (!canRead()) {
         return std::nullopt;
     }
 
