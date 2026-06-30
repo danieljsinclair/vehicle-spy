@@ -1,4 +1,5 @@
 #include "vehicle-sim/domain/VehicleDetector.h"
+#include <algorithm>
 #include <cctype>
 #include <sstream>
 
@@ -218,9 +219,8 @@ bool VehicleDetector::feedVINResponse(const std::vector<std::uint8_t>& response)
     if (response.size() >= 8 && response[0] == 0x49 && response[1] == 0x02) {
         size_t start = 3;
         while (start < response.size() && response[start] == 0x00) start++;
-        for (size_t i = start; i < response.size(); ++i) {
-            if (response[i] != 0x00) newPart += static_cast<char>(response[i]);
-        }
+        std::for_each(response.begin() + start, response.end(),
+                      [&](std::uint8_t b) { if (b != 0x00) newPart += static_cast<char>(b); });
     } else if (response.size() >= 1) {
         for (auto b : response) {
             if (b != 0x00) newPart += static_cast<char>(b);
