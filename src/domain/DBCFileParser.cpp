@@ -97,14 +97,14 @@ bool parseSignalDefinition(
     if (commaPos == std::string::npos) return false;
     {
         auto sv = std::string_view(line.data() + pos, commaPos - pos);
-        out.scale = std::stod(trim(std::string(sv)));
+        out.scale = std::stod(trim(sv));
     }
     pos = commaPos + 1;
     auto closeParen = line.find(')', pos);
     if (closeParen == std::string::npos) return false;
     {
         auto sv = std::string_view(line.data() + pos, closeParen - pos);
-        out.offset = std::stod(trim(std::string(sv)));
+        out.offset = std::stod(trim(sv));
     }
     pos = closeParen + 1;
 
@@ -116,14 +116,14 @@ bool parseSignalDefinition(
     if (pipePos2 == std::string::npos) return false;
     {
         auto sv = std::string_view(line.data() + pos, pipePos2 - pos);
-        out.min = std::stod(trim(std::string(sv)));
+        out.min = std::stod(trim(sv));
     }
     pos = pipePos2 + 1;
     auto closeBracket = line.find(']', pos);
     if (closeBracket == std::string::npos) return false;
     {
         auto sv = std::string_view(line.data() + pos, closeBracket - pos);
-        out.max = std::stod(trim(std::string(sv)));
+        out.max = std::stod(trim(sv));
     }
     pos = closeBracket + 1;
 
