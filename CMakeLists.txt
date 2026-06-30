@@ -90,6 +90,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/DecodedCsvSink.cpp
     src/pipeline/ConsoleProgressReporter.cpp
     src/pipeline/PipelineReplay.cpp
+    src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
     src/cli/Orchestration.cpp
     src/cli/BLEConnectionManager.cpp
