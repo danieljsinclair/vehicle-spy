@@ -214,7 +214,7 @@ namespace {
 // Returns true on success, false if the input is not valid hex.
 bool parseHexByte(const std::string& s, std::size_t offset, uint8_t& out) {
     if (offset + 2 > s.size()) return false;
-    auto hexCharToInt = [](char c) -> int {
+    auto hexCharToInt = [](char c) {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
         if (c >= 'a' && c <= 'f') return c - 'a' + 10;
