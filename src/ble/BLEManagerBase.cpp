@@ -134,50 +134,52 @@ void BLEManagerBase::startOBD2Polling(int interval_ms) {
     polling_interval_ms_ = interval_ms;
     polling_active_ = true;
 
-    polling_thread_ = std::thread([this]() {
-        std::cout << "[BLEManagerBase] Starting OBD2 prompt-driven polling" << std::endl;
+    polling_thread_ = std::thread([this]() { obd2PollingLoop(); });
+}
 
-        // Wait a moment for characteristic notifications to be set up.
-        // Chunked (10ms) so stopOBD2Polling() can interrupt this promptly — a
-        // single sleep_for(POST_CONNECT_SETUP_DELAY_MS) would stall the join for
-        // the full delay even after stop is requested.
-        for (int waited = 0;
-             waited < POST_CONNECT_SETUP_DELAY_MS && polling_active_;
-             waited += 10) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
+void BLEManagerBase::obd2PollingLoop() {
+    std::cout << "[BLEManagerBase] Starting OBD2 prompt-driven polling" << std::endl;
 
-        const uint8_t pids[] = {
-            OBD2PIDs::BATTERY_VOLTAGE,
-            OBD2PIDs::ENGINE_LOAD,
-            OBD2PIDs::COOLANT_TEMP,
-            OBD2PIDs::THROTTLE_POSITION,
-            OBD2PIDs::VEHICLE_SPEED,
-            OBD2PIDs::ENGINE_RPM
-        };
+    // Wait a moment for characteristic notifications to be set up.
+    // Chunked (10ms) so stopOBD2Polling() can interrupt this promptly — a
+    // single sleep_for(POST_CONNECT_SETUP_DELAY_MS) would stall the join for
+    // the full delay even after stop is requested.
+    for (int waited = 0;
+         waited < POST_CONNECT_SETUP_DELAY_MS && polling_active_;
+         waited += 10) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
 
-        while (polling_active_ && connected_) {
-            for (uint8_t pid : pids) {
-                if (!polling_active_ || !connected_) break;
+    const uint8_t pids[] = {
+        OBD2PIDs::BATTERY_VOLTAGE,
+        OBD2PIDs::ENGINE_LOAD,
+        OBD2PIDs::COOLANT_TEMP,
+        OBD2PIDs::THROTTLE_POSITION,
+        OBD2PIDs::VEHICLE_SPEED,
+        OBD2PIDs::ENGINE_RPM
+    };
 
-                // Send query — ELM327 will respond with data followed by '>'
-                queryPID(pid);
+    while (polling_active_ && connected_) {
+        for (uint8_t pid : pids) {
+            if (!polling_active_ || !connected_) break;
 
-                // Wait for ELM327 '>' prompt before sending next query
-                if (!waitForPrompt()) {
-                    // Timed out waiting for prompt — adapter may be unresponsive.
-                    // Skip to next PID rather than hanging.
-                    std::cout << "[BLEManagerBase] Prompt timeout for PID 0x"
-                              << std::hex << static_cast<int>(pid) << std::dec << std::endl;
-                }
+            // Send query — ELM327 will respond with data followed by '>'
+            queryPID(pid);
+
+            // Wait for ELM327 '>' prompt before sending next query
+            if (!waitForPrompt()) {
+                // Timed out waiting for prompt — adapter may be unresponsive.
+                // Skip to next PID rather than hanging.
+                std::cout << "[BLEManagerBase] Prompt timeout for PID 0x"
+                          << std::hex << static_cast<int>(pid) << std::dec << std::endl;
             }
-
-            // Brief pause between full PID cycles to avoid hammering the bus
-            std::this_thread::sleep_for(std::chrono::milliseconds(polling_interval_ms_));
         }
 
-        std::cout << "[BLEManagerBase] OBD2 polling stopped" << std::endl;
-    });
+        // Brief pause between full PID cycles to avoid hammering the bus
+        std::this_thread::sleep_for(std::chrono::milliseconds(polling_interval_ms_));
+    }
+
+    std::cout << "[BLEManagerBase] OBD2 polling stopped" << std::endl;
 }
 
 void BLEManagerBase::stopOBD2Polling() {

@@ -407,6 +407,15 @@ protected:
      * Called from invokeDataCallback when '>' is detected in raw BLE data.
      */
     void notifyPrompt();
+
+private:
+    /**
+     * Body of the OBD2 polling thread.
+     * Waits for characteristic setup, then loops through the standard PIDs,
+     * sending prompt-driven queries until polling is stopped or the
+     * connection drops.
+     */
+    void obd2PollingLoop();
 };
 
 } // namespace vehicle_sim
