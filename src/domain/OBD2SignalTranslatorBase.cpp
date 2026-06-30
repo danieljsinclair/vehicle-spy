@@ -72,12 +72,15 @@ void OBD2SignalTranslatorBase::updateSignalField(
     std::uint8_t pid,
     double value
 ) const noexcept {
-    // Default mapping
+    // Default mapping. translate() holds state_mutex_ across this call and the
+    // subsequent snapshot, so the last-known state is updated atomically; route
+    // the writes through the pre-locked setLast*() helpers (see header — they
+    // must NOT lock, since state_mutex_ is already held here).
     switch (pid) {
-        case PID_THROTTLE_POSITION: case PID_ACCELERATOR_POS_D: case PID_ACCELERATOR_POS_P: lastThrottle_ = value; break;
-        case PID_VEHICLE_SPEED: lastSpeed_ = value; break;
-        case PID_ENGINE_LOAD: lastAcceleration_ = (value / 100.0) * 2.0 - 1.0; break;
-        case PID_BRAKE_PRESSURE: lastBrake_ = value; break;
+        case PID_THROTTLE_POSITION: case PID_ACCELERATOR_POS_D: case PID_ACCELERATOR_POS_P: setLastThrottle(value); break;
+        case PID_VEHICLE_SPEED: setLastSpeed(value); break;
+        case PID_ENGINE_LOAD: setLastAcceleration((value / 100.0) * 2.0 - 1.0); break;
+        case PID_BRAKE_PRESSURE: setLastBrake(value); break;
         default: break;
     }
 }

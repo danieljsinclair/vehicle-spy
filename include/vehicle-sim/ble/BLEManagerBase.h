@@ -279,8 +279,7 @@ protected:
     // Common State (Shared by Derived Classes)
     // ================================================
 
-    mutable std::mutex devices_mutex_;
-    std::vector<BLEDeviceInfo> discovered_devices_;
+    std::vector<BLEDeviceInfo> discovered_devices_;  // guarded by devices_mutex_ (mutex now private)
 
     std::atomic<bool> connected_{false};
     std::string connected_device_id_;
@@ -329,8 +328,6 @@ protected:
 
     // Raw BLE activity tracking (counts every notification before parsing)
     std::atomic<int> ble_notification_count_{0};
-    mutable std::mutex raw_mutex_;
-    std::string last_raw_hex_;
 
     // ================================================
     // Protected Helper Methods for Derived Classes
@@ -416,6 +413,13 @@ private:
      * connection drops.
      */
     void obd2PollingLoop();
+
+    // Mutable synchronization primitives and the state they guard are private
+    // so every access is channelled through this class's own (locking) methods,
+    // enforcing proper synchronization. No derivative touches these directly.
+    mutable std::mutex devices_mutex_;   // guards discovered_devices_
+    mutable std::mutex raw_mutex_;       // guards last_raw_hex_
+    std::string last_raw_hex_;
 };
 
 } // namespace vehicle_sim

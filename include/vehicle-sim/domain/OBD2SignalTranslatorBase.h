@@ -62,19 +62,6 @@ protected:
     static constexpr std::uint8_t PID_ACCELERATOR_POS_P = 0x5C;
     static constexpr std::uint8_t PID_BRAKE_PRESSURE = 0xA4;
 
-    // State accumulated across multiple PID responses
-    mutable std::mutex state_mutex_;
-
-    // Last-known values (updated when matching PID is seen)
-    mutable double lastThrottle_ = 0.0;
-    mutable double lastSpeed_ = 0.0;
-    mutable double lastAcceleration_ = 0.0;
-    mutable double lastBrake_ = 0.0;
-    mutable std::uint64_t lastTimestamp_ = 0;
-
-    // Current raw data being processed (subclass hook access)
-    mutable const std::vector<uint8_t>* currentData_ = nullptr;
-
     /**
      * Extract a value from OBD2 response data for the given PID.
      * Override this in subclasses to provide custom decoding per PID.
@@ -95,12 +82,38 @@ protected:
      * Default: stores value directly by field name matched to PID.
      * Subclasses can override to implement custom mapping.
      *
+     * NOTE: invoked by translate() while state_mutex_ is held; overriding
+     * implementations must NOT acquire state_mutex_ (it is non-recursive and
+     * would deadlock) and must mutate the last-known state via the protected
+     * setLast*() helpers only.
+     *
      * @param pid The PID that was extracted
      * @param value The numeric value extracted
      */
     virtual void updateSignalField(std::uint8_t pid, double value) const noexcept;
 
+    // Protected write accessors for the accumulated state. These exist so the
+    // mutable state is private (encapsulation + a single guarded read/modify/
+    // snapshot path in translate()); they are pre-locked helpers that must be
+    // called only while state_mutex_ is held by the caller.
+    void setLastThrottle(double v) const noexcept { lastThrottle_ = v; }
+    void setLastSpeed(double v) const noexcept { lastSpeed_ = v; }
+    void setLastAcceleration(double v) const noexcept { lastAcceleration_ = v; }
+    void setLastBrake(double v) const noexcept { lastBrake_ = v; }
+
     [[nodiscard]] std::uint64_t getCurrentTimestamp() const noexcept;
+
+private:
+    // State accumulated across multiple PID responses. Private so all access
+    // is channelled through translate()'s single locked read/modify/snapshot.
+    mutable std::mutex state_mutex_;
+
+    // Last-known values (updated when matching PID is seen)
+    mutable double lastThrottle_ = 0.0;
+    mutable double lastSpeed_ = 0.0;
+    mutable double lastAcceleration_ = 0.0;
+    mutable double lastBrake_ = 0.0;
+    mutable std::uint64_t lastTimestamp_ = 0;
 };
 
 } // namespace vehicle_sim::domain
