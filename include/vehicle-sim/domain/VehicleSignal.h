@@ -21,7 +21,7 @@ public:
      * Construct a VehicleSignal
      * All parameters default to nullopt except timestampUtcMs
      */
-    VehicleSignal(
+    explicit VehicleSignal(
         std::uint64_t timestampUtcMs,
         std::optional<double> throttlePercent = std::nullopt,
         std::optional<double> speedKmh = std::nullopt,

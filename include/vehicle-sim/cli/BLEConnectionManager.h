@@ -21,7 +21,7 @@ class BLEConnectionManager {
 public:
     using DataCallback = std::function<void(const std::vector<std::uint8_t>& data)>;
 
-    BLEConnectionManager(std::unique_ptr<BLEManager> bleManager) noexcept;
+    explicit BLEConnectionManager(std::unique_ptr<BLEManager> bleManager) noexcept;
     ~BLEConnectionManager();
 
     BLEConnectionManager(const BLEConnectionManager&) = delete;

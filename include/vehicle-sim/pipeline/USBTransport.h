@@ -17,7 +17,7 @@ namespace vehicle_sim::pipeline {
  */
 class USBTransport final : public ITransport {
 public:
-    USBTransport(std::string_view port, int baud = 115200,
+    explicit USBTransport(std::string_view port, int baud = 115200,
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>());
     ~USBTransport() override;
 

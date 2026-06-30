@@ -10,7 +10,7 @@ namespace vehicle_sim::domain {
 
 class BLESignalSource final : public ISignalSource {
 public:
-    BLESignalSource(BLEManager* bleManager) noexcept;
+    explicit BLESignalSource(BLEManager* bleManager) noexcept;
     ~BLESignalSource() override;
 
     // Non-copyable, movable

@@ -13,7 +13,7 @@ enum class Format {
 
 class TelemetryFormatter {
 public:
-    TelemetryFormatter(Format format = Format::JSON);
+    explicit TelemetryFormatter(Format format = Format::JSON);
 
     // Phase 0: Format telemetry signal from Tesla BLE data
     std::string format(const domain::TelemetrySignal& data);
