@@ -665,7 +665,7 @@ extern IWiFi& wifi;
 // Handler for DISCONNECTED state - determines initial connection strategy
 struct DisconnectedStateHandler : public WiFiStateHandler {
     IWiFi& wifi_;
-    explicit DisconnectedStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+    explicit DisconnectedStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         CredentialSource source = determineCredentialSource();
@@ -713,7 +713,7 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
 // Handler for CONNECTING state - monitors connection progress
 struct ConnectingStateHandler : public WiFiStateHandler {
     IWiFi& wifi_;
-    explicit ConnectingStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+    explicit ConnectingStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         const wl_status_t status = wifi_.status();
@@ -786,7 +786,7 @@ struct ConnectingStateHandler : public WiFiStateHandler {
 // Handler for RECONNECTING state - retries indefinitely ("60 years")
 struct ReconnectingStateHandler : public WiFiStateHandler {
     IWiFi& wifi_;
-    explicit ReconnectingStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+    explicit ReconnectingStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         // Check if reconnection succeeded
