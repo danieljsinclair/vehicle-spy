@@ -24,7 +24,7 @@ BLEConnectionManager::~BLEConnectionManager() {
 
 bool BLEConnectionManager::connect(const std::string& address,
                                     domain::VehicleProtocol protocol,
-                                    DataCallback callback) {
+                                    const DataCallback& callback) {
     protocol_ = protocol;
     const char* protocolLabel = (protocol == domain::VehicleProtocol::CAN) ? "CAN" : "OBD2";
 

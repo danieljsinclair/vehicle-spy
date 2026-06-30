@@ -13,7 +13,7 @@ IClock::time_point SystemClock::now() const {
 bool SystemClock::waitForImpl(
     std::condition_variable& cv,
     std::unique_lock<std::mutex>& lock,
-    std::function<bool()> pred,
+    const std::function<bool()>& pred,
     time_point deadline) const {
     // Production path: park on the OS until real wall-clock time reaches the
     // deadline or the predicate is satisfied / the cv is notified.
@@ -86,7 +86,7 @@ void FakeClock::advance(duration d) {
 bool FakeClock::waitForImpl(
     std::condition_variable& cv,
     std::unique_lock<std::mutex>& lock,
-    std::function<bool()> pred,
+    const std::function<bool()>& pred,
     time_point deadline) const {
     // Deterministic path: never park on the OS wall clock.
     //

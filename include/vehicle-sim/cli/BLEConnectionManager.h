@@ -37,7 +37,7 @@ public:
      */
     [[nodiscard]] bool connect(const std::string& address,
                                 domain::VehicleProtocol protocol,
-                                DataCallback callback);
+                                const DataCallback& callback);
 
     /**
      * Start data polling

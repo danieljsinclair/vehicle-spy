@@ -60,7 +60,7 @@ public:
     SecureTcpTransport(
         std::string host,
         int port,
-        std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey,
+        const std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN>& publicKey,
         std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
         int recvTimeoutUs = static_cast<int>(RECV_TIMEOUT_US)
     );

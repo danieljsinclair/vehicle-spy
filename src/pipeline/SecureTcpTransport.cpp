@@ -138,7 +138,7 @@ void SecureTcpTransport::resetStop() noexcept {
 SecureTcpTransport::SecureTcpTransport(
     std::string host,
     int port,
-    std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey,
+    const std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN>& publicKey,
     std::shared_ptr<ITransportOutput> output,
     int recvTimeoutUs)
     : host_(std::move(host))

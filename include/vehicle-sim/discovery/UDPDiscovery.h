@@ -73,7 +73,7 @@ public:
     void setMaxClockSkew(uint64_t seconds);
 
     // Set a callback that fires for each valid discovery packet received.
-    void setDeviceCallback(DeviceCallback cb);
+    void setDeviceCallback(const DeviceCallback& cb);
 
     // Request that poll() stop at the next iteration (called from signal handler).
     // This is a static method that sets a global flag checked by poll().

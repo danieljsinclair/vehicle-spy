@@ -8,7 +8,7 @@
 
 namespace vehicle_sim::telemetry {
 
-TraceLogger::TraceLogger(std::string filePath, std::string vehicleId)
+TraceLogger::TraceLogger(const std::string& filePath, std::string vehicleId)
     : file_(filePath)
     , vehicleId_(std::move(vehicleId))
 {

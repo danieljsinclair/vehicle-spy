@@ -6,7 +6,7 @@
 
 namespace vehicle_sim::telemetry {
 
-RawTraceLogger::RawTraceLogger(std::string filePath)
+RawTraceLogger::RawTraceLogger(const std::string& filePath)
     : file_(filePath, std::ios::app)
 {
     if (!file_) {

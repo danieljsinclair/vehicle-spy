@@ -224,7 +224,7 @@ public:
         maxClockSkew = seconds;
     }
 
-    void setDeviceCallback(DeviceCallback cb) {
+    void setDeviceCallback(const DeviceCallback& cb) {
         callback = cb;
     }
 };
@@ -257,7 +257,7 @@ void UDPDiscovery::setMaxClockSkew(uint64_t seconds) {
     impl_->setMaxClockSkew(seconds);
 }
 
-void UDPDiscovery::setDeviceCallback(DeviceCallback cb) {
+void UDPDiscovery::setDeviceCallback(const DeviceCallback& cb) {
     impl_->setDeviceCallback(cb);
 }
 
