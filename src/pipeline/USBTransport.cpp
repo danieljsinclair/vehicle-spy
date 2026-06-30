@@ -1,5 +1,6 @@
 #include "vehicle-sim/pipeline/USBTransport.h"
 
+#include <array>
 #include <cerrno>
 #include <csignal>
 #include <cstring>
@@ -163,8 +164,8 @@ std::optional<std::string> USBTransport::nextLine() {
             continue;
         }
 
-        char buffer[256];
-        const ssize_t n = ::read(fd_, buffer, sizeof(buffer));
+        std::array<char, 256> buffer;
+        const ssize_t n = ::read(fd_, buffer.data(), buffer.size());
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
@@ -178,7 +179,7 @@ std::optional<std::string> USBTransport::nextLine() {
             return std::nullopt;
         }
 
-        pending_.append(buffer, static_cast<std::size_t>(n));
+        pending_.append(buffer.data(), static_cast<std::size_t>(n));
         if (pending_.size() > MAX_PENDING_LEN) {
             pending_.erase(0, pending_.size() - MAX_PENDING_LEN);
         }

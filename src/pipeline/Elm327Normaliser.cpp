@@ -79,7 +79,7 @@ std::string toUpper(std::string s) {
 bool isAdapterChatter(std::string_view trimmed) noexcept {
     if (trimmed == ">") return true;          // ready prompt
     const auto upper = toUpper(std::string(trimmed));
-    static constexpr std::string_view kKnown[] = {
+    static constexpr std::array<std::string_view, 14> kKnown = {
         "OK", "NO DATA", "DATA ERROR", "STOPPED", "?", "SEARCHING...",
         "SEARCHING", "ELM327", "UNABLE TO CONNECT", "BUS ERROR",
         "BUFFER FULL", "CAN ERROR", "BUS INIT", "ERROR",

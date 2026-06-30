@@ -1,5 +1,6 @@
 #include "vehicle-sim/domain/DemoSignalSource.h"
 #include "vehicle-sim/domain/Gear.h"
+#include <array>
 #include <chrono>
 #include <cmath>
 
@@ -71,7 +72,7 @@ void DemoSignalSource::generateSignals() {
         double motorHvCurrent = std::abs(motorTorqueNm) / 10.0;
 
         // Gear: cycles through P, R, N, D using canonical constants
-        const std::int32_t gears[] = {
+        const std::array<std::int32_t, 5> gears = {
             Gear::PARK,
             Gear::REVERSE,
             Gear::NEUTRAL,

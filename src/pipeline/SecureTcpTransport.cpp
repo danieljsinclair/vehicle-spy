@@ -6,6 +6,7 @@
 
 #include <sodium.h>
 
+#include <array>
 #include <chrono>
 #include <cerrno>
 #include <cstring>
@@ -348,14 +349,14 @@ std::optional<std::string> SecureTcpTransport::readEncryptedLine() {
             continue;
         }
 
-        char buffer[1024];
-        ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
+        std::array<char, 1024> buffer;
+        ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
         if (n <= 0) {
             exhausted_ = true;
             return std::nullopt;
         }
 
-        rawBuffer_.append(buffer, static_cast<size_t>(n));
+        rawBuffer_.append(buffer.data(), static_cast<size_t>(n));
 
         if (rawBuffer_.size() > MAX_LINE_LEN + SECRETBOX_NONCEBYTES + 2 + SECRETBOX_MACBYTES) {
             output_->err("[secure-tcp] Raw buffer overflow - disconnecting");

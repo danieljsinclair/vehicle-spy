@@ -3,6 +3,7 @@
 #include "vehicle-sim/domain/Gear.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -101,7 +102,7 @@ VehicleSignal VehicleSignalFactory::build(
 ) const noexcept {
     // Parallel output buffers: 9 numeric slots + 1 gear slot. Defaults
     // (nullopt) match the previous per-call initialisation.
-    std::optional<double> numeric[IDX_GEAR];  // 9 numeric slots (indices 0..8)
+    std::array<std::optional<double>, IDX_GEAR> numeric;  // 9 numeric slots (indices 0..8)
     std::optional<std::int32_t> gear;
 
     for (const auto& field : resolved_) {

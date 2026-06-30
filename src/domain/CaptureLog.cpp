@@ -1,6 +1,7 @@
 #include "vehicle-sim/domain/CaptureLog.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <fstream>
 
@@ -54,10 +55,10 @@ bool isBlank(std::string_view s) noexcept {
 // NotAFrame (this path is only reached when the line is frame-shaped).
 CaptureLineParse parseLegacyCsv(std::string_view tsField,
                                 std::string_view restFields) noexcept {
-    std::string_view fields[4];
+    std::array<std::string_view, 4> fields;
     fields[0] = tsField;
     // Re-split restFields ("canId,dlc,dataHex") into fields[1..3].
-    std::string_view rest[3];
+    std::array<std::string_view, 3> rest;
     int n = 0;
     std::size_t start = 0;
     bool tooMany = false;

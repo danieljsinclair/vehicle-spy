@@ -90,9 +90,9 @@ std::string formatFrame(std::uint32_t canId, const std::array<std::uint8_t, 8>& 
     std::ostringstream ss;
     ss << std::hex << canId;
     for (std::uint8_t b : data) {
-        char buf[4];
-        std::snprintf(buf, sizeof(buf), " %02X", b);
-        ss << buf;
+        std::array<char, 4> buf;
+        std::snprintf(buf.data(), buf.size(), " %02X", b);
+        ss << buf.data();
     }
     return ss.str();
 }

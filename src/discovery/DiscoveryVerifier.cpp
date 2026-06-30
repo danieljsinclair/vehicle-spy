@@ -1,6 +1,7 @@
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <sodium.h>
+#include <array>
 #include <fstream>
 #include <cstring>
 
@@ -14,13 +15,13 @@ bool loadPublicKey(const std::string& path,
     }
 
     // Read raw 32 bytes
-    char buf[ED25519_PUBLIC_KEY_LEN];
-    file.read(buf, ED25519_PUBLIC_KEY_LEN);
+    std::array<char, ED25519_PUBLIC_KEY_LEN> buf;
+    file.read(buf.data(), ED25519_PUBLIC_KEY_LEN);
     if (file.gcount() != ED25519_PUBLIC_KEY_LEN) {
         return false;
     }
 
-    std::copy(buf, buf + ED25519_PUBLIC_KEY_LEN, out.begin());
+    std::copy(buf.begin(), buf.end(), out.begin());
     return true;
 }
 

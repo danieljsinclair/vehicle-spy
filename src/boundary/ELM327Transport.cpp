@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <unordered_set>
 
@@ -54,9 +55,9 @@ namespace {
 // ================================================
 
 std::string ELM327Transport::buildOBD2Query(uint8_t mode, uint8_t pid) {
-    char buffer[16];
-    snprintf(buffer, sizeof(buffer), "%02X %02X\r", mode, pid);
-    return std::string(buffer);
+    std::array<char, 16> buffer;
+    snprintf(buffer.data(), buffer.size(), "%02X %02X\r", mode, pid);
+    return std::string(buffer.data());
 }
 
 // ================================================
@@ -219,9 +220,9 @@ std::vector<ATCommand> ELM327Transport::buildCANMonitorInitSequence() {
 }
 
 std::string ELM327Transport::buildCANFilter(uint16_t canId) {
-    char buffer[32];
-    snprintf(buffer, sizeof(buffer), "ATCRA%X\r", canId);
-    return std::string(buffer);
+    std::array<char, 32> buffer;
+    snprintf(buffer.data(), buffer.size(), "ATCRA%X\r", canId);
+    return std::string(buffer.data());
 }
 
 std::optional<CANFrame> ELM327Transport::parseCANFrame(const std::string& line) {

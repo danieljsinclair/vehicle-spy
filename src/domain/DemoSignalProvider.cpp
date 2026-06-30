@@ -1,5 +1,6 @@
 #include "vehicle-sim/domain/DemoSignalProvider.h"
 #include "vehicle-sim/domain/Gear.h"
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -102,7 +103,7 @@ private:
         double motorRpm = baseRpm;
 
         // Gear: cycles through P, R, N, D based on phase using canonical constants
-        const std::int32_t gears[] = {
+        const std::array<std::int32_t, 5> gears = {
             Gear::PARK,
             Gear::REVERSE,
             Gear::NEUTRAL,

@@ -1,6 +1,7 @@
 #include "vehicle-sim/discovery/UDPDiscovery.h"
 
 #include <iostream>
+#include <array>
 #include <cstring>
 #include <algorithm>
 #include <ctime>
@@ -99,11 +100,11 @@ public:
     bool tryReceive() {
         if (sockfd < 0) return false;
 
-        uint8_t buf[PACKET_LEN * 2];  // allow some extra space
+        std::array<uint8_t, PACKET_LEN * 2> buf;  // allow some extra space
         struct sockaddr_in fromAddr{};
         socklen_t fromLen = sizeof(fromAddr);
 
-        ssize_t n = ::recvfrom(sockfd, buf, sizeof(buf), 0,
+        ssize_t n = ::recvfrom(sockfd, buf.data(), buf.size(), 0,
                                reinterpret_cast<struct sockaddr*>(&fromAddr), &fromLen);
         if (n < 0) {
             return false;
@@ -115,7 +116,7 @@ public:
 
         // Parse the packet
         DiscoveryPacket packet;
-        if (!parse(buf, static_cast<size_t>(n), packet)) {
+        if (!parse(buf.data(), static_cast<size_t>(n), packet)) {
             std::cerr << "UDPDiscovery: failed to parse packet (wrong size or magic)\n";
             return false;
         }

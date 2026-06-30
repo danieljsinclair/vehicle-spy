@@ -199,7 +199,7 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) noexcept {
     std::string out;
     auto deadline = std::chrono::steady_clock::now() +
                     std::chrono::milliseconds(timeoutMs);
-    char buf[4096];  // Larger buffer for full response body
+    std::array<char, 4096> buf;  // Larger buffer for full response body
     bool headersComplete = false;
 
     while (std::chrono::steady_clock::now() < deadline) {
@@ -231,7 +231,7 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) noexcept {
             tv.tv_usec = static_cast<suseconds_t>(pollMs * 1000);
             int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv);
             if (r > 0) {
-                ssize_t n = recv(fd_, buf, sizeof(buf), 0);
+                ssize_t n = recv(fd_, buf.data(), buf.size(), 0);
                 if (n < 0) {
                     // Error on socket
                     return IterResult::Stop;
@@ -240,7 +240,7 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) noexcept {
                     // Clean EOF from server
                     return IterResult::Stop;
                 }
-                out.append(buf, static_cast<size_t>(n));
+                out.append(buf.data(), static_cast<size_t>(n));
                 if (!headersComplete && out.find("\r\n\r\n") != std::string::npos) {
                     headersComplete = true;
                 }
@@ -275,11 +275,11 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) noexcept {
             // Receive only when select reports readability; recv() returns the
             // byte count (or a non-positive value on EOF/error). A single exit
             // condition covers both the select case (r<=0) and the recv case.
-            ssize_t n = (r > 0) ? recv(fd_, buf, sizeof(buf), 0) : 0;
+            ssize_t n = (r > 0) ? recv(fd_, buf.data(), buf.size(), 0) : 0;
             if (r <= 0 || n <= 0) {
                 break;  // Timeout, select error, EOF, or recv error
             }
-            out.append(buf, static_cast<size_t>(n));
+            out.append(buf.data(), static_cast<size_t>(n));
         }
     }
 

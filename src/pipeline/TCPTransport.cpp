@@ -7,6 +7,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -163,8 +164,8 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
         tv.tv_usec = 100000;  // 100ms timeout for response
         int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv);
         if (ready > 0) {
-            char resp[256] = {};
-            int n = static_cast<int>(recv(fd, resp, sizeof(resp) - 1, 0));
+            std::array<char, 256> resp{};
+            int n = static_cast<int>(recv(fd, resp.data(), resp.size() - 1, 0));
             if (n <= 0) {
                 output_->err("[tcp] ELM327 init: no response to AT command (peer closed or error)");
                 return false;
@@ -191,9 +192,9 @@ bool TCPTransport::connectAndAuth() {
     // Authenticate: send token, expect "OK" back
     std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r";
     if (!sendAll(fd_, authCmd)) { closeConnection(); return false; }
-    char authResp[64] = {};
-    int n = static_cast<int>(recv(fd_, authResp, sizeof(authResp) - 1, 0));
-    if (n <= 0 || std::string(authResp, n).find("OK") == std::string::npos) {
+    std::array<char, 64> authResp{};
+    int n = static_cast<int>(recv(fd_, authResp.data(), authResp.size() - 1, 0));
+    if (n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
         closeConnection(); return false;
     }
 
@@ -246,11 +247,11 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
 
     // Read and discard ATI response (we don't parse it, just clear the buffer)
     // Use recv loop to handle fragmented TCP responses
-    char atiResp[256] = {};
+    std::array<char, 256> atiResp{};
     int totalAti = 0;
     bool atiComplete = false;
-    while (totalAti < static_cast<int>(sizeof(atiResp) - 1) && !atiComplete) {
-        int n = static_cast<int>(recv(fd_, atiResp + totalAti, sizeof(atiResp) - 1 - totalAti, 0));
+    while (totalAti < static_cast<int>(atiResp.size() - 1) && !atiComplete) {
+        int n = static_cast<int>(recv(fd_, atiResp.data() + totalAti, atiResp.size() - 1 - static_cast<std::size_t>(totalAti), 0));
         if (n <= 0) {
             // Timeout or error - ATI response is optional, continue
             break;
@@ -283,11 +284,11 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
 
     // Read HELO ACK response with proper recv loop for fragmented TCP
     // Expected format: ACK DEVICE=<name> FIRMWARE=<version> DEVICEID=<16-byte hex>\r\r>
-    char heloResp[256] = {};
+    std::array<char, 256> heloResp{};
     int totalHelo = 0;
     bool heloComplete = false;
-    while (totalHelo < static_cast<int>(sizeof(heloResp) - 1) && !heloComplete) {
-        int n = static_cast<int>(recv(fd_, heloResp + totalHelo, sizeof(heloResp) - 1 - totalHelo, 0));
+    while (totalHelo < static_cast<int>(heloResp.size() - 1) && !heloComplete) {
+        int n = static_cast<int>(recv(fd_, heloResp.data() + totalHelo, heloResp.size() - 1 - static_cast<std::size_t>(totalHelo), 0));
         if (n <= 0) {
             // Timeout or error
             break;
@@ -306,7 +307,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
         closeConnection();
         return false;
     }
-    std::string response(heloResp, static_cast<std::size_t>(totalHelo));
+    std::string response(heloResp.data(), static_cast<std::size_t>(totalHelo));
 
     // Validate ACK format
     const std::string ackPrefix = "ACK DEVICE=";
@@ -367,9 +368,9 @@ bool TCPTransport::performHeloHandshake() {
     deviceIdHex_.clear();
     deviceIdHex_.reserve(32);
     for (uint8_t byte : deviceIdBytes) {
-        char hex[3];
-        snprintf(hex, sizeof(hex), "%02X", byte);
-        deviceIdHex_.append(hex);
+        std::array<char, 3> hex{};
+        snprintf(hex.data(), hex.size(), "%02X", byte);
+        deviceIdHex_.append(hex.data());
     }
     return true;
 }
@@ -585,8 +586,8 @@ std::optional<std::string> TCPTransport::nextLine() {
             continue;
         }
 
-        char buffer[256];
-        ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
+        std::array<char, 256> buffer;
+        ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
         if (n <= 0) {
             // Peer closed (0) or error (<0): attempt reconnection, unless stop
             // was requested (e.g. test cleanup or Ctrl+C). The stop flag is
@@ -620,7 +621,7 @@ std::optional<std::string> TCPTransport::nextLine() {
 #endif
         }
 
-        pending_.append(buffer, static_cast<std::size_t>(n));
+        pending_.append(buffer.data(), static_cast<std::size_t>(n));
 
         // Defensive cap so a peer that never sends a line ending can't grow
         // the buffer without bound.
