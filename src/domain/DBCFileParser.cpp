@@ -49,16 +49,11 @@ struct ParsedSignal {
     std::vector<DBCValueEntry> valueTable;
 };
 
-bool parseSignalDefinition(
-    const std::string& line,
-    std::uint16_t currentCanId,
-    ParsedSignal& out
+// Read the signal name and an optional multiplexor indicator ('M' or 'm'+digits)
+// that may follow it. Advances `pos` past both, leaving it on the ':' delimiter.
+[[nodiscard]] bool parseNameAndMultiplexor(
+    const std::string& line, std::size_t& pos, ParsedSignal& out
 ) {
-    auto pos = line.find("SG_");
-    if (pos == std::string::npos) return false;
-    pos += 3;
-    skipWs(line, pos);
-
     std::size_t nameEnd = pos;
     while (nameEnd < line.size() && line[nameEnd] != ' ' && line[nameEnd] != ':') ++nameEnd;
     out.name = line.substr(pos, nameEnd - pos);
@@ -74,7 +69,14 @@ bool parseSignalDefinition(
         }
         skipWs(line, pos);
     }
+    return true;
+}
 
+// Parse "<startBit>|<bitLength>@<order><sign>" — the bit-layout group. The
+// order char is '0' for Motorola, else Intel; the sign char is '-' for signed.
+[[nodiscard]] bool parseStartBitAndLength(
+    const std::string& line, std::size_t& pos, ParsedSignal& out
+) {
     if (!consumeChar(line, pos, ':')) return false;
     skipWs(line, pos);
 
@@ -103,10 +105,16 @@ bool parseSignalDefinition(
     if (pos >= line.size()) return false;
     out.isSigned = (line[pos] == '-');
     ++pos;
+    return true;
+}
 
+// Parse the "(<scale>,<offset>)" group. Values are trimmed before stod.
+[[nodiscard]] bool parseScaleOffset(
+    const std::string& line, std::size_t& pos, ParsedSignal& out
+) {
     skipWs(line, pos);
-
     if (!consumeChar(line, pos, '(')) return false;
+
     auto commaPos = line.find(',', pos);
     if (commaPos == std::string::npos) return false;
     {
@@ -114,6 +122,7 @@ bool parseSignalDefinition(
         out.scale = std::stod(trim(sv));
     }
     pos = commaPos + 1;
+
     auto closeParen = line.find(')', pos);
     if (closeParen == std::string::npos) return false;
     {
@@ -121,17 +130,24 @@ bool parseSignalDefinition(
         out.offset = std::stod(trim(sv));
     }
     pos = closeParen + 1;
+    return true;
+}
 
+// Parse the "[<min>|<max>]" group. Values are trimmed before stod.
+[[nodiscard]] bool parseMinMax(
+    const std::string& line, std::size_t& pos, ParsedSignal& out
+) {
     skipWs(line, pos);
-
     if (!consumeChar(line, pos, '[')) return false;
-    auto pipePos2 = line.find('|', pos);
-    if (pipePos2 == std::string::npos) return false;
+
+    auto pipePos = line.find('|', pos);
+    if (pipePos == std::string::npos) return false;
     {
-        auto sv = std::string_view(line.data() + pos, pipePos2 - pos);
+        auto sv = std::string_view(line.data() + pos, pipePos - pos);
         out.min = std::stod(trim(sv));
     }
-    pos = pipePos2 + 1;
+    pos = pipePos + 1;
+
     auto closeBracket = line.find(']', pos);
     if (closeBracket == std::string::npos) return false;
     {
@@ -139,16 +155,40 @@ bool parseSignalDefinition(
         out.max = std::stod(trim(sv));
     }
     pos = closeBracket + 1;
+    return true;
+}
 
+// Parse the optional `"unit"` field. A missing closing quote leaves the unit
+// empty (matches the previous behaviour).
+[[nodiscard]] bool parseUnit(
+    const std::string& line, std::size_t& pos, ParsedSignal& out
+) {
+    skipWs(line, pos);
+    if (!consumeChar(line, pos, '"')) return true;  // unit is optional
+
+    auto endQuote = line.find('"', pos);
+    if (endQuote != std::string::npos) {
+        out.unit = line.substr(pos, endQuote - pos);
+        pos = endQuote + 1;
+    }
+    return true;
+}
+
+bool parseSignalDefinition(
+    const std::string& line,
+    std::uint16_t currentCanId,
+    ParsedSignal& out
+) {
+    auto pos = line.find("SG_");
+    if (pos == std::string::npos) return false;
+    pos += 3;
     skipWs(line, pos);
 
-    if (pos < line.size() && line[pos] == '"') {
-        ++pos;
-        auto endQuote = line.find('"', pos);
-        if (endQuote != std::string::npos) {
-            out.unit = line.substr(pos, endQuote - pos);
-        }
-    }
+    if (!parseNameAndMultiplexor(line, pos, out)) return false;
+    if (!parseStartBitAndLength(line, pos, out)) return false;
+    if (!parseScaleOffset(line, pos, out)) return false;
+    if (!parseMinMax(line, pos, out)) return false;
+    if (!parseUnit(line, pos, out)) return false;
 
     out.canId = currentCanId;
     return true;
