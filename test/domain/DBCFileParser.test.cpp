@@ -386,6 +386,26 @@ TEST_F(DBCFileParserTest, MultiplexorMarkerIsConsumedAndSignalParsesIntact) {
     EXPECT_EQ(signals->at(0).byteOrder, DBCByteOrder::Motorola);
 }
 
+TEST_F(DBCFileParserTest, NumberedMultiplexorMarkerMDigitsIsConsumed) {
+    // A well-formed SG_ carrying a lowercase 'm3' multiplexor indicator (the
+    // "mux switch" form): the 'm' and its following digits are consumed and the
+    // signal parses intact with name, startBit, bitLength, and byte order.
+    const std::string dbc = R"(BO_ 100 Msg: 8 ECU
+ SG_ SigName m3 : 7|8@0+ (1,0) [0|255] "" ECU
+)";
+
+    auto result = parser.parseString(dbc);
+
+    ASSERT_EQ(result.totalSignalCount(), 1);
+    const auto* signals = result.getSignalsForCanId(100);
+    ASSERT_NE(signals, nullptr);
+    ASSERT_EQ(signals->size(), 1);
+    EXPECT_EQ(signals->at(0).name, "SigName");
+    EXPECT_EQ(signals->at(0).startBit, 7);
+    EXPECT_EQ(signals->at(0).bitLength, 8);
+    EXPECT_EQ(signals->at(0).byteOrder, DBCByteOrder::Motorola);
+}
+
 TEST_F(DBCFileParserTest, SignalBeforeAnyMessageHeaderYieldsNoSignals) {
     // An SG_ appearing before any BO_ message header yields no signals (it has
     // no owning message, so it must be dropped, not attached to a default id).

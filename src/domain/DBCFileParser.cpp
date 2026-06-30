@@ -18,6 +18,22 @@ std::string trim(std::string_view s) {
     return std::string(s.substr(start, end - start + 1));
 }
 
+// Advance `pos` past any run of spaces/tabs in `s`. A no-op cursor primitive
+// shared by the line parsers to keep the cursor walk uniform.
+void skipWs(std::string_view s, std::size_t& pos) noexcept {
+    while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t')) ++pos;
+}
+
+// If the cursor is on `expected`, advance past it and return true; otherwise
+// leave the cursor in place and return false (delimiter-check primitive).
+bool consumeChar(std::string_view s, std::size_t& pos, char expected) noexcept {
+    if (pos < s.size() && s[pos] == expected) {
+        ++pos;
+        return true;
+    }
+    return false;
+}
+
 struct ParsedSignal {
     std::uint16_t canId = 0;
     std::string name;
@@ -41,14 +57,14 @@ bool parseSignalDefinition(
     auto pos = line.find("SG_");
     if (pos == std::string::npos) return false;
     pos += 3;
-    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+    skipWs(line, pos);
 
     std::size_t nameEnd = pos;
     while (nameEnd < line.size() && line[nameEnd] != ' ' && line[nameEnd] != ':') ++nameEnd;
     out.name = line.substr(pos, nameEnd - pos);
     pos = nameEnd;
 
-    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+    skipWs(line, pos);
     if (pos < line.size() && (line[pos] == 'M' || line[pos] == 'm')) {
         if (line[pos] == 'm') {
             ++pos;
@@ -56,12 +72,11 @@ bool parseSignalDefinition(
         } else {
             ++pos;
         }
-        while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+        skipWs(line, pos);
     }
 
-    if (pos >= line.size() || line[pos] != ':') return false;
-    ++pos;
-    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+    if (!consumeChar(line, pos, ':')) return false;
+    skipWs(line, pos);
 
     auto pipePos = line.find('|', pos);
     if (pipePos == std::string::npos) return false;
@@ -89,10 +104,9 @@ bool parseSignalDefinition(
     out.isSigned = (line[pos] == '-');
     ++pos;
 
-    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+    skipWs(line, pos);
 
-    if (pos >= line.size() || line[pos] != '(') return false;
-    ++pos;
+    if (!consumeChar(line, pos, '(')) return false;
     auto commaPos = line.find(',', pos);
     if (commaPos == std::string::npos) return false;
     {
@@ -108,10 +122,9 @@ bool parseSignalDefinition(
     }
     pos = closeParen + 1;
 
-    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+    skipWs(line, pos);
 
-    if (pos >= line.size() || line[pos] != '[') return false;
-    ++pos;
+    if (!consumeChar(line, pos, '[')) return false;
     auto pipePos2 = line.find('|', pos);
     if (pipePos2 == std::string::npos) return false;
     {
@@ -127,7 +140,7 @@ bool parseSignalDefinition(
     }
     pos = closeBracket + 1;
 
-    while (pos < line.size() && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+    skipWs(line, pos);
 
     if (pos < line.size() && line[pos] == '"') {
         ++pos;
