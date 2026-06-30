@@ -166,8 +166,7 @@ struct ParsedSignal {
     skipWs(line, pos);
     if (!consumeChar(line, pos, '"')) return true;  // unit is optional
 
-    auto endQuote = line.find('"', pos);
-    if (endQuote != std::string::npos) {
+    if (auto endQuote = line.find('"', pos); endQuote != std::string::npos) {
         out.unit = line.substr(pos, endQuote - pos);
         pos = endQuote + 1;
     }
@@ -229,13 +228,11 @@ std::vector<DBCValueEntry> parseValueEntries(const std::string& rest) {
     std::vector<DBCValueEntry> entries;
     std::size_t pos = 0;
 
-    while (pos < rest.size()) {
-        // Parse one "<num> \"<label>\"" entry from `pos`. Each malformed-input
-        // or end-of-input condition returns false so the loop has a single break;
-        // on success the entry is appended and true is returned to continue.
-        if (!parseOneValueEntry(rest, pos, entries)) {
-            break;
-        }
+    // Parse one "<num> \"<label>\"" entry per iteration from `pos`. Each
+    // malformed-input or end-of-input condition returns false, ending the loop;
+    // on success the entry is appended and the loop continues.
+    while (pos < rest.size() && parseOneValueEntry(rest, pos, entries)) {
+        // body consumed by the condition
     }
 
     return entries;
