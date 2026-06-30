@@ -39,7 +39,7 @@ int ReplayRunContext::run(
     if (!logBase.empty()) {
         try {
             decodedSink = std::make_unique<pipeline::DecodedCsvSink>(logBase, translationService.getVehicleId());
-        } catch (const std::runtime_error& e) {
+        } catch (const std::runtime_error&) {
             std::cerr << "Failed to open CSV log file: " << logBase << ".csv\n";
             return 1;
         }
