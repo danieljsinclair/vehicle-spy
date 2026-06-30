@@ -121,7 +121,7 @@ private:
 VehicleSimulator::VehicleSimulator() : pImpl(std::make_unique<Impl>()) {}
 VehicleSimulator::~VehicleSimulator() = default;
 
-bool VehicleSimulator::initialize(const std::string& config_file) {
+bool VehicleSimulator::initialize(const std::string& config_file) const {
     return pImpl->initialize(config_file);
 }
 
@@ -153,7 +153,7 @@ bool VehicleSimulator::hasNewData() const {
     return pImpl->hasNewData();
 }
 
-std::string VehicleSimulator::getLatestTelemetry() {
+std::string VehicleSimulator::getLatestTelemetry() const {
     return pImpl->getLatestTelemetry();
 }
 

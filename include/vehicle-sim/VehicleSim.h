@@ -13,7 +13,7 @@ public:
     ~VehicleSimulator();
 
     // Initialize the simulator with configuration
-    bool initialize(const std::string& config_file = "");
+    bool initialize(const std::string& config_file = "") const;
 
     // Start data capture and processing
     bool start();
@@ -36,7 +36,7 @@ public:
 
     // Non-blocking query interface
     bool hasNewData() const;
-    std::string getLatestTelemetry();
+    std::string getLatestTelemetry() const;
 
 private:
     class Impl;
