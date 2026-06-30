@@ -7,8 +7,6 @@ namespace vehicle_sim::pipeline {
 RawLogSink::RawLogSink(const std::string& base)
     : file_(base + ".raw.txt") {}
 
-RawLogSink::~RawLogSink() = default;
-
 RawLogSink::RawLogSink(RawLogSink&& other) noexcept
     : file_(std::move(other.file_)) {}
 
