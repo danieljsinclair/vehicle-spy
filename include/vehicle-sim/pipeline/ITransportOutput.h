@@ -28,8 +28,8 @@ public:
 /** Test implementation — discards all output. */
 class SilentOutput final : public ITransportOutput {
 public:
-    void out(const std::string& /*msg*/) override {}
-    void err(const std::string& /*msg*/) override {}
+    void out(const std::string& /*msg*/) override { /* intentional no-op: SilentOutput discards all transport log output by design */ }
+    void err(const std::string& /*msg*/) override { /* intentional no-op: SilentOutput discards all transport log output by design */ }
 };
 
 /**
