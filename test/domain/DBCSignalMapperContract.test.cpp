@@ -171,6 +171,95 @@ TEST(DBCSignalMapperSignedMotorolaTest, NegativeValue_DecodesAcrossBytes) {
 }
 
 // =============================================================================
+// DBCSignalMapper::mapSignal — clamp-to-range contract.
+// Locks that the physical value (raw * scale + offset) is clamped to the
+// definition's [min, max] rather than returned verbatim when it falls outside.
+// These guard the S3776 refactor of the clamp branch in mapSignal.
+// =============================================================================
+
+TEST(DBCSignalMapperClampTest, PhysicalValueAboveMax_ReturnsMaxExactly) {
+    // Unsigned Intel 8-bit at startBit 0 (byte 0 = raw), scale 1, offset 0.
+    // Raw 200 -> physical 200, which exceeds max 100: the result must be the
+    // clamped max, not the over-range raw value.
+    std::vector<std::uint8_t> frame(8, 0);
+    frame[0] = 200;
+
+    const DBCSignalDefinition def(DBCSignalParams{
+        100, "ClampedHigh", 0, 8,
+        DBCByteOrder::Intel, 1.0, 0.0, false, "",
+        0.0, 100.0
+    });
+
+    auto v = DBCSignalMapper::mapSignal(frame, def);
+    ASSERT_TRUE(v.has_value());
+    EXPECT_DOUBLE_EQ(*v, 100.0);
+}
+
+TEST(DBCSignalMapperClampTest, PhysicalValueBelowMin_ReturnsMinExactly) {
+    // Unsigned Intel 8-bit at startBit 0 (byte 0 = raw), scale 1, offset 0.
+    // Raw 5 -> physical 5, which is below min 10: the result must be the
+    // clamped min, not the under-range raw value.
+    std::vector<std::uint8_t> frame(8, 0);
+    frame[0] = 5;
+
+    const DBCSignalDefinition def(DBCSignalParams{
+        100, "ClampedLow", 0, 8,
+        DBCByteOrder::Intel, 1.0, 0.0, false, "",
+        10.0, 100.0
+    });
+
+    auto v = DBCSignalMapper::mapSignal(frame, def);
+    ASSERT_TRUE(v.has_value());
+    EXPECT_DOUBLE_EQ(*v, 10.0);
+}
+
+// =============================================================================
+// DBCSignalMapper::mapGearSignal — value-table-absent and unknown-raw paths.
+// Locks the two remaining gear branches that the S3776 refactor could alter:
+// the empty-value-table fallback (raw returned as int32) and the unknown-raw
+// path (in range but no matching table entry -> nullopt). Both use the locked
+// Intel 21|3 byte[2] encoding (raw n -> frame[2] = n << 5).
+// =============================================================================
+
+TEST_F(DBCGearMappingTest, EmptyValueTable_NonZeroNonSevenRaw_ReturnsRawAsInt32) {
+    // A gear signal defined WITHOUT a VAL_ table, with a raw value that is
+    // neither 0 (INVALID) nor 7 (SNA): the raw value is returned verbatim as
+    // an int32 (the direct-mapping fallback).
+    std::unordered_map<std::uint16_t, std::vector<DBCSignalDefinition>> defs;
+    defs[280].push_back(DBCSignalDefinition(DBCSignalParams{
+        280, "DI_gear", 21, 3,
+        DBCByteOrder::Intel, 1.0, 0.0, false, "",
+        0.0, 7.0,
+        {}  // no value table
+    }));
+
+    auto gear = DBCSignalMapper::mapGearSignal(
+        gearFrame(5), 280, "DI_gear", defs);
+    ASSERT_TRUE(gear.has_value());
+    EXPECT_EQ(*gear, static_cast<std::int32_t>(5));
+}
+
+TEST_F(DBCGearMappingTest, ValueTableMissingEntry_UnknownRaw_ReturnsNullopt) {
+    // A gear signal whose raw value (5) is neither 0 nor 7 and matches no
+    // entry in its value table (table defines 1,2,3,4 only): the result is
+    // nullopt rather than an invented or default gear.
+    std::unordered_map<std::uint16_t, std::vector<DBCSignalDefinition>> defs;
+    defs[280].push_back(DBCSignalDefinition(DBCSignalParams{
+        280, "DI_gear", 21, 3,
+        DBCByteOrder::Intel, 1.0, 0.0, false, "",
+        0.0, 7.0,
+        std::vector<DBCValueEntry>{
+            {1, "DI_GEAR_P"}, {2, "DI_GEAR_R"},
+            {3, "DI_GEAR_N"}, {4, "DI_GEAR_D"}
+        }
+    }));
+
+    auto gear = DBCSignalMapper::mapGearSignal(
+        gearFrame(5), 280, "DI_gear", defs);
+    EXPECT_FALSE(gear.has_value());
+}
+
+// =============================================================================
 // DBCFileParser: definition-preserving parse cases not locked elsewhere.
 // =============================================================================
 
