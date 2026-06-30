@@ -18,6 +18,8 @@
 #include <Preferences.h>  // NVS storage for WiFi credentials
 #include <driver/twai.h>  // TWAI for CAN communication
 #include <vector>         // Command pattern registry
+#include <array>          // Fixed-size buffers (S5945)
+#include <algorithm>      // std::copy for byte buffers
 
 // DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
 
@@ -216,13 +218,13 @@ static bool loadWifiCredentials(String& ssid, String& pass) {
     size_t passLen = wifiCredentials.getBytesLength(NVS_WIFI_PASS);
 
     if (ssidLen > 0 && passLen > 0) {
-        char ssidBuf[33];  // Max SSID length
-        char passBuf[65];  // Max password length
-        (void)wifiCredentials.getString(NVS_WIFI_SSID, ssidBuf, sizeof(ssidBuf));
-        (void)wifiCredentials.getString(NVS_WIFI_PASS, passBuf, sizeof(passBuf));
+        std::array<char, 33> ssidBuf{};  // Max SSID length
+        std::array<char, 65> passBuf{};  // Max password length
+        (void)wifiCredentials.getString(NVS_WIFI_SSID, ssidBuf.data(), ssidBuf.size());
+        (void)wifiCredentials.getString(NVS_WIFI_PASS, passBuf.data(), passBuf.size());
         wifiCredentials.end();
-        ssid = String(ssidBuf);
-        pass = String(passBuf);
+        ssid = String(ssidBuf.data());
+        pass = String(passBuf.data());
         return true;
     }
     wifiCredentials.end();
@@ -248,16 +250,16 @@ static bool clearWifiCredentials() {
 }
 
 // Device ID declaration - needed for message tagging
-static uint8_t discoveryDeviceId[16];
+static std::array<uint8_t, 16> discoveryDeviceId;
 
 // ── Message Tagging ────────────────────────────────────────────────────────────
 // Tag Serial diagnostic messages with device ID for clarity in monitor output
 static String deviceMessageTag() {
-    char tag[32];
-    snprintf(tag, sizeof(tag), "[%02X%02X%02X%02X] ",
+    std::array<char, 32> tag{};
+    snprintf(tag.data(), tag.size(), "[%02X%02X%02X%02X] ",
              discoveryDeviceId[0], discoveryDeviceId[1],
              discoveryDeviceId[2], discoveryDeviceId[3]);
-    return String(tag);
+    return String(tag.data());
 }
 
 // Helper to print tagged messages (optional - can be used for key diagnostics)
@@ -351,9 +353,9 @@ static void ntpSyncCallback(struct timeval* tv) {
         struct tm utcInfoBuf;
         gmtime_r(&utcTime, &utcInfoBuf);
         const struct tm* const utcInfo = &utcInfoBuf;  // read-only view of the result
-        char timeBuf[32];
-        strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S UTC", utcInfo);
-        Serial.printf("%sNTP synced: %s%s\r\n", GREEN, timeBuf, NC);
+        std::array<char, 32> timeBuf{};
+        strftime(timeBuf.data(), timeBuf.size(), "%Y-%m-%d %H:%M:%S UTC", utcInfo);
+        Serial.printf("%sNTP synced: %s%s\r\n", GREEN, timeBuf.data(), NC);
     }
     // Always update last sync time for monitoring
     ntpCtx.lastSyncMs = millis();
@@ -573,17 +575,17 @@ static void broadcastDiscovery() {
         return;  // Mode not set yet - can't broadcast
     }
 
-    uint8_t packet[Constants::DISCOVERY_PACKET_SIZE];
-    buildDiscoveryPacket(packet, discoveryDeviceId, Constants::TCP_PORT, Constants::OTA_HTTP_PORT);
+    std::array<uint8_t, Constants::DISCOVERY_PACKET_SIZE> packet;
+    buildDiscoveryPacket(packet.data(), discoveryDeviceId.data(), Constants::TCP_PORT, Constants::OTA_HTTP_PORT);
 
     // Sign discovery packet if signing is enabled (optional/guarded)
     // Falls back to unsigned (zeros) if signing disabled or key not available
-    signDiscoveryPacket(packet);
+    signDiscoveryPacket(packet.data());
 
     // Use SDK's broadcastIP() which respects actual subnet mask
     IPAddress broadcastIp = WiFi.broadcastIP();
     udpDiscovery.beginPacket(broadcastIp, Constants::DISCOVERY_PORT);
-    udpDiscovery.write(packet, Constants::DISCOVERY_PACKET_SIZE);
+    udpDiscovery.write(packet.data(), Constants::DISCOVERY_PACKET_SIZE);
     udpDiscovery.endPacket();
 }
 
@@ -955,8 +957,8 @@ static String normalizeAtCommand(const String& cmd) {
 
 // Testable pure function: Build HELO response (testable)
 static String buildHeloResponse() {
-    char response[128];
-    int len = snprintf(response, sizeof(response),
+    std::array<char, 128> response{};
+    int len = snprintf(response.data(), response.size(),
         "ACK DEVICE=%s FIRMWARE=%s DEVICEID=",
         Constants::DEVICE_NAME, Constants::FIRMWARE_VERSION);
     // Append device ID as hex (16 bytes -> 32 hex chars). Stop iterating once
@@ -964,12 +966,12 @@ static String buildHeloResponse() {
     // safely hold another hex pair plus the trailing "\r".
     const int tailRoom = 3;  // reserve space for one more "%02X" + trailing "\r"
     size_t i = 0;
-    while (i < sizeof(discoveryDeviceId) && len < (int)sizeof(response) - tailRoom) {
-        len += snprintf(response + len, sizeof(response) - len, "%02X", discoveryDeviceId[i]);
+    while (i < discoveryDeviceId.size() && len < (int)response.size() - tailRoom) {
+        len += snprintf(response.data() + len, response.size() - len, "%02X", discoveryDeviceId[i]);
         ++i;
     }
-    snprintf(response + len, sizeof(response) - len, "\r");
-    return String(response);
+    snprintf(response.data() + len, response.size() - len, "\r");
+    return String(response.data());
 }
 
 // ATZ - Reset handler
@@ -1234,20 +1236,20 @@ static void streamFrame(const twai_message_t& msg) {
     // Always build the frame in the canonical ELM327-ish text format
     // (3-digit zero-padded hex ID, space-separated byte hex) so both
     // vehicle-sim's parseCANFrame and raw serial capture tools work.
-    char buf[Constants::CAN_FRAME_BUFFER_SIZE];
-    int n = snprintf(buf, sizeof(buf), "%03X", msg.identifier);
+    std::array<char, Constants::CAN_FRAME_BUFFER_SIZE> buf{};
+    int n = snprintf(buf.data(), buf.size(), "%03X", msg.identifier);
     uint8_t len = min(msg.data_length_code, (uint8_t)8);
     for (uint8_t i = 0; i < len; i++) {
-        n += snprintf(buf + n, sizeof(buf) - n, " %02X", msg.data[i]);
+        n += snprintf(buf.data() + n, buf.size() - n, " %02X", msg.data[i]);
     }
-    snprintf(buf + n, sizeof(buf) - n, "\r");
+    snprintf(buf.data() + n, buf.size() - n, "\r");
 
     // USB serial: always emit, independent of any TCP client.
-    Serial.print(buf);
+    Serial.print(buf.data());
 
     // WiFi TCP: only when a client is connected and ATMA monitoring is active.
     if (client.connected() && monitorActive) {
-        client.print(buf);
+        client.print(buf.data());
     }
 }
 
@@ -1355,10 +1357,10 @@ void setup() {
     Serial.printf("TCP listening on port %u\r\n", Constants::TCP_PORT);
 
     // Initialize device ID from MAC address
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    memset(discoveryDeviceId, 0, 16);
-    memcpy(discoveryDeviceId, mac, 6);
+    std::array<uint8_t, 6> mac;
+    WiFi.macAddress(mac.data());
+    discoveryDeviceId.fill(0);
+    std::copy(mac.begin(), mac.end(), discoveryDeviceId.begin());
 
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");
