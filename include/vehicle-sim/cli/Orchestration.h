@@ -21,7 +21,7 @@ void printBanner();
  */
 [[nodiscard]] bool handleEarlyExit(
     const CliOptions& opts,
-    domain::DBCTranslationService& translationService
+    const domain::DBCTranslationService& translationService
 );
 
 /**

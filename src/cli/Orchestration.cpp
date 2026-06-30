@@ -10,7 +10,7 @@ void printBanner() {
 
 bool handleEarlyExit(
     const CliOptions& opts,
-    domain::DBCTranslationService& translationService
+    const domain::DBCTranslationService& translationService
 ) {
     if (!opts.error_message.empty()) {
         return true;

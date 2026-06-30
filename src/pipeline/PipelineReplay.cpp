@@ -12,7 +12,7 @@ namespace vehicle_sim::pipeline {
 ReplayStats runReplay(
     ITransport& transport,
     IAdapterNormaliser& normaliser,
-    domain::DBCTranslationService& translationService,
+    const domain::DBCTranslationService& translationService,
     DecodedCsvSink* decodedSink,
     RawLogSink* rawSink,
     IProgressReporter* progressReporter) noexcept {
