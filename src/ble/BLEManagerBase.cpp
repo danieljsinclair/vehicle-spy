@@ -35,9 +35,7 @@ std::string padToWidth(std::string_view s, int width) {
 // BLEManagerBase Implementation
 // ================================================
 
-BLEManagerBase::BLEManagerBase()
-{
-}
+BLEManagerBase::BLEManagerBase() = default;
 
 void BLEManagerBase::setDeviceFoundCallback(DeviceCallback callback) {
     device_callback_ = std::move(callback);

@@ -2,11 +2,9 @@
 
 namespace vehicle_sim {
 
-ConfigLoader::ConfigLoader() {
-}
+ConfigLoader::ConfigLoader() = default;
 
-ConfigLoader::~ConfigLoader() {
-}
+ConfigLoader::~ConfigLoader() = default;
 
 bool ConfigLoader::loadFromFile(const std::string& /*filepath*/) {
     // Placeholder - implement config loading from JSON/YAML

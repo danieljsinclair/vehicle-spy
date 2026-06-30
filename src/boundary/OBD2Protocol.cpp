@@ -6,8 +6,7 @@
 
 namespace vehicle_sim::boundary {
 
-OBD2Protocol::OBD2Protocol() {
-}
+OBD2Protocol::OBD2Protocol() = default;
 
 void OBD2Protocol::setSendCallback(SendCallback callback) {
     sendCallback_ = std::move(callback);

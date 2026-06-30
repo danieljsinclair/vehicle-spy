@@ -7,8 +7,7 @@ BLEManagerMock::BLEManagerMock()
     : connected_(false) {
 }
 
-BLEManagerMock::~BLEManagerMock() {
-}
+BLEManagerMock::~BLEManagerMock() = default;
 
 std::vector<BLEDeviceInfo> BLEManagerMock::scanForDevices(int /*timeout_seconds*/) {
     // If mock devices not set, return default Tesla mock
