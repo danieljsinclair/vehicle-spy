@@ -455,10 +455,21 @@ static std::unique_ptr<ConnectedTransport> openConnectedTransport() {
     if (!ctx->server.init()) return nullptr;
 
     TCPTransport::resetStop();
+    // readTimeoutUs=1000 keeps nextLine()'s select() poll snappy (1ms floor), so
+    // the framing tests still run fast. socketRecvTimeoutMs gates only the
+    // HANDSHAKE-stage blocking recv()s (AUTH/ATI/HELO responses via SO_RCVTIMEO);
+    // a 1ms value there races under full-suite CPU contention — the client's
+    // recv() for the server's "OK" can EAGAIN before the server thread is
+    // scheduled, connectAndAuth() returns false, open() returns false, and this
+    // helper returns nullptr, which surfaces as a flaky ASSERT_TRUE(ctx).
+    // 500ms is generous enough to absorb scheduling jitter during the one-time
+    // handshake while adding negligible wall-clock (the recvs return as soon as
+    // data arrives). This is a synchronisation/stability fix only — it does not
+    // touch what the framing tests assert.
     ctx->transport = std::make_unique<TCPTransport>(
         "127.0.0.1", ctx->server.port(), "raw",
         std::make_shared<StdOut>(),
-        /*readTimeoutUs=*/1000, /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
+        /*readTimeoutUs=*/1000, /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/500);
 
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = ctx->transport->open(); });
