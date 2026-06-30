@@ -26,7 +26,7 @@ namespace vehicle_sim::discovery {
 // auto-restart after signals, never returning EINTR. The flag is checked each
 // 100ms iteration, ensuring Ctrl-C responds within ~100ms.
 namespace {
-    std::atomic<bool> g_discoveryStopRequested{false};
+    std::atomic g_discoveryStopRequested{false};
 }  // namespace
 
 // Get current Unix epoch seconds

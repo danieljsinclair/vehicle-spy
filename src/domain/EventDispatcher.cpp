@@ -20,7 +20,7 @@ public:
      * Register a new consumer
      */
     unsigned int registerConsumer(EventDispatcher::SignalCallback callback) {
-        std::scoped_lock<std::mutex> lock(consumersMutex_);
+        std::scoped_lock lock(consumersMutex_);
 
         unsigned int token = nextToken_++;
         consumers_.push_back({std::move(callback), token, true});
