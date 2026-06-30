@@ -87,10 +87,22 @@ protected:
      * would deadlock) and must mutate the last-known state via the protected
      * setLast*() helpers only.
      *
+     * The `lockProof` parameter is a capability token: it is a reference to the
+     * std::scoped_lock that translate() holds on state_mutex_, so the compiler
+     * guarantees every caller of updateSignalField()/setLast*() already holds the
+     * lock (you cannot construct the proof without taking it). It is not used at
+     * runtime. This makes the previously comment-only lock contract type-enforced.
+     *
      * @param pid The PID that was extracted
      * @param value The numeric value extracted
+     * @param lockProof Reference to the scoped_lock translate() holds on
+     *                 state_mutex_ — proof the caller holds the lock.
      */
-    virtual void updateSignalField(std::uint8_t pid, double value) const noexcept;
+    virtual void updateSignalField(
+        std::uint8_t pid,
+        double value,
+        std::scoped_lock<std::mutex>& lockProof
+    ) const noexcept;
 
     [[nodiscard]] std::uint64_t getCurrentTimestamp() const noexcept;
 
@@ -108,11 +120,14 @@ private:
 
     // Pre-locked write helpers for the accumulated state. Private so the only
     // callers are updateSignalField()/translate(), both of which run while
-    // state_mutex_ is held — keeping every mutation behind the lock.
-    void setLastThrottle(double v) const noexcept { lastThrottle_ = v; }
-    void setLastSpeed(double v) const noexcept { lastSpeed_ = v; }
-    void setLastAcceleration(double v) const noexcept { lastAcceleration_ = v; }
-    void setLastBrake(double v) const noexcept { lastBrake_ = v; }
+    // state_mutex_ is held — keeping every mutation behind the lock. Each takes
+    // a scoped_lock& capability token (the lock translate() holds) so the lock
+    // contract is type-enforced: the helpers cannot be called without already
+    // holding state_mutex_. The token is unused at runtime.
+    void setLastThrottle(double v, std::scoped_lock<std::mutex>&) const noexcept { lastThrottle_ = v; }
+    void setLastSpeed(double v, std::scoped_lock<std::mutex>&) const noexcept { lastSpeed_ = v; }
+    void setLastAcceleration(double v, std::scoped_lock<std::mutex>&) const noexcept { lastAcceleration_ = v; }
+    void setLastBrake(double v, std::scoped_lock<std::mutex>&) const noexcept { lastBrake_ = v; }
 };
 
 } // namespace vehicle_sim::domain
