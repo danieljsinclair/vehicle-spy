@@ -27,7 +27,7 @@ namespace {
         std::string upper{str};
         std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
         return std::any_of(ERROR_MESSAGES.begin(), ERROR_MESSAGES.end(),
-                           [&](const std::string& error) {
+                           [&](std::string_view error) {
                                return upper.find(error) != std::string::npos;
                            });
     }
