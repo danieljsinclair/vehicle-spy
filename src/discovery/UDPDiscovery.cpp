@@ -101,7 +101,10 @@ public:
         if (sockfd < 0) return false;
 
         std::array<uint8_t, PACKET_LEN * 2> buf;  // allow some extra space
-        struct sockaddr_in fromAddr{};
+        // Zero-init (matching the bind-path pattern above) so sin_addr.s_addr is
+        // defined even if recvfrom leaves the address partially unfilled.
+        struct sockaddr_in fromAddr;
+        std::memset(&fromAddr, 0, sizeof(fromAddr));
         socklen_t fromLen = sizeof(fromAddr);
 
         ssize_t n = ::recvfrom(sockfd, buf.data(), buf.size(), 0,
