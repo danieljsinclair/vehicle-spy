@@ -30,7 +30,7 @@ public:
      * the raw sink is optional in the pipeline).
      */
     explicit RawLogSink(const std::string& base);
-    ~RawLogSink() = default;  // ofstream closes itself; resource mgmt is via the RAII member
+    ~RawLogSink();  // ofstream closes itself; resource mgmt is via the RAII member (out-of-line to match the rule-of-five move ops)
 
     RawLogSink(const RawLogSink&) = delete;
     RawLogSink& operator=(const RawLogSink&) = delete;
