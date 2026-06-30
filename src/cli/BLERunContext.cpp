@@ -23,8 +23,8 @@ namespace {
         explicit BleStopScope(vehicle_sim::pipeline::StopToken& t) noexcept : token(t) {
             token.reset();
             vehicle_sim::pipeline::signal_stop_broker::brokerSet(&token);
-            std::signal(SIGINT, vehicle_sim::pipeline::signal_stop_broker::onStopSignal);
-            std::signal(SIGTERM, vehicle_sim::pipeline::signal_stop_broker::onStopSignal);
+            std::signal(SIGINT, vehicle_sim_onStopSignal);
+            std::signal(SIGTERM, vehicle_sim_onStopSignal);
         }
         ~BleStopScope() { vehicle_sim::pipeline::signal_stop_broker::brokerClear(); }
     };

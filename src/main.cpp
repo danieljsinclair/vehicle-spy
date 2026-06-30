@@ -57,8 +57,8 @@ int runDiscovery() {
     // onStopSignal (one atomic load + one atomic store — no cout/endl).
     auto stop = std::make_shared<StopToken>();
     signal_stop_broker::brokerSet(stop.get());
-    std::signal(SIGINT, signal_stop_broker::onStopSignal);
-    std::signal(SIGTERM, signal_stop_broker::onStopSignal);
+    std::signal(SIGINT, vehicle_sim_onStopSignal);
+    std::signal(SIGTERM, vehicle_sim_onStopSignal);
     struct BrokerClear { ~BrokerClear(){ signal_stop_broker::brokerClear(); } } clearer;
 
     UDPDiscovery discovery{stop};

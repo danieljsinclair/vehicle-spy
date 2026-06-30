@@ -25,8 +25,8 @@ struct LiveStopScope {
     explicit LiveStopScope(pipeline::StopToken& t) noexcept : token(t) {
         token.reset();
         pipeline::signal_stop_broker::brokerSet(&token);
-        std::signal(SIGINT, pipeline::signal_stop_broker::onStopSignal);
-        std::signal(SIGTERM, pipeline::signal_stop_broker::onStopSignal);
+        std::signal(SIGINT, vehicle_sim_onStopSignal);
+        std::signal(SIGTERM, vehicle_sim_onStopSignal);
     }
     ~LiveStopScope() { pipeline::signal_stop_broker::brokerClear(); }
 };

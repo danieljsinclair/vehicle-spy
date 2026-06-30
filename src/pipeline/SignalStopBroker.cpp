@@ -3,8 +3,7 @@
 
 #include <atomic>
 
-namespace vehicle_sim::pipeline {
-namespace signal_stop_broker {
+namespace vehicle_sim::pipeline::signal_stop_broker {
 
 namespace {
 // The single static anchor a signal handler requires. Lock-free atomic load/store
@@ -21,13 +20,15 @@ void brokerClear() noexcept {
     g_activeStop.store(nullptr, std::memory_order_seq_cst);
 }
 
-extern "C" void onStopSignal(int /*sig*/) noexcept {
+} // namespace vehicle_sim::pipeline::signal_stop_broker
+
+extern "C" void vehicle_sim_onStopSignal(int /*sig*/) noexcept {
     // Async-signal-safe body: one atomic load, at most one atomic store. No I/O,
     // no locks, no allocation. The atomic stop IS the signal to the hot loops.
-    if (StopToken* token = g_activeStop.load(std::memory_order_seq_cst)) {
+    // g_activeStop lives in this TU's signal_stop_broker anonymous namespace;
+    // the global C-linkage handler reaches it by full qualification.
+    namespace bkr = vehicle_sim::pipeline::signal_stop_broker;
+    if (vehicle_sim::pipeline::StopToken* token = bkr::g_activeStop.load(std::memory_order_seq_cst)) {
         token->requestStop();
     }
 }
-
-} // namespace signal_stop_broker
-} // namespace vehicle_sim::pipeline
