@@ -159,6 +159,10 @@ private:
     // count — <= 0 means peer-closed/error, handled by the caller. Line
     // extraction from pending_ stays in nextLine().
     ssize_t readSocketIntoPending();
+
+    // g_stopRequested is process-global (set by a signal handler); re-load it
+    // per call rather than caching across the read loop.
+    bool shouldStop() const;
 };
 
 } // namespace vehicle_sim::pipeline

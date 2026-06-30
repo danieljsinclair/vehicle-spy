@@ -579,6 +579,10 @@ ssize_t TCPTransport::readSocketIntoPending() {
     return n;
 }
 
+bool TCPTransport::shouldStop() const {
+    return g_stopRequested.load();
+}
+
 std::optional<std::string> TCPTransport::nextLine() {
     if (!canRead()) {
         return std::nullopt;
@@ -602,7 +606,7 @@ std::optional<std::string> TCPTransport::nextLine() {
             // bus is normal) — UNLESS a stop was requested (Ctrl+C from the
             // live run context's signal handler), in which case we return
             // nullopt so runReplay() terminates cleanly.
-            if (g_stopRequested.load()) {
+            if (shouldStop()) {
                 exhausted_ = true;
                 return std::nullopt;
             }
@@ -616,7 +620,7 @@ std::optional<std::string> TCPTransport::nextLine() {
             // checked before entering expensive hunting logic so tests that call
             // requestStop() before nextLine() terminate promptly instead of
             // waiting for exponential backoff.
-            if (g_stopRequested.load()) {
+            if (shouldStop()) {
                 exhausted_ = true;
                 return std::nullopt;
             }
