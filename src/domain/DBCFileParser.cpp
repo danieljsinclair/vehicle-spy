@@ -353,8 +353,7 @@ DBCParseResult buildResult(
     pos = endOfName;
     while (pos < trimmed.size() && (trimmed[pos] == ' ' || trimmed[pos] == '\t')) ++pos;
 
-    auto entries = parseValueEntries(trimmed.substr(pos));
-    if (!entries.empty()) {
+    if (auto entries = parseValueEntries(trimmed.substr(pos)); !entries.empty()) {
         valueTables.emplace_back(canId, std::move(signalName), std::move(entries));
         return true;
     }
