@@ -195,6 +195,52 @@ const std::string& OTAHttpTransport::lastError() const noexcept {
     return lastError_;
 }
 
+OTAHttpTransport::RecvIter OTAHttpTransport::recvIteration(
+    std::chrono::steady_clock::time_point deadline,
+    std::array<char, 4096>& buf,
+    std::string& out,
+    bool& headersComplete) const noexcept {
+    fd_set rs;
+    FD_ZERO(&rs);
+    FD_SET(fd_, &rs);
+    // Poll for at most the time remaining until the deadline (capped at
+    // 100ms), so a small timeout is actually honoured — otherwise select's
+    // 100ms poll floor would round any sub-100ms timeout up to ~100ms.
+    auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           deadline - std::chrono::steady_clock::now()).count();
+    if (remainingMs <= 0) {
+        // Timeout: distinguish from clean EOF
+        if (!headersComplete) {
+            // Timed out before headers complete
+            return RecvIter::ReturnPartial;  // Empty or partial
+        }
+        return RecvIter::Stop;  // Headers complete, timeout reading body is OK
+    }
+    const auto pollMs = std::min<decltype(remainingMs)>(remainingMs, 100);
+    timeval tv{};
+    tv.tv_sec = 0;
+    tv.tv_usec = static_cast<suseconds_t>(pollMs * 1000);
+    if (int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv); r > 0) {
+        ssize_t n = recv(fd_, buf.data(), buf.size(), 0);
+        if (n < 0) {
+            // Error on socket
+            return RecvIter::Stop;
+        }
+        if (n == 0) {
+            // Clean EOF from server
+            return RecvIter::Stop;
+        }
+        out.append(buf.data(), static_cast<size_t>(n));
+        if (!headersComplete && out.find("\r\n\r\n") != std::string::npos) {
+            headersComplete = true;
+        }
+    } else if (r < 0 && errno != EINTR) {
+        // Select error (not signal interrupt)
+        return RecvIter::Stop;
+    }
+    return RecvIter::KeepGoing;
+}
+
 std::string OTAHttpTransport::recvResponse(int timeoutMs) const noexcept {
     std::string out;
     auto deadline = std::chrono::steady_clock::now() +
@@ -207,54 +253,11 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) const noexcept {
         // early return path (timeout before headers) and all break paths
         // (timeout-after-headers, socket error, clean EOF, select error) are
         // expressed as the result so the loop has a single break.
-        enum class IterResult { KeepGoing, Stop, ReturnPartial };
-        auto iteration = [&]() {
-            fd_set rs;
-            FD_ZERO(&rs);
-            FD_SET(fd_, &rs);
-            // Poll for at most the time remaining until the deadline (capped at
-            // 100ms), so a small timeout is actually honoured — otherwise select's
-            // 100ms poll floor would round any sub-100ms timeout up to ~100ms.
-            auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now()).count();
-            if (remainingMs <= 0) {
-                // Timeout: distinguish from clean EOF
-                if (!headersComplete) {
-                    // Timed out before headers complete
-                    return IterResult::ReturnPartial;  // Empty or partial
-                }
-                return IterResult::Stop;  // Headers complete, timeout reading body is OK
-            }
-            const auto pollMs = std::min<decltype(remainingMs)>(remainingMs, 100);
-            timeval tv{};
-            tv.tv_sec = 0;
-            tv.tv_usec = static_cast<suseconds_t>(pollMs * 1000);
-            if (int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv); r > 0) {
-                ssize_t n = recv(fd_, buf.data(), buf.size(), 0);
-                if (n < 0) {
-                    // Error on socket
-                    return IterResult::Stop;
-                }
-                if (n == 0) {
-                    // Clean EOF from server
-                    return IterResult::Stop;
-                }
-                out.append(buf.data(), static_cast<size_t>(n));
-                if (!headersComplete && out.find("\r\n\r\n") != std::string::npos) {
-                    headersComplete = true;
-                }
-            } else if (r < 0 && errno != EINTR) {
-                // Select error (not signal interrupt)
-                return IterResult::Stop;
-            }
-            return IterResult::KeepGoing;
-        };
-
-        const auto result = iteration();
-        if (result == IterResult::ReturnPartial) {
+        const auto result = recvIteration(deadline, buf, out, headersComplete);
+        if (result == RecvIter::ReturnPartial) {
             return out;  // Empty or partial
         }
-        if (result == IterResult::Stop) {
+        if (result == RecvIter::Stop) {
             break;
         }
     }

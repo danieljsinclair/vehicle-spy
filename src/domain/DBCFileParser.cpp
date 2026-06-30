@@ -141,6 +141,37 @@ bool parseSignalDefinition(
     return true;
 }
 
+// Parse one "<num> \"<label>\"" value-table entry from `pos` in `rest`. Each
+// malformed-input or end-of-input condition returns false; on success the entry
+// is appended to `entries` and `pos` is advanced, returning true to continue.
+bool parseOneValueEntry(const std::string& rest, std::size_t& pos,
+                        std::vector<DBCValueEntry>& entries) {
+    while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t' || rest[pos] == ';')) ++pos;
+    if (pos >= rest.size()) return false;
+
+    std::size_t valStart = pos;
+    while (pos < rest.size() && rest[pos] != ' ' && rest[pos] != '\t') ++pos;
+    if (pos == valStart) return false;
+
+    std::int64_t numVal = 0;
+    {
+        auto sv = std::string_view(rest.data() + valStart, pos - valStart);
+        auto [p, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), numVal);
+        if (ec != std::errc{}) return false;
+    }
+
+    while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t')) ++pos;
+
+    if (pos >= rest.size() || rest[pos] != '"') return false;
+    ++pos;
+    auto endQuote = rest.find('"', pos);
+    if (endQuote == std::string::npos) return false;
+
+    entries.push_back({numVal, rest.substr(pos, endQuote - pos)});
+    pos = endQuote + 1;
+    return true;
+}
+
 std::vector<DBCValueEntry> parseValueEntries(const std::string& rest) {
     std::vector<DBCValueEntry> entries;
     std::size_t pos = 0;
@@ -149,34 +180,7 @@ std::vector<DBCValueEntry> parseValueEntries(const std::string& rest) {
         // Parse one "<num> \"<label>\"" entry from `pos`. Each malformed-input
         // or end-of-input condition returns false so the loop has a single break;
         // on success the entry is appended and true is returned to continue.
-        auto parseOne = [&]() {
-            while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t' || rest[pos] == ';')) ++pos;
-            if (pos >= rest.size()) return false;
-
-            std::size_t valStart = pos;
-            while (pos < rest.size() && rest[pos] != ' ' && rest[pos] != '\t') ++pos;
-            if (pos == valStart) return false;
-
-            std::int64_t numVal = 0;
-            {
-                auto sv = std::string_view(rest.data() + valStart, pos - valStart);
-                auto [p, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), numVal);
-                if (ec != std::errc{}) return false;
-            }
-
-            while (pos < rest.size() && (rest[pos] == ' ' || rest[pos] == '\t')) ++pos;
-
-            if (pos >= rest.size() || rest[pos] != '"') return false;
-            ++pos;
-            auto endQuote = rest.find('"', pos);
-            if (endQuote == std::string::npos) return false;
-
-            entries.push_back({numVal, rest.substr(pos, endQuote - pos)});
-            pos = endQuote + 1;
-            return true;
-        };
-
-        if (!parseOne()) {
+        if (!parseOneValueEntry(rest, pos, entries)) {
             break;
         }
     }
