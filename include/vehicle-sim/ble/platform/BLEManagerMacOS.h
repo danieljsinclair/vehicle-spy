@@ -8,12 +8,14 @@
 #ifdef __APPLE__
     #ifdef __OBJC__
         #import <CoreBluetooth/CoreBluetooth.h>
+        @class BLEMacOSDelegate;
     #else
         // Forward declarations when not in Objective-C mode
         using CBCentralManager = struct objc_object;
         using CBPeripheral = struct objc_object;
         using CBCharacteristic = struct objc_object;
         using CBService = struct objc_object;
+        using BLEMacOSDelegate = struct objc_object;
     #endif
 #endif
 
@@ -93,9 +95,10 @@ private:
     CBCharacteristic* write_characteristic_ = nullptr;
     CBCharacteristic* notify_characteristic_ = nullptr;
 
-    // Objective-C delegate for CoreBluetooth callbacks
-    // Stored as void* to keep header C++ compatible
-    void* delegate_ = nullptr;
+    // Objective-C delegate for CoreBluetooth callbacks.
+    // Opaque pointer typed as the delegate class (forward-declared above) to
+    // keep this header C++ compatible while avoiding `void*`.
+    BLEMacOSDelegate* delegate_ = nullptr;
 #endif
 
     // Platform-specific helper methods

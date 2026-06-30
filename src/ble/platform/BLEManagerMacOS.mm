@@ -209,8 +209,10 @@ BLEManagerMacOS::BLEManagerMacOS()
     BLEMacOSDelegate* delegate = [[BLEMacOSDelegate alloc] init];
     delegate.manager = this;
 
-    // Store delegate to prevent deallocation (manual retain since no ARC)
-    delegate_ = (void*)CFBridgingRetain(delegate);
+    // Store delegate to prevent deallocation (manual retain since no ARC).
+    // CFBridgingRetain performs the +1 retain (balanced by CFRelease in the
+    // dtor); the __bridge cast does not add a second retain.
+    delegate_ = (__bridge BLEMacOSDelegate*)CFBridgingRetain(delegate);
     [delegate release];
 
     // Create dispatch queue for BLE operations
@@ -235,7 +237,7 @@ BLEManagerMacOS::~BLEManagerMacOS() {
 
     // Release delegate
     if (delegate_) {
-        CFRelease(delegate_);
+        CFRelease((__bridge CFTypeRef)delegate_);
         delegate_ = nullptr;
     }
 }
