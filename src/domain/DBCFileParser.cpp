@@ -203,7 +203,7 @@ DBCParseResult buildResult(
     // Group signals by CAN ID
     for (auto& sig : signals) {
         result.signalsByCanId.try_emplace(sig.canId);
-        result.signalsByCanId.at(sig.canId).emplace_back(
+        result.signalsByCanId.at(sig.canId).emplace_back(DBCSignalParams{
             sig.canId,
             std::move(sig.name),
             sig.startBit,
@@ -216,7 +216,7 @@ DBCParseResult buildResult(
             sig.min,
             sig.max,
             std::move(sig.valueTable)
-        );
+        });
     }
 
     return result;

@@ -16,7 +16,7 @@ using namespace vehicle_sim::domain;
 // ================================================
 
 TEST(DBCSignalDefinitionTest, ConstructsWithAllRequiredFields) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264,
         "DIR_axleSpeed",
         40,
@@ -28,7 +28,7 @@ TEST(DBCSignalDefinitionTest, ConstructsWithAllRequiredFields) {
         "RPM",
         -2750.0,
         2750.0
-    );
+    });
 
     EXPECT_EQ(def.canId, 264);
     EXPECT_EQ(def.name, "DIR_axleSpeed");
@@ -42,7 +42,7 @@ TEST(DBCSignalDefinitionTest, ConstructsWithAllRequiredFields) {
 }
 
 TEST(DBCSignalDefinitionTest, ConstructsUnsignedSignal) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         280,
         "DI_accelPedalPos",
         32,
@@ -54,7 +54,7 @@ TEST(DBCSignalDefinitionTest, ConstructsUnsignedSignal) {
         "%",
         0.0,
         100.0
-    );
+    });
 
     EXPECT_EQ(def.name, "DI_accelPedalPos");
     EXPECT_EQ(def.canId, 280);
@@ -62,7 +62,7 @@ TEST(DBCSignalDefinitionTest, ConstructsUnsignedSignal) {
 }
 
 TEST(DBCSignalDefinitionTest, ConstructsSignalWithOffset) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         297,
         "SteeringAngle129",
         16,
@@ -74,13 +74,13 @@ TEST(DBCSignalDefinitionTest, ConstructsSignalWithOffset) {
         "deg",
         -819.2,
         819.1
-    );
+    });
 
     EXPECT_DOUBLE_EQ(def.offset, -819.2);
 }
 
 TEST(DBCSignalDefinitionTest, ConstructsIntelByteOrderSignal) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264,
         "DIR_torqueActual",
         27,
@@ -92,39 +92,39 @@ TEST(DBCSignalDefinitionTest, ConstructsIntelByteOrderSignal) {
         "Nm",
         -7500.0,
         7500.0
-    );
+    });
 
     EXPECT_EQ(def.byteOrder, DBCByteOrder::Intel);
 }
 
 TEST(DBCSignalDefinitionTest, EqualityWorks) {
-    const DBCSignalDefinition def1(
+    const DBCSignalDefinition def1(DBCSignalParams{
         264, "DIR_axleSpeed", 40, 16,
         DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
         -2750.0, 2750.0
-    );
+    });
 
-    const DBCSignalDefinition def2(
+    const DBCSignalDefinition def2(DBCSignalParams{
         264, "DIR_axleSpeed", 40, 16,
         DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
         -2750.0, 2750.0
-    );
+    });
 
     EXPECT_EQ(def1, def2);
 }
 
 TEST(DBCSignalDefinitionTest, InequalityWorks) {
-    const DBCSignalDefinition def1(
+    const DBCSignalDefinition def1(DBCSignalParams{
         264, "DIR_axleSpeed", 40, 16,
         DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
         -2750.0, 2750.0
-    );
+    });
 
-    const DBCSignalDefinition def2(
+    const DBCSignalDefinition def2(DBCSignalParams{
         264, "DIR_torqueActual", 27, 13,
         DBCByteOrder::Intel, 2.0, 0.0, true, "Nm",
         -7500.0, 7500.0
-    );
+    });
 
     EXPECT_NE(def1, def2);
 }
@@ -167,11 +167,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDIR_axleSpeedFromKnownBytes) {
     canFrame[5] = 0x10;
     canFrame[6] = 0x27;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264, "DIR_axleSpeed", 40, 16,
         DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
         -2750.0, 2750.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -184,11 +184,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDIR_axleSpeedZeroRPM) {
     canFrame[5] = 0x00;
     canFrame[6] = 0x00;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264, "DIR_axleSpeed", 40, 16,
         DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
         -2750.0, 2750.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -207,11 +207,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDIR_axleSpeedNegative) {
     canFrame[5] = 0x78;
     canFrame[6] = 0xEC;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264, "DIR_axleSpeed", 40, 16,
         DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
         -2750.0, 2750.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -242,11 +242,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDIR_torqueActualFromKnownBytes) {
     canFrame[3] = 0x90;
     canFrame[4] = 0x01;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264, "DIR_torqueActual", 27, 13,
         DBCByteOrder::Intel, 2.0, 0.0, true, "Nm",
         -7500.0, 7500.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -259,11 +259,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDIR_torqueActualZero) {
     canFrame[3] = 0x00;
     canFrame[4] = 0x00;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264, "DIR_torqueActual", 27, 13,
         DBCByteOrder::Intel, 2.0, 0.0, true, "Nm",
         -7500.0, 7500.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -288,11 +288,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDIR_torqueActualNegativeRegen) {
     canFrame[3] = 0xA8;
     canFrame[4] = 0xFD;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264, "DIR_torqueActual", 27, 13,
         DBCByteOrder::Intel, 2.0, 0.0, true, "Nm",
         -7500.0, 7500.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -307,11 +307,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDI_accelPedalPosFromKnownBytes) {
     // Bit 32 = byte 4
     canFrame[4] = 125;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         280, "DI_accelPedalPos", 32, 8,
         DBCByteOrder::Intel, 0.4, 0.0, false, "%",
         0.0, 100.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -323,11 +323,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDI_accelPedalPosFullThrottle) {
     // Full throttle: 100% = raw 250 (250 * 0.4 = 100.0)
     canFrame[4] = 250;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         280, "DI_accelPedalPos", 32, 8,
         DBCByteOrder::Intel, 0.4, 0.0, false, "%",
         0.0, 100.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -339,11 +339,11 @@ TEST_F(DBCSignalMapperTest, ExtractsDI_accelPedalPosZero) {
     // Zero throttle: 0% = raw 0
     canFrame[4] = 0;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         280, "DI_accelPedalPos", 32, 8,
         DBCByteOrder::Intel, 0.4, 0.0, false, "%",
         0.0, 100.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -359,11 +359,11 @@ TEST_F(DBCSignalMapperTest, ExtractsSCCM_steeringAngleFromKnownBytes) {
     canFrame[2] = 0x00;
     canFrame[3] = 0x20;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         297, "SteeringAngle129", 16, 14,
         DBCByteOrder::Intel, 0.1, -819.2, false, "deg",
         -819.2, 819.1
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -378,11 +378,11 @@ TEST_F(DBCSignalMapperTest, ExtractsSCCM_steeringAnglePositive) {
     canFrame[2] = 0x84;
     canFrame[3] = 0x23;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         297, "SteeringAngle129", 16, 14,
         DBCByteOrder::Intel, 0.1, -819.2, false, "deg",
         -819.2, 819.1
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -397,11 +397,11 @@ TEST_F(DBCSignalMapperTest, ExtractsSCCM_steeringAngleNegative) {
     canFrame[2] = 0x7C;
     canFrame[3] = 0x1C;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         297, "SteeringAngle129", 16, 14,
         DBCByteOrder::Intel, 0.1, -819.2, false, "deg",
         -819.2, 819.1
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -412,11 +412,11 @@ TEST_F(DBCSignalMapperTest, ExtractsSCCM_steeringAngleNegative) {
 TEST_F(DBCSignalMapperTest, ReturnsNulloptForFrameTooShort) {
     std::vector<uint8_t> shortFrame{0, 0, 0};
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         264, "DIR_axleSpeed", 40, 16,
         DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
         -2750.0, 2750.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(shortFrame, def);
 
@@ -429,11 +429,11 @@ TEST_F(DBCSignalMapperTest, Extracts1BitBooleanSignal) {
     // Set byte 2 bit 3: 0x08
     canFrame[2] = 0x08;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         280, "DI_brakePedalState", 19, 2,
         DBCByteOrder::Intel, 1.0, 0.0, false, "",
         0.0, 2.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
 
@@ -455,10 +455,10 @@ TEST_F(DBCSignalMapperTest, ExtractsMotorola8BitSignalAtBit7) {
     // frame[0] == V. cantools-verified: raw 0xAB (171) -> frame[0] = 0xAB.
     canFrame[0] = 0xAB;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         100, "MotoTest", 7, 8,
         DBCByteOrder::Motorola, 1.0, 0.0, false, "", 0.0, 255.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
     ASSERT_TRUE(result.has_value());
@@ -472,10 +472,10 @@ TEST_F(DBCSignalMapperTest, ExtractsMotorola4BitSignalWithinByte) {
     // cantools-verified: raw 0xA (10) -> frame[0] = 0x0A.
     canFrame[0] = 0x0A;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         100, "MotoTest", 3, 4,
         DBCByteOrder::Motorola, 1.0, 0.0, false, "", 0.0, 15.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
     ASSERT_TRUE(result.has_value());
@@ -490,10 +490,10 @@ TEST_F(DBCSignalMapperTest, ExtractsMotorola16BitSpanningTwoBytes) {
     canFrame[0] = 0x12;
     canFrame[1] = 0x34;
 
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         100, "MotoTest", 7, 16,
         DBCByteOrder::Motorola, 1.0, 0.0, false, "", 0.0, 65535.0
-    );
+    });
 
     auto result = DBCSignalMapper::mapSignal(canFrame, def);
     ASSERT_TRUE(result.has_value());
@@ -504,9 +504,10 @@ TEST_F(DBCSignalMapperTest, MapsSignalByCanIdAndName) {
     // Setup signal definitions map
     std::unordered_map<uint16_t, std::vector<DBCSignalDefinition>> definitions;
     definitions[264].push_back(
-        DBCSignalDefinition(264, "DIR_axleSpeed", 40, 16,
+        DBCSignalDefinition(DBCSignalParams{
+            264, "DIR_axleSpeed", 40, 16,
             DBCByteOrder::Intel, 0.1, 0.0, true, "RPM",
-            -2750.0, 2750.0)
+            -2750.0, 2750.0})
     );
 
     // Frame with 1000 RPM (Intel byte order)
@@ -734,11 +735,11 @@ protected:
 // Verified against cantools (cantools 41.4.3) and the DBC comment:
 //   P -> byte[2]=0x32 -> raw 1, R -> byte[2]=0x55 -> raw 2, D -> byte[2]=0x95 -> raw 4.
 TEST_F(DBCBitExtractionTest, IntelShort3BitAtBit21_DecodesParkReverseDrive) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         280, "DI_gear", 21, 3,
         DBCByteOrder::Intel, 1.0, 0.0, false, "",
         0.0, 7.0
-    );
+    });
 
     canFrame[2] = 0x32;  // P -> raw 1
     auto park = DBCSignalMapper::mapSignal(canFrame, def);
@@ -758,11 +759,11 @@ TEST_F(DBCBitExtractionTest, IntelShort3BitAtBit21_DecodesParkReverseDrive) {
 
 // All 8 possible 3-bit values embedded at byte[2] bits 5-7 (Intel).
 TEST_F(DBCBitExtractionTest, IntelShort3BitAtBit21_DecodesAllValues) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         280, "DI_gear", 21, 3,
         DBCByteOrder::Intel, 1.0, 0.0, false, "",
         0.0, 7.0
-    );
+    });
 
     for (uint8_t raw = 0; raw < 8; ++raw) {
         canFrame.assign(8, 0);
@@ -778,11 +779,11 @@ TEST_F(DBCBitExtractionTest, IntelShort3BitAtBit21_DecodesAllValues) {
 // startBit 55 is byte 6, MSB. Bits occupy byte 6 high nibble (physical bits 4-7).
 // cantools ground truth: byte6=0x10 -> 1, 0xa0 -> 10, 0xf0 -> 15.
 TEST_F(DBCBitExtractionTest, Motorola4BitAtBit55_DecodesHighNibble) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         3, "MC_STW_ANGL_STAT", 55, 4,
         DBCByteOrder::Motorola, 1.0, 0.0, false, "",
         0.0, 15.0
-    );
+    });
 
     struct Case { uint8_t byte; double expected; };
     for (const auto& c : std::vector<Case>{
@@ -802,11 +803,11 @@ TEST_F(DBCBitExtractionTest, Motorola4BitAtBit55_DecodesHighNibble) {
 // cantools ground truth for raw (scale 0.1, offset -819.2):
 //   raw 0 -> bytes 0x00 0x00, raw 8192 -> 0x20 0x00, raw 16383 -> 0x3f 0xff.
 TEST_F(DBCBitExtractionTest, Motorola14BitAtBit5_CrossesByteBoundary) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         14, "StW_AnglHP", 5, 14,
         DBCByteOrder::Motorola, 0.1, -819.2, false, "deg",
         -819.2, 819.1
-    );
+    });
 
     // raw 8192 (physical 0.0): bits encoded so that cantools reads 8192.
     // cantools encode: byte0=0x20, byte1=0x00.
@@ -835,11 +836,11 @@ TEST_F(DBCBitExtractionTest, Motorola14BitAtBit5_CrossesByteBoundary) {
 // ---- Motorola 2-bit signal at a non-aligned start (EPAS_eacErrorCode 23|4@0+) ----
 // 4-bit Motorola at byte 2 (start 23). cantools: bits occupy byte2 low nibble.
 TEST_F(DBCBitExtractionTest, Motorola4BitAtBit23_DecodesCorrectly) {
-    const DBCSignalDefinition def(
+    const DBCSignalDefinition def(DBCSignalParams{
         880, "EPAS_eacErrorCode", 23, 4,
         DBCByteOrder::Motorola, 1.0, 0.0, false, "",
         0.0, 15.0
-    );
+    });
 
     // startBit 23 = byte 2 bit 7 (MSB). 4 bits: byte2 physical bits 7,6,5,4 = high nibble.
     for (uint8_t raw = 0; raw < 16; ++raw) {

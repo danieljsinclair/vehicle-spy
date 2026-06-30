@@ -68,27 +68,6 @@ struct DBCSignalDefinition final {
         const DBCSignalParams& params
     ) noexcept;
 
-    /**
-     * Construct a complete signal definition (legacy constructor).
-     *
-     * All parameters are required. Use defaults for optional values.
-     * Delegates to the params constructor.
-     */
-    DBCSignalDefinition(
-        std::uint16_t      p_canId,
-        std::string        p_name,
-        std::size_t        p_startBit,
-        std::size_t        p_bitLength,
-        DBCByteOrder       p_byteOrder,
-        double             p_scale,
-        double             p_offset,
-        bool               p_isSigned,
-        std::string        p_unit,
-        double             p_min,
-        double             p_max,
-        std::vector<DBCValueEntry> p_valueTable = {}
-    ) noexcept;
-
     // Message identifier (BO_ from DBC)
     const std::uint16_t canId;
 

@@ -20,36 +20,6 @@ DBCSignalDefinition::DBCSignalDefinition(
     , valueTable(params.valueTable)
 {}
 
-DBCSignalDefinition::DBCSignalDefinition(
-    std::uint16_t p_canId,
-    std::string p_name,
-    std::size_t p_startBit,
-    std::size_t p_bitLength,
-    DBCByteOrder p_byteOrder,
-    double p_scale,
-    double p_offset,
-    bool p_isSigned,
-    std::string p_unit,
-    double p_min,
-    double p_max,
-    std::vector<DBCValueEntry> p_valueTable
-) noexcept
-    : DBCSignalDefinition(DBCSignalParams{
-        p_canId,
-        std::move(p_name),
-        p_startBit,
-        p_bitLength,
-        p_byteOrder,
-        p_scale,
-        p_offset,
-        p_isSigned,
-        std::move(p_unit),
-        p_min,
-        p_max,
-        std::move(p_valueTable)
-    })
-{}
-
 const std::vector<DBCSignalDefinition>* DBCParseResult::getSignalsForCanId(
     std::uint16_t canId
 ) const noexcept {
