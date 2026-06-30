@@ -86,14 +86,12 @@ namespace {
     // ELM327 status/error strings that are not CAN frames. `upper` must already
     // be upper-cased; an exact (whole-line) match identifies a status response.
     bool isStatusMessage(std::string_view upper) {
-        static constexpr std::string_view STATUSES[] = {
+        static constexpr std::array<std::string_view, 10> STATUSES = {
             "OK", "NO DATA", "ERROR", "STOPPED", "UNABLE TO CONNECT",
             "BUS ERROR", "BUFFER FULL", "CAN ERROR", "BUS INIT", "SEARCHING"
         };
-        for (auto status : STATUSES) {
-            if (upper == status) return true;
-        }
-        return false;
+        return std::any_of(STATUSES.begin(), STATUSES.end(),
+                           [&](std::string_view status) { return upper == status; });
     }
 
     // Split `cleaned` into upper-cased hex tokens, treating any run of non-hex
