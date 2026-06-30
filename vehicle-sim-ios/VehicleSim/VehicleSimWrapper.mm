@@ -403,7 +403,7 @@ private:
     // transport's hot loop polls.
     auto stop = std::make_shared<pipeline::StopToken>();
     auto transport = std::make_unique<TCPTransport>(host, port, "raw",
-                                                    std::make_shared<pipeline::StdOut>(), 500000, -1, 1000, stop);
+                                                    std::make_shared<pipeline::StdOut>(), pipeline::TcpReadTiming{}, stop);
     auto normaliser = std::make_unique<RawFrameNormaliser>();
 
     // Open the transport to verify connectivity before starting the thread

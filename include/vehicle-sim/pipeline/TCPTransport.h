@@ -17,6 +17,25 @@
 namespace vehicle_sim::pipeline {
 
 /**
+ * Socket/read-timing configuration for TCPTransport. A cohesive domain grouping
+ * of the three values that govern read behaviour and are always co-passed; held
+ * as one named, defaultable config so the transport ctor stays below the S107
+ * parameter threshold and a tuner varies timing as a unit.
+ *
+ *   - readTimeoutUs       Max select() wait (microseconds) before re-checking
+ *                         the stop flag. Default 500000 (0.5s).
+ *   - atInitDelayMs       Inter-command pacing (ms) between ELM327 AT-init
+ *                         commands. -1 = use each command's own delayMs
+ *                         (production). >= 0 overrides every command's delay.
+ *   - socketRecvTimeoutMs SO_RCVTIMEO (ms) for recv(). Default 1000ms.
+ */
+struct TcpReadTiming {
+    int readTimeoutUs = 500000;
+    int atInitDelayMs = -1;
+    int socketRecvTimeoutMs = 1000;
+};
+
+/**
  * Live raw TCP transport: opens a POSIX socket to a CAN-bridge (e.g. the ESP32
  * firmware's TCP server), reads the stream line by line, and delivers each
  * line to the normaliser. This is a PURE TRANSPORT — it knows nothing about
@@ -39,33 +58,21 @@ namespace vehicle_sim::pipeline {
 class TCPTransport final : public ITransport {
 public:
     /**
-     * @param host               IPv4/hostname of the CAN-bridge.
-     * @param port               TCP port (firmware default 3333).
-     * @param adapterProtocol    "raw" (no init) or "elm327" (send AT-init).
-     * @param output             Where to emit human-readable status/error lines.
-     * @param readTimeoutUs      Max wait (microseconds) for a select() read before
-     *                           re-checking the stop flag. Defaults to 500000 (0.5s)
-     *                           — matches the capture tool's robustness target.
-     *                           Injectable so tests can pass a tiny value and see a
-     *                           requestStop() in ~0 ms instead of waiting out the
-     *                           full production poll. Production default unchanged.
-     * @param atInitDelayMs      Inter-command pacing (milliseconds) between ELM327
-     *                           AT-init commands. -1 (default) means use each
-     *                           command's own cmd.delayMs (production behaviour —
-     *                           a real adapter needs the settle time). Any value
-     *                           >= 0 overrides every command's delay to that value,
-     *                           so tests can pass 0 and skip the ~700ms of pacing.
-     * @param socketRecvTimeoutMs Socket SO_RCVTIMEO (milliseconds) for recv().
-     *                           Defaults to 1000ms (production). Injectable so
-     *                           tests can pass 1ms and avoid waiting the full
-     *                           second on auth/handshake recv timeouts. Production
-     *                           default unchanged.
+     * @param host            IPv4/hostname of the CAN-bridge.
+     * @param port            TCP port (firmware default 3333).
+     * @param adapterProtocol "raw" (no init) or "elm327" (send AT-init).
+     * @param output          Where to emit human-readable status/error lines.
+     * @param timing          Socket/read-timing config (see TcpReadTiming);
+     *                        defaults to production values. Injectable so tests
+     *                        can pass tiny values and see requestStop()/recv
+     *                        timeouts in ~0 ms instead of the full poll.
+     * @param stop            Shared cooperative stop signal (injected, owned by
+     *                        the live run-context); must exist at construction
+     *                        for the hot loop.
      */
     TCPTransport(std::string_view host, int port, std::string_view adapterProtocol = "raw",
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
-                 int readTimeoutUs = 500000,
-                 int atInitDelayMs = -1,
-                 int socketRecvTimeoutMs = 1000,
+                 TcpReadTiming timing = TcpReadTiming{},
                  std::shared_ptr<StopToken> stop = std::make_shared<StopToken>());
 
     ~TCPTransport() override;

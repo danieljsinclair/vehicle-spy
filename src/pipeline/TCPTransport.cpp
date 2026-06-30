@@ -86,18 +86,16 @@ int connectToHost(const std::string& host, int port) {
 
 TCPTransport::TCPTransport(std::string_view host, int port, std::string_view adapterProtocol,
                            std::shared_ptr<ITransportOutput> output,
-                           int readTimeoutUs,
-                           int atInitDelayMs,
-                           int socketRecvTimeoutMs,
+                           TcpReadTiming timing,
                            std::shared_ptr<StopToken> stop)
     : host_(host)
     , port_(port)
     , adapterProtocol_(adapterProtocol)
     , output_(std::move(output))
     , stop_(std::move(stop))
-    , readTimeoutUs_(readTimeoutUs > 0 ? readTimeoutUs : 500000)
-    , atInitDelayMs_(atInitDelayMs)
-    , socketRecvTimeoutMs_(socketRecvTimeoutMs > 0 ? socketRecvTimeoutMs : 1000) {
+    , readTimeoutUs_(timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000)
+    , atInitDelayMs_(timing.atInitDelayMs)
+    , socketRecvTimeoutMs_(timing.socketRecvTimeoutMs > 0 ? timing.socketRecvTimeoutMs : 1000) {
 }
 
 TCPTransport::~TCPTransport() {

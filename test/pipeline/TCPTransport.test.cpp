@@ -214,8 +214,7 @@ TEST(TCPTransportTest, RawProtocol_SendsAuthOnConnect) {
     // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
     // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"raw",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
-                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -245,8 +244,7 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
     // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
     // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
-                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -288,8 +286,7 @@ TEST(TCPTransportTest, CleanDisconnect_DetectedByNextLine) {
     // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
     // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
-                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -332,7 +329,7 @@ TEST(TCPTransportTest, ConnectionRefused_OpenReturnsFalse) {
     close(refuseFd);
 
     TCPTransport t("127.0.0.1", port, "raw",
-                   std::make_shared<StdOut>(), 1000, -1, 1, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
     EXPECT_FALSE(t.open());
     EXPECT_FALSE(t.isOpen());
 }
@@ -355,8 +352,7 @@ TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
     // this test. The AT commands are still SENT, so the assertions below still
     // hold; only the sleeps between them are skipped.
     TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
-                   /*atInitDelayMs=*/0, /*socketRecvTimeoutMs=*/10, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, 0, 10}, g_testStop);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -385,7 +381,7 @@ TEST(TCPTransportTest, Elm327InitFailure_OpenReturnsFalse) {
     g_testStop->reset();
     // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), "elm327",
-                   std::make_shared<StdOut>(), 500000, -1, 1, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{500000, -1, 1}, g_testStop);
     // Open the transport; it will start sending AUTH then AT-init.
     // Close the server-side client immediately so the send fails.
     std::atomic<bool> opened{false};
@@ -415,8 +411,7 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     // the read-timeout positional arg can be supplied.
     // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), /*readTimeoutUs=*/1000,
-                   /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -475,8 +470,7 @@ static std::unique_ptr<ConnectedTransport> openConnectedTransport() {
     // touch what the framing tests assert.
     ctx->transport = std::make_unique<TCPTransport>(
         "127.0.0.1", ctx->server.port(), "raw",
-        std::make_shared<StdOut>(),
-        /*readTimeoutUs=*/1000, /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/500, g_testStop);
+        std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 500}, g_testStop);
 
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = ctx->transport->open(); });
@@ -493,7 +487,7 @@ TEST(TCPTransportNextLineContract, NotOpened_ReturnsNullopt) {
     // nextLine() must not touch a socket when there is no connection.
     g_testStop->reset();
     TCPTransport t("127.0.0.1", 1, "raw", std::make_shared<StdOut>(),
-                   /*readTimeoutUs=*/1000, -1, 1, g_testStop);
+                   TcpReadTiming{1000, -1, 1}, g_testStop);
     EXPECT_FALSE(t.nextLine().has_value());
     g_testStop->reset();
 }
@@ -503,7 +497,7 @@ TEST(TCPTransportNextLineContract, OpenFailed_ReturnsNullopt) {
     // nullopt rather than attempting reads.
     g_testStop->reset();
     TCPTransport t("127.0.0.1", 1, "raw", std::make_shared<StdOut>(),
-                   /*readTimeoutUs=*/1000, -1, 1, g_testStop);
+                   TcpReadTiming{1000, -1, 1}, g_testStop);
     ASSERT_FALSE(t.open());
     EXPECT_FALSE(t.nextLine().has_value());
     g_testStop->reset();
@@ -686,7 +680,7 @@ TEST(TCPTransportTest, AuthRejected_OpenReturnsFalse) {
     g_testStop->reset();
     // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
     TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), 500000, -1, 1, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{500000, -1, 1}, g_testStop);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
