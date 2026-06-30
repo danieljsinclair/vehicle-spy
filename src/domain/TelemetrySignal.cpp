@@ -52,19 +52,4 @@ std::uint64_t TelemetrySignal::getTimestampUtcMs() const noexcept
     return m_timestampUtcMs;
 }
 
-bool TelemetrySignal::operator==(const TelemetrySignal& other) const noexcept
-{
-    return m_rpm == other.m_rpm &&
-           m_gear == other.m_gear &&
-           m_torqueNm == other.m_torqueNm &&
-           m_speedKmh == other.m_speedKmh &&
-           m_throttlePercent == other.m_throttlePercent &&
-           m_timestampUtcMs == other.m_timestampUtcMs;
-}
-
-bool TelemetrySignal::operator!=(const TelemetrySignal& other) const noexcept
-{
-    return !(*this == other);
-}
-
 } // namespace vehicle_sim::domain

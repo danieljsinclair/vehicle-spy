@@ -84,26 +84,6 @@ std::uint64_t VehicleSignal::getTimestampUtcMs() const noexcept
     return m_timestampUtcMs;
 }
 
-bool VehicleSignal::operator==(const VehicleSignal& other) const noexcept
-{
-    return m_throttlePercent == other.m_throttlePercent &&
-           m_speedKmh == other.m_speedKmh &&
-           m_accelerationG == other.m_accelerationG &&
-           m_brakePercent == other.m_brakePercent &&
-           m_steeringAngleDeg == other.m_steeringAngleDeg &&
-           m_motorRpm == other.m_motorRpm &&
-           m_motorHvVoltage == other.m_motorHvVoltage &&
-           m_motorHvCurrent == other.m_motorHvCurrent &&
-           m_motorTorqueNm == other.m_motorTorqueNm &&
-           m_gearSelector == other.m_gearSelector &&
-           m_timestampUtcMs == other.m_timestampUtcMs;
-}
-
-bool VehicleSignal::operator!=(const VehicleSignal& other) const noexcept
-{
-    return !(*this == other);
-}
-
 double VehicleSignal::throttlePercentOr(double defaultVal) const noexcept { return m_throttlePercent.value_or(defaultVal); }
 double VehicleSignal::speedKmhOr(double defaultVal) const noexcept { return m_speedKmh.value_or(defaultVal); }
 double VehicleSignal::accelerationGOr(double defaultVal) const noexcept { return m_accelerationG.value_or(defaultVal); }

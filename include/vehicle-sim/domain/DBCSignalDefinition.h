@@ -133,14 +133,45 @@ struct DBCSignalDefinition final {
     ~DBCSignalDefinition() noexcept = default;
 
     // Equality comparison (all fields)
-    [[nodiscard]] bool operator==(
-        const DBCSignalDefinition& other
-    ) const noexcept;
+    [[nodiscard]] friend bool operator==(
+        const DBCSignalDefinition& lhs,
+        const DBCSignalDefinition& rhs
+    ) noexcept {
+        if (lhs.canId != rhs.canId
+            || lhs.name != rhs.name
+            || lhs.startBit != rhs.startBit
+            || lhs.bitLength != rhs.bitLength
+            || lhs.byteOrder != rhs.byteOrder
+            || lhs.scale != rhs.scale
+            || lhs.offset != rhs.offset
+            || lhs.isSigned != rhs.isSigned
+            || lhs.unit != rhs.unit
+            || lhs.min != rhs.min
+            || lhs.max != rhs.max) {
+            return false;
+        }
+
+        if (lhs.valueTable.size() != rhs.valueTable.size()) {
+            return false;
+        }
+
+        for (std::size_t i = 0; i < lhs.valueTable.size(); ++i) {
+            if (lhs.valueTable[i].value != rhs.valueTable[i].value
+                || lhs.valueTable[i].description != rhs.valueTable[i].description) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     // Inequality (derived from operator==)
-    [[nodiscard]] bool operator!=(
-        const DBCSignalDefinition& other
-    ) const noexcept;
+    [[nodiscard]] friend bool operator!=(
+        const DBCSignalDefinition& lhs,
+        const DBCSignalDefinition& rhs
+    ) noexcept {
+        return !(lhs == rhs);
+    }
 };
 
 } // namespace vehicle_sim::domain

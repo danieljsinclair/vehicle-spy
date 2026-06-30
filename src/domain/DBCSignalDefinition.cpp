@@ -50,43 +50,6 @@ DBCSignalDefinition::DBCSignalDefinition(
     })
 {}
 
-bool DBCSignalDefinition::operator==(
-    const DBCSignalDefinition& other
-) const noexcept {
-    if (canId != other.canId
-        || name != other.name
-        || startBit != other.startBit
-        || bitLength != other.bitLength
-        || byteOrder != other.byteOrder
-        || scale != other.scale
-        || offset != other.offset
-        || isSigned != other.isSigned
-        || unit != other.unit
-        || min != other.min
-        || max != other.max) {
-        return false;
-    }
-
-    if (valueTable.size() != other.valueTable.size()) {
-        return false;
-    }
-
-    for (std::size_t i = 0; i < valueTable.size(); ++i) {
-        if (valueTable[i].value != other.valueTable[i].value
-            || valueTable[i].description != other.valueTable[i].description) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool DBCSignalDefinition::operator!=(
-    const DBCSignalDefinition& other
-) const noexcept {
-    return !(*this == other);
-}
-
 const std::vector<DBCSignalDefinition>* DBCParseResult::getSignalsForCanId(
     std::uint16_t canId
 ) const noexcept {

@@ -68,10 +68,24 @@ public:
     [[nodiscard]] std::int32_t gearSelectorOr(std::int32_t defaultVal = 0) const noexcept;
 
     // Equality comparison (member-wise, uses optional's ==)
-    [[nodiscard]] bool operator==(const VehicleSignal& other) const noexcept;
+    [[nodiscard]] friend bool operator==(const VehicleSignal& lhs, const VehicleSignal& rhs) noexcept {
+        return lhs.m_throttlePercent == rhs.m_throttlePercent &&
+               lhs.m_speedKmh == rhs.m_speedKmh &&
+               lhs.m_accelerationG == rhs.m_accelerationG &&
+               lhs.m_brakePercent == rhs.m_brakePercent &&
+               lhs.m_steeringAngleDeg == rhs.m_steeringAngleDeg &&
+               lhs.m_motorRpm == rhs.m_motorRpm &&
+               lhs.m_motorHvVoltage == rhs.m_motorHvVoltage &&
+               lhs.m_motorHvCurrent == rhs.m_motorHvCurrent &&
+               lhs.m_motorTorqueNm == rhs.m_motorTorqueNm &&
+               lhs.m_gearSelector == rhs.m_gearSelector &&
+               lhs.m_timestampUtcMs == rhs.m_timestampUtcMs;
+    }
 
     // Inequality (derived from operator==)
-    [[nodiscard]] bool operator!=(const VehicleSignal& other) const noexcept;
+    [[nodiscard]] friend bool operator!=(const VehicleSignal& lhs, const VehicleSignal& rhs) noexcept {
+        return !(lhs == rhs);
+    }
 
     // Valid signal ranges (DBC-verified) - kept for reference
     static constexpr double THROTTLE_MIN = 0.0;
