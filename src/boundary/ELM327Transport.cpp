@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <string_view>
 #include <unordered_set>
 
 namespace vehicle_sim::boundary {
@@ -22,8 +23,8 @@ namespace {
         "SEARCHING", "BUSINIT", "OK"
     };
 
-    bool isErrorMessage(const std::string& str) {
-        std::string upper = str;
+    bool isErrorMessage(std::string_view str) {
+        std::string upper{str};
         std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
         return std::any_of(ERROR_MESSAGES.begin(), ERROR_MESSAGES.end(),
                            [&](const std::string& error) {
