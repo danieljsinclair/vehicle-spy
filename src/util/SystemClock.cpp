@@ -65,15 +65,19 @@ void FakeClock::advance(duration d) {
         return;
     }
 
-    // A consumer IS parked. Take the CONSUMER's lock first (so the bump is
-    // serialized with the waiter's predicate-check + cv.wait, which hold that
-    // same lock), then FakeClock::mutex_ to mutate now_ consistently with the
-    // standalone now() reader. The waiter cannot pass its check AND release
-    // the lock to re-park in a way that misses our notify, because cv.wait
-    // atomically re-checks the predicate on wake under this same lock.
+    // A consumer IS parked (cv != nullptr). Since the waiter registers its cv
+    // and lock together atomically under mutex_ (see waitForImpl), cv != nullptr
+    // guarantees registeredLock_ != nullptr and that its unique_lock owns its
+    // mutex — i.e. consumerMutex is provably non-null here. Take BOTH the
+    // consumer lock and FakeClock::mutex_ in a single std::scoped_lock (which
+    // applies deadlock-avoidance) so the bump is serialized with the waiter's
+    // predicate-check + cv.wait (consumer lock) and consistent with the
+    // standalone now() reader (FakeClock::mutex_). The waiter cannot pass its
+    // check AND release the lock to re-park in a way that misses our notify,
+    // because cv.wait atomically re-checks the predicate on wake under this
+    // same consumer lock.
     {
-        std::scoped_lock consumerGuard(*consumerMutex);
-        std::scoped_lock fakeGuard(mutex_);
+        std::scoped_lock guard(*consumerMutex, mutex_);
         now_ += d;
     }
     // Notify on the cv the waiter is actually parked on. Notifying is done
