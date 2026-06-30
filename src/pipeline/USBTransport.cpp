@@ -31,11 +31,11 @@ bool setNonBlocking(int fd) noexcept {
 } // namespace
 
 void USBTransport::requestStop() noexcept {
-    g_stopRequested.store(true, std::memory_order_relaxed);
+    g_stopRequested.store(true);
 }
 
 void USBTransport::resetStop() noexcept {
-    g_stopRequested.store(false, std::memory_order_relaxed);
+    g_stopRequested.store(false);
 }
 
 USBTransport::USBTransport(std::string_view port, int baud, std::shared_ptr<ITransportOutput> output)
@@ -125,7 +125,7 @@ std::optional<std::string> USBTransport::nextLine() {
     }
 
     while (true) {
-        if (g_stopRequested.load(std::memory_order_relaxed)) {
+        if (g_stopRequested.load()) {
             exhausted_ = true;
             return std::nullopt;
         }
@@ -154,7 +154,7 @@ std::optional<std::string> USBTransport::nextLine() {
             return std::nullopt;
         }
 
-        if (g_stopRequested.load(std::memory_order_relaxed)) {
+        if (g_stopRequested.load()) {
             exhausted_ = true;
             return std::nullopt;
         }
