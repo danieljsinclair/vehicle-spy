@@ -373,3 +373,60 @@ TEST(ELM327Transport, ExtractPrompt_NoPrompt_ReturnsUnchanged)
     std::string stripped = ELM327Transport::extractPrompt(noPrompt);
     EXPECT_EQ(stripped, "41 0C 1A F8\r");
 }
+
+// ================================================
+// Test Suite 13: parseOBD2Response malformed/edge contracts (S3776 refactor net)
+// Each test states an externally observable behaviour of parseOBD2Response
+// (input response -> output bytes/nullopt), independent of the internal
+// accumulator walk. These must stay green so the S3776/S134 decomposition of
+// parseOBD2Response cannot silently change how malformed/prompt/prefixed
+// responses are handled. parseOBD2Response has two live production callers
+// (OBD2Protocol.cpp, BLEManagerBase.cpp), so behaviour preservation is
+// critical.
+// ================================================
+
+TEST(ELM327Transport, ParseOBD2Response_OddHexDigitCount_ReturnsNullopt)
+{
+    // A response whose hex content has an odd number of digits is invalid:
+    // the trailing lone digit cannot form a byte, so nullopt is returned.
+    auto result = ELM327Transport::parseOBD2Response("41 0C 1\r");
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ELM327Transport, ParseOBD2Response_NonHexGarbageMidStream_IgnoredNotRejected)
+{
+    // Non-hex characters that are not part of a hex pair are treated as
+    // separators and ignored (the valid hex bytes on either side are still
+    // returned). A refactor that decomposes the accumulator walk must preserve
+    // this tolerance for stray formatting, rather than rejecting the response.
+    auto result = ELM327Transport::parseOBD2Response("41 0C ZZ F8\r");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<uint8_t>{0x41, 0x0C, 0xF8}));
+}
+
+TEST(ELM327Transport, ParseOBD2Response_BusInitPrefix_StrippedAndParsed)
+{
+    // A response prefixed with a BUSINIT informational banner: the prefix is
+    // stripped and the remaining well-formed hex is parsed.
+    auto result = ELM327Transport::parseOBD2Response("BUSINIT\r41 0C 1A F8\r");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<uint8_t>{0x41, 0x0C, 0x1A, 0xF8}));
+}
+
+TEST(ELM327Transport, ParseOBD2Response_LineNumberSegment_DiscardsPrecedingDigits)
+{
+    // A ':' line-number segment (OBD2 multi-frame) causes the digits accumulated
+    // before it to be discarded; only the hex after the ':' is returned. "FF"
+    // before the ':' must NOT appear in the result.
+    auto result = ELM327Transport::parseOBD2Response("FF: 41 0C\r");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, (std::vector<uint8_t>{0x41, 0x0C}));
+}
+
+TEST(ELM327Transport, ParseOBD2Response_PromptOnly_ReturnsNullopt)
+{
+    // A response that is only the '>' prompt (empty after prompt strip) yields
+    // nullopt rather than an empty byte vector.
+    auto result = ELM327Transport::parseOBD2Response(">");
+    EXPECT_FALSE(result.has_value());
+}
