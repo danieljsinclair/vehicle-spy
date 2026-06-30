@@ -19,9 +19,7 @@
 
 namespace vehicle_sim {
 
-BLEManager::BLEManager()
-    : platform_(createDefaultPlatform()) {
-}
+BLEManager::BLEManager() = default;
 
 BLEManager::~BLEManager() = default;
 

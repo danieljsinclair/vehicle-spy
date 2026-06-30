@@ -14,7 +14,7 @@ namespace vehicle_sim::domain {
  */
 class EventDispatcher::Impl {
 public:
-    Impl() : nextToken_{1} {}
+    Impl() = default;
 
     /**
      * Register a new consumer
@@ -83,7 +83,7 @@ private:
 
     std::vector<Consumer> consumers_;
     std::mutex consumersMutex_;
-    std::atomic<unsigned int> nextToken_;
+    std::atomic<unsigned int> nextToken_{1};
 };
 
 // EventDispatcher implementation

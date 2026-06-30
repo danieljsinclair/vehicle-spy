@@ -4,9 +4,7 @@
 namespace vehicle_sim::ble {
 
 TeslaBLETransport::TeslaBLETransport(std::unique_ptr<BLEPlatform> platform)
-    : platform_(std::move(platform))
-    , connected_(false)
-    , notification_callback_(nullptr) {
+    : platform_(std::move(platform)) {
     // Register callback with platform for incoming data
     platform_->setDataReceivedCallback([this](const std::vector<std::uint8_t>& data) {
         this->processIncomingData(data);

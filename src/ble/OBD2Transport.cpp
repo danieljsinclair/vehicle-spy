@@ -6,7 +6,6 @@ namespace vehicle_sim::ble {
 
 OBD2Transport::OBD2Transport(std::unique_ptr<BLEPlatform> platform)
     : platform_(std::move(platform))
-    , connected_(false)
 {
     platform_->setDataReceivedCallback([this](const std::vector<std::uint8_t>& data) {
         this->processIncomingData(data);

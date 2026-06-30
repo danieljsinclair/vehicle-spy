@@ -3,9 +3,7 @@
 
 namespace vehicle_sim {
 
-BLEManagerMock::BLEManagerMock()
-    : connected_(false) {
-}
+BLEManagerMock::BLEManagerMock() = default;
 
 BLEManagerMock::~BLEManagerMock() = default;
 
