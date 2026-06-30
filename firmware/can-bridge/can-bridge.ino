@@ -952,9 +952,14 @@ static String buildHeloResponse() {
     int len = snprintf(response, sizeof(response),
         "ACK DEVICE=%s FIRMWARE=%s DEVICEID=",
         Constants::DEVICE_NAME, Constants::FIRMWARE_VERSION);
-    // Append device ID as hex (16 bytes -> 32 hex chars)
-    for (int i = 0; i < 16 && len < (int)sizeof(response) - 3; i++) {
+    // Append device ID as hex (16 bytes -> 32 hex chars). Stop iterating once
+    // we've written every device-id byte, or once the buffer is too full to
+    // safely hold another hex pair plus the trailing "\r".
+    const int tailRoom = 3;  // reserve space for one more "%02X" + trailing "\r"
+    size_t i = 0;
+    while (i < sizeof(discoveryDeviceId) && len < (int)sizeof(response) - tailRoom) {
         len += snprintf(response + len, sizeof(response) - len, "%02X", discoveryDeviceId[i]);
+        ++i;
     }
     snprintf(response + len, sizeof(response) - len, "\r");
     return String(response);
