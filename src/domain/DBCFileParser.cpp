@@ -226,6 +226,91 @@ DBCParseResult buildResult(
     return result;
 }
 
+/**
+ * Parse a trailing uint16_t from a string starting at pos.
+ *
+ * Skips whitespace, extracts the next token, and parses it as uint16_t.
+ * Advances pos to the first non-whitespace character after the parsed number.
+ *
+ * @param s      The string to parse
+ * @param pos    Starting position (updated by reference)
+ * @param result Output parameter for the parsed value
+ * @return true if parsing succeeded, false otherwise
+ */
+[[nodiscard]] bool parseTrailingUint16(
+    const std::string& s,
+    std::size_t& pos,
+    std::uint16_t& result
+) noexcept {
+    while (pos < s.size() && (s[pos] == ' ' || s[pos] == '\t')) ++pos;
+
+    auto endOfId = pos;
+    while (endOfId < s.size() && s[endOfId] != ' ' && s[endOfId] != '\t') ++endOfId;
+
+    auto sv = std::string_view(s.data() + pos, endOfId - pos);
+    auto [p, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
+
+    pos = endOfId;
+    return ec == std::errc{};
+}
+
+/**
+ * Parse a BO_ (message) line and extract the CAN ID.
+ *
+ * @param trimmed      Trimmed line content starting with "BO_"
+ * @param currentCanId Output parameter for the parsed CAN ID
+ * @return true if parsing succeeded, false otherwise
+ */
+[[nodiscard]] bool parseBoLine(
+    const std::string& trimmed,
+    std::uint16_t& currentCanId
+) noexcept {
+    auto pos = trimmed.find(' ', 3);
+    if (pos == std::string::npos) return false;
+    ++pos;
+
+    std::uint16_t canId = 0;
+    if (!parseTrailingUint16(trimmed, pos, canId)) return false;
+
+    currentCanId = canId;
+    return true;
+}
+
+/**
+ * Parse a VAL_ (value table) line and extract its components.
+ *
+ * @param trimmed      Trimmed line content starting with "VAL_"
+ * @param valueTables Output parameter for the parsed value table entries
+ * @return true if parsing succeeded and produced entries, false otherwise
+ */
+[[nodiscard]] bool parseValLine(
+    const std::string& trimmed,
+    std::vector<std::tuple<std::uint16_t, std::string, std::vector<DBCValueEntry>>>& valueTables
+) noexcept {
+    auto pos = trimmed.find(' ', 4);
+    if (pos == std::string::npos) return false;
+    ++pos;
+
+    std::uint16_t canId = 0;
+    if (!parseTrailingUint16(trimmed, pos, canId)) return false;
+
+    while (pos < trimmed.size() && (trimmed[pos] == ' ' || trimmed[pos] == '\t')) ++pos;
+
+    auto endOfName = pos;
+    while (endOfName < trimmed.size() && trimmed[endOfName] != ' ' && trimmed[endOfName] != '\t') ++endOfName;
+    std::string signalName = trimmed.substr(pos, endOfName - pos);
+
+    pos = endOfName;
+    while (pos < trimmed.size() && (trimmed[pos] == ' ' || trimmed[pos] == '\t')) ++pos;
+
+    auto entries = parseValueEntries(trimmed.substr(pos));
+    if (!entries.empty()) {
+        valueTables.emplace_back(canId, std::move(signalName), std::move(entries));
+        return true;
+    }
+    return false;
+}
+
 } // anonymous namespace
 
 DBCParseResult DBCFileParser::parseFile(
@@ -259,18 +344,7 @@ DBCParseResult DBCFileParser::parseString(
             if (trimmed.empty()) continue;
 
             if (trimmed.rfind("BO_", 0) == 0) {
-                auto pos = trimmed.find(' ', 3);
-                if (pos == std::string::npos) continue;
-                ++pos;
-                auto endOfId = pos;
-                while (endOfId < trimmed.size() && trimmed[endOfId] != ' ') ++endOfId;
-
-                std::uint16_t canId = 0;
-                auto sv = std::string_view(trimmed.data() + pos, endOfId - pos);
-                auto [p, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), canId);
-                if (ec != std::errc{}) continue;
-
-                currentCanId = canId;
+                if (!parseBoLine(trimmed, currentCanId)) continue;
             } else if (trimmed.rfind(" SG_", 0) == 0 || trimmed.rfind("SG_", 0) == 0) {
                 if (currentCanId == 0) continue;
 
@@ -279,32 +353,7 @@ DBCParseResult DBCFileParser::parseString(
                     signals.push_back(std::move(sig));
                 }
             } else if (trimmed.rfind("VAL_", 0) == 0) {
-                auto pos = trimmed.find(' ', 4);
-                if (pos == std::string::npos) continue;
-                ++pos;
-
-                auto endOfId = pos;
-                while (endOfId < trimmed.size() && trimmed[endOfId] != ' ') ++endOfId;
-                std::uint16_t canId = 0;
-                {
-                    auto sv = std::string_view(trimmed.data() + pos, endOfId - pos);
-                    auto [p, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), canId);
-                    if (ec != std::errc{}) continue;
-                }
-
-                pos = endOfId;
-                while (pos < trimmed.size() && (trimmed[pos] == ' ' || trimmed[pos] == '\t')) ++pos;
-                auto endOfName = pos;
-                while (endOfName < trimmed.size() && trimmed[endOfName] != ' ' && trimmed[endOfName] != '\t') ++endOfName;
-                std::string signalName = trimmed.substr(pos, endOfName - pos);
-
-                pos = endOfName;
-                while (pos < trimmed.size() && (trimmed[pos] == ' ' || trimmed[pos] == '\t')) ++pos;
-
-                auto entries = parseValueEntries(trimmed.substr(pos));
-                if (!entries.empty()) {
-                    valueTables.emplace_back(canId, std::move(signalName), std::move(entries));
-                }
+                if (!parseValLine(trimmed, valueTables)) continue;
             }
         }
 
