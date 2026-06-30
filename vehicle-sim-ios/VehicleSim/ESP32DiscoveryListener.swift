@@ -170,11 +170,14 @@ final class ESP32DiscoveryListener {
 
 private extension NWEndpoint {
     var hostAddressString: String {
-        switch self {
-        case .hostPort(let host, _):
+        // Expressed as if/else (not switch) per swift:S1301 — only one handled case.
+        // The outer `if case .hostPort` matches the only endpoint shape we can resolve a
+        // host from; the trailing `else` covers every other NWEndpoint case AND any
+        // @unknown case added in a later SDK (future-proofed fallback to "unknown").
+        if case .hostPort(let host, _) = self {
             // Equivalent to a switch over host (.ipv4/.ipv6/.name + @unknown default),
-            // expressed as if/else per swift:S1301. The final else is the future-proofed
-            // fallback for any @unknown case added to NWEndpoint.Host in a later SDK.
+            // expressed as if/else. The final else is the future-proofed fallback for any
+            // @unknown case added to NWEndpoint.Host in a later SDK.
             if case .ipv4(let addr) = host {
                 return addr.debugDescription
             } else if case .ipv6(let addr) = host {
@@ -184,7 +187,7 @@ private extension NWEndpoint {
             } else {
                 return "unknown"
             }
-        default:
+        } else {
             return "unknown"
         }
     }
