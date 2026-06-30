@@ -181,6 +181,10 @@ private:
     _protocol = VehicleProtocol::Simulation;
     _signalSource = std::make_unique<domain::DemoSignalSource>(100);
     _signalSource->start();
+
+    // Mirror the TCP/BLE connect paths so demo mode also reports its device id.
+    _connectedDeviceName = @"Demo";
+    _connectedDeviceAddress = @"demo";
 }
 
 - (void)startBLE {
