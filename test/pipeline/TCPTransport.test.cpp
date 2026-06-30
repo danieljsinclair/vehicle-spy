@@ -12,7 +12,10 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 using namespace vehicle_sim::pipeline;
 
@@ -426,6 +429,234 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     EXPECT_LT(elapsed.count(), 1500) << "stop should be prompt";
 
     server.closeClient();
+    TCPTransport::resetStop();
+}
+
+// ============================================================
+// nextLine() behaviour contract — BLIND coverage that locks the
+// transport's line-framing behaviour for the upcoming SRP refactor.
+// Each test expresses an externally observable behaviour of nextLine()
+// (framing, buffering, terminators, guards), independent of how it's
+// implemented internally. These must stay green so the refactor cannot
+// silently change line-framing semantics.
+// ============================================================
+
+// Fixture-free helper: spin up a connected, authenticated transport against the
+// loopback server and return it ready for nextLine() calls. The server side is
+// already past the HELO handshake.
+struct ConnectedTransport {
+    LoopbackServer server;
+    std::unique_ptr<TCPTransport> transport;
+};
+
+// Open a transport against a fresh loopback server with short timeouts.
+static std::unique_ptr<ConnectedTransport> openConnectedTransport() {
+    auto ctx = std::make_unique<ConnectedTransport>();
+    if (!ctx->server.init()) return nullptr;
+
+    TCPTransport::resetStop();
+    ctx->transport = std::make_unique<TCPTransport>(
+        "127.0.0.1", ctx->server.port(), "raw",
+        std::make_shared<StdOut>(),
+        /*readTimeoutUs=*/1000, /*atInitDelayMs=*/-1, /*socketRecvTimeoutMs=*/1);
+
+    std::atomic<bool> opened{false};
+    std::thread th([&] { opened = ctx->transport->open(); });
+    if (!acceptAuthAndHelo(ctx->server)) { th.join(); return nullptr; }
+    th.join();
+    if (!opened.load()) return nullptr;
+    return ctx;
+}
+
+// --- Guards: nextLine() on a transport that is not open / exhausted ---
+
+TEST(TCPTransportNextLineContract, NotOpened_ReturnsNullopt) {
+    // A transport that was never open() must return nullopt immediately —
+    // nextLine() must not touch a socket when there is no connection.
+    TCPTransport::resetStop();
+    TCPTransport t("127.0.0.1", 1, "raw", std::make_shared<StdOut>(),
+                   /*readTimeoutUs=*/1000, -1, 1);
+    EXPECT_FALSE(t.nextLine().has_value());
+    TCPTransport::resetStop();
+}
+
+TEST(TCPTransportNextLineContract, OpenFailed_ReturnsNullopt) {
+    // open() that fails (connection refused) must leave nextLine() returning
+    // nullopt rather than attempting reads.
+    TCPTransport::resetStop();
+    TCPTransport t("127.0.0.1", 1, "raw", std::make_shared<StdOut>(),
+                   /*readTimeoutUs=*/1000, -1, 1);
+    ASSERT_FALSE(t.open());
+    EXPECT_FALSE(t.nextLine().has_value());
+    TCPTransport::resetStop();
+}
+
+// --- Terminators: \r, \n, and \r\n all frame exactly one line ---
+
+TEST(TCPTransportNextLineContract, CarriageReturnTerminatesLine) {
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("ABCDEF\r");
+    auto line = ctx->transport->nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(*line, "ABCDEF");
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+TEST(TCPTransportNextLineContract, NewlineTerminatesLine) {
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("HELLO\n");
+    auto line = ctx->transport->nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(*line, "HELLO");
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+TEST(TCPTransportNextLineContract, CrlfFramesLineThenEmptyBannerLine) {
+    // Framing treats EACH \r and \n as a line boundary (the same rule that lets
+    // "\r\r" banner gaps surface as empty lines). So "X\r\nY\r" yields the line
+    // "X", then an empty line from the \n, then "Y". The normaliser skips empty
+    // lines, so this is benign and is the locked current contract.
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("FRAME1\r\nFRAME2\r");
+    auto first = ctx->transport->nextLine();
+    auto mid = ctx->transport->nextLine();
+    auto second = ctx->transport->nextLine();
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(mid.has_value());
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(*first, "FRAME1");
+    EXPECT_EQ(*mid, "");
+    EXPECT_EQ(*second, "FRAME2");
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+// --- Banner empty line: "\r\r" delivers an empty line ---
+
+TEST(TCPTransportNextLineContract, DoubleCrBannerDeliversEmptyLine) {
+    // ELM327-style banner sequences emit "\r\r"; the framing contract delivers
+    // an empty line ("") for the gap so the normaliser can skip it.
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("REAL\r\r");
+    auto first = ctx->transport->nextLine();
+    auto banner = ctx->transport->nextLine();
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(banner.has_value());
+    EXPECT_EQ(*first, "REAL");
+    EXPECT_EQ(*banner, "");
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+// --- Multi-line drain: several complete lines in one burst ---
+
+TEST(TCPTransportNextLineContract, MultipleLinesDrainAcrossSuccessiveCalls) {
+    // When several complete lines arrive together, successive nextLine() calls
+    // must return each one in order without further socket reads being required.
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("L1\rL2\rL3\r");
+    std::vector<std::string> drained;
+    for (int i = 0; i < 3; ++i) {
+        auto line = ctx->transport->nextLine();
+        ASSERT_TRUE(line.has_value()) << "expected line " << i;
+        drained.push_back(*line);
+    }
+    EXPECT_EQ(drained, (std::vector<std::string>{"L1", "L2", "L3"}));
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+// --- Partial line buffered across two socket delivers ---
+
+TEST(TCPTransportNextLineContract, PartialLineAcrossTwoReadsAssembles) {
+    // A line split across two sends must be reassembled into one complete line.
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("PART_");        // no terminator yet: incomplete
+    // A short pause ensures the first chunk is read into the buffer before the
+    // second arrives, exercising the cross-call buffering path.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    ctx->server.sendBytes("TWO\r");        // completes the line
+    auto line = ctx->transport->nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(*line, "PART_TWO");
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+// --- Line longer than one recv() chunk (>256 bytes) still assembles ---
+
+TEST(TCPTransportNextLineContract, LineLongerThanReadChunkAssembles) {
+    // The transport reads in fixed-size chunks; a single logical line longer
+    // than one chunk must still be delivered whole once terminated.
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    std::string big(600, 'X');   // well beyond a single 256-byte recv chunk
+    ctx->server.sendBytes(big + "\r");
+    auto line = ctx->transport->nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(line->size(), big.size());
+    EXPECT_EQ(*line, big);
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+// --- Buffered fast path: a line already buffered is returned even after a
+//     prior nextLine() that only partially consumed the buffer ---
+
+TEST(TCPTransportNextLineContract, BufferedLineServedWithoutSocketRead) {
+    // After draining one line, a second complete line already in the buffer
+    // must be returned promptly from the next nextLine() call (buffer fast path),
+    // not require fresh socket data. We assert the second line arrives quickly
+    // relative to the poll interval.
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("FIRST\rSECOND\r");
+    ASSERT_TRUE(ctx->transport->nextLine().has_value());  // drains FIRST
+
+    // SECOND is now buffered; fetching it must be near-instantaneous.
+    auto start = std::chrono::steady_clock::now();
+    auto second = ctx->transport->nextLine();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    ASSERT_TRUE(second.has_value());
+    EXPECT_EQ(*second, "SECOND");
+    EXPECT_LT(elapsed.count(), 200) << "buffered line must be served without a long wait";
+    TCPTransport::requestStop();
+    ctx->transport->nextLine();
+    TCPTransport::resetStop();
+}
+
+// --- Clean EOF: peer closes after delivering a line; nextLine yields the
+//     line, then signals end-of-stream (nullopt). ---
+
+TEST(TCPTransportNextLineContract, CleanEofDeliversLineThenNullopt) {
+    auto ctx = openConnectedTransport();
+    ASSERT_TRUE(ctx);
+    ctx->server.sendBytes("LAST\r");
+    auto line = ctx->transport->nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(*line, "LAST");
+
+    // Peer closes: nextLine() must eventually signal end-of-stream (nullopt)
+    // rather than hang. requestStop bounds any reconnect attempt.
+    ctx->server.closeClient();
+    TCPTransport::requestStop();
+    EXPECT_FALSE(ctx->transport->nextLine().has_value());
     TCPTransport::resetStop();
 }
 
