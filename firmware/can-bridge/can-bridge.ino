@@ -546,7 +546,7 @@ static void signDiscoveryPacket(uint8_t* packet) {
 }
 #else
 // Stub when signing is disabled - packets remain unsigned
-static void signDiscoveryPacket(uint8_t* packet) {
+static void signDiscoveryPacket(const uint8_t* packet) {
     // Signature field already zeroed by buildDiscoveryPacket()
     (void)packet;  // Suppress unused warning
 }
