@@ -87,9 +87,8 @@ int TelemetryRunner::run(std::unique_ptr<domain::ISignalSource> source,
 
     while (g_running) {
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime);
-
-        if (elapsed >= interval) {
+        if (auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime);
+            elapsed >= interval) {
             auto signal = source->latestSignal();
             ++signalCount;
 

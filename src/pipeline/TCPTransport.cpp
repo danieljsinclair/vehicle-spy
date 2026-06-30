@@ -61,8 +61,7 @@ int connectToHost(const std::string& host, int port) {
     std::string portStr = std::to_string(port);
 
     addrinfo* result = nullptr;
-    int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
-    if (rc != 0 || result == nullptr) {
+    if (int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result); rc != 0 || result == nullptr) {
         if (result != nullptr) freeaddrinfo(result);
         return -1;
     }
@@ -162,8 +161,7 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
         struct timeval tv{};
         tv.tv_sec = 0;
         tv.tv_usec = 100000;  // 100ms timeout for response
-        int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv);
-        if (ready > 0) {
+        if (int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv); ready > 0) {
             std::array<char, 256> resp{};
             int n = static_cast<int>(recv(fd, resp.data(), resp.size() - 1, 0));
             if (n <= 0) {
@@ -190,11 +188,10 @@ bool TCPTransport::connectAndAuth() {
     (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
 
     // Authenticate: send token, expect "OK" back
-    std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r";
-    if (!sendAll(fd_, authCmd)) { closeConnection(); return false; }
+    if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(fd_, authCmd)) { closeConnection(); return false; }
     std::array<char, 64> authResp{};
-    int n = static_cast<int>(recv(fd_, authResp.data(), authResp.size() - 1, 0));
-    if (n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
+    if (int n = static_cast<int>(recv(fd_, authResp.data(), authResp.size() - 1, 0));
+        n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
         closeConnection(); return false;
     }
 
@@ -238,8 +235,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     }
 
     // Send ATI (device info query)
-    const std::string atiCmd = "ATI\r";
-    if (!sendAll(fd_, atiCmd)) {
+    if (const std::string atiCmd = "ATI\r"; !sendAll(fd_, atiCmd)) {
         output_->err("[tcp] HELO pre-flight: failed to send ATI");
         closeConnection();
         return false;
@@ -275,8 +271,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     // Send ATHELO command
-    const std::string heloCmd = "ATHELO\r";
-    if (!sendAll(fd_, heloCmd)) {
+    if (const std::string heloCmd = "ATHELO\r"; !sendAll(fd_, heloCmd)) {
         output_->err("[tcp] HELO pre-flight: failed to send ATHELO");
         closeConnection();
         return false;

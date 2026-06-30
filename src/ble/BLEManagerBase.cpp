@@ -244,8 +244,7 @@ std::optional<std::string> BLEManagerBase::queryVIN(int timeout_ms) {
         return std::nullopt;
     }
 
-    auto result = vehicle_detector_->getResult();
-    if (!result.vin.empty()) {
+    if (auto result = vehicle_detector_->getResult(); !result.vin.empty()) {
         std::cout << "[BLEManagerBase] VIN received: " << result.vin << std::endl;
         return result.vin;
     }
@@ -338,8 +337,7 @@ void BLEManagerBase::invokeDataCallback(const std::vector<uint8_t>& data) {
     // responses, so we buffer and scan for '>' across notification boundaries.
     if (!can_mode_) {
         prompt_buffer_.append(data.begin(), data.end());
-        auto pos = prompt_buffer_.find('>');
-        if (pos != std::string::npos) {
+        if (auto pos = prompt_buffer_.find('>'); pos != std::string::npos) {
             prompt_buffer_.erase(0, pos + 1);
             notifyPrompt();
         }

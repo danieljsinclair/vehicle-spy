@@ -84,8 +84,7 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  --log-raw <file>      (deprecated, use --log) Log raw hex to file\n"
         << "  --help                Show this help message\n\n";
 
-    auto vehicles = registry.getRegisteredVehicles();
-    if (!vehicles.empty()) {
+    if (auto vehicles = registry.getRegisteredVehicles(); !vehicles.empty()) {
         out << "SUPPORTED VEHICLES:\n";
         for (const auto& id : vehicles) {
             const auto* cfg = registry.getConfig(id);

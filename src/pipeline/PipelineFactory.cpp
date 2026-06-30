@@ -45,8 +45,7 @@ bool parseTcpTarget(std::string_view target, std::string& hostOut, int& portOut)
 
     // Split on the LAST ':' so the port (if present) follows it; a bare
     // "tcp:<host>" keeps the default port.
-    auto lastColon = body.rfind(':');
-    if (lastColon != std::string_view::npos) {
+    if (auto lastColon = body.rfind(':'); lastColon != std::string_view::npos) {
         std::string_view hostPart = body.substr(0, lastColon);
         std::string_view portPart = body.substr(lastColon + 1);
 
@@ -79,8 +78,8 @@ std::string resolveAdapterProtocol(
     std::string_view connectTarget,
     std::string_view adapterProtocol) noexcept {
     // An explicit, recognised override always wins.
-    const auto lowered = toLower(std::string(adapterProtocol));
-    if (lowered == "raw" || lowered == "elm327") {
+    if (const auto lowered = toLower(std::string(adapterProtocol));
+        lowered == "raw" || lowered == "elm327") {
         return lowered;
     }
     // Default table (applied when omitted or "default").

@@ -21,15 +21,13 @@ std::string_view rtrim(std::string_view s) noexcept {
 
 std::optional<std::uint64_t> parseDecimal(std::string_view s) noexcept {
     std::uint64_t v = 0;
-    auto res = std::from_chars(s.data(), s.data() + s.size(), v, 10);
-    if (res.ec != std::errc{}) return std::nullopt;
+    if (auto res = std::from_chars(s.data(), s.data() + s.size(), v, 10); res.ec != std::errc{}) return std::nullopt;
     return v;
 }
 
 std::optional<std::uint32_t> parseHex(std::string_view s) noexcept {
     std::uint32_t v = 0;
-    auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16);
-    if (res.ec != std::errc{}) return std::nullopt;
+    if (auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16); res.ec != std::errc{}) return std::nullopt;
     return v;
 }
 

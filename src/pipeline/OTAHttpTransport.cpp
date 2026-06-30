@@ -164,10 +164,10 @@ bool OTAHttpTransport::push(const std::vector<uint8_t>& firmware,
     req << "Connection: close\r\n";
     req << "\r\n";
     req << body;
-    std::string request = req.str();
 
     // Send request
-    if (!sendAll(reinterpret_cast<const uint8_t*>(request.data()), request.size())) {
+    if (std::string request = req.str();
+        !sendAll(reinterpret_cast<const uint8_t*>(request.data()), request.size())) {
         lastError_ = "Send failed";
         return false;
     }

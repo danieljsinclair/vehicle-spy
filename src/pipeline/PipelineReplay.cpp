@@ -35,8 +35,7 @@ ReplayStats runReplay(
                 std::optional<std::uint64_t> ts = result.hasTimestamp
                     ? std::optional<std::uint64_t>(result.frame.timestampMs)
                     : std::nullopt;
-                auto signal = translationService.processFrame(bytes, ts);
-                if (signal) {
+                if (auto signal = translationService.processFrame(bytes, ts); signal) {
                     ++stats.framesDecoded;
                     if (decodedSink) {
                         decodedSink->write(*signal);

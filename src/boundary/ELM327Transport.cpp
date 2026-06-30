@@ -108,8 +108,7 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
             // Process accumulated hex when we hit a non-hex character
             while (hexStr.length() >= 2) {
-                auto byte = parseHexByte(hexStr.substr(0, 2));
-                if (byte) {
+                if (auto byte = parseHexByte(hexStr.substr(0, 2)); byte) {
                     result.push_back(*byte);
                 } else {
                     return std::nullopt; // Invalid hex found
@@ -121,8 +120,7 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
     // Process remaining hex
     while (hexStr.length() >= 2) {
-        auto byte = parseHexByte(hexStr.substr(0, 2));
-        if (byte.has_value()) {
+        if (auto byte = parseHexByte(hexStr.substr(0, 2)); byte.has_value()) {
             result.push_back(*byte);
         } else {
             return std::nullopt;
@@ -198,8 +196,7 @@ std::vector<ATCommand> ELM327Transport::buildVINQueryInitSequence() {
 // ================================================
 
 std::string ELM327Transport::extractPrompt(const std::string& response) {
-    size_t promptPos = response.find('>');
-    if (promptPos != std::string::npos) {
+    if (size_t promptPos = response.find('>'); promptPos != std::string::npos) {
         return response.substr(0, promptPos);
     }
     return response;
@@ -304,8 +301,7 @@ std::optional<CANFrame> ELM327Transport::parseCANFrame(const std::string& line) 
     canId = static_cast<uint16_t>(id);
 
     // Verify we have exactly 8 data bytes remaining
-    size_t dataCount = tokens.size() - dataStart - 1;
-    if (dataCount != 8) {
+    if (size_t dataCount = tokens.size() - dataStart - 1; dataCount != 8) {
         return std::nullopt;
     }
 

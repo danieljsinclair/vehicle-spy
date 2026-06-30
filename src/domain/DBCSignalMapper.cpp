@@ -11,8 +11,7 @@ std::optional<double> DBCSignalMapper::mapSignal(
     const std::vector<std::uint8_t>& frame,
     const DBCSignalDefinition& definition
 ) noexcept {
-    const std::size_t lastBit = definition.startBit + definition.bitLength - 1;
-    if (lastBit >= frame.size() * 8) {
+    if (const std::size_t lastBit = definition.startBit + definition.bitLength - 1; lastBit >= frame.size() * 8) {
         return std::nullopt;
     }
 

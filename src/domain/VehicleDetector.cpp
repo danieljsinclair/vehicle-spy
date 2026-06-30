@@ -291,12 +291,11 @@ VehicleMake VehicleDetector::decodeWMI(const std::string& wmi) {
     if (upper == "WDB" || upper == "WDC") return VehicleMake::MercedesBenz;
 
     bool validFormat = std::isalnum(upper[0]) && std::isalnum(upper[1]) && std::isalnum(upper[2]);
-    bool knownRegion = (upper[0] >= '1' && upper[0] <= '5') ||
-                       (upper[0] >= 'A' && upper[0] <= 'H') ||
-                       (upper[0] >= 'J' && upper[0] <= 'R') ||
-                       (upper[0] >= 'S' && upper[0] <= 'Z');
-
-    if (validFormat && knownRegion) return VehicleMake::Generic;
+    if (bool knownRegion = (upper[0] >= '1' && upper[0] <= '5') ||
+                           (upper[0] >= 'A' && upper[0] <= 'H') ||
+                           (upper[0] >= 'J' && upper[0] <= 'R') ||
+                           (upper[0] >= 'S' && upper[0] <= 'Z');
+        validFormat && knownRegion) return VehicleMake::Generic;
     return VehicleMake::Unknown;
 }
 

@@ -119,8 +119,7 @@ bool TeslaBLETransport::validatePacket(const std::vector<std::uint8_t>& packet) 
     }
 
     // Validate length field matches packet size
-    std::uint8_t length = packet[2];
-    if (packet.size() != static_cast<size_t>(length + 4)) {
+    if (std::uint8_t length = packet[2]; packet.size() != static_cast<size_t>(length + 4)) {
         return false;
     }
 

@@ -44,8 +44,7 @@ int connectToHost(const std::string& host, int port, uint32_t timeoutMs) {
 
     std::string portStr = std::to_string(port);
     addrinfo* result = nullptr;
-    int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
-    if (rc != 0 || result == nullptr) {
+    if (int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result); rc != 0 || result == nullptr) {
         if (result) freeaddrinfo(result);
         return -1;
     }
@@ -373,8 +372,7 @@ std::optional<std::string> SecureTcpTransport::nextLine() {
 
     while (true) {
         // First, try to extract a complete line from buffered plaintext
-        size_t end = plaintextBuf_.find('\n');
-        if (end != std::string::npos) {
+        if (size_t end = plaintextBuf_.find('\n'); end != std::string::npos) {
             std::string line(plaintextBuf_, 0, end);
             plaintextBuf_.erase(0, end + 1);
             return line;

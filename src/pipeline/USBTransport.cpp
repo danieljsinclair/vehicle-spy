@@ -130,8 +130,7 @@ std::optional<std::string> USBTransport::nextLine() {
             return std::nullopt;
         }
 
-        const std::size_t end = pending_.find_first_of("\r\n");
-        if (end != std::string::npos) {
+        if (const std::size_t end = pending_.find_first_of("\r\n"); end != std::string::npos) {
             std::string line(pending_, 0, end);
             pending_.erase(0, end + 1);
             return line;

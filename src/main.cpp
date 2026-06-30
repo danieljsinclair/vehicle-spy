@@ -167,8 +167,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto validationError = cli::validateOptions(opts, translationService);
-    if (!validationError.empty()) {
+    if (auto validationError = cli::validateOptions(opts, translationService); !validationError.empty()) {
         std::cerr << validationError << "\n";
         return 1;
     }
