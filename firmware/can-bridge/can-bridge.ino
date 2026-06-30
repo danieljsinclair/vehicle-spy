@@ -1175,7 +1175,7 @@ static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)
     String normalizedCmd = normalizeAtCommand(cmd);
 
     // Find matching handler (flat loop over registry)
-    AtCommandHandler* matchingHandler = nullptr;
+    const AtCommandHandler* matchingHandler = nullptr;
     for (auto* handler : atCommandHandlers) {
         if (handler->matches(normalizedCmd)) {
             matchingHandler = handler;
