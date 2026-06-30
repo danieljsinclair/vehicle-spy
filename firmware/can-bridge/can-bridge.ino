@@ -1086,13 +1086,13 @@ struct AtsetwifiCommandHandler : public AtCommandHandler {
         }
 
         // Validate SSID length
-        if (wifiParams.ssid.length() == 0 || wifiParams.ssid.length() > 32) {
+        if (wifiParams.ssid.isEmpty() || wifiParams.ssid.length() > 32) {
             Serial.printf("%sSET-WIFI: Invalid SSID length from authenticated client%s\r\n", RED, NC);
             return AtCommandResult("ERROR Invalid SSID length (1-32 chars)");
         }
 
         // Validate password length
-        if (wifiParams.password.length() == 0 || wifiParams.password.length() > 64) {
+        if (wifiParams.password.isEmpty() || wifiParams.password.length() > 64) {
             Serial.printf("%sSET-WIFI: Invalid password length from authenticated client%s\r\n", RED, NC);
             return AtCommandResult("ERROR Invalid password length (1-64 chars)");
         }
