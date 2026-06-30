@@ -129,7 +129,7 @@ struct StateTransition {
     StateTransition() : nextState(WiFiState::State::DISCONNECTED),
                        setTcpServerRestartFlag(false), initNtp(false), message(nullptr) {}
 
-    StateTransition(WiFiState::State state, bool tcpRestart = false, bool ntp = false, const char* msg = nullptr)
+    explicit StateTransition(WiFiState::State state, bool tcpRestart = false, bool ntp = false, const char* msg = nullptr)
         : nextState(state), setTcpServerRestartFlag(tcpRestart), initNtp(ntp), message(msg) {}
 };
 
@@ -145,7 +145,7 @@ struct AtCommandResult {
     bool shouldReboot;
     bool shouldFlushClient;
 
-    AtCommandResult(const char* resp = "", bool reboot = false, bool flush = false)
+    explicit AtCommandResult(const char* resp = "", bool reboot = false, bool flush = false)
         : response(resp), shouldReboot(reboot), shouldFlushClient(flush) {}
 };
 
