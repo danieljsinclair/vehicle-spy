@@ -348,10 +348,11 @@ static void ntpSyncCallback(struct timeval* tv) {
         ntpCtx.syncAttempts = 0;
         // Convert Unix timestamp to human-readable UTC time
         time_t utcTime = tv->tv_sec;
-        struct tm utcInfo;
-        gmtime_r(&utcTime, &utcInfo);
+        struct tm utcInfoBuf;
+        gmtime_r(&utcTime, &utcInfoBuf);
+        const struct tm* const utcInfo = &utcInfoBuf;  // read-only view of the result
         char timeBuf[32];
-        strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S UTC", &utcInfo);
+        strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S UTC", utcInfo);
         Serial.printf("%sNTP synced: %s%s\r\n", GREEN, timeBuf, NC);
     }
     // Always update last sync time for monitoring
