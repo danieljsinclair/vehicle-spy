@@ -92,15 +92,6 @@ protected:
      */
     virtual void updateSignalField(std::uint8_t pid, double value) const noexcept;
 
-    // Protected write accessors for the accumulated state. These exist so the
-    // mutable state is private (encapsulation + a single guarded read/modify/
-    // snapshot path in translate()); they are pre-locked helpers that must be
-    // called only while state_mutex_ is held by the caller.
-    void setLastThrottle(double v) const noexcept { lastThrottle_ = v; }
-    void setLastSpeed(double v) const noexcept { lastSpeed_ = v; }
-    void setLastAcceleration(double v) const noexcept { lastAcceleration_ = v; }
-    void setLastBrake(double v) const noexcept { lastBrake_ = v; }
-
     [[nodiscard]] std::uint64_t getCurrentTimestamp() const noexcept;
 
 private:
@@ -114,6 +105,14 @@ private:
     mutable double lastAcceleration_ = 0.0;
     mutable double lastBrake_ = 0.0;
     mutable std::uint64_t lastTimestamp_ = 0;
+
+    // Pre-locked write helpers for the accumulated state. Private so the only
+    // callers are updateSignalField()/translate(), both of which run while
+    // state_mutex_ is held — keeping every mutation behind the lock.
+    void setLastThrottle(double v) const noexcept { lastThrottle_ = v; }
+    void setLastSpeed(double v) const noexcept { lastSpeed_ = v; }
+    void setLastAcceleration(double v) const noexcept { lastAcceleration_ = v; }
+    void setLastBrake(double v) const noexcept { lastBrake_ = v; }
 };
 
 } // namespace vehicle_sim::domain
