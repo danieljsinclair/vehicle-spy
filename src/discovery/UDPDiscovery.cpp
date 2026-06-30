@@ -203,7 +203,7 @@ public:
         }
 
         // Collect pending devices, deduplicating by address
-        for (auto& device : pending) {
+        for (const auto& device : pending) {
             if (std::find(seenAddresses.begin(), seenAddresses.end(), device.address)
                 == seenAddresses.end()) {
                 seenAddresses.push_back(device.address);
