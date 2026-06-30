@@ -1172,7 +1172,7 @@ static void registerAtCommandHandlers() {
 // std::function). A template parameter would be mangled by the Arduino .ino auto-prototype
 // generator (which emits a forward declaration before the template-head), so std::function
 // is the robust choice here. Both callers pass a `void(const char*)` free function.
-static void handleATCommand(const String& cmd, std::function<void(const char*)> sendPromptFn) {
+static void handleATCommand(const String& cmd, const std::function<void(const char*)>& sendPromptFn) {
     // Initialize command registry on first call
     registerAtCommandHandlers();
 
