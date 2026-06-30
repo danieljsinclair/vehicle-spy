@@ -164,7 +164,7 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
         int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv);
         if (ready > 0) {
             char resp[256] = {};
-            int n = recv(fd, resp, sizeof(resp) - 1, 0);
+            int n = static_cast<int>(recv(fd, resp, sizeof(resp) - 1, 0));
             if (n <= 0) {
                 output_->err("[tcp] ELM327 init: no response to AT command (peer closed or error)");
                 return false;
@@ -192,7 +192,7 @@ bool TCPTransport::connectAndAuth() {
     std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r";
     if (!sendAll(fd_, authCmd)) { closeConnection(); return false; }
     char authResp[64] = {};
-    int n = recv(fd_, authResp, sizeof(authResp) - 1, 0);
+    int n = static_cast<int>(recv(fd_, authResp, sizeof(authResp) - 1, 0));
     if (n <= 0 || std::string(authResp, n).find("OK") == std::string::npos) {
         closeConnection(); return false;
     }
@@ -250,7 +250,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     int totalAti = 0;
     bool atiComplete = false;
     while (totalAti < static_cast<int>(sizeof(atiResp) - 1) && !atiComplete) {
-        int n = recv(fd_, atiResp + totalAti, sizeof(atiResp) - 1 - totalAti, 0);
+        int n = static_cast<int>(recv(fd_, atiResp + totalAti, sizeof(atiResp) - 1 - totalAti, 0));
         if (n <= 0) {
             // Timeout or error - ATI response is optional, continue
             break;
@@ -287,7 +287,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     int totalHelo = 0;
     bool heloComplete = false;
     while (totalHelo < static_cast<int>(sizeof(heloResp) - 1) && !heloComplete) {
-        int n = recv(fd_, heloResp + totalHelo, sizeof(heloResp) - 1 - totalHelo, 0);
+        int n = static_cast<int>(recv(fd_, heloResp + totalHelo, sizeof(heloResp) - 1 - totalHelo, 0));
         if (n <= 0) {
             // Timeout or error
             break;

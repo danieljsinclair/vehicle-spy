@@ -24,7 +24,7 @@ void VehicleDetector::observeFrame(const std::vector<std::uint8_t>& frame) {
     addFrame(frame);
 
     if (frame.size() == 10) {
-        uint16_t canId = frame[0] | (static_cast<uint16_t>(frame[1]) << 8);
+        uint16_t canId = static_cast<uint16_t>(static_cast<uint16_t>(frame[0]) | (static_cast<uint16_t>(frame[1]) << 8));
         feedCANFrame(canId);
     } else if (frame.size() >= 2 && frame.size() <= 10) {
         feedOBD2Frame(frame);

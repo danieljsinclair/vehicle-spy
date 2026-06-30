@@ -80,8 +80,8 @@ std::uint16_t DBCSignalTranslator::extractCANId(
     const std::vector<std::uint8_t>& frame
 ) noexcept {
     if (frame.size() < 2) return 0;
-    return static_cast<std::uint16_t>(frame[0]) |
-           (static_cast<std::uint16_t>(frame[1]) << 8);
+    return static_cast<std::uint16_t>(static_cast<std::uint16_t>(frame[0]) |
+           (static_cast<std::uint16_t>(frame[1]) << 8));
 }
 
 } // namespace vehicle_sim::domain

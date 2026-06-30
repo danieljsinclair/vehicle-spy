@@ -17,7 +17,7 @@ static void writeBigEndian(uint8_t* dst, uint64_t value) {
 }
 
 static uint16_t readBigEndian16(const uint8_t* src) {
-    return (static_cast<uint16_t>(src[0]) << 8) | static_cast<uint16_t>(src[1]);
+    return static_cast<uint16_t>((static_cast<uint16_t>(src[0]) << 8) | static_cast<uint16_t>(src[1]));
 }
 
 static uint64_t readBigEndian64(const uint8_t* src) {
