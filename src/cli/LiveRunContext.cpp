@@ -7,6 +7,7 @@
 #include "vehicle-sim/pipeline/RawLogSink.h"
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/pipeline/USBTransport.h"
+#include "vehicle-sim/domain/VehicleSimExceptions.h"
 
 #include <atomic>
 #include <csignal>
@@ -83,7 +84,7 @@ int LiveRunContext::run(
         }
         try {
             decodedSink = std::make_unique<pipeline::DecodedCsvSink>(logBase, translationService.getVehicleId());
-        } catch (const std::runtime_error&) {
+        } catch (const domain::TelemetryFileException&) {
             std::cerr << "Failed to open CSV log file: " << logBase << ".csv\n";
             return 1;
         }
