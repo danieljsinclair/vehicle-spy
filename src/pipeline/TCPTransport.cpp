@@ -546,6 +546,24 @@ std::optional<std::string> TCPTransport::takeBufferedLine() {
     return line;
 }
 
+int TCPTransport::selectReady() const {
+    fd_set readSet;
+    FD_ZERO(&readSet);
+    FD_SET(fd_, &readSet);
+
+    // Honour the injected read timeout, but cap each select() poll at a
+    // 1ms floor so the loop still wakes promptly on stop/disconnect even
+    // when a test injects a sub-millisecond value. Production default
+    // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
+    // and the stop flag is re-checked every poll, same as before.
+    const int pollUs = std::min(readTimeoutUs_, READ_TIMEOUT_US_FLOOR);
+    struct timeval tv{};
+    tv.tv_sec = 0;
+    tv.tv_usec = pollUs;
+
+    return select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
+}
+
 std::optional<std::string> TCPTransport::nextLine() {
     if (!canRead()) {
         return std::nullopt;
@@ -558,21 +576,7 @@ std::optional<std::string> TCPTransport::nextLine() {
 
     // Read more bytes from the socket with a bounded select() so we never hang.
     while (true) {
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(fd_, &readSet);
-
-        // Honour the injected read timeout, but cap each select() poll at a
-        // 1ms floor so the loop still wakes promptly on stop/disconnect even
-        // when a test injects a sub-millisecond value. Production default
-        // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
-        // and the stop flag is re-checked every poll, same as before.
-        const int pollUs = std::min(readTimeoutUs_, READ_TIMEOUT_US_FLOOR);
-        struct timeval tv{};
-        tv.tv_sec = 0;
-        tv.tv_usec = pollUs;
-
-        int ready = select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
+        int ready = selectReady();
         if (ready < 0) {
             if (errno == EINTR) continue;  // signal — retry
             exhausted_ = true;             // genuine error → treat as EOF

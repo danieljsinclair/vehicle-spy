@@ -148,6 +148,11 @@ private:
     // splits on each '\r' and each '\n' individually, so a "\r\n" sequence
     // yields one line plus a following empty banner line — do NOT collapse.
     std::optional<std::string> takeBufferedLine();
+
+    // Wait up to one bounded poll for fd_ to become readable. Returns the
+    // select() ready count (negative on error). EINTR retry and the
+    // exhausted_/stop mutations stay in nextLine(), the caller.
+    int selectReady() const;
 };
 
 } // namespace vehicle_sim::pipeline
