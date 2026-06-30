@@ -54,6 +54,19 @@ VehicleSignalFactory::VehicleSignalFactory(
     resolveMappings();
 }
 
+VehicleSignalFactory::LocatedSignal VehicleSignalFactory::locateSignal(
+    std::string_view signalName
+) const noexcept {
+    for (const auto& [canId, defs] : parseResult_.signalsByCanId) {
+        for (const auto& def : defs) {
+            if (def.name == signalName) {
+                return LocatedSignal{canId, &def};
+            }
+        }
+    }
+    return LocatedSignal{0, nullptr};
+}
+
 void VehicleSignalFactory::resolveMappings() {
     // signalMappings: signalName -> fieldName. For each, find the CAN ID +
     // definition that carries signalName. The DBC join is O(signals) once;
@@ -69,30 +82,18 @@ void VehicleSignalFactory::resolveMappings() {
             continue;
         }
 
-        // Locate the single CAN ID + definition carrying this signal name.
-        const DBCSignalDefinition* foundDef = nullptr;
-        std::uint16_t foundCanId = 0;
-        for (const auto& [canId, defs] : parseResult_.signalsByCanId) {
-            for (const auto& def : defs) {
-                if (def.name == signalName) {
-                    foundDef = &def;
-                    foundCanId = canId;
-                    break;
-                }
-            }
-            if (foundDef) break;
-        }
+        const auto located = locateSignal(signalName);
 
         // No DBC definition for this mapped signal — nothing to decode; treat
         // it as ignored (matches the previous scan, which would find no frame).
-        if (!foundDef) {
+        if (located.def == nullptr) {
             resolved_.push_back({FieldKind::Ignored, 0, nullptr, 0});
             continue;
         }
 
         const std::size_t outIdx = isGear ? IDX_GEAR : *numericSlot;
         const FieldKind kind = isGear ? FieldKind::Gear : FieldKind::Numeric;
-        resolved_.push_back({kind, foundCanId, foundDef, outIdx});
+        resolved_.push_back({kind, located.canId, located.def, outIdx});
     }
 }
 
