@@ -392,8 +392,8 @@ DBCParseResult DBCFileParser::parseString(
             auto trimmed = trim(line);
             if (trimmed.empty()) continue;
 
-            if (trimmed.rfind("BO_", 0) == 0) {
-                if (!parseBoLine(trimmed, currentCanId)) continue;
+            if (trimmed.rfind("BO_", 0) == 0 && !parseBoLine(trimmed, currentCanId)) {
+                continue;
             } else if (trimmed.rfind(" SG_", 0) == 0 || trimmed.rfind("SG_", 0) == 0) {
                 if (currentCanId == 0) continue;
 
@@ -401,8 +401,8 @@ DBCParseResult DBCFileParser::parseString(
                 if (parseSignalDefinition(trimmed, currentCanId, sig)) {
                     signals.push_back(std::move(sig));
                 }
-            } else if (trimmed.rfind("VAL_", 0) == 0) {
-                if (!parseValLine(trimmed, valueTables)) continue;
+            } else if (trimmed.rfind("VAL_", 0) == 0 && !parseValLine(trimmed, valueTables)) {
+                continue;
             }
         }
 
