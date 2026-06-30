@@ -356,3 +356,134 @@ TEST_F(DBCFileParserTest, ParseSignalWithZeroMinMax) {
     EXPECT_DOUBLE_EQ(sig.min, 0.0);
     EXPECT_DOUBLE_EQ(sig.max, 1.0);
 }
+
+// ================================================
+// Malformed-input + multiplexor contracts (S3776 refactor safety net).
+// Each test states an externally observable behaviour of parseString
+// (input DBC -> output signals), independent of the internal cursor walk.
+// These must stay green so the S3776/S134 decomposition of parseString /
+// parseSignalDefinition / parseValueEntries cannot silently change how
+// malformed lines and the multiplexor marker are handled.
+// ================================================
+
+TEST_F(DBCFileParserTest, MultiplexorMarkerIsConsumedAndSignalParsesIntact) {
+    // A well-formed SG_ carrying a leading 'M' multiplexor indicator: the 'M'
+    // is consumed and the signal is parsed with its name, startBit, bitLength,
+    // and byte order intact (the multiplexor text must not corrupt the parse).
+    const std::string dbc = R"(BO_ 100 Msg: 8 ECU
+ SG_ SigName M : 7|8@0+ (1,0) [0|255] "" ECU
+)";
+
+    auto result = parser.parseString(dbc);
+
+    ASSERT_EQ(result.totalSignalCount(), 1);
+    const auto* signals = result.getSignalsForCanId(100);
+    ASSERT_NE(signals, nullptr);
+    ASSERT_EQ(signals->size(), 1);
+    EXPECT_EQ(signals->at(0).name, "SigName");
+    EXPECT_EQ(signals->at(0).startBit, 7);
+    EXPECT_EQ(signals->at(0).bitLength, 8);
+    EXPECT_EQ(signals->at(0).byteOrder, DBCByteOrder::Motorola);
+}
+
+TEST_F(DBCFileParserTest, SignalBeforeAnyMessageHeaderYieldsNoSignals) {
+    // An SG_ appearing before any BO_ message header yields no signals (it has
+    // no owning message, so it must be dropped, not attached to a default id).
+    const std::string dbc = R"( SG_ Orphan : 0|8@1+ (1,0) [0|255] "" ECU
+BO_ 100 Msg: 8 ECU
+ SG_ Real : 0|8@1+ (1,0) [0|255] "" ECU
+)";
+
+    auto result = parser.parseString(dbc);
+
+    EXPECT_EQ(result.totalSignalCount(), 1);
+    const auto* signals = result.getSignalsForCanId(100);
+    ASSERT_NE(signals, nullptr);
+    EXPECT_EQ(signals->at(0).name, "Real");
+}
+
+TEST_F(DBCFileParserTest, SignalMissingColonAfterNameIsDropped) {
+    // An SG_ missing the ':' separator after the signal name yields no signals
+    // (the line is dropped, not partially parsed into a malformed signal).
+    const std::string dbc = R"(BO_ 100 Msg: 8 ECU
+ SG_ NoColon 7|8@0+ (1,0) [0|255] "" ECU
+)";
+
+    auto result = parser.parseString(dbc);
+
+    EXPECT_EQ(result.totalSignalCount(), 0);
+}
+
+TEST_F(DBCFileParserTest, SignalWithNonNumericStartBitIsDropped) {
+    // An SG_ whose startBit|bitLength field is non-numeric yields no signals.
+    const std::string dbc = R"(BO_ 100 Msg: 8 ECU
+ SG_ Bad : X|8@0+ (1,0) [0|255] "" ECU
+)";
+
+    auto result = parser.parseString(dbc);
+
+    EXPECT_EQ(result.totalSignalCount(), 0);
+}
+
+TEST_F(DBCFileParserTest, SignalMissingScaleOffsetGroupIsDropped) {
+    // An SG_ missing the (...) scale/offset group yields no signals.
+    const std::string dbc = R"(BO_ 100 Msg: 8 ECU
+ SG_ NoParen : 7|8@0+ 1,0 [0|255] "" ECU
+)";
+
+    auto result = parser.parseString(dbc);
+
+    EXPECT_EQ(result.totalSignalCount(), 0);
+}
+
+TEST_F(DBCFileParserTest, ValueTableKeepsWellFormedEntriesBeforeMalformedOne) {
+    // A VAL_ whose final entry is malformed (non-numeric label index): the
+    // preceding well-formed entries are parsed and attached to the matching
+    // signal, and the malformed tail is dropped.
+    const std::string dbc = R"(BO_ 100 Msg: 8 ECU
+ SG_ Gear : 0|3@1+ (1,0) [0|7] "" ECU
+VAL_ 100 Gear 0 "Park" 1 "Reverse" abc ;
+)";
+
+    auto result = parser.parseString(dbc);
+    const auto* signals = result.getSignalsForCanId(100);
+    ASSERT_NE(signals, nullptr);
+    ASSERT_EQ(signals->size(), 1);
+
+    const auto& table = signals->at(0).valueTable;
+    ASSERT_EQ(table.size(), 2);
+    EXPECT_EQ(table[0].value, 0);
+    EXPECT_EQ(table[0].description, "Park");
+    EXPECT_EQ(table[1].value, 1);
+    EXPECT_EQ(table[1].description, "Reverse");
+}
+
+TEST_F(DBCFileParserTest, MessageHeaderWithNonNumericIdYieldsNoSignals) {
+    // A BO_ header whose numeric id is non-numeric yields no signals and does
+    // not crash (the header is skipped, so no owning message is established).
+    const std::string dbc = R"(BO_ abc Msg: 8 ECU
+ SG_ WouldBeOrphan : 0|8@1+ (1,0) [0|255] "" ECU
+)";
+
+    auto result = parser.parseString(dbc);
+
+    EXPECT_EQ(result.totalSignalCount(), 0);
+}
+
+TEST_F(DBCFileParserTest, ValueTableWithNonNumericIdIsIgnored) {
+    // A VAL_ whose numeric id is non-numeric is ignored: no value table is
+    // attached, and a valid signal on the same message still parses cleanly.
+    const std::string dbc = R"(BO_ 100 Msg: 8 ECU
+ SG_ Gear : 0|3@1+ (1,0) [0|7] "" ECU
+VAL_ xyz 100 Gear 0 "Park" ;
+)";
+
+    auto result = parser.parseString(dbc);
+
+    ASSERT_EQ(result.totalSignalCount(), 1);
+    const auto* signals = result.getSignalsForCanId(100);
+    ASSERT_NE(signals, nullptr);
+    ASSERT_EQ(signals->size(), 1);
+    EXPECT_EQ(signals->at(0).name, "Gear");
+    EXPECT_TRUE(signals->at(0).valueTable.empty());
+}
