@@ -176,7 +176,7 @@ public:
         pfd.fd = sockfd;
         pfd.events = POLLIN;
 
-        int remainingMs = static_cast<int>(timeout.count());
+        auto remainingMs = static_cast<int>(timeout.count());
         auto start = std::chrono::steady_clock::now();
 
         while (remainingMs > 0) {

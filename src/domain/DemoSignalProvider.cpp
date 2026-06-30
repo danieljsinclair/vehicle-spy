@@ -109,7 +109,7 @@ private:
             Gear::AUTO_1,
             Gear::AUTO_2
         };
-        int newGearIndex = static_cast<int>(cycle * 5.0);
+        auto newGearIndex = static_cast<int>(cycle * 5.0);
         if (newGearIndex > 4) newGearIndex = 4;
         if (newGearIndex != gearIndex_) {
             gearIndex_ = newGearIndex;

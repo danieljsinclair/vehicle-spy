@@ -298,7 +298,7 @@ std::optional<std::string> SecureTcpTransport::readEncryptedLine() {
                 std::copy(rawBuffer_.begin(), rawBuffer_.begin() + SECRETBOX_NONCEBYTES, nonce.begin());
 
                 // Extract ciphertext+tag
-                const unsigned char* ct = reinterpret_cast<const unsigned char*>(
+                auto ct = reinterpret_cast<const unsigned char*>(
                     rawBuffer_.data() + SECRETBOX_NONCEBYTES + 2);
 
                 // Decrypt

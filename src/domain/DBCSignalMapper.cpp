@@ -77,7 +77,7 @@ std::optional<std::int32_t> DBCSignalMapper::mapGearSignal(
             // 3 "DI_GEAR_N" → Gear::NEUTRAL
             // 4 "DI_GEAR_D" → Gear::AUTO_1
             // 7 "DI_GEAR_SNA" → nullopt
-            std::int64_t rawValue = static_cast<std::int64_t>(rawBits);
+            auto rawValue = static_cast<std::int64_t>(rawBits);
 
             // Check for INVALID (0) or SNA (7) - return nullopt
             if (rawValue == 0 || rawValue == 7) {
