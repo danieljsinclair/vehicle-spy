@@ -4,17 +4,18 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace vehicle_sim::domain {
 
 namespace {
 
-std::string trim(const std::string& s) {
+std::string trim(std::string_view s) {
     auto start = s.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) return "";
+    if (start == std::string_view::npos) return "";
     auto end = s.find_last_not_of(" \t\r\n");
-    return s.substr(start, end - start + 1);
+    return std::string(s.substr(start, end - start + 1));
 }
 
 struct ParsedSignal {

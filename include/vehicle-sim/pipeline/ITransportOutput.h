@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <string_view>
 
 namespace vehicle_sim::pipeline {
 
@@ -42,7 +43,7 @@ public:
     explicit TaggedOutput(std::shared_ptr<ITransportOutput> base,
                          const std::string& deviceId = "");
 
-    void setDeviceId(const std::string& deviceId);
+    void setDeviceId(std::string_view deviceId);
     void out(const std::string& msg) override;
     void err(const std::string& msg) override;
 
