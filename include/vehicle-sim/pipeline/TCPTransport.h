@@ -142,6 +142,12 @@ private:
     // True when nextLine() may legitimately read more: the transport was
     // opened, holds a live descriptor, and has not been marked EOF/exhausted.
     bool canRead() const noexcept { return opened_ && fd_ >= 0 && !exhausted_; }
+
+    // If a complete line (terminated by '\r' or '\n') is already buffered in
+    // pending_, remove and return it; otherwise return nullopt. find_first_of
+    // splits on each '\r' and each '\n' individually, so a "\r\n" sequence
+    // yields one line plus a following empty banner line — do NOT collapse.
+    std::optional<std::string> takeBufferedLine();
 };
 
 } // namespace vehicle_sim::pipeline

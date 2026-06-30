@@ -533,23 +533,27 @@ bool TCPTransport::isOpen() const noexcept {
     return opened_ && fd_ >= 0 && !exhausted_;
 }
 
+std::optional<std::string> TCPTransport::takeBufferedLine() {
+    const std::size_t end = pending_.find_first_of("\r\n");
+    if (end == std::string::npos) {
+        return std::nullopt;  // no complete line buffered — need more bytes
+    }
+    std::string line(pending_, 0, end);
+    pending_.erase(0, end + 1);
+    // We return the line verbatim (the normaliser tolerates a trailing '\r'
+    // already stripped here by the terminator split). An empty line from a
+    // "\r\r" banner sequence is delivered as "" — the normaliser Skip's it.
+    return line;
+}
+
 std::optional<std::string> TCPTransport::nextLine() {
     if (!canRead()) {
         return std::nullopt;
     }
 
     // First, satisfy the request from any already-buffered complete line.
-    while (true) {
-        std::size_t end = pending_.find_first_of("\r\n");
-        if (end == std::string::npos) {
-            break;  // no complete line buffered — need more bytes
-        }
-        std::string line(pending_, 0, end);
-        pending_.erase(0, end + 1);
-        // We return the line verbatim (the normaliser tolerates a trailing '\r'
-        // already stripped here by the terminator split). An empty line from a
-        // "\r\r" banner sequence is delivered as "" — the normaliser Skip's it.
-        return line;
+    if (auto line = takeBufferedLine()) {
+        return *line;
     }
 
     // Read more bytes from the socket with a bounded select() so we never hang.
