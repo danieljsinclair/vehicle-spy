@@ -7,6 +7,36 @@
 
 namespace vehicle_sim::domain {
 
+namespace {
+
+/**
+ * Apply scale, offset, and clamp to a raw signal value.
+ *
+ * Converts a raw unsigned or signed value to a physical value by applying
+ * scale and offset, then clamps to the signal's defined min/max range.
+ *
+ * @param rawBits    Raw unsigned value (before sign conversion)
+ * @param definition Signal definition containing scale, offset, min, max, signedness
+ * @return Physical value clamped to [min, max], or nullopt if extraction fails
+ */
+[[nodiscard]] std::optional<double> applyScaleOffsetClamp(
+    std::uint64_t rawBits,
+    const DBCSignalDefinition& definition
+) noexcept {
+    double physical;
+
+    if (definition.isSigned) {
+        const auto signedVal = CANDecoder::toSigned(rawBits, definition.bitLength);
+        physical = static_cast<double>(signedVal) * definition.scale + definition.offset;
+    } else {
+        physical = static_cast<double>(rawBits) * definition.scale + definition.offset;
+    }
+
+    return std::clamp(physical, definition.min, definition.max);
+}
+
+} // namespace
+
 std::optional<double> DBCSignalMapper::mapSignal(
     const std::vector<std::uint8_t>& frame,
     const DBCSignalDefinition& definition
@@ -16,13 +46,7 @@ std::optional<double> DBCSignalMapper::mapSignal(
     }
 
     const auto rawBits = extractRawBits(frame, definition);
-    if (definition.isSigned) {
-        const auto signedVal = CANDecoder::toSigned(rawBits, definition.bitLength);
-        double physical = static_cast<double>(signedVal) * definition.scale + definition.offset;
-        return std::clamp(physical, definition.min, definition.max);
-    }
-    double physical = static_cast<double>(rawBits) * definition.scale + definition.offset;
-    return std::clamp(physical, definition.min, definition.max);
+    return applyScaleOffsetClamp(rawBits, definition);
 }
 
 std::optional<double> DBCSignalMapper::mapSignal(
