@@ -27,7 +27,7 @@ void OBD2Protocol::processIncomingData(std::string_view asciiData) {
     detector_.feedFuelTypeResponse(*binaryData);
 }
 
-void OBD2Protocol::initialize() {
+void OBD2Protocol::initialize() const {
     if (!sendCallback_) {
         return;
     }

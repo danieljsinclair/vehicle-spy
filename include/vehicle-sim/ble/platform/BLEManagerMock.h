@@ -28,7 +28,7 @@ public:
     std::string getConnectedDeviceId() const override;
 
     // Mock-specific control
-    void simulateIncomingData(const std::vector<uint8_t>& data);
+    void simulateIncomingData(const std::vector<uint8_t>& data) const;
     void setDeviceList(const std::vector<BLEDeviceInfo>& devices);
 
 private:

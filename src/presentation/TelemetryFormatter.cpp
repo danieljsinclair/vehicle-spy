@@ -21,7 +21,7 @@ void TelemetryFormatter::setDelimiter(char delimiter) {
     delimiter_ = delimiter;
 }
 
-std::string TelemetryFormatter::format(const domain::TelemetrySignal& data) {
+std::string TelemetryFormatter::format(const domain::TelemetrySignal& data) const {
     std::ostringstream oss;
 
     switch (format_) {

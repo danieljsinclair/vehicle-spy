@@ -131,7 +131,7 @@ int TCPTransport::perCommandDelayMs(int cmdDelayMs) const {
     return cmdDelayMs > 0 ? cmdDelayMs : DEFAULT_PER_COMMAND_DELAY_MS;
 }
 
-bool TCPTransport::sendAll(int fd, std::string_view data) noexcept {
+bool TCPTransport::sendAll(int fd, std::string_view data) const noexcept {
     std::size_t sent = 0;
     while (sent < data.size()) {
         ssize_t n = send(fd, data.data() + sent, data.size() - sent, 0);

@@ -68,8 +68,8 @@ public:
     [[nodiscard]] const std::string& lastError() const noexcept;
 
 private:
-    bool sendAll(const uint8_t* data, size_t len) noexcept;
-    std::string recvResponse(int timeoutMs) noexcept;
+    bool sendAll(const uint8_t* data, size_t len) const noexcept;
+    std::string recvResponse(int timeoutMs) const noexcept;
     static std::string base64Encode(const std::string& input);
     static std::string buildMultipartBody(const std::vector<uint8_t>& signature,
                                           const std::vector<uint8_t>& firmware,

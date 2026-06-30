@@ -111,7 +111,7 @@ public:
     static constexpr const char* kEsp32TagPrefix = "ESP32";
 
 private:
-    bool sendAll(int fd, std::string_view data) noexcept;
+    bool sendAll(int fd, std::string_view data) const noexcept;
     bool sendElm327Init(int fd) noexcept;
     // Falls back to DEFAULT_PER_COMMAND_DELAY_MS (50ms) when no positive value is supplied
     int perCommandDelayMs(int cmdDelayMs) const;

@@ -351,7 +351,7 @@ protected:
      * Invoke the device found callback (if set).
      * Thread-safe.
      */
-    void invokeDeviceCallback(const BLEDeviceInfo& device);
+    void invokeDeviceCallback(const BLEDeviceInfo& device) const;
 
     /**
      * Invoke the data received callback (if set).
@@ -363,7 +363,7 @@ protected:
      * Invoke the connection callback (if set).
      * Thread-safe.
      */
-    void invokeConnectionCallback(bool connected, std::string_view device_id);
+    void invokeConnectionCallback(bool connected, std::string_view device_id) const;
 
     /**
      * Update connection state and invoke callback.
@@ -381,7 +381,7 @@ protected:
      * @param asciiData Raw ASCII bytes from BLE notification
      * @return Binary OBD2 data, or empty if not a valid OBD2 response
      */
-    std::vector<uint8_t> parseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData);
+    std::vector<uint8_t> parseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData) const;
 
     /**
      * Send an ASCII command string over BLE as raw bytes.

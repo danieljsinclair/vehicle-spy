@@ -48,7 +48,7 @@ public:
      * @brief Send ELM327 initialization sequence.
      * Calls sendCallback for each AT command with appropriate delays.
      */
-    void initialize();
+    void initialize() const;
 
     /**
      * @brief Detect vehicle by querying VIN and fuel type.

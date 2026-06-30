@@ -61,7 +61,7 @@ std::string BLEManagerMock::getConnectedDeviceId() const {
     return connected_device_id_;
 }
 
-void BLEManagerMock::simulateIncomingData(const std::vector<uint8_t>& data) {
+void BLEManagerMock::simulateIncomingData(const std::vector<uint8_t>& data) const {
     if (data_callback_ && connected_) {
         data_callback_(data);
     }

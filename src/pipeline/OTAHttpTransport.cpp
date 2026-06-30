@@ -90,7 +90,7 @@ std::string OTAHttpTransport::buildMultipartBody(
     return body;
 }
 
-bool OTAHttpTransport::sendAll(const uint8_t* data, size_t len) noexcept {
+bool OTAHttpTransport::sendAll(const uint8_t* data, size_t len) const noexcept {
     size_t sent = 0;
     while (sent < len) {
         ssize_t n = send(fd_, data + sent, len - sent, 0);
@@ -195,7 +195,7 @@ const std::string& OTAHttpTransport::lastError() const noexcept {
     return lastError_;
 }
 
-std::string OTAHttpTransport::recvResponse(int timeoutMs) noexcept {
+std::string OTAHttpTransport::recvResponse(int timeoutMs) const noexcept {
     std::string out;
     auto deadline = std::chrono::steady_clock::now() +
                     std::chrono::milliseconds(timeoutMs);

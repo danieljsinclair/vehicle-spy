@@ -21,7 +21,7 @@ public:
 
     ~Impl() = default;
 
-    bool initialize(const std::string& config_file) {
+    bool initialize(const std::string& config_file) const {
 #ifndef VEHICLE_SIM_TEST_SILENTLY
         std::cout << "[VehicleSimulator] Initializing with config: "
                   << (config_file.empty() ? "default" : config_file) << std::endl;
@@ -104,7 +104,7 @@ public:
         return running_;
     }
 
-    std::string getLatestTelemetry() {
+    std::string getLatestTelemetry() const {
         return getTelemetry();
     }
 

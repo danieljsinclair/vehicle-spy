@@ -73,7 +73,7 @@ OBD2Response BLEManagerBase::queryPID(uint8_t pid) {
     return OBD2Response{};
 }
 
-std::vector<uint8_t> BLEManagerBase::parseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData) {
+std::vector<uint8_t> BLEManagerBase::parseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData) const {
     // Convert bytes to string (ELM327 sends ASCII text)
     std::string response(asciiData.begin(), asciiData.end());
 
@@ -314,7 +314,7 @@ std::optional<BLEDeviceInfo> BLEManagerBase::findDeviceByAddress(std::string_vie
 // Callback Invocation
 // ================================================
 
-void BLEManagerBase::invokeDeviceCallback(const BLEDeviceInfo& device) {
+void BLEManagerBase::invokeDeviceCallback(const BLEDeviceInfo& device) const {
     if (device_callback_) {
         device_callback_(device);
     }
@@ -373,7 +373,7 @@ void BLEManagerBase::invokeDataCallback(const std::vector<uint8_t>& data) {
     }
 }
 
-void BLEManagerBase::invokeConnectionCallback(bool connected, std::string_view device_id) {
+void BLEManagerBase::invokeConnectionCallback(bool connected, std::string_view device_id) const {
     if (connection_callback_) {
         connection_callback_(connected, std::string(device_id));
     }

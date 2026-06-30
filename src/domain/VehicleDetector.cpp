@@ -334,7 +334,7 @@ void VehicleDetector::reset() {
     startTime_ = std::chrono::steady_clock::now();
 }
 
-void VehicleDetector::completeDetection() {
+void VehicleDetector::completeDetection() const {
     // VIN + fuel type detection is handled via getResult() combining all evidence
 }
 

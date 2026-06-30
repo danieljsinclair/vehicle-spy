@@ -77,7 +77,7 @@ void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
     file_.flush();
 }
 
-std::string TraceLogger::formatOptional(std::optional<double> value) {
+std::string TraceLogger::formatOptional(std::optional<double> value) const {
     if (!value.has_value()) {
         return "";
     }
@@ -86,7 +86,7 @@ std::string TraceLogger::formatOptional(std::optional<double> value) {
     return oss.str();
 }
 
-std::string TraceLogger::formatOptional(std::optional<std::int32_t> value) {
+std::string TraceLogger::formatOptional(std::optional<std::int32_t> value) const {
     if (!value.has_value()) {
         return "";
     }

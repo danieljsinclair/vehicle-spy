@@ -16,7 +16,7 @@ public:
     explicit TelemetryFormatter(Format format = Format::JSON);
 
     // Phase 0: Format telemetry signal from Tesla BLE data
-    std::string format(const domain::TelemetrySignal& data);
+    std::string format(const domain::TelemetrySignal& data) const;
 
     // Set output format
     void setFormat(Format format);

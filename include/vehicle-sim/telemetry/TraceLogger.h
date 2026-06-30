@@ -24,8 +24,8 @@ public:
 private:
     void writeHeader();
     void writeRow(const domain::VehicleSignal& signal);
-    std::string formatOptional(std::optional<double> value);
-    std::string formatOptional(std::optional<std::int32_t> value);
+    std::string formatOptional(std::optional<double> value) const;
+    std::string formatOptional(std::optional<std::int32_t> value) const;
 
     std::ofstream file_;
     std::string vehicleId_;

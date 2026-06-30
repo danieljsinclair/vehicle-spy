@@ -119,7 +119,7 @@ private:
         const std::string& vin,
         const VehicleSuggestion& suggestion) const;
 
-    void completeDetection();
+    void completeDetection() const;
     void addFrame(const std::vector<std::uint8_t>& data);
 
     // CAN ID fingerprinting registry (data-driven, OCP-compliant)
