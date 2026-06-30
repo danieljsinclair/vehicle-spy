@@ -107,7 +107,8 @@ void TeslaBLETransport::processIncomingData(const std::vector<std::uint8_t>& dat
 }
 
 bool TeslaBLETransport::validatePacket(const std::vector<std::uint8_t>& packet) const {
-    // Minimum packet size: header(2) + length(1) + checksum(1) = 4 bytes
+    // Minimum packet size is 4 bytes: a 2-byte header, a 1-byte length field,
+    // and a 1-byte checksum.
     if (packet.size() < 4) {
         return false;
     }
