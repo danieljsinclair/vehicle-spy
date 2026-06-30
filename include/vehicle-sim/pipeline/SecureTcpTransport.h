@@ -107,6 +107,19 @@ private:
     bool performHandshake();
     std::optional<std::string> readEncryptedLine();
 
+    // If rawBuffer_ holds a complete encrypted frame, decrypt it, consume the
+    // frame bytes, and return the plaintext line. Returns nullopt when no full
+    // frame is buffered yet (caller should recv more), or nullopt with
+    // exhausted_ set when the buffered frame fails authentication (tamper).
+    std::optional<std::string> tryDecryptBufferedFrame();
+
+    // Poll the socket for one recv() and append any bytes to rawBuffer_. Returns
+    // true to indicate the caller should retry frame extraction (more bytes
+    // arrived, a transient EINTR/timeout, or the stop flag is still clear);
+    // returns false when the stream is terminal (disconnect, recv error, stop
+    // requested, or raw buffer overflow) with exhausted_ set.
+    bool pollRecvOrExhaust();
+
     std::string host_;
     int port_;
     std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey_;

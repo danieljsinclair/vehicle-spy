@@ -281,86 +281,107 @@ bool SecureTcpTransport::isOpen() const noexcept {
     return opened_ && fd_ >= 0 && !exhausted_;
 }
 
+std::optional<std::string> SecureTcpTransport::tryDecryptBufferedFrame() {
+    // Need at least the nonce + length header to know the frame size.
+    if (rawBuffer_.size() < SECRETBOX_NONCEBYTES + 2) {
+        return std::nullopt;
+    }
+
+    auto frameLen = static_cast<uint16_t>(
+        (static_cast<uint16_t>(
+            static_cast<unsigned char>(rawBuffer_[SECRETBOX_NONCEBYTES])) << 8)
+        | static_cast<uint16_t>(static_cast<unsigned char>(rawBuffer_[SECRETBOX_NONCEBYTES + 1])));
+
+    size_t totalFrame = SECRETBOX_NONCEBYTES + 2 + frameLen;
+    if (rawBuffer_.size() < totalFrame) {
+        return std::nullopt;  // partial frame — caller should recv more
+    }
+
+    // Extract nonce
+    std::array<uint8_t, SECRETBOX_NONCEBYTES> nonce;
+    std::copy(rawBuffer_.begin(), rawBuffer_.begin() + SECRETBOX_NONCEBYTES, nonce.begin());
+
+    // Extract ciphertext+tag
+    auto ct = reinterpret_cast<const unsigned char*>(
+        rawBuffer_.data() + SECRETBOX_NONCEBYTES + 2);
+
+    // Decrypt
+    std::vector<unsigned char> plaintext(frameLen);
+    if (crypto_secretbox_xchacha20poly1305_open_easy(
+            plaintext.data(), ct, frameLen, nonce.data(), rxKey_.data()) != 0) {
+        output_->err("[secure-tcp] Frame decryption failed (tampered?)");
+        exhausted_ = true;
+        return std::nullopt;
+    }
+
+    rawBuffer_.erase(0, totalFrame);
+
+    return std::string(reinterpret_cast<char*>(plaintext.data()),
+                       frameLen - SECRETBOX_MACBYTES);
+}
+
+bool SecureTcpTransport::pollRecvOrExhaust() {
+    // Poll for at most recvTimeoutUs_ so the stop flag is re-checked promptly.
+    // Mirrors OTAHttpTransport: the injected value is honoured literally (a tiny
+    // test value yields a tiny poll), capped at a 100ms floor so a large
+    // injected value still re-checks the stop flag at a reasonable cadence.
+    int pollUs = recvTimeoutUs_;
+    if (pollUs > 100000) pollUs = 100000;  // floor: never block > 100ms
+    if (pollUs < 0) pollUs = static_cast<int>(RECV_TIMEOUT_US);
+
+    fd_set readSet;
+    FD_ZERO(&readSet);
+    FD_SET(fd_, &readSet);
+    struct timeval tv{};
+    tv.tv_sec = pollUs / 1000000;
+    tv.tv_usec = pollUs % 1000000;
+
+    int ready = select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
+    if (ready < 0) {
+        if (errno == EINTR) return true;  // interrupted — retry the poll
+        exhausted_ = true;
+        return false;
+    }
+    if (ready == 0) {
+        if (g_stopRequested.load()) {
+            exhausted_ = true;
+            return false;
+        }
+        return true;  // timeout, stop not requested — retry the poll
+    }
+
+    std::array<char, 1024> buffer;
+    ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
+    if (n <= 0) {
+        exhausted_ = true;
+        return false;
+    }
+
+    rawBuffer_.append(buffer.data(), static_cast<size_t>(n));
+
+    if (rawBuffer_.size() > MAX_LINE_LEN + SECRETBOX_NONCEBYTES + 2 + SECRETBOX_MACBYTES) {
+        output_->err("[secure-tcp] Raw buffer overflow - disconnecting");
+        exhausted_ = true;
+        return false;
+    }
+
+    return true;  // new bytes appended — retry frame extraction
+}
+
 std::optional<std::string> SecureTcpTransport::readEncryptedLine() {
     // Data frame: [nonce(24) | length(2, big-endian) | ciphertext+tag(length)]
     // Uses rawBuffer_ for encrypted socket data only.
 
     while (true) {
-        if (rawBuffer_.size() >= SECRETBOX_NONCEBYTES + 2) {
-            auto frameLen = static_cast<uint16_t>(
-                (static_cast<uint16_t>(
-                    static_cast<unsigned char>(rawBuffer_[SECRETBOX_NONCEBYTES])) << 8)
-                | static_cast<uint16_t>(static_cast<unsigned char>(rawBuffer_[SECRETBOX_NONCEBYTES + 1])));
-
-            size_t totalFrame = SECRETBOX_NONCEBYTES + 2 + frameLen;
-            if (rawBuffer_.size() >= totalFrame) {
-                // Extract nonce
-                std::array<uint8_t, SECRETBOX_NONCEBYTES> nonce;
-                std::copy(rawBuffer_.begin(), rawBuffer_.begin() + SECRETBOX_NONCEBYTES, nonce.begin());
-
-                // Extract ciphertext+tag
-                auto ct = reinterpret_cast<const unsigned char*>(
-                    rawBuffer_.data() + SECRETBOX_NONCEBYTES + 2);
-
-                // Decrypt
-                std::vector<unsigned char> plaintext(frameLen);
-                if (crypto_secretbox_xchacha20poly1305_open_easy(
-                        plaintext.data(), ct, frameLen, nonce.data(), rxKey_.data()) != 0) {
-                    output_->err("[secure-tcp] Frame decryption failed (tampered?)");
-                    exhausted_ = true;
-                    return std::nullopt;
-                }
-
-                rawBuffer_.erase(0, totalFrame);
-
-                return std::string(reinterpret_cast<char*>(plaintext.data()),
-                                   frameLen - SECRETBOX_MACBYTES);
-            }
+        if (auto frame = tryDecryptBufferedFrame(); frame.has_value()) {
+            return frame;
+        }
+        if (exhausted_) {
+            return std::nullopt;  // tamper / overflow flagged by the helper
         }
 
-        // Need more bytes from the socket. Poll for at most recvTimeoutUs_ so
-        // the stop flag is re-checked promptly. Mirrors OTAHttpTransport: the
-        // injected value is honoured literally (a tiny test value yields a
-        // tiny poll), and we cap at a 100ms floor so a large injected value
-        // still re-checks the stop flag at a reasonable cadence.
-        int pollUs = recvTimeoutUs_;
-        if (pollUs > 100000) pollUs = 100000;  // floor: never block > 100ms
-        if (pollUs < 0) pollUs = static_cast<int>(RECV_TIMEOUT_US);
-
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(fd_, &readSet);
-        struct timeval tv{};
-        tv.tv_sec = pollUs / 1000000;
-        tv.tv_usec = pollUs % 1000000;
-
-        int ready = select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
-        if (ready < 0) {
-            if (errno == EINTR) continue;
-            exhausted_ = true;
-            return std::nullopt;
-        }
-        if (ready == 0) {
-            if (g_stopRequested.load()) {
-                exhausted_ = true;
-                return std::nullopt;
-            }
-            continue;
-        }
-
-        std::array<char, 1024> buffer;
-        ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
-        if (n <= 0) {
-            exhausted_ = true;
-            return std::nullopt;
-        }
-
-        rawBuffer_.append(buffer.data(), static_cast<size_t>(n));
-
-        if (rawBuffer_.size() > MAX_LINE_LEN + SECRETBOX_NONCEBYTES + 2 + SECRETBOX_MACBYTES) {
-            output_->err("[secure-tcp] Raw buffer overflow - disconnecting");
-            exhausted_ = true;
-            return std::nullopt;
+        if (!pollRecvOrExhaust()) {
+            return std::nullopt;  // disconnect / recv error / stop requested
         }
     }
 }
