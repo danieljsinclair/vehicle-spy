@@ -20,7 +20,6 @@
 #include <vector>         // Command pattern registry
 #include <array>          // Fixed-size buffers (S5945)
 #include <algorithm>      // std::copy for byte buffers
-#include <functional>     // std::function for the AT prompt-sending callable (S5205)
 
 // DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
 
@@ -1168,11 +1167,12 @@ static void registerAtCommandHandlers() {
 }
 
 // ── AT Command Dispatcher (Flat loop with registry lookup) ───────────────────────────
-// Prompt-sending callable passed as std::function per cpp:S5205 (raw function pointer →
-// std::function). A template parameter would be mangled by the Arduino .ino auto-prototype
-// generator (which emits a forward declaration before the template-head), so std::function
-// is the robust choice here. Both callers pass a `void(const char*)` free function.
-static void handleATCommand(const String& cmd, const std::function<void(const char*)>& sendPromptFn) {
+// Prompt sender passed as a plain `void(*)(const char*)` function pointer. Both callers
+// (handleAT, handleSerialAT) pass a free function (sendPrompt / sendSerialPrompt), so no
+// std::function erasure is needed. Note: the earlier S5205 swap to std::function was an
+// over-correction — only *template* parameters are mangled by the Arduino .ino auto-prototype
+// generator; a plain function-pointer type is fine.
+static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)) {
     // Initialize command registry on first call
     registerAtCommandHandlers();
 
