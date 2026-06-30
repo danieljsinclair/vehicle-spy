@@ -1276,7 +1276,7 @@ static bool checkFactoryReset() {
     // Check if button is pressed (low = pressed on GPIO0 with pullup)
     if (digitalRead(Constants::FACTORY_RESET_PIN) == LOW) {
         Serial.printf("%sFactory reset: GPIO0 held at boot, waiting %lums to confirm...%s\r\n",
-                        YELLOW, Constants::FACTORY_RESET_HOLD_MS, NC);
+                        YELLOW, static_cast<unsigned long>(Constants::FACTORY_RESET_HOLD_MS), NC);
 
         // Wait to see if button continues to be held
         uint32_t heldMs = 0;
