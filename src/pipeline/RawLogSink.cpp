@@ -10,8 +10,6 @@ RawLogSink::RawLogSink(const std::string& base)
 RawLogSink::RawLogSink(RawLogSink&& other) noexcept
     : file_(std::move(other.file_)) {}
 
-RawLogSink::~RawLogSink() = default;  // ofstream closes itself; defined out-of-line for rule-of-five consistency with the move ops
-
 RawLogSink& RawLogSink::operator=(RawLogSink&& other) noexcept {
     if (this != &other) {
         if (file_.is_open()) {
