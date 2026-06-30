@@ -47,7 +47,6 @@ namespace Constants {
     // TCP timeouts
     static constexpr uint32_t TCP_AUTH_TIMEOUT_MS = 5000;
     static constexpr uint32_t TCP_COMMAND_TIMEOUT_MS = 100;
-    static constexpr uint32_t TCP_FLUSH_DELAY_MS = 250;
     static constexpr uint32_t TCP_REBOOT_DELAY_MS = 100;
 
     // Buffer sizes
