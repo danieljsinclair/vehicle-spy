@@ -115,7 +115,7 @@ int BLERunContext::runWithProtocol(const std::string& address,
     MonitorStats stats;
 
     if (!connMgr.connect(address, protocol,
-        [&](const std::vector<std::uint8_t>& data) {
+        [&stats, &translationService](const std::vector<std::uint8_t>& data) {
             stats.dataReceived = true;
 
             auto signal = translationService.processFrame(data);

@@ -20,7 +20,7 @@ bool SystemClock::waitForImpl(
     if (pred()) {
         return true;
     }
-    if (cv.wait_until(lock, deadline, [&] { return pred(); })) {
+    if (cv.wait_until(lock, deadline, [&pred]() { return pred(); })) {
         return true;
     }
     // wait_until returned false: deadline elapsed without pred becoming true.
@@ -112,7 +112,7 @@ bool FakeClock::waitForImpl(
     // below. advance() that races here must take the consumer lock to bump
     // now_, so it cannot slip a bump+notify in between our check and our
     // cv.wait — the standard predicated cv.wait(lock, pred) guarantees this.
-    cv.wait(lock, [&] {
+    cv.wait(lock, [this, &pred, &deadline] {
         return pred() || now() >= deadline;
     });
 
