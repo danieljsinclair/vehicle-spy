@@ -229,8 +229,7 @@ std::string OTAHttpTransport::recvResponse(int timeoutMs) const noexcept {
             timeval tv{};
             tv.tv_sec = 0;
             tv.tv_usec = static_cast<suseconds_t>(pollMs * 1000);
-            int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv);
-            if (r > 0) {
+            if (int r = select(fd_ + 1, &rs, nullptr, nullptr, &tv); r > 0) {
                 ssize_t n = recv(fd_, buf.data(), buf.size(), 0);
                 if (n < 0) {
                     // Error on socket

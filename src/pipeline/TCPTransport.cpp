@@ -608,8 +608,7 @@ std::optional<std::string> TCPTransport::nextLine() {
             continue;
         }
 
-        ssize_t n = readSocketIntoPending();
-        if (n <= 0) {
+        if (ssize_t n = readSocketIntoPending(); n <= 0) {
             // Peer closed (0) or error (<0): attempt reconnection, unless stop
             // was requested (e.g. test cleanup or Ctrl+C). The stop flag is
             // checked before entering expensive hunting logic so tests that call
