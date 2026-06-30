@@ -105,7 +105,7 @@ TCPTransport::TCPTransport(std::string_view host, int port, std::string_view ada
                            int readTimeoutUs,
                            int atInitDelayMs,
                            int socketRecvTimeoutMs)
-    : host_(std::move(host))
+    : host_(host)
     , port_(port)
     , adapterProtocol_(adapterProtocol)
     , output_(std::move(output))
