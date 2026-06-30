@@ -160,9 +160,9 @@ struct AtCommandHandler {
 struct SetWifiParams {
     String ssid;
     String password;
-    bool valid;
+    bool valid = false;
 
-    SetWifiParams() : valid(false) {}
+    SetWifiParams() = default;
 };
 
 // ── NTP State ───────────────────────────────────────────────────────────────────
