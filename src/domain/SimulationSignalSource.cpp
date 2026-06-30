@@ -8,7 +8,7 @@ SimulationSignalSource::SimulationSignalSource(std::unique_ptr<VehicleSimulator>
 }
 
 SimulationSignalSource::~SimulationSignalSource() {
-    stop();
+    SimulationSignalSource::stop();
 }
 
 VehicleSignal SimulationSignalSource::latestSignal() const noexcept {

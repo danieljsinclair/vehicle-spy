@@ -14,7 +14,7 @@ TeslaBLETransport::TeslaBLETransport(std::unique_ptr<BLEPlatform> platform)
 }
 
 TeslaBLETransport::~TeslaBLETransport() {
-    disconnect();
+    TeslaBLETransport::disconnect();
 }
 
 bool TeslaBLETransport::connect(const std::string& address) {

@@ -14,7 +14,7 @@ OBD2Transport::OBD2Transport(std::unique_ptr<BLEPlatform> platform)
 }
 
 OBD2Transport::~OBD2Transport() {
-    disconnect();
+    OBD2Transport::disconnect();
 }
 
 bool OBD2Transport::connect(const std::string& address) {
