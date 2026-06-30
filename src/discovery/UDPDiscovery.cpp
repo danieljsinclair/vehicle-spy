@@ -100,7 +100,7 @@ public:
         if (sockfd < 0) return false;
 
         uint8_t buf[PACKET_LEN * 2];  // allow some extra space
-        struct sockaddr_in fromAddr;
+        struct sockaddr_in fromAddr{};
         socklen_t fromLen = sizeof(fromAddr);
 
         ssize_t n = ::recvfrom(sockfd, buf, sizeof(buf), 0,
