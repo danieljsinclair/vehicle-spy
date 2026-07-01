@@ -33,7 +33,6 @@ public:
 
     int getBluetoothState() const;
     bool isBluetoothReady() const;
-    bool initializeELM327();
 
     // Callback handlers (called by Objective-C delegate)
     void onDeviceDiscovered(const BLEDeviceInfo& device);

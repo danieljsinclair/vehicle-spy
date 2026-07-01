@@ -105,51 +105,51 @@ bool BLEManager::waitForCharacteristics(int timeout_ms) {
 }
 
 bool BLEManager::initializeELM327() {
-    return platform_ ? platform_->initializeELM327() : false;
+    return platform_ ? platform_->elm327Session().initializeELM327() : false;
 }
 
 void BLEManager::startOBD2Polling(int interval_ms) {
     if (platform_) {
-        platform_->startOBD2Polling(interval_ms);
+        platform_->elm327Session().startOBD2Polling(interval_ms);
     }
 }
 
 void BLEManager::stopOBD2Polling() {
     if (platform_) {
-        platform_->stopOBD2Polling();
+        platform_->elm327Session().stopOBD2Polling();
     }
 }
 
 bool BLEManager::initializeCANMonitor() {
-    if (platform_) return platform_->initializeCANMonitor();
+    if (platform_) return platform_->elm327Session().initializeCANMonitor();
     return false;
 }
 
 bool BLEManager::initializeForVINQuery() {
-    if (platform_) return platform_->initializeForVINQuery();
+    if (platform_) return platform_->elm327Session().initializeForVINQuery();
     return false;
 }
 
 std::optional<std::string> BLEManager::queryVIN(int timeout_ms) {
-    if (platform_) return platform_->queryVIN(timeout_ms);
+    if (platform_) return platform_->elm327Session().queryVIN(timeout_ms);
     return std::nullopt;
 }
 
 void BLEManager::startCANMonitor(int interval_ms) {
-    if (platform_) platform_->startCANMonitor(interval_ms);
+    if (platform_) platform_->elm327Session().startCANMonitor(interval_ms);
 }
 
 void BLEManager::stopCANMonitor() {
-    if (platform_) platform_->stopCANMonitor();
+    if (platform_) platform_->elm327Session().stopCANMonitor();
 }
 
 std::optional<domain::VehicleDetectionResult> BLEManager::initializeOBD2WithDetection() {
-    return platform_ ? platform_->initializeOBD2WithDetection() : std::nullopt;
+    return platform_ ? platform_->elm327Session().initializeOBD2WithDetection() : std::nullopt;
 }
 
 void BLEManager::processOBD2Data(const std::string& asciiData) {
     if (platform_) {
-        platform_->processOBD2Data(asciiData);
+        platform_->elm327Session().processOBD2Data(asciiData);
     }
 }
 

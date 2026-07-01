@@ -328,7 +328,7 @@ public:
     using BLEManagerBase::waitForPrompt;
     using BLEManagerBase::notifyPrompt;
     using BLEManagerBase::invokeDataCallback;
-    using BLEManagerBase::prompt_ready_;
+    using BLEManagerBase::promptReady;
 };
 
 } // anonymous namespace
@@ -367,7 +367,7 @@ TEST(BLEManagerBaseTest, InvokeDataCallbackDetectsStandalonePrompt)
     std::vector<uint8_t> promptOnly = {'>'};
     manager.invokeDataCallback(promptOnly);
 
-    EXPECT_TRUE(manager.prompt_ready_);
+    EXPECT_TRUE(manager.promptReady());
 }
 
 TEST(BLEManagerBaseTest, InvokeDataCallbackDetectsPromptAppendedToResponse)
@@ -380,7 +380,7 @@ TEST(BLEManagerBaseTest, InvokeDataCallbackDetectsPromptAppendedToResponse)
     };
     manager.invokeDataCallback(responseWithPrompt);
 
-    EXPECT_TRUE(manager.prompt_ready_);
+    EXPECT_TRUE(manager.promptReady());
 }
 
 TEST(BLEManagerBaseTest, InvokeDataCallbackDoesNotSignalPromptWithoutPromptChar)
@@ -393,7 +393,7 @@ TEST(BLEManagerBaseTest, InvokeDataCallbackDoesNotSignalPromptWithoutPromptChar)
     };
     manager.invokeDataCallback(responseNoPrompt);
 
-    EXPECT_FALSE(manager.prompt_ready_);
+    EXPECT_FALSE(manager.promptReady());
 }
 
 TEST(BLEManagerBaseTest, InvokeDataCallbackDoesNotSignalPromptInCANMode)
@@ -401,13 +401,13 @@ TEST(BLEManagerBaseTest, InvokeDataCallbackDoesNotSignalPromptInCANMode)
     PromptTestBLEManager manager;
 
     // Put into CAN mode
-    manager.startCANMonitor(200);
+    manager.elm327Session().startCANMonitor(200);
 
     // Even with '>' in the data, CAN mode should not trigger prompt signalling
     std::vector<uint8_t> dataWithPrompt = {'>', '4', '1', ' ', '0', 'D'};
     manager.invokeDataCallback(dataWithPrompt);
 
-    EXPECT_FALSE(manager.prompt_ready_);
+    EXPECT_FALSE(manager.promptReady());
 }
 
 // ============================================================
@@ -468,7 +468,7 @@ public:
     using BLEManagerBase::invokeDeviceCallback;
     using BLEManagerBase::invokeConnectionCallback;
     using BLEManagerBase::setConnectionState;
-    using BLEManagerBase::can_mode_;
+    using BLEManagerBase::canMode;
 };
 
 } // anonymous namespace
@@ -480,7 +480,7 @@ TEST(BLEManagerBaseSessionContract, InitializeELM327_SendsFullInitSequenceAndRet
     // The init sequence is prompt-driven: each AT command waits for '>'.
     // With no prompt ever arriving, every command is still emitted once
     // (waitForPrompt merely times out and warns).
-    EXPECT_TRUE(m.initializeELM327());
+    EXPECT_TRUE(m.elm327Session().initializeELM327());
     // buildInitSequence() emits ATZ, ATE0, ATH0, ATL0, ATSP0, ATS0, ATSTFF.
     ASSERT_EQ(m.sentCommands.size(), 7u);
     EXPECT_EQ(m.sentCommands.front(), "ATZ\r");
@@ -489,7 +489,7 @@ TEST(BLEManagerBaseSessionContract, InitializeELM327_SendsFullInitSequenceAndRet
 
 TEST(BLEManagerBaseSessionContract, InitializeOBD2WithDetection_InitializesThenDetects) {
     SessionTestBLEManager m;
-    auto result = m.initializeOBD2WithDetection();
+    auto result = m.elm327Session().initializeOBD2WithDetection();
     // The contract: initialiseELM327 runs first (its 7 AT commands lead the
     // emission stream), then detection is attempted. detectVehicle() may
     // emit its own queries, so we lock only that init's sequence leads —
@@ -505,7 +505,7 @@ TEST(BLEManagerBaseSessionContract, ProcessOBD2Data_RoutesIntoProtocolHandler) {
     // processOBD2Data delegates to obd2_protocol_.processIncomingData.
     // It must not throw and must not emit any commands itself (it is a pure
     // routing call; the protocol handler owns command emission).
-    EXPECT_NO_FATAL_FAILURE(m.processOBD2Data("41 0C 1A F8\r"));
+    EXPECT_NO_FATAL_FAILURE(m.elm327Session().processOBD2Data("41 0C 1A F8\r"));
     EXPECT_TRUE(m.sentCommands.empty());
 }
 
@@ -513,23 +513,23 @@ TEST(BLEManagerBaseSessionContract, ProcessOBD2Data_RoutesIntoProtocolHandler) {
 
 TEST(BLEManagerBaseSessionContract, InitializeCANMonitor_SendsMonitorInitAndSetsCanMode) {
     SessionTestBLEManager m;
-    EXPECT_FALSE(m.can_mode_);
-    EXPECT_TRUE(m.initializeCANMonitor());
+    EXPECT_FALSE(m.canMode());
+    EXPECT_TRUE(m.elm327Session().initializeCANMonitor());
     // buildCANMonitorInitSequence(): ATZ, ATE0, ATSP6, ATH1, ATMA.
     ASSERT_EQ(m.sentCommands.size(), 5u);
     EXPECT_EQ(m.sentCommands.back(), "ATMA\r");
-    EXPECT_TRUE(m.can_mode_);
+    EXPECT_TRUE(m.canMode());
 }
 
 TEST(BLEManagerBaseSessionContract, StartStopCANMonitor_FlagAndStopEmitsAtma) {
     SessionTestBLEManager m;
-    EXPECT_FALSE(m.can_mode_);
-    m.startCANMonitor(200);
-    EXPECT_TRUE(m.can_mode_);
+    EXPECT_FALSE(m.canMode());
+    m.elm327Session().startCANMonitor(200);
+    EXPECT_TRUE(m.canMode());
     EXPECT_TRUE(m.sentCommands.empty());  // start is pure flag-set, no emit
 
-    m.stopCANMonitor();
-    EXPECT_FALSE(m.can_mode_);
+    m.elm327Session().stopCANMonitor();
+    EXPECT_FALSE(m.canMode());
     // stopCANMonitor explicitly re-asserts ATMA to end the monitor stream.
     ASSERT_EQ(m.sentCommands.size(), 1u);
     EXPECT_EQ(m.sentCommands.front(), "ATMA\r");
@@ -539,11 +539,11 @@ TEST(BLEManagerBaseSessionContract, StartStopCANMonitor_FlagAndStopEmitsAtma) {
 
 TEST(BLEManagerBaseSessionContract, InitializeForVINQuery_ClearsCanModeResetsDetectorAndEmitsVinInit) {
     SessionTestBLEManager m;
-    m.startCANMonitor();  // put into CAN mode first
-    ASSERT_TRUE(m.can_mode_);
+    m.elm327Session().startCANMonitor();  // put into CAN mode first
+    ASSERT_TRUE(m.canMode());
 
-    EXPECT_TRUE(m.initializeForVINQuery());
-    EXPECT_FALSE(m.can_mode_);  // VIN init must drop out of CAN mode
+    EXPECT_TRUE(m.elm327Session().initializeForVINQuery());
+    EXPECT_FALSE(m.canMode());  // VIN init must drop out of CAN mode
     // buildVINQueryInitSequence(): ATZ, ATE0, ATH0, ATL0, ATSP6, ATS0, ATSTFF.
     ASSERT_EQ(m.sentCommands.size(), 7u);
     // VIN path uses ATSP6 (specific CAN), NOT ATSP0 (auto-probe).
@@ -559,7 +559,7 @@ TEST(BLEManagerBaseSessionContract, InitializeForVINQuery_ClearsCanModeResetsDet
 
 TEST(BLEManagerBaseSessionContract, QueryVIN_ReturnsNulloptWhenPromptTimesOut) {
     SessionTestBLEManager m;
-    auto vin = m.queryVIN(/*timeout_ms=*/5);
+    auto vin = m.elm327Session().queryVIN(/*timeout_ms=*/5);
     EXPECT_FALSE(vin.has_value());
     // Emits the 09 02 query before waiting.
     ASSERT_FALSE(m.sentCommands.empty());
@@ -580,7 +580,7 @@ TEST(BLEManagerBaseSessionContract, QueryVIN_ReturnsVinWhenDetectorPopulatedAndP
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         m.notifyPrompt();
     });
-    auto vin = m.queryVIN(/*timeout_ms=*/2000);
+    auto vin = m.elm327Session().queryVIN(/*timeout_ms=*/2000);
     prompter.join();
     ASSERT_TRUE(vin.has_value());
     EXPECT_EQ(vin->size(), 17u);
@@ -593,10 +593,10 @@ TEST(BLEManagerBaseSessionContract, StartOBD2Polling_IsIdempotentSpawnsAtMostOne
     m.setBaseConnected(true);
     m.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
 
-    m.startOBD2Polling(200);
+    m.elm327Session().startOBD2Polling(200);
     // A second start must be a no-op (guard: polling_active_ already true).
-    m.startOBD2Polling(200);
-    m.stopOBD2Polling();  // joins the single thread — would deadlock if two
+    m.elm327Session().startOBD2Polling(200);
+    m.elm327Session().stopOBD2Polling();  // joins the single thread — would deadlock if two
     SUCCEED();
 }
 
@@ -612,12 +612,12 @@ TEST(BLEManagerBaseSessionContract, OBD2PollingLoop_QueriesStandardPidsInDeclare
         m.notifyPrompt();
     });
 
-    m.startOBD2Polling(/*interval_ms=*/1000);
+    m.elm327Session().startOBD2Polling(/*interval_ms=*/1000);
     // Allow the post-connect setup delay + one PID cycle.
     std::this_thread::sleep_for(
         std::chrono::milliseconds(SessionTestBLEManager::kPostConnectSetupDelayMs + 200));
     m.setBaseConnected(false);  // let the loop exit
-    m.stopOBD2Polling();
+    m.elm327Session().stopOBD2Polling();
 
     // The loop's declared PID order is: BATTERY_VOLTAGE, ENGINE_LOAD,
     // COOLANT_TEMP, THROTTLE_POSITION, VEHICLE_SPEED, ENGINE_RPM.
@@ -639,7 +639,7 @@ TEST(BLEManagerBaseSessionContract, InvokeDataCallback_InCanModeParsesFrameToTen
     SessionTestBLEManager m;
     std::vector<std::uint8_t> delivered;
     m.setDataReceivedCallback([&delivered](const std::vector<uint8_t>& d) { delivered = d; });
-    m.startCANMonitor();  // route into CAN parsing
+    m.elm327Session().startCANMonitor();  // route into CAN parsing
 
     // 11-bit CAN id 0x123 + 8 data bytes (ELM327 monitor line, no type prefix).
     std::string frame = "123 11 22 33 44 55 66 77 88";
@@ -658,7 +658,7 @@ TEST(BLEManagerBaseSessionContract, InvokeDataCallback_InCanModeDropsNonFrameNot
     SessionTestBLEManager m;
     bool callbackFired = false;
     m.setDataReceivedCallback([&](const std::vector<uint8_t>&) { callbackFired = true; });
-    m.startCANMonitor();
+    m.elm327Session().startCANMonitor();
     // ELM327 status/prompt lines are not CAN frames — must not be delivered.
     m.invokeDataCallback(std::vector<uint8_t>{'>', ' ', ' '});
     EXPECT_FALSE(callbackFired);
@@ -760,7 +760,7 @@ TEST(BLEManagerBaseTest, StopOBD2PollingWakesPromptWait)
     // Set a data callback so invokeDataCallback doesn't bail early
     manager.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
 
-    manager.startOBD2Polling(200);
+    manager.elm327Session().startOBD2Polling(200);
 
     // stopOBD2Polling() unblocks the polling thread regardless of which wait
     // state it is in: it clears polling_active_, then notifyPrompt() sets
@@ -770,7 +770,7 @@ TEST(BLEManagerBaseTest, StopOBD2PollingWakesPromptWait)
     // already blocked in waitForPrompt (the notify wakes it and the loop guard
     // exits), the join returns promptly. Calling stop immediately therefore
     // deterministically verifies the wake path without any test-side wait.
-    manager.stopOBD2Polling();
+    manager.elm327Session().stopOBD2Polling();
 
     // If we get here, stopOBD2Polling correctly woke the thread and joined it.
     SUCCEED();

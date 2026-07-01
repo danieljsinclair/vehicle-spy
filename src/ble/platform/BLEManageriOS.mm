@@ -375,11 +375,6 @@ bool BLEManageriOS::isBluetoothReady() const {
     return central_manager_ && central_manager_.state == CBManagerStatePoweredOn;
 }
 
-bool BLEManageriOS::initializeELM327() {
-    // Use base class implementation
-    return BLEManagerBase::initializeELM327();
-}
-
 // MARK: - Private Callback Methods (Platform-specific)
 
 void BLEManageriOS::onDeviceDiscovered(const BLEDeviceInfo& device) {
