@@ -3,7 +3,7 @@
 // Per-user ed25519ph OTA signing public key (raw 32 bytes, RFC 8032 Ed25519ph).
 // Regenerated from YOUR private key by:  make ota-keys
 // The matching private key lives ONLY on your host
-// (/Users/danielsinclair/.vehicle-sim/ota/ed25519.pem), never in this repo.
+// (~/.vehicle-sim/ota/ed25519.pem), never in this repo.
 #ifndef OTA_PUBLIC_KEY_H
 #define OTA_PUBLIC_KEY_H
 
