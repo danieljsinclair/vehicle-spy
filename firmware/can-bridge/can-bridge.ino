@@ -42,7 +42,7 @@ namespace Constants {
     // Timing intervals (milliseconds)
     static constexpr uint32_t WIFI_CONNECT_RETRY_INTERVAL_MS = 5000;
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
-    static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 120;
+    static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 60;  // 5 minutes at 5s interval
     static constexpr uint32_t SERIAL_BAUD = 115200;
     static constexpr uint32_t SERIAL_QUIET_DURATION_MS = 250;
 
@@ -624,8 +624,9 @@ static CredentialSource determineCredentialSource() {
 }
 
 // Testable pure function: Check if AP mode fallback is needed
+// Applies to both stored NVS and baked-in credentials after timeout
 static bool shouldFallbackToApMode(CredentialSource source, uint32_t connectDurationMs) {
-    return (source == CredentialSource::STORED_NVS) &&
+    return (source == CredentialSource::STORED_NVS || source == CredentialSource::BAKED_IN) &&
            (connectDurationMs > Constants::WIFI_CONNECT_TIMEOUT_MS);
 }
 
@@ -706,7 +707,7 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
                 return StateTransition(WiFiState::State::CONNECTED_AP);
         }
 
-        return StateTransition();  // Stay DISCONNECTED if something failed
+        return StateTransition(ctx.state);  // Stay DISCONNECTED if something failed
     }
 };
 
@@ -779,7 +780,7 @@ struct ConnectingStateHandler : public WiFiStateHandler {
             ctx.lastRetryMs = now;
         }
 
-        return StateTransition();  // Stay in CONNECTING
+        return StateTransition(ctx.state);  // Stay in CONNECTING
     }
 };
 
@@ -814,7 +815,7 @@ struct ReconnectingStateHandler : public WiFiStateHandler {
             ctx.lastRetryMs = now;
         }
 
-        return StateTransition();  // Stay in RECONNECTING
+        return StateTransition(ctx.state);  // Stay in RECONNECTING
     }
 };
 
@@ -824,7 +825,7 @@ struct ConnectedStaStateHandler : public WiFiStateHandler {
         if (WiFiClass::status() != WL_CONNECTED) {
             return StateTransition(WiFiState::State::RECONNECTING, true, false);
         }
-        return StateTransition();  // Stay CONNECTED_STA
+        return StateTransition(ctx.state);  // Stay CONNECTED_STA
     }
 };
 
@@ -832,7 +833,7 @@ struct ConnectedStaStateHandler : public WiFiStateHandler {
 struct ConnectedApStateHandler : public WiFiStateHandler {
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         // AP mode stays connected unless explicitly changed - no transitions
-        return StateTransition();
+        return StateTransition(ctx.state);
     }
 };
 
@@ -859,9 +860,9 @@ IWiFi& wifi = realWifi;
 #endif
 // ── State Transition Application ───────────────────────────────────────────────────
 static void applyStateTransition(const StateTransition& transition, WiFiState::Context& ctx) {
-    if (transition.nextState == WiFiState::State::DISCONNECTED &&
-        ctx.state == WiFiState::State::DISCONNECTED) {
-        return;  // No transition
+    // Treat "stay in current state" as idempotent no-op (regardless of which state)
+    if (transition.nextState == ctx.state) {
+        return;  // No transition - stay sentinel
     }
 
     const WiFiState::State previousState = ctx.state;
@@ -906,14 +907,26 @@ static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) 
     if (wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_EXPIRE ||
         wifiCtx.lastDisconnectReason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
         wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_FAIL) {
-        Serial.printf("\n%sAUTH_FAIL (%d): password rejected for SSID '%s' — check credentials%s\r\n", RED,
+        Serial.printf("\n%sAUTH_FAIL (%d): password rejected for SSID '%s' — switching to AP mode%s\r\n", RED,
                         static_cast<int>(wifiCtx.lastDisconnectReason), WiFi.SSID().c_str(), NC);
         statusLed.setPattern(StatusLED::Pattern::AUTH_FAILURE);
-    } else {
-        Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
-                        static_cast<int>(wifiCtx.lastDisconnectReason),
-                        WiFi.disconnectReasonName(wifiCtx.lastDisconnectReason), NC, WiFi.SSID().c_str());
+
+        // Transition straight to AP mode on auth failure
+        WiFi.disconnect(false, true);
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP(AP_SSID, AP_PASS);
+        const String ip = WiFi.softAPIP().toString();
+        Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
+        Serial.printf("%sConnect to AP and reconfigure WiFi with ATSETWIFI%s\r\n", YELLOW, NC);
+        wifiCtx.state = WiFiState::State::CONNECTED_AP;
+        wifiCtx.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
+        statusLed.setPattern(StatusLED::Pattern::AP_MODE);
+        return;
     }
+
+    Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
+                    static_cast<int>(wifiCtx.lastDisconnectReason),
+                    WiFi.disconnectReasonName(wifiCtx.lastDisconnectReason), NC, WiFi.SSID().c_str());
 
     // Transition to RECONNECTING state - never give up
     if (wifiCtx.state == WiFiState::State::CONNECTED_STA) {

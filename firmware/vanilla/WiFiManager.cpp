@@ -1,4 +1,5 @@
 #include "WiFiManager.h"
+#include "WiFiReasonCodes.h"
 #include <algorithm>
 #include <memory>
 
@@ -52,7 +53,7 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
             }
         }
 
-        return StateTransition();  // Stay DISCONNECTED
+        return StateTransition(ctx.state);  // Stay DISCONNECTED
     }
 };
 
@@ -108,7 +109,7 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
             }
         }
 
-        return StateTransition();  // Stay in CONNECTING
+        return StateTransition(ctx.state);  // Stay in CONNECTING
     }
 };
 
@@ -137,7 +138,7 @@ struct ReconnectingStateHandler : public IWiFiStateHandler {
             ctx.lastRetryMs = now;
         }
 
-        return StateTransition();  // Stay in RECONNECTING
+        return StateTransition(ctx.state);  // Stay in RECONNECTING
     }
 };
 
@@ -146,7 +147,7 @@ struct ConnectedStaStateHandler : public IWiFiStateHandler {
         (void)now;
         // WiFi status check would go here - but needs IWiFi reference
         // For now, just stay connected
-        return StateTransition();
+        return StateTransition(ctx.state);
     }
 };
 
@@ -155,7 +156,7 @@ struct ConnectedApStateHandler : public IWiFiStateHandler {
         (void)now;
         (void)ctx;
         // AP mode is stable
-        return StateTransition();
+        return StateTransition(ctx.state);
     }
 };
 
@@ -218,6 +219,20 @@ bool WiFiManager::clearCredentials() {
 
 void WiFiManager::onDisconnected(int reason) {
     ctx_.lastDisconnectReason = reason;
+
+    // Special handling for AUTH_FAIL - transition straight to AP mode
+    if (reason == WIFI_REASON_AUTH_FAIL ||
+        reason == WIFI_REASON_AUTH_EXPIRE ||
+        reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT) {
+        // Transition to AP mode immediately on auth failure
+        wifi_.disconnect(false, true);
+        wifi_.setMode(2);  // WIFI_AP
+        wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
+        ctx_.state = WiFiState::State::CONNECTED_AP;
+        ctx_.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
+        statusLed_.setPattern(4);  // AP_MODE
+        return;
+    }
 
     if (ctx_.state == WiFiState::State::CONNECTED_STA) {
         ctx_.state = WiFiState::State::RECONNECTING;
@@ -287,9 +302,9 @@ bool loadCredentialsImpl(IPreferences& prefs, std::string& ssid, std::string& pa
 }
 
 void WiFiManager::applyStateTransition(const StateTransition& transition) {
-    if (transition.nextState == WiFiState::State::DISCONNECTED &&
-        ctx_.state == WiFiState::State::DISCONNECTED) {
-        return;  // No transition
+    // Treat "stay in current state" as idempotent no-op (regardless of which state)
+    if (transition.nextState == ctx_.state) {
+        return;  // No transition - stay sentinel
     }
 
     WiFiState::State previousState = ctx_.state;

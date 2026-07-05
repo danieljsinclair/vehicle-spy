@@ -153,14 +153,14 @@ bool acceptAuthAndHelo(LoopbackServer& server, int timeoutMs = 3000) {
     // Read ATI
     line = server.readLine(timeoutMs);
     if (line != "ATI") return false;
-    server.sendBytes("ESP32 CAN Bridge v0.1\r");
+    server.sendBytes("ESP32 CAN Bridge v0.1\r>");
 
     // Read ATHELO
     line = server.readLine(timeoutMs);
     if (line != "ATHELO") return false;
 
     // Send HELO ACK with a valid device ID
-    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r");
+    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r\r>");
 
     return true;
 }
@@ -190,13 +190,13 @@ bool acceptAuthElm327AndHeloWithCapture(LoopbackServer& server, std::string& cap
     // Read ATI
     line = server.readLine(timeoutMs);
     if (line != "ATI") return false;
-    server.sendBytes("ESP32 CAN Bridge v0.1\r");
+    server.sendBytes("ESP32 CAN Bridge v0.1\r>");
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
     // Read ATHELO
     line = server.readLine(timeoutMs);
     if (line != "ATHELO") return false;
-    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r");
+    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r\r>");
 
     return true;
 }

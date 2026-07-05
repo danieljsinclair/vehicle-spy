@@ -95,7 +95,7 @@ struct IStatusLED {
 struct WiFiConfig {
     static constexpr uint32_t WIFI_CONNECT_RETRY_INTERVAL_MS = 5000;
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
-    static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 120;
+    static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 60;  // 5 minutes at 5s interval
     static constexpr const char* AP_SSID = "ESP32-CAN";
     static constexpr const char* AP_PASS = "cancan12";
     static constexpr const char* NVS_WIFI_NAMESPACE = "wifi";

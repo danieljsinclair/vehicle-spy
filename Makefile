@@ -18,7 +18,10 @@ ESPTOOL_DIR   ?= $(shell python3 -c 'import pathlib; roots=sorted(pathlib.Path.h
 ESPTOOL       ?= $(ESPTOOL_DIR)/esptool
 ESPTOOL_MERGE_CMD ?= $(shell if [ -x "$(ESPTOOL)" ] && "$(ESPTOOL)" --help 2>/dev/null | grep -q 'merge-bin'; then printf 'merge-bin'; else printf 'merge_bin'; fi)
 ESP32_HOST    ?=
-ESP32_WIFI_PASS ?=
+# ESP32_WIFI_PASS is the current var; ESP32_WIFI_PASSWORD is a legacy alias
+# still supported so older shells/docs keep working. PASS wins when both are set.
+ESP32_WIFI_PASSWORD ?=
+ESP32_WIFI_PASS ?= $(ESP32_WIFI_PASSWORD)
 # Shared auto-discovery command: extracts the first TCP IP from the vehicle-sim discovery output.
 # Used in flash/reboot recipes when ESP32_HOST is not set.
 ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2
@@ -41,14 +44,18 @@ all: header test firmware ios coverage-run coverage-ios sonar-scan sonar-scan-io
 
 # Shared macro to show build config (DRY)
 define show_wifi
-	@if [ -n "$(ESP32_WIFI_SSID)" ]; then \
+	@if [ -z "$(ESP32_WIFI_SSID)" ]; then \
+		echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)"; \
+		echo " $(YELLOW)warning: ESP32_WIFI_SSID is blank — firmware will boot in AP mode (valid)$(NC)"; \
+	elif [ -z "$(ESP32_WIFI_PASS)" ]; then \
+		echo " ESP32_WIFI_SSID: $(PURPLE)$(ESP32_WIFI_SSID)$(NC)"; \
+		echo " $(YELLOW)warning: ESP32_WIFI_PASS is blank — auth will fail; firmware falls back to AP mode$(NC)"; \
+	else \
 		echo " ESP32_WIFI_SSID: $(GREEN)$(ESP32_WIFI_SSID)$(NC)"; \
 		_pass="$(ESP32_WIFI_PASS)"; \
 		_masked=$$(echo "$$_pass" | sed 's/./\*/g'); \
 		_masked=$${_pass%"$${_pass#?}"}$${_masked#?}; \
 		echo " ESP32_WIFI_PASS: $(RED)$${_masked}$(NC)"; \
-	else \
-		echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)"; \
 	fi
 endef
 
@@ -94,7 +101,8 @@ build-native/Makefile: CMakeLists.txt
 	@cd build-native && cmake .. -DBUILD_IOS=OFF -DBUILD_TESTS=ON -DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"
 
 native macos osx: build-native/Makefile
-	@$(MAKE) -C build-native all
+	@mkdir -p build-native/profraw
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native all
 
 # C++ gtest suite (green) + Python capture-notepad suite (must also be green).
 # A failure in either fails the build.
@@ -106,9 +114,10 @@ test-cpp: $(TEST_REPORT)
 	@cat "$(TEST_REPORT)"
 
 $(TEST_REPORT): build-native/Makefile CMakeLists.txt test/CMakeLists.txt $(shell find test include src -type f 2>/dev/null)
+	@mkdir -p build-native/profraw
 	@echo "--- Running C++ tests ---"
-	@$(MAKE) -C build-native vehicle-sim-tests
-	@$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes | tee "$(TEST_REPORT)"
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native vehicle-sim-tests
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes | tee "$(TEST_REPORT)"
 
 # -- iOS ------------------------------------------------------------------
 
@@ -267,14 +276,19 @@ install-deps:
 
 # WiFi credentials: read from environment, or prompt at build time.
 # Never use a silent default — the wrong SSID means the ESP32 won't connect.
+# ESP32_WIFI_PASS is current; ESP32_WIFI_PASSWORD is a legacy alias used only
+# when PASS is unset (defined above). Blank creds are permitted (AP mode).
 ESP32_WIFI_SSID ?=
-ESP32_WIFI_PASS ?=
 FIRMWARE_EXTRA_CFLAGS ?=
 
 # WiFi credentials as compiler defines (only in memory, never on disk)
 # Suppress SSID warning for discovery/discovery/join-wifi targets (not firmware-related)
 ifneq ($(ESP32_WIFI_SSID),)
 FIRMWARE_CFLAGS += -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASS=$(ESP32_WIFI_PASS)
+ifeq ($(ESP32_WIFI_PASS),)
+$(warning ESP32_WIFI_SSID is set but ESP32_WIFI_PASS is blank — auth will fail; firmware will fall back to AP mode.)
+$(warning Set: export ESP32_WIFI_PASS=yourpassword  (or legacy ESP32_WIFI_PASSWORD=yourpassword))
+endif
 else ifeq ($(filter discovery join-wifi join-wifi-usb,$(MAKECMDGOALS)),)
 $(warning ESP32_WIFI_SSID is not set. Firmware will use AP mode (ESP32-CAN).)
 $(warning Set: export ESP32_WIFI_SSID=yourSSID ESP32_WIFI_PASS=yourpassword)
@@ -449,9 +463,9 @@ dump-tcp:
 	@sudo tcpdump -i en0 -n -X udp port 3335
 
 
-flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
+flash-wifi flash-over-wifi flash-tcp flash-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
-		echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
+		echo "${YELLOW}ESP32_HOST not set — attempting auto-discovery...${NC}"; \
 		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
 		echo "      Set ESP32_HOST=<ip> to skip discovery."; \
 		DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
@@ -462,7 +476,10 @@ flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 		fi; \
 		echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
 		ESP32_HOST="$$DISCOVERED_IP"; \
+	else \
+		echo "${GREEN}ESP32_HOST is set: $(ESP32_HOST)${NC}"; \
 	fi
+	@$(MAKE) firmware native
 	@echo "--- Signing firmware ---"
 	@scripts/ota-sign.sh $(FIRMWARE_BUILD)/can-bridge.ino.bin --keys-dir "$(OTA_KEYS_DIR)"
 	@echo "--- Pushing signed firmware to $(ESP32_HOST):80 ---"
@@ -976,12 +993,13 @@ capture capture-usb capture-over-usb: test-cpp
 #
 # Requires ESP32_HOST to be set (the ESP32 IP/hostname on the local network).
 
-capture-tcp capture-over-tcp capture-wifi capture-over-wifi: native
+capture-tcp capture-over-tcp capture-wifi capture-over-wifi:
 	@if [ -z "$(ESP32_HOST)" ]; then \
 		echo "${RED}Error: ESP32_HOST is required.${NC}" >&2; \
 		echo "  make capture-tcp ESP32_HOST=<esp32-ip>" >&2; \
 		exit 1; \
 	fi
+	@$(MAKE) native
 	@mkdir -p $(CAPDIR)
 	@ts=$$(date +%Y-%m-%d-%H%M%S); \
 		if [ -n "$(CAPFILE)" ]; then name="$(CAPFILE)_$$ts"; else name="capture_$$ts"; fi; \
@@ -1032,20 +1050,23 @@ help:
 	@echo "  clean            - Clean build artifacts"
 	@echo "  scrub            - Full clean including toolchain sentinel"
 	@echo "  help             - Show this help message"
-reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp: native
+reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
-			echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
-			echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
-			echo "      Set ESP32_HOST=<ip> to skip discovery."; \
-			DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
-			if [ -z "$$DISCOVERED_IP" ]; then \
-				echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
-				echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \
-				exit 1; \
-			fi; \
-			echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
-			ESP32_HOST="$$DISCOVERED_IP"; \
-		fi
+		echo "${YELLOW}ESP32_HOST not set — attempting auto-discovery...${NC}"; \
+		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
+		echo "      Set ESP32_HOST=<ip> to skip discovery."; \
+		DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
+		if [ -z "$$DISCOVERED_IP" ]; then \
+			echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
+			echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \
+			exit 1; \
+		fi; \
+		echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
+		ESP32_HOST="$$DISCOVERED_IP"; \
+	else \
+		echo "${GREEN}ESP32_HOST is set: $(ESP32_HOST)${NC}"; \
+	fi
+	@$(MAKE) native
 	@echo "Rebooting $(ESP32_HOST):3333..."
 	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATZ\rATE0\rATREBOOT\r' | nc -w 5 "$(ESP32_HOST)" 3333 2>/dev/null; \
 		_rc=$$?; \

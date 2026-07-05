@@ -310,8 +310,8 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     std::size_t hexStart = deviceIdPos + deviceIdToken.length();
     std::string hexId = response.substr(hexStart);
 
-    // Clean up any trailing whitespace/CRLF
-    while (!hexId.empty() && (hexId.back() == '\r' || hexId.back() == '\n' || hexId.back() == ' ')) {
+    // Clean up any trailing whitespace/CRLF/prompt
+    while (!hexId.empty() && (hexId.back() == '\r' || hexId.back() == '\n' || hexId.back() == ' ' || hexId.back() == '>')) {
         hexId.pop_back();
     }
 

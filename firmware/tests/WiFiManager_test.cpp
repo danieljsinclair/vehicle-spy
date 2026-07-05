@@ -177,9 +177,10 @@ TEST_F(WiFiManagerTest, HasStoredCredentials_ReturnsFalseWhenNoCredentials) {
     EXPECT_FALSE(wifiManager->hasStoredCredentials());
 }
 
-TEST_F(WiFiManagerTest, OnDisconnected_SetsReconnectingState) {
-    // This test verifies that when WiFi disconnects from CONNECTED_STA state,
-    // the state machine transitions to RECONNECTING and sets tcpServerNeedsRestart
+TEST_F(WiFiManagerTest, OnDisconnected_NonAuthFailure_SetsReconnectingState) {
+    // This test verifies that when WiFi disconnects from CONNECTED_STA state
+    // due to NON-AUTH failures (e.g., beacon timeout), the state machine
+    // transitions to RECONNECTING and sets tcpServerNeedsRestart
 
     // Set up stored credentials
     prefsMock.setValue("wifi", "ssid", "test-ssid");
@@ -216,12 +217,45 @@ TEST_F(WiFiManagerTest, OnDisconnected_SetsReconnectingState) {
     // Verify we're now in CONNECTED_STA state
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
 
-    // Simulate disconnect event - this should transition to RECONNECTING
-    wifiManager->onDisconnected(202);  // AUTH_FAIL
+    // Simulate disconnect event with NON-AUTH failure (e.g., beacon timeout)
+    // This should transition to RECONNECTING
+    wifiManager->onDisconnected(200);  // WIFI_REASON_BEACON_TIMEOUT
 
-    // Verify state is now RECONNECTING
+    // Verify state is now RECONNECTING (non-auth failures retry indefinitely)
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
 
     // Verify TCP server restart flag is set
     EXPECT_TRUE(wifiManager->shouldRestartTcpServer());
+}
+
+TEST_F(WiFiManagerTest, OnDisconnected_AuthFail_TransitionsToApMode) {
+    // This test verifies that AUTH_FAIL (and related auth errors) immediately
+    // transition to AP mode instead of retrying indefinitely
+
+    // Set up stored credentials
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+
+    // Re-create WiFiManager with fresh prefs after setting credentials
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock,
+        "baked-ssid", "baked-pass"
+    );
+
+    // Get to CONNECTED_STA state
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
+
+    // Simulate disconnect event with AUTH_FAIL - this should transition to AP mode
+    wifiManager->onDisconnected(202);  // WIFI_REASON_AUTH_FAIL
+
+    // Verify state is now CONNECTED_AP (auth-fail transitions to AP mode)
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_AP);
+
+    // TCP server restart flag should NOT be set for AP mode transition
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer());
 }
