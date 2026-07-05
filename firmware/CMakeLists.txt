@@ -47,6 +47,7 @@ set(VANILLA_SOURCES
     vanilla/CanBridge.cpp
     vanilla/AtCommandDispatcher.cpp
     vanilla/OtaUpdateServer.cpp
+    vanilla/StatusLEDRenderer.cpp
 )
 
 # StatusLED already exists and is vanilla C++
@@ -87,6 +88,7 @@ add_executable(esp32-firmware-tests
     tests/AtCommandDispatcher_test.cpp
     tests/OtaUpdateServer_test.cpp
     tests/StatusLED_test.cpp
+    tests/StatusLEDRenderer_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests

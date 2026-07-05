@@ -26,6 +26,7 @@ struct CliOptions {
     bool list_signals = false;
     bool discover_mode = false;
     bool help_requested = false;
+    bool led_diag = false;  // Show StatusLED pattern help
     std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", "usb:<path>", or "auto"
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
@@ -58,6 +59,9 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service);
 
 // List supported signals for each registered vehicle.
 void printSupportedSignals(std::ostream& out, const domain::DBCTranslationService& service);
+
+// Display StatusLED pattern reference guide.
+void printLedHelp(std::ostream& out);
 
 // Validate CLI options against the registry
 // Returns error message if validation fails, empty string if valid

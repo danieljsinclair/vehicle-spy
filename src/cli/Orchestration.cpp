@@ -26,6 +26,11 @@ bool handleEarlyExit(
         return true;
     }
 
+    if (opts.led_diag) {
+        printLedHelp(std::cout);
+        return true;
+    }
+
     return false;
 }
 

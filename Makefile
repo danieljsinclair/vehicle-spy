@@ -361,6 +361,10 @@ reboot-over-usb: firmware-port
 	@echo "Starting serial logger, then resetting ${PURPLE}$(ESP32_PORT)${NC} via esptool USB control reset..."
 	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool --esptool "$(ESPTOOL)"
 
+# Aliases: bare `reboot` and `reboot-usb` route to the USB serial reset.
+reboot reboot-usb: reboot-over-usb
+.PHONY: reboot reboot-usb
+
 # -- ESP32 OTA (signed-image, Ed25519ph, over-HTTP) -------------------------
 #
 # make ota-keys    -- generate a per-user Ed25519 OTA signing keypair + bake

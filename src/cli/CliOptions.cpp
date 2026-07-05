@@ -1,6 +1,7 @@
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
+#include "StatusLEDRenderer.h"
 
 #include <CLI/CLI.hpp>
 #include <iostream>
@@ -18,6 +19,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("-s,--scan", opts.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.list_signals, "List supported signals for each vehicle");
     app.add_flag("--discover", opts.discover_mode, "Discover ESP32 devices on the network via UDP broadcast");
+    app.add_flag("--led-diag", opts.led_diag, "Show StatusLED pattern reference guide");
 
     app.add_option("-c,--connect", opts.connect_target,
                    "Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', "
@@ -142,8 +144,8 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
 std::string validateOptions(const CliOptions& opts, const domain::DBCTranslationService& service) {
     auto& registry = service.registry();
 
-    // Skip validation for scan, list, help, discover
-    if (opts.scan_mode || opts.list_signals || opts.help_requested || opts.discover_mode) {
+    // Skip validation for scan, list, help, discover, led-diag
+    if (opts.scan_mode || opts.list_signals || opts.help_requested || opts.discover_mode || opts.led_diag) {
         return "";
     }
 
@@ -194,6 +196,12 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
     }
 
     return "";
+}
+
+void printLedHelp(std::ostream& out) {
+    // Compact one-line-per-pattern diagnostic table, generated from the pattern
+    // opcode arrays (single source of truth in firmware/can-bridge/StatusLED.cpp).
+    out << firmware::StatusLEDRenderer::generateTable();
 }
 
 } // namespace vehicle_sim::cli
