@@ -107,6 +107,14 @@ bool FakeClock::waitForImpl(
         return true;
     }
 
+    // Check if the deadline is already past. If so, return false immediately
+    // without parking. This handles the case where the clock is advanced
+    // BEFORE the wait starts (e.g., in a test that advances the clock
+    // before calling waitForPrompt).
+    if (now() >= deadline) {
+        return false;
+    }
+
     // Register ourselves as the active waiter. The caller's `lock` is held on
     // entry and remains held; we keep it held across the cv.wait below.
     {

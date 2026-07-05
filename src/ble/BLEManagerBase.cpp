@@ -38,7 +38,7 @@ std::string padToWidth(std::string_view s, int width) {
 // the session's public OBD2 API.
 // ================================================
 
-BLEManagerBase::BLEManagerBase() : session_(*this) {}
+BLEManagerBase::BLEManagerBase(util::IClock* clock) : session_(*this, clock) {}
 
 void BLEManagerBase::setDeviceFoundCallback(DeviceCallback callback) {
     device_callback_ = std::move(callback);

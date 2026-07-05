@@ -19,9 +19,25 @@ constexpr uint8_t OBD2_MODE_LIVE_DATA = 0x01;
 // (OBD2PIDs is defined at vehicle_sim scope in BLEManagerBase.h).
 // ================================================
 
-Elm327Session::Elm327Session(Elm327SessionHost& host) : host_(host) {
+namespace {
+
+// SystemClock instance for production use (singleton, never deleted).
+std::unique_ptr<util::SystemClock> g_systemClock;
+
+} // anonymous namespace
+
+Elm327Session::Elm327Session(Elm327SessionHost& host, util::IClock* clock)
+    : host_(host), clock_(clock ? clock : &getSystemClock()) {
     obd2_protocol_.setSendCallback(
         [this](std::string_view cmd) { host_.sessionSendAscii(cmd); });
+}
+
+// Accessor for the singleton SystemClock (lazy-initialized).
+util::IClock& Elm327Session::getSystemClock() {
+    if (!g_systemClock) {
+        g_systemClock = std::make_unique<util::SystemClock>();
+    }
+    return *g_systemClock;
 }
 
 Elm327Session::~Elm327Session() {
@@ -82,14 +98,13 @@ void Elm327Session::startOBD2Polling(int interval_ms) {
 void Elm327Session::obd2PollingLoop() {
     std::cout << "[Elm327Session] Starting OBD2 prompt-driven polling" << std::endl;
 
-    // Wait a moment for characteristic notifications to be set up. Chunked
-    // (10ms) so stopOBD2Polling() can interrupt promptly — a single
-    // sleep_for(POST_CONNECT_SETUP_DELAY_MS) would stall the join for the
-    // full delay even after stop is requested.
-    for (int waited = 0;
-         waited < POST_CONNECT_SETUP_DELAY_MS && polling_active_;
-         waited += 10) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    // Wait a moment for characteristic notifications to be set up.
+    // Use the clock for deterministic timing in tests. The predicate checks
+    // polling_active_ so stopOBD2Polling() can interrupt promptly.
+    {
+        std::unique_lock lock(prompt_mutex_);
+        auto setupDeadline = clock_->now() + std::chrono::milliseconds(POST_CONNECT_SETUP_DELAY_MS);
+        clock_->waitFor(prompt_cv_, lock, [this] { return !polling_active_; }, setupDeadline);
     }
 
     // PID order is preserved by construction — do NOT reorder (the contract
@@ -121,7 +136,13 @@ void Elm327Session::obd2PollingLoop() {
         }
 
         // Brief pause between full PID cycles to avoid hammering the bus.
-        std::this_thread::sleep_for(std::chrono::milliseconds(polling_interval_ms_));
+        // Use the clock for deterministic timing in tests. The predicate checks
+        // polling_active_ so stopOBD2Polling() can interrupt promptly.
+        {
+            std::unique_lock lock(prompt_mutex_);
+            auto intervalDeadline = clock_->now() + std::chrono::milliseconds(polling_interval_ms_);
+            clock_->waitFor(prompt_cv_, lock, [this] { return !polling_active_; }, intervalDeadline);
+        }
     }
 
     std::cout << "[Elm327Session] OBD2 polling stopped" << std::endl;
@@ -143,8 +164,8 @@ void Elm327Session::stopOBD2Polling() {
 bool Elm327Session::waitForPrompt(int timeout_ms) {
     std::unique_lock lock(prompt_mutex_);
     prompt_ready_ = false;
-    return prompt_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms),
-        [this] { return prompt_ready_; });
+    const auto deadline = clock_->now() + std::chrono::milliseconds(timeout_ms);
+    return clock_->waitFor(prompt_cv_, lock, [this] { return prompt_ready_; }, deadline);
 }
 
 void Elm327Session::notifyPrompt() {
@@ -165,7 +186,12 @@ bool Elm327Session::initializeCANMonitor() {
     auto commands = boundary::ELM327Transport::buildCANMonitorInitSequence();
     for (const auto& cmd : commands) {
         host_.sessionSendAscii(cmd.command);
-        std::this_thread::sleep_for(std::chrono::milliseconds(cmd.delayMs));
+        if (cmd.delayMs > 0) {
+            // Use the clock for deterministic timing in tests.
+            std::unique_lock lock(prompt_mutex_);
+            auto delayDeadline = clock_->now() + std::chrono::milliseconds(cmd.delayMs);
+            clock_->waitFor(prompt_cv_, lock, [] { return false; }, delayDeadline);
+        }
     }
 
     can_mode_ = true;

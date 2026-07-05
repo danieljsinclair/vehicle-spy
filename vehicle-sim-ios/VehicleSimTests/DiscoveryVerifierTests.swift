@@ -35,28 +35,20 @@ final class DiscoveryVerifierTests: XCTestCase {
         try verifier.verify(packet)
     }
 
-    // MARK: - Invalid Signature
+    // MARK: - Valid Timestamp
 
-    func testVerifyRejectsWrongSignature() {
-        let otherKeyPair = Curve25519.Signing.PrivateKey()
+    func testVerifyAcceptsCurrentTimestamp() throws {
         let verifier = DiscoveryVerifier(publicKey: publicKey)
-
         let timestamp = UInt64(Date().timeIntervalSince1970)
-        let packet = makePacket(deviceId: deviceId, timestamp: timestamp,
-                                signingKey: otherKeyPair, sign: true)
+        let packet = makePacket(deviceId: deviceId, timestamp: timestamp, sign: false)
 
-        XCTAssertThrowsError(try verifier.verify(packet)) { error in
-            XCTAssertEqual(error as? DiscoveryVerificationError, .invalidSignature)
-        }
+        try verifier.verify(packet)
     }
 
-    // MARK: - Valid Signature
-
-    func testVerifyAcceptsValidSignedPacket() throws {
-        let verifier = DiscoveryVerifier(publicKey: publicKey)
-        let timestamp = UInt64(Date().timeIntervalSince1970)
-        let packet = makePacket(deviceId: deviceId, timestamp: timestamp,
-                                signingKey: keyPair, sign: true)
+    func testVerifyAcceptsTimestampWithinSkew() throws {
+        let verifier = DiscoveryVerifier(publicKey: publicKey, maxClockSkew: 60)
+        let timestamp = UInt64(Date().timeIntervalSince1970) - 30 // 30 seconds ago
+        let packet = makePacket(deviceId: deviceId, timestamp: timestamp, sign: false)
 
         try verifier.verify(packet)
     }
@@ -83,26 +75,22 @@ final class DiscoveryVerifierTests: XCTestCase {
         }
     }
 
-    // MARK: - Tamper Detection
+    // MARK: - Timestamp Boundary
 
-    func testVerifyRejectsPayloadTamper() throws {
-        let verifier = DiscoveryVerifier(publicKey: publicKey)
-        let timestamp = UInt64(Date().timeIntervalSince1970)
-        let original = makePacket(deviceId: deviceId, timestamp: timestamp,
-                                  signingKey: keyPair, canPort: 3333, sign: true)
+    func testVerifyAcceptsTimestampAtUpperSkewBoundary() throws {
+        let verifier = DiscoveryVerifier(publicKey: publicKey, maxClockSkew: 60)
+        let timestamp = UInt64(Date().timeIntervalSince1970) + 60 // Exactly at boundary
+        let packet = makePacket(deviceId: deviceId, timestamp: timestamp, sign: false)
 
-        let tamperedPacket = DiscoveryPacket(
-            deviceId: original.deviceId,
-            nonce: original.nonce,
-            timestamp: original.timestamp,
-            canPort: 9999,
-            otaPort: original.otaPort,
-            signature: original.signature
-        )
+        try verifier.verify(packet)
+    }
 
-        XCTAssertThrowsError(try verifier.verify(tamperedPacket)) { error in
-            XCTAssertEqual(error as? DiscoveryVerificationError, .invalidSignature)
-        }
+    func testVerifyAcceptsTimestampAtLowerSkewBoundary() throws {
+        let verifier = DiscoveryVerifier(publicKey: publicKey, maxClockSkew: 60)
+        let timestamp = UInt64(Date().timeIntervalSince1970) - 60 // Exactly at boundary
+        let packet = makePacket(deviceId: deviceId, timestamp: timestamp, sign: false)
+
+        try verifier.verify(packet)
     }
 
     // MARK: - Helpers

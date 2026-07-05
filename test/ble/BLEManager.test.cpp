@@ -2,6 +2,7 @@
 #include <gmock/gmock.h>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/ble/BLEManagerBase.h"
+#include "vehicle-sim/util/IClock.h"
 
 #include <thread>
 #include <chrono>
@@ -11,6 +12,9 @@ using testing::_;
 using testing::Return;
 using testing::SaveArg;
 using testing::Eq;
+
+// Use the FakeClock from the util namespace for deterministic time in tests.
+using vehicle_sim::util::FakeClock;
 
 // Mock BLE platform for testing - inherits from BLEManagerBase
 class MockBLEManagerBase : public BLEManagerBase {
@@ -308,6 +312,8 @@ namespace {
  */
 class PromptTestBLEManager : public BLEManagerBase {
 public:
+    explicit PromptTestBLEManager(util::IClock* clock = nullptr) : BLEManagerBase(clock) {}
+
     std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
     bool connect(std::string_view) override { return false; }
     void disconnect() override {}
@@ -329,6 +335,7 @@ public:
     using BLEManagerBase::notifyPrompt;
     using BLEManagerBase::invokeDataCallback;
     using BLEManagerBase::promptReady;
+    using BLEManagerBase::setClock;
 };
 
 } // anonymous namespace
@@ -336,10 +343,14 @@ public:
 TEST(BLEManagerBaseTest, WaitForPromptReturnsTrueWhenNotified)
 {
     PromptTestBLEManager manager;
+    // Inject FakeClock for deterministic timing.
+    FakeClock clock;
+    manager.setClock(&clock);
 
-    // Notify from another thread, wait on this thread
+    // Notify from another thread, wait on this thread. Use a small sleep
+    // to ensure the waiter has started waiting before the notifier notifies.
     std::thread notifier([&manager]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
         manager.notifyPrompt();
     });
 
@@ -352,9 +363,36 @@ TEST(BLEManagerBaseTest, WaitForPromptReturnsTrueWhenNotified)
 TEST(BLEManagerBaseTest, WaitForPromptReturnsFalseOnTimeout)
 {
     PromptTestBLEManager manager;
+    // Inject FakeClock for deterministic timing.
+    FakeClock clock;
+    manager.setClock(&clock);
 
-    // No notification — should time out
-    bool result = manager.waitForPrompt(1);
+    // No notification — advance clock to simulate time passing.
+    // The waitForPrompt call will timeout after 1ms. Since we've already
+    // advanced time, the deadline will be immediately passed.
+    // Advance clock to 10ms, then call waitForPrompt(1). The deadline
+    // will be 10ms + 1ms = 11ms, but FakeClock::waitForImpl now checks
+    // if the deadline is already past BEFORE parking. Since we're not
+    // advancing the clock further, the wait will timeout when the
+    // FakeClock's time doesn't advance.
+    //
+    // Actually, this test is fundamentally broken with FakeClock because
+    // the deadline is always calculated as now() + timeout. If we
+    // advance the clock BEFORE calling waitForPrompt, the deadline moves
+    // forward as well.
+    //
+    // The correct approach is to use a separate thread to advance the
+    // clock AFTER the wait starts.
+    std::atomic<bool> result{false};
+    std::thread waiter([&manager, &result]() {
+        result = manager.waitForPrompt(1);
+    });
+
+    // Wait a bit for the waiter to start waiting, then advance the clock
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    clock.advance(std::chrono::milliseconds(2));
+
+    waiter.join();
 
     EXPECT_FALSE(result);
 }
@@ -431,6 +469,8 @@ namespace {
  */
 class SessionTestBLEManager : public BLEManagerBase {
 public:
+    explicit SessionTestBLEManager(util::IClock* clock = nullptr) : BLEManagerBase(clock) {}
+
     std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
     bool connect(std::string_view) override { return false; }
     void disconnect() override {}
@@ -469,6 +509,9 @@ public:
     using BLEManagerBase::invokeConnectionCallback;
     using BLEManagerBase::setConnectionState;
     using BLEManagerBase::canMode;
+
+    // Expose setClock for test injection
+    using BLEManagerBase::setClock;
 };
 
 } // anonymous namespace
@@ -476,19 +519,43 @@ public:
 // --- ELM327 / OBD2 init & detection contracts -----------------------------
 
 TEST(BLEManagerBaseSessionContract, InitializeELM327_SendsFullInitSequenceAndReturnsTrue) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
+    // Advance the clock in a separate thread to trigger waitForPrompt timeouts.
+    // InitializeELM327 calls waitForPrompt after each AT command (7 total),
+    // so we advance the clock enough times to unblock all waits.
+    std::thread advanceThread([&clock]() {
+        for (int i = 0; i < 10; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            clock.advance(std::chrono::milliseconds(3000));
+        }
+    });
+
     // The init sequence is prompt-driven: each AT command waits for '>'.
     // With no prompt ever arriving, every command is still emitted once
-    // (waitForPrompt merely times out and warns).
+    // (waitForPrompt times out when clock advances past PROMPT_TIMEOUT_MS).
     EXPECT_TRUE(m.elm327Session().initializeELM327());
     // buildInitSequence() emits ATZ, ATE0, ATH0, ATL0, ATSP0, ATS0, ATSTFF.
     ASSERT_EQ(m.sentCommands.size(), 7u);
     EXPECT_EQ(m.sentCommands.front(), "ATZ\r");
     EXPECT_EQ(m.sentCommands.back(), "ATSTFF\r");
+
+    advanceThread.join();
 }
 
 TEST(BLEManagerBaseSessionContract, InitializeOBD2WithDetection_InitializesThenDetects) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
+    // Advance the clock in a separate thread to trigger waitForPrompt timeouts.
+    std::thread advanceThread([&clock]() {
+        for (int i = 0; i < 10; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            clock.advance(std::chrono::milliseconds(3000));
+        }
+    });
+
     auto result = m.elm327Session().initializeOBD2WithDetection();
     // The contract: initialiseELM327 runs first (its 7 AT commands lead the
     // emission stream), then detection is attempted. detectVehicle() may
@@ -498,6 +565,8 @@ TEST(BLEManagerBaseSessionContract, InitializeOBD2WithDetection_InitializesThenD
     EXPECT_EQ(m.sentCommands[0], "ATZ\r");
     EXPECT_EQ(m.sentCommands[6], "ATSTFF\r");
     EXPECT_NO_FATAL_FAILURE((void)result.has_value());
+
+    advanceThread.join();
 }
 
 TEST(BLEManagerBaseSessionContract, ProcessOBD2Data_RoutesIntoProtocolHandler) {
@@ -512,13 +581,25 @@ TEST(BLEManagerBaseSessionContract, ProcessOBD2Data_RoutesIntoProtocolHandler) {
 // --- CAN monitor contracts ------------------------------------------------
 
 TEST(BLEManagerBaseSessionContract, InitializeCANMonitor_SendsMonitorInitAndSetsCanMode) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
+    // Advance the clock in a separate thread to handle delays in initializeCANMonitor.
+    std::thread advanceThread([&clock]() {
+        for (int i = 0; i < 10; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            clock.advance(std::chrono::milliseconds(1000));
+        }
+    });
+
     EXPECT_FALSE(m.canMode());
     EXPECT_TRUE(m.elm327Session().initializeCANMonitor());
     // buildCANMonitorInitSequence(): ATZ, ATE0, ATSP6, ATH1, ATMA.
     ASSERT_EQ(m.sentCommands.size(), 5u);
     EXPECT_EQ(m.sentCommands.back(), "ATMA\r");
     EXPECT_TRUE(m.canMode());
+
+    advanceThread.join();
 }
 
 TEST(BLEManagerBaseSessionContract, StartStopCANMonitor_FlagAndStopEmitsAtma) {
@@ -538,7 +619,17 @@ TEST(BLEManagerBaseSessionContract, StartStopCANMonitor_FlagAndStopEmitsAtma) {
 // --- VIN query contracts --------------------------------------------------
 
 TEST(BLEManagerBaseSessionContract, InitializeForVINQuery_ClearsCanModeResetsDetectorAndEmitsVinInit) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
+    // Advance the clock in a separate thread to trigger waitForPrompt timeouts.
+    std::thread advanceThread([&clock]() {
+        for (int i = 0; i < 10; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            clock.advance(std::chrono::milliseconds(3000));
+        }
+    });
+
     m.elm327Session().startCANMonitor();  // put into CAN mode first
     ASSERT_TRUE(m.canMode());
 
@@ -555,19 +646,33 @@ TEST(BLEManagerBaseSessionContract, InitializeForVINQuery_ClearsCanModeResetsDet
     ASSERT_NE(det, nullptr);
     auto r = det->getResult();
     EXPECT_TRUE(r.vin.empty());
+
+    advanceThread.join();
 }
 
 TEST(BLEManagerBaseSessionContract, QueryVIN_ReturnsNulloptWhenPromptTimesOut) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
+    // Advance the clock in a separate thread to trigger waitForPrompt timeout.
+    std::thread advanceThread([&clock]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        clock.advance(std::chrono::milliseconds(10));
+    });
+
     auto vin = m.elm327Session().queryVIN(/*timeout_ms=*/5);
     EXPECT_FALSE(vin.has_value());
     // Emits the 09 02 query before waiting.
     ASSERT_FALSE(m.sentCommands.empty());
     EXPECT_EQ(m.sentCommands.front(), "09 02\r");
+
+    advanceThread.join();
 }
 
 TEST(BLEManagerBaseSessionContract, QueryVIN_ReturnsVinWhenDetectorPopulatedAndPromptArrives) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
     // Seed the detector with a VIN so getResult() has one to return, then
     // deliver the '>' prompt so queryVIN's waitForPrompt returns true.
     // feedVINResponse appends every non-zero byte after [0x49 0x02 ...] —
@@ -576,12 +681,17 @@ TEST(BLEManagerBaseSessionContract, QueryVIN_ReturnsVinWhenDetectorPopulatedAndP
         std::vector<uint8_t>{0x49, 0x02, 0x00,
                              '1','H','G','C','M','8','2','6','3',
                              '3','A','0','0','0','0','0','0'});
-    std::thread prompter([&m] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    // Notify the prompt from a separate thread to make waitForPrompt return true.
+    // We need to delay slightly to ensure queryVIN has started waiting.
+    std::thread notifyThread([&m]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
         m.notifyPrompt();
     });
+
     auto vin = m.elm327Session().queryVIN(/*timeout_ms=*/2000);
-    prompter.join();
+    notifyThread.join();
+
     ASSERT_TRUE(vin.has_value());
     EXPECT_EQ(vin->size(), 17u);
 }
@@ -589,7 +699,17 @@ TEST(BLEManagerBaseSessionContract, QueryVIN_ReturnsVinWhenDetectorPopulatedAndP
 // --- OBD2 polling loop contracts -----------------------------------------
 
 TEST(BLEManagerBaseSessionContract, StartOBD2Polling_IsIdempotentSpawnsAtMostOneThread) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
+    // Advance the clock in a separate thread to unblock the polling loop.
+    std::thread advanceThread([&clock]() {
+        for (int i = 0; i < 10; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            clock.advance(std::chrono::milliseconds(1000));
+        }
+    });
+
     m.setBaseConnected(true);
     m.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
 
@@ -598,10 +718,14 @@ TEST(BLEManagerBaseSessionContract, StartOBD2Polling_IsIdempotentSpawnsAtMostOne
     m.elm327Session().startOBD2Polling(200);
     m.elm327Session().stopOBD2Polling();  // joins the single thread — would deadlock if two
     SUCCEED();
+
+    advanceThread.join();
 }
 
 TEST(BLEManagerBaseSessionContract, OBD2PollingLoop_QueriesStandardPidsInDeclaredOrder) {
-    SessionTestBLEManager m;
+    FakeClock clock;
+    SessionTestBLEManager m(&clock);
+
     // The loop gates on the base connected_ member (not the isConnected()
     // override), so drive it directly.
     m.setBaseConnected(true);
@@ -613,10 +737,20 @@ TEST(BLEManagerBaseSessionContract, OBD2PollingLoop_QueriesStandardPidsInDeclare
     });
 
     m.elm327Session().startOBD2Polling(/*interval_ms=*/1000);
-    // Allow the post-connect setup delay + one PID cycle.
-    std::this_thread::sleep_for(
-        std::chrono::milliseconds(SessionTestBLEManager::kPostConnectSetupDelayMs + 200));
-    m.setBaseConnected(false);  // let the loop exit
+
+    // Give the polling thread a moment to start, then advance the clock to
+    // unblock the initial wait and the first waitForPrompt timeout.
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    clock.advance(std::chrono::milliseconds(
+        SessionTestBLEManager::kPostConnectSetupDelayMs +
+        Elm327Session::PROMPT_TIMEOUT_MS + 100
+    ));
+
+    // Give the polling thread time to process and send queries
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Now stop the loop
+    m.setBaseConnected(false);
     m.elm327Session().stopOBD2Polling();
 
     // The loop's declared PID order is: BATTERY_VOLTAGE, ENGINE_LOAD,

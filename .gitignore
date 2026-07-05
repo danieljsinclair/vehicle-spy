@@ -1,10 +1,7 @@
 # Build artifacts and temporary files
 build/
-build-ios/
-build-native/
-build-firmware/
-build-cov/
-build-sonar/
+build-*/
+build_*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
@@ -131,3 +128,5 @@ firmware-ready
 # SonarCloud scanner work directory + cached reports
 .scannerwork/
 sonar-cfamily-taint-analysis-reproducer.tar.xz
+build-verify/Makefile
+build-verify/test/Makefile

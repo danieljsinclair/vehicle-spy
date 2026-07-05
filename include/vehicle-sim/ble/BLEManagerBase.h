@@ -232,7 +232,17 @@ protected:
     // Protected Constructor - For derived classes
     // ================================================
 
-    BLEManagerBase();
+    /**
+     * @brief Construct with optional clock for time-dependent operations.
+     * @param clock If null, uses SystemClock (real time); for tests, pass a FakeClock.
+     */
+    explicit BLEManagerBase(util::IClock* clock = nullptr);
+
+    /**
+     * @brief Set the clock for time-dependent operations.
+     * Allows tests to inject a FakeClock after construction.
+     */
+    void setClock(util::IClock* clock) { session_.setClock(clock); }
 
     // ================================================
     // Common State (Shared by Derived Classes)

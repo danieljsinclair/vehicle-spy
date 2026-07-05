@@ -13,6 +13,7 @@
 
 #include "vehicle-sim/boundary/OBD2Protocol.h"
 #include "vehicle-sim/domain/VehicleDetector.h"
+#include "vehicle-sim/util/IClock.h"
 
 namespace vehicle_sim {
 
@@ -62,7 +63,9 @@ public:
     static constexpr int PROMPT_TIMEOUT_MS = 2000;           // max wait for '>' prompt before skipping PID
     static constexpr int POST_CONNECT_SETUP_DELAY_MS = 500;  // wait for characteristic notifications
 
-    explicit Elm327Session(Elm327SessionHost& host);
+    /// Construct with host and optional clock (for test injection).
+    /// If clock is null, uses SystemClock (real time).
+    explicit Elm327Session(Elm327SessionHost& host, util::IClock* clock = nullptr);
 
     // The session owns a polling thread and synchronization primitives, so it
     // is non-copyable and non-movable (Rule of Five via =delete).
@@ -124,6 +127,9 @@ public:
     /// Signal that a '>' prompt has been observed in the incoming byte stream.
     void notifyPrompt();
 
+    /// Set the clock for time-dependent operations (for test injection).
+    void setClock(util::IClock* clock) { clock_ = clock; }
+
     // === Accessors =========================================================
     /// Whether the adapter is in CAN monitor mode.
     [[nodiscard]] bool canMode() const noexcept { return can_mode_.load(); }
@@ -144,6 +150,12 @@ private:
     void obd2PollingLoop();
 
     Elm327SessionHost& host_;
+
+    /// Clock abstraction for time-dependent operations (injected or default).
+    util::IClock* clock_;
+
+    /// Accessor for the singleton SystemClock (production default).
+    static util::IClock& getSystemClock();
 
     // OBD2 protocol handler for vehicle detection and command management.
     boundary::OBD2Protocol obd2_protocol_;
