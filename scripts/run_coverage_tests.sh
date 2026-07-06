@@ -93,7 +93,9 @@ PROJECT_ROOT="$(cd "$BUILD_DIR/.." && pwd)"
 python3 "$SCRIPT_DIR/lcov_to_xml.py" \
     "$BUILD_DIR/lcov.info" \
     "$BUILD_DIR/coverage-sonar.xml" \
-    --project-root "$PROJECT_ROOT"
+    --project-root "$PROJECT_ROOT" \
+    --src-root src \
+    --src-root include
 
 # Guard: every src/ file that has DA line data in lcov.info MUST appear in the
 # XML, otherwise coverage is silently lost. This catches a stale build dir that

@@ -5,6 +5,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Coverage instrumentation (optional, gated by COVERAGE=ON)
+option(COVERAGE "Enable coverage instrumentation for firmware tests" OFF)
+if(COVERAGE)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping -g")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate")
+endif()
+
 # Platform-specific settings
 if(APPLE)
     # macOS specific frameworks
@@ -102,3 +109,8 @@ target_compile_options(esp32-firmware-tests PRIVATE -Wall -Wextra -Werror)
 
 add_test(NAME esp32-firmware-tests COMMAND esp32-firmware-tests)
 set_tests_properties(esp32-firmware-tests PROPERTIES TIMEOUT 30)
+
+# Test report output (XML for build_summary.py, also output to stdout)
+set_tests_properties(esp32-firmware-tests PROPERTIES
+    ENVIRONMENT "GTEST_OUTPUT=xml:${CMAKE_CURRENT_BINARY_DIR}/test-report.xml"
+)

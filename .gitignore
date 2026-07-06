@@ -9,6 +9,7 @@ cmake_install.cmake
 Makefile.cmake
 CTestTestfile.cmake
 compile_commands.json
+*.profraw
 *.dylib
 *.so
 *.dll

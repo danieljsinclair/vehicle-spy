@@ -93,6 +93,9 @@ private:
 
     // Reset pattern to beginning (on pattern change or cycle completion)
     void resetPattern(uint32_t currentTime);
+
+    // Diagnostics
+    const char* getPatternName(Pattern pattern);
 };
 
 } // namespace firmware

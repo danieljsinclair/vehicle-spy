@@ -8,17 +8,17 @@ namespace firmware {
 // ── Pattern Registry ─────────────────────────────────────────────────────────────
 // Single source of truth for pattern metadata (names, categories, descriptions)
 static const std::vector<PatternInfo> PATTERN_REGISTRY = {
-    {StatusLED::Pattern::BOOT, PatternCategory::BOOT, "BOOT", "Startup sequence"},
-    {StatusLED::Pattern::WIFI_SEARCHING, PatternCategory::WIFI, "WIFI_SEARCHING", "Searching for WiFi network"},
-    {StatusLED::Pattern::WIFI_CONNECTED, PatternCategory::WIFI, "WIFI_CONNECTED", "WiFi connected, no client"},
-    {StatusLED::Pattern::CLIENT_CONNECTED, PatternCategory::CONNECTION, "CLIENT_CONNECTED", "Client connected via BLE"},
-    {StatusLED::Pattern::AP_MODE, PatternCategory::AP_MODE, "AP_MODE", "WiFi AP mode (no STA connection)"},
-    {StatusLED::Pattern::OTA_IN_PROGRESS, PatternCategory::OTA, "OTA_IN_PROGRESS", "Firmware update in progress"},
-    {StatusLED::Pattern::AUTH_FAILURE, PatternCategory::ERROR, "AUTH_FAILURE", "Authentication failed"},
-    {StatusLED::Pattern::ERROR_RECOVERABLE, PatternCategory::ERROR, "ERROR_RECOVERABLE", "Recoverable error occurred"},
-    {StatusLED::Pattern::ERROR_NO_NTP_SERVICE, PatternCategory::ERROR, "ERROR_NO_NTP_SERVICE", "NTP time service unavailable"},
-    {StatusLED::Pattern::FATAL_UNRECOVERABLE, PatternCategory::FATAL, "FATAL_UNRECOVERABLE", "Fatal error (system halted)"},
-    {StatusLED::Pattern::OFF, PatternCategory::OFF, "OFF", "LED off"}
+    {StatusLED::Pattern::BOOT,                  PatternCategory::BOOT,          "BOOT",                     "Startup sequence"},
+    {StatusLED::Pattern::WIFI_SEARCHING,        PatternCategory::WIFI,          "WIFI_SEARCHING",           "Searching for WiFi network"},
+    {StatusLED::Pattern::WIFI_CONNECTED,        PatternCategory::WIFI,          "WIFI_CONNECTED",           "WiFi connected, no client"},
+    {StatusLED::Pattern::CLIENT_CONNECTED,      PatternCategory::CONNECTION,    "CLIENT_CONNECTED",         "Client connected via BLE"},
+    {StatusLED::Pattern::AP_MODE,               PatternCategory::AP_MODE,       "AP_MODE",                  "WiFi AP mode (no STA connection)"},
+    {StatusLED::Pattern::OTA_IN_PROGRESS,       PatternCategory::OTA,           "OTA_IN_PROGRESS",          "Firmware update in progress"},
+    {StatusLED::Pattern::AUTH_FAILURE,          PatternCategory::ERROR,         "AUTH_FAILURE",             "Authentication failed"},
+    {StatusLED::Pattern::ERROR_RECOVERABLE,     PatternCategory::ERROR,         "ERROR_RECOVERABLE",        "Recoverable error occurred"},
+    {StatusLED::Pattern::ERROR_NO_NTP_SERVICE,  PatternCategory::ERROR,         "ERROR_NO_NTP_SERVICE",     "NTP time service unavailable"},
+    {StatusLED::Pattern::FATAL_UNRECOVERABLE,   PatternCategory::FATAL,         "FATAL_UNRECOVERABLE",      "Fatal error (system halted)"},
+    {StatusLED::Pattern::OFF,                   PatternCategory::OFF,           "OFF",                      "LED off"}
 };
 
 // ── Render Pattern ───────────────────────────────────────────────────────────────

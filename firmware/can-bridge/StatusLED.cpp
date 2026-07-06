@@ -1,6 +1,14 @@
 #include "StatusLED.h"
 #include "IStatusLEDOutput.h"
 
+#ifdef ARDUINO
+// Real Arduino/ESP32 build: Serial + core defs for the DEBUG traces in
+// setPattern()/resetPattern(). Host builds (native vehicle-sim-lib and the
+// firmware host-test harness) define no ARDUINO, so these traces — and this
+// include — are excluded, keeping StatusLED fully host-testable.
+#include <Arduino.h>
+#endif
+
 namespace firmware {
 
 // ── Declarative Pattern Table ────────────────────────────────────────────────────
@@ -189,10 +197,32 @@ void StatusLED::init() {
     setPattern(Pattern::BOOT);
 }
 
+const char* StatusLED::getPatternName(Pattern pattern) {
+    switch (pattern) {
+        case Pattern::OFF:                  return "OFF";
+        case Pattern::BOOT:                 return "BOOT";
+        case Pattern::WIFI_SEARCHING:       return "WIFI_SEARCHING";
+        case Pattern::WIFI_CONNECTED:       return "WIFI_CONNECTED";
+        case Pattern::CLIENT_CONNECTED:     return "CLIENT_CONNECTED";
+        case Pattern::AP_MODE:              return "AP_MODE";
+        case Pattern::OTA_IN_PROGRESS:      return "OTA_IN_PROGRESS";
+        case Pattern::AUTH_FAILURE:         return "AUTH_FAILURE";
+        case Pattern::ERROR_RECOVERABLE:    return "ERROR_RECOVERABLE";
+        case Pattern::ERROR_NO_NTP_SERVICE: return "ERROR_NO_NTP_SERVICE";
+        case Pattern::FATAL_UNRECOVERABLE:  return "FATAL_UNRECOVERABLE";
+        default: return "UNKNOWN_PATTERN";
+    }
+}
+
 // ── Set Pattern ───────────────────────────────────────────────────────────────────
 void StatusLED::setPattern(Pattern pattern) {
     currentPattern_ = pattern;
     // Pattern will reset on next update when change is detected
+#ifdef ARDUINO
+    // Serial trace (hardware only — no-op on host builds). getPatternName is
+    // host-safe (plain names), so the call compiles but only links Serial under ARDUINO.
+    Serial.printf("[DEBUG] StatusLED::setPattern: %s\r\n", getPatternName(pattern));
+#endif
 }
 
 // ── Update (called from loop) ────────────────────────────────────────────────────
@@ -251,6 +281,9 @@ void StatusLED::resetPattern(uint32_t currentTime) {
         bool newState = (steps[0].state == LEDState::ON);
         setLedOn(newState);
     }
+#ifdef ARDUINO
+    Serial.printf("[DEBUG] StatusLED::resetPattern: %s\r\n", getPatternName(currentPattern_));
+#endif
 }
 
 // ── Set LED State ─────────────────────────────────────────────────────────────────
