@@ -2,6 +2,7 @@
 #define FIRMWARE_STATUS_LED_H
 
 #include "IStatusLEDOutput.h"
+#include "WiFiManager.h"  // For esp32_firmware::IStatusLED interface (symlinked from vanilla/)
 #include <cstdint>
 #include <array>
 
@@ -43,7 +44,7 @@ struct LEDStep {
 };
 
 // ── Status LED State Machine (declarative, non-blocking, millis-based) ───────
-class StatusLED {
+class StatusLED : public esp32_firmware::IStatusLED {
 public:
     // LED pattern enumeration
     enum class Pattern {
@@ -54,7 +55,7 @@ public:
         CLIENT_CONNECTED,     // SOLID ON (no cycling)
         AP_MODE,              // LONG_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR
         OTA_IN_PROGRESS,      // SHORT_FLASH ON, SHORT_GAP OFF (0.2s on/off rapid)
-        AUTH_FAILURE,         // ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
+        ERROR_AUTH_FAILURE,         // ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
         ERROR_RECOVERABLE,    // ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR
         ERROR_NO_NTP_SERVICE, // ERROR_3_PULSE + 1×TINY_PULSE + SEPARATOR
         FATAL_UNRECOVERABLE   // SOS: 3×SHORT, 3×LONG, 3×SHORT, SEPARATOR (morse SOS)
@@ -66,12 +67,14 @@ public:
     // Initialize the LED hardware and set initial pattern
     void init();
 
-    // Set the active pattern (switches to new pattern on next update)
-    void setPattern(Pattern pattern);
+    // IStatusLED interface implementation
+    void setPattern(int pattern) override;
+    void update(uint32_t now) override;
 
-    // Update the LED state (call this from loop() each tick)
-    // Non-blocking: checks timing and transitions state if needed
-    void update(uint32_t currentTime);
+    // Public API for Pattern enum (convenience overload)
+    void setPattern(Pattern pattern) {
+        setPattern(static_cast<int>(pattern));
+    }
 
     // Get the current pattern
     Pattern getPattern() const { return currentPattern_; }
@@ -87,6 +90,10 @@ private:
     uint32_t phaseStartTime_;     // When current phase started
     uint32_t stepIndex_;          // Current step in pattern array
     bool ledOn_;                   // Current LED state
+
+    // Internal implementation methods (called by interface and public API)
+    void setPatternInternal(Pattern pattern);
+    void updateInternal(uint32_t currentTime);
 
     // Helper to set LED state
     void setLedOn(bool on);

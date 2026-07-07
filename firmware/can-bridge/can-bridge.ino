@@ -28,9 +28,26 @@
 #include "StatusLED.h"
 #include "HardwareStatusLEDOutput.h"
 
-// Use firmware namespace for StatusLED components
+// ── FirmwareApp Components ───────────────────────────────────────────────────────────
+// Vanilla firmware orchestrator (WiFi/LED state machine + callback seams)
+#include "ArduinoWiFi.h"
+#include "ArduinoPreferences.h"
+#include "ArduinoUdp.h"
+#include "ArduinoTime.h"
+#include "ArduinoSntp.h"
+#include "ArduinoTimeNtp.h"
+#include "FirmwareApp.h"
+
+// Use firmware namespace for components
 using firmware::StatusLED;
 using firmware::HardwareStatusLEDOutput;
+using esp32_firmware::ArduinoWiFi;
+using esp32_firmware::ArduinoPreferences;
+using esp32_firmware::ArduinoUdp;
+using esp32_firmware::ArduinoTime;
+using esp32_firmware::ArduinoSntp;
+using esp32_firmware::ArduinoTimeNtp;
+using esp32_firmware::FirmwareApp;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -326,16 +343,38 @@ static constexpr const char* WIFI_PASSWORD = nullptr;
 static constexpr const char* AP_SSID = "ESP32-CAN";
 static constexpr const char* AP_PASS = "cancan12";
 
-static WiFiServer tcpServer(Constants::TCP_PORT);
-static WiFiClient client;
-static bool monitorActive = false;
-static uint32_t serialQuietUntilMs = 0;
-static WiFiState::Context wifiCtx;
-
 // ── Status LED ─────────────────────────────────────────────────────────────────
 // Visual feedback using the blue LED on GPIO2
 static HardwareStatusLEDOutput ledOutput(2);  // GPIO2 for ESP32 blue LED
 static StatusLED statusLed(&ledOutput);
+
+// ── FirmwareApp Components ─────────────────────────────────────────────────────
+// Arduino adapters for vanilla interfaces (scoped to .ino via ARDUINO ifdef)
+static ArduinoWiFi arduinoWiFi;
+static ArduinoPreferences arduinoPrefs;
+static ArduinoUdp arduinoUdp;
+static ArduinoTime arduinoTime;
+
+// Baked credentials: use the build-injected ESP32_WIFI_SSID/ESP32_WIFI_PASS when
+// present (the real station credentials), otherwise nullptr so WiFiManager falls
+// back to AP mode. NOTE: the previous refactor hardcoded dummy "baked-ssid"/
+// "baked-pass" here, which made FirmwareApp call WiFi.begin() with bogus creds and
+// never join the real network. Must match the inline state machine's WIFI_SSID.
+static constexpr const char* BAKED_SSID = (WIFI_SSID != nullptr) ? WIFI_SSID : nullptr;
+static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASSWORD : nullptr;
+
+// FirmwareApp orchestrator - delegates WiFi/LED to vanilla WiFiManager
+// ArduinoWiFi implements both IWiFi and IWiFiDiscovery
+static FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
+                              arduinoWiFi, arduinoUdp, arduinoTime,
+                              discoveryDeviceId,
+                              BAKED_SSID, BAKED_PASS);
+
+static WiFiServer tcpServer(Constants::TCP_PORT);
+static WiFiClient client;
+static bool monitorActive = false;
+static uint32_t serialQuietUntilMs = 0;
+static WiFiState::Context wifiCtx;  // TODO: Remove once fully routed to FirmwareApp
 
 // ── UDP Discovery Broadcast ──────────────────────────────────────────────
 // Broadcasts unsigned discovery packets on UDP port 3335 so that CLI and iOS
@@ -903,40 +942,9 @@ static void applyStateTransition(const StateTransition& transition, WiFiState::C
 }
 
 static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
-    wifiCtx.lastDisconnectReason = static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
-
-    // Special handling for AUTH_FAIL (202) - make the message more descriptive
-    if (wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_EXPIRE ||
-        wifiCtx.lastDisconnectReason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
-        wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_FAIL) {
-        Serial.printf("\n%sAUTH_FAIL (%d): password rejected for SSID '%s' — switching to AP mode%s\r\n", RED,
-                        static_cast<int>(wifiCtx.lastDisconnectReason), WiFi.SSID().c_str(), NC);
-        statusLed.setPattern(StatusLED::Pattern::AUTH_FAILURE);
-
-        // Transition straight to AP mode on auth failure
-        WiFi.disconnect(false, true);
-        WiFi.mode(WIFI_AP);
-        WiFi.softAP(AP_SSID, AP_PASS);
-        const String ip = WiFi.softAPIP().toString();
-        Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
-        Serial.printf("%sConnect to AP and reconfigure WiFi with ATSETWIFI%s\r\n", YELLOW, NC);
-        wifiCtx.state = WiFiState::State::CONNECTED_AP;
-        wifiCtx.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
-        statusLed.setPattern(StatusLED::Pattern::AP_MODE);
-        return;
-    }
-
-    Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
-                    static_cast<int>(wifiCtx.lastDisconnectReason),
-                    WiFi.disconnectReasonName(wifiCtx.lastDisconnectReason), NC, WiFi.SSID().c_str());
-
-    // Transition to RECONNECTING state - never give up
-    if (wifiCtx.state == WiFiState::State::CONNECTED_STA) {
-        wifiCtx.state = WiFiState::State::RECONNECTING;
-        wifiCtx.tcpServerNeedsRestart = true;
-        wifiCtx.lastRetryMs = millis();
-        Serial.printf("%sEntering WiFi RECONNECTING state (will retry indefinitely)%s\r\n", YELLOW, NC);
-    }
+    // WiFiManager (via FirmwareApp) owns the WiFi state machine.
+    // This handler is now a thin veneer - all state transitions are handled by WiFiManager.
+    firmwareApp.onWiFiDisconnected(info.wifi_sta_disconnected.reason);
 }
 
 static void updateWiFiStateMachine() {
@@ -1302,6 +1310,35 @@ static bool isValidAuthToken(const String& received) {
     return received.equals(expected);
 }
 
+// ── FirmwareApp Callback Handlers ──────────────────────────────────────────────────
+// Bridge FirmwareApp signals to inline logic (TCP/NTP/Discovery/OTA)
+// These will be routed into FirmwareApp in Task #2
+static void onRestartTcpServer() {
+    // Flag TCP server for restart (happens when WiFi reconnects with new IP)
+    // Actual restart happens in loop() via restartTcpServerIfNeeded()
+    // For now, set the flag directly on wifiCtx (TODO: remove once fully routed)
+    wifiCtx.tcpServerNeedsRestart = true;
+}
+
+static void onBroadcastDiscovery() {
+    // Broadcast discovery packet
+    broadcastDiscovery();
+}
+
+static void onHandleOta() {
+    // Service OTA upload (non-blocking, handles one connection)
+#if VEHICLE_SIM_ENABLE_OTA_SERVER
+    otaLoop();
+#endif
+}
+
+// FirmwareCallbacks structure for FirmwareApp
+static esp32_firmware::FirmwareCallbacks firmwareCallbacks = {
+    .restartTcpServer = onRestartTcpServer,
+    .broadcastDiscovery = onBroadcastDiscovery,
+    .handleOta = onHandleOta
+};
+
 // Factory reset: check if GPIO0 (BOOT button) is held at boot
 static bool checkFactoryReset() {
     pinMode(Constants::FACTORY_RESET_PIN, INPUT_PULLUP);
@@ -1341,7 +1378,23 @@ void setup() {
     // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
     (void)checkFactoryReset();
 
-    WiFi.onEvent(onWiFiDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    // ── Initialize FirmwareApp (replaces inline WiFi state machine) ───────────────
+    // FirmwareApp.init() sets up WiFiManager and drives initial connection
+    firmwareApp.init();
+    firmwareApp.setCallbacks(firmwareCallbacks);
+
+    // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
+    // Bridge Arduino WiFi events to FirmwareApp
+    // NOTE: This is a temporary bridge until ArduinoWiFi.onEvent is fully implemented
+    // The inline onWiFiDisconnected() below provides auth-failure logging
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+            // Call inline handler first (for auth-failure logging)
+            onWiFiDisconnected(event, info);
+            // Then notify FirmwareApp (which handles state transitions)
+            firmwareApp.onWiFiDisconnected(info.wifi_sta_disconnected.reason);
+        }
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
     // TWAI init — listen-only so we never transmit on the vehicle bus
 #if VEHICLE_SIM_ENABLE_TWAI
@@ -1362,9 +1415,9 @@ void setup() {
     Serial.println("TWAI disabled via VEHICLE_SIM_ENABLE_TWAI=0");
 #endif
 
-    // Initialize WiFi state machine and start connection
-    wifiCtx.state = WiFiState::State::DISCONNECTED;
-    updateWiFiStateMachine();
+    // NOTE: WiFi state machine is now driven by FirmwareApp
+    // FirmwareApp.init() already called updateWiFiStateMachine() internally
+    // No need to manually initialize wifiCtx.state or call updateWiFiStateMachine()
 
     // Initialize discovery backoff timer - reset on boot
     resetDiscoveryBackoff();
@@ -1406,11 +1459,13 @@ void setup() {
 }
 
 void loop() {
-    // Update WiFi state machine - handles reconnection indefinitely
-    updateWiFiStateMachine();
+    // ── Update FirmwareApp (drives WiFiManager + StatusLED) ────────────────────────
+    // This replaces the inline updateWiFiStateMachine() call
+    // FirmwareApp.update() calls WiFiManager.update() and statusLed.update()
+    firmwareApp.update(millis());
 
-    // Update StatusLED pattern (non-blocking, must be called each loop iteration)
-    statusLed.update(millis());
+    // NOTE: statusLed.update() is now called by FirmwareApp.update()
+    // No need to call it separately here
 
     // Restart TCP server if WiFi reconnected with new IP
     restartTcpServerIfNeeded();

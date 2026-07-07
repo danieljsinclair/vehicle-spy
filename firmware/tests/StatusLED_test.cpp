@@ -156,8 +156,8 @@ TEST_F(StatusLEDTest, GetPatternSteps_OtaInProgressPattern) {
 }
 
 TEST_F(StatusLEDTest, GetPatternSteps_ErrorPatterns) {
-    // AUTH_FAILURE: 3 short pulses + 2 tiny pulses + separator = 11 steps
-    auto [stepsAuth, countAuth] = StatusLED::getPatternSteps(StatusLED::Pattern::AUTH_FAILURE);
+    // ERROR_AUTH_FAILURE: 3 short pulses + 2 tiny pulses + separator = 11 steps
+    auto [stepsAuth, countAuth] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_AUTH_FAILURE);
     EXPECT_EQ(countAuth, 11u);
 
     // ERROR_RECOVERABLE: 3 short pulses + 3 tiny pulses + separator = 13 steps

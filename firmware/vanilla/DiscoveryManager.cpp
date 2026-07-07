@@ -70,8 +70,12 @@ void DiscoveryManager::broadcast() {
     udp_.write(packet.data(), DiscoveryConfig::DISCOVERY_PACKET_SIZE);
     udp_.endPacket();
 
+    // Invoke callback if set
+    // DEBUG: Check if callback is null before invoking
     if (broadcastCallback_) {
         broadcastCallback_(packet.data(), packet.size());
+    } else {
+        // Callback is null - setBroadcastCallback was not called or was reset
     }
 }
 

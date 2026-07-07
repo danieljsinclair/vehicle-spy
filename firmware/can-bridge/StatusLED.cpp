@@ -57,7 +57,7 @@ static constexpr LEDStep PATTERN_OTA_IN_PROGRESS[] = {
     {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS}
 };
 
-// AUTH_FAILURE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
+// ERROR_AUTH_FAILURE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
 static constexpr LEDStep PATTERN_AUTH_FAILURE[] = {
     // ERROR_3_PULSE (6 steps)
     {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
@@ -161,7 +161,7 @@ std::pair<const LEDStep*, size_t> StatusLED::getPatternSteps(Pattern pattern) {
             return {PATTERN_AP_MODE, sizeof(PATTERN_AP_MODE) / sizeof(LEDStep)};
         case Pattern::OTA_IN_PROGRESS:
             return {PATTERN_OTA_IN_PROGRESS, sizeof(PATTERN_OTA_IN_PROGRESS) / sizeof(LEDStep)};
-        case Pattern::AUTH_FAILURE:
+        case Pattern::ERROR_AUTH_FAILURE:
             return {PATTERN_AUTH_FAILURE, sizeof(PATTERN_AUTH_FAILURE) / sizeof(LEDStep)};
         case Pattern::ERROR_RECOVERABLE:
             return {PATTERN_ERROR_RECOVERABLE, sizeof(PATTERN_ERROR_RECOVERABLE) / sizeof(LEDStep)};
@@ -206,7 +206,7 @@ const char* StatusLED::getPatternName(Pattern pattern) {
         case Pattern::CLIENT_CONNECTED:     return "CLIENT_CONNECTED";
         case Pattern::AP_MODE:              return "AP_MODE";
         case Pattern::OTA_IN_PROGRESS:      return "OTA_IN_PROGRESS";
-        case Pattern::AUTH_FAILURE:         return "AUTH_FAILURE";
+        case Pattern::ERROR_AUTH_FAILURE:   return "ERROR_AUTH_FAILURE";
         case Pattern::ERROR_RECOVERABLE:    return "ERROR_RECOVERABLE";
         case Pattern::ERROR_NO_NTP_SERVICE: return "ERROR_NO_NTP_SERVICE";
         case Pattern::FATAL_UNRECOVERABLE:  return "FATAL_UNRECOVERABLE";
@@ -215,7 +215,7 @@ const char* StatusLED::getPatternName(Pattern pattern) {
 }
 
 // ── Set Pattern ───────────────────────────────────────────────────────────────────
-void StatusLED::setPattern(Pattern pattern) {
+void StatusLED::setPatternInternal(Pattern pattern) {
     currentPattern_ = pattern;
     // Pattern will reset on next update when change is detected
 #ifdef ARDUINO
@@ -226,7 +226,7 @@ void StatusLED::setPattern(Pattern pattern) {
 }
 
 // ── Update (called from loop) ────────────────────────────────────────────────────
-void StatusLED::update(uint32_t currentTime) {
+void StatusLED::updateInternal(uint32_t currentTime) {
     // DESIGN NOTE: interrupts the current pattern immediately — does NOT finish the
     // current cycle. This is required because OFF/ON patterns use long durations
     // (up to 1h+). If changed to finish-cycle behaviour, ALL pattern durations must
@@ -294,6 +294,15 @@ void StatusLED::setLedOn(bool on) {
             output_->setOn(on);
         }
     }
+}
+
+// ── IStatusLED Interface Implementation ──────────────────────────────────────────────
+void StatusLED::setPattern(int pattern) {
+    setPatternInternal(static_cast<Pattern>(pattern));
+}
+
+void StatusLED::update(uint32_t now) {
+    updateInternal(now);
 }
 
 } // namespace firmware

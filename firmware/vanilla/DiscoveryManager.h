@@ -100,7 +100,11 @@ public:
     const DiscoveryContext& getContext() const { return ctx_; }
 
     // Set broadcast callback (for testing/inspection)
-    void setBroadcastCallback(BroadcastCallback cb) { broadcastCallback_ = std::move(cb); }
+    void setBroadcastCallback(BroadcastCallback cb) {
+        broadcastCallback_ = std::move(cb);
+        // DEBUG: Callback has been set
+        (void)broadcastCallback_;  // Suppress unused warning
+    }
 
     // Testable pure functions
     static uint32_t discoveryIntervalMs(uint32_t ageMs);

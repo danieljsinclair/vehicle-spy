@@ -15,6 +15,7 @@ using ::testing::Invoke;
 class MockStatusLED : public IStatusLED {
 public:
     MOCK_METHOD(void, setPattern, (int pattern), (override));
+    MOCK_METHOD(void, update, (uint32_t now), (override));
 };
 
 class WiFiManagerTest : public ::testing::Test {
@@ -44,13 +45,26 @@ TEST_F(WiFiManagerTest, DetermineCredentialSource_StoredNVS_ReturnsStoredNVS) {
     prefsMock.setValue("wifi", "ssid", "test-ssid");
     prefsMock.setValue("wifi", "pass", "test-pass");
 
-    CredentialSource source = determineCredentialSource(prefsMock);
+    CredentialSource source = determineCredentialSource(prefsMock, nullptr, nullptr);
     EXPECT_EQ(source, CredentialSource::STORED_NVS);
 }
 
 TEST_F(WiFiManagerTest, DetermineCredentialSource_EmptyNVS_ReturnsNone) {
-    CredentialSource source = determineCredentialSource(prefsMock);
+    CredentialSource source = determineCredentialSource(prefsMock, nullptr, nullptr);
     EXPECT_EQ(source, CredentialSource::NONE);
+}
+
+TEST_F(WiFiManagerTest, DetermineCredentialSource_BakedCredentials_ReturnsBakedIn) {
+    CredentialSource source = determineCredentialSource(prefsMock, "baked-ssid", "baked-pass");
+    EXPECT_EQ(source, CredentialSource::BAKED_IN);
+}
+
+TEST_F(WiFiManagerTest, DetermineCredentialSource_StoredNVSPreferOverBaked_ReturnsStoredNVS) {
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+
+    CredentialSource source = determineCredentialSource(prefsMock, "baked-ssid", "baked-pass");
+    EXPECT_EQ(source, CredentialSource::STORED_NVS);
 }
 
 TEST_F(WiFiManagerTest, ShouldFallbackToApMode_StoredNVSAndTimeout_ReturnsTrue) {

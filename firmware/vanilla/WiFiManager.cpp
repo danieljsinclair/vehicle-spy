@@ -1,6 +1,5 @@
 #include "WiFiManager.h"
 #include "WiFiReasonCodes.h"
-#include <algorithm>
 #include <memory>
 
 namespace esp32_firmware {
@@ -17,7 +16,7 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
         : wifi_(wifi), prefs_(prefs), bakedSsid_(bakedSsid), bakedPass_(bakedPass) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        CredentialSource source = ::esp32_firmware::determineCredentialSource(prefs_);
+        CredentialSource source = ::esp32_firmware::determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
 
         switch (source) {
             case CredentialSource::STORED_NVS: {
@@ -35,7 +34,6 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
             }
             case CredentialSource::BAKED_IN: {
                 if (bakedSsid_ && bakedPass_) {
-                    wifi_.disconnect(false, true);
                     wifi_.setMode(1);  // WIFI_STA
                     wifi_.setHostname(WiFiConfig::HOSTNAME);
                     wifi_.begin(bakedSsid_, bakedPass_);
@@ -47,6 +45,7 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
             }
             case CredentialSource::NONE:
             default: {
+                // No credentials at all - go to AP mode
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
                 return StateTransition(WiFiState::State::CONNECTED_AP);
@@ -75,7 +74,7 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
         }
 
         if (status == 4 || status == 1) {  // WL_CONNECT_FAILED || WL_NO_SSID_AVAIL
-            CredentialSource source = determineCredentialSource(prefs_);
+            CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
 
             if (shouldFallbackToApMode(source, connectDuration)) {
                 wifi_.setMode(2);  // WIFI_AP
@@ -98,13 +97,19 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
                 ctx.lastRetryMs = now;
             }
         } else if (isInitialConnectTimeout(connectDuration)) {
-            CredentialSource source = determineCredentialSource(prefs_);
+            CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
 
             if (source == CredentialSource::STORED_NVS) {
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
                 return StateTransition(WiFiState::State::CONNECTED_AP);
+            } else if (source == CredentialSource::NONE) {
+                // No credentials at all - go to AP mode
+                wifi_.setMode(2);  // WIFI_AP
+                wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
+                return StateTransition(WiFiState::State::CONNECTED_AP);
             } else {
+                // BAKED_IN credentials - keep trying (they should work)
                 return StateTransition(WiFiState::State::RECONNECTING);
             }
         }
@@ -254,7 +259,7 @@ const char* WiFiManager::stateName(WiFiState::State state) {
 
 // Testable pure functions - namespace-level for testability
 
-CredentialSource determineCredentialSource(IPreferences& prefs) {
+CredentialSource determineCredentialSource(IPreferences& prefs, const char* bakedSsid, const char* bakedPass) {
     prefs.begin(WiFiConfig::NVS_WIFI_NAMESPACE, true);
     size_t ssidLen = prefs.getBytesLength(WiFiConfig::NVS_WIFI_SSID);
     size_t passLen = prefs.getBytesLength(WiFiConfig::NVS_WIFI_PASS);
@@ -263,7 +268,10 @@ CredentialSource determineCredentialSource(IPreferences& prefs) {
     if (ssidLen > 0 && passLen > 0) {
         return CredentialSource::STORED_NVS;
     }
-    // Note: baked credentials check would be done by caller
+    // No stored credentials - check if baked credentials are available
+    if (bakedSsid && bakedPass && bakedSsid[0] != '\0' && bakedPass[0] != '\0') {
+        return CredentialSource::BAKED_IN;
+    }
     return CredentialSource::NONE;
 }
 
@@ -307,7 +315,6 @@ void WiFiManager::applyStateTransition(const StateTransition& transition) {
         return;  // No transition - stay sentinel
     }
 
-    WiFiState::State previousState = ctx_.state;
     ctx_.state = transition.nextState;
 
     // Update LED pattern based on WiFi state

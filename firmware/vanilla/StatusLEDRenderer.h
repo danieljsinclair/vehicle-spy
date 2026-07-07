@@ -4,7 +4,7 @@
 #include <string>
 #include <map>
 #include <vector>
-#include "can-bridge/StatusLED.h"
+#include "StatusLED.h"
 
 namespace firmware {
 

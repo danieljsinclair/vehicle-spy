@@ -2,6 +2,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <cmath>
 
 namespace firmware {
 
@@ -14,7 +15,7 @@ static const std::vector<PatternInfo> PATTERN_REGISTRY = {
     {StatusLED::Pattern::CLIENT_CONNECTED,      PatternCategory::CONNECTION,    "CLIENT_CONNECTED",         "Client connected via BLE"},
     {StatusLED::Pattern::AP_MODE,               PatternCategory::AP_MODE,       "AP_MODE",                  "WiFi AP mode (no STA connection)"},
     {StatusLED::Pattern::OTA_IN_PROGRESS,       PatternCategory::OTA,           "OTA_IN_PROGRESS",          "Firmware update in progress"},
-    {StatusLED::Pattern::AUTH_FAILURE,          PatternCategory::ERROR,         "AUTH_FAILURE",             "Authentication failed"},
+    {StatusLED::Pattern::ERROR_AUTH_FAILURE,    PatternCategory::ERROR,         "ERROR_AUTH_FAILURE",       "Authentication failed"},
     {StatusLED::Pattern::ERROR_RECOVERABLE,     PatternCategory::ERROR,         "ERROR_RECOVERABLE",        "Recoverable error occurred"},
     {StatusLED::Pattern::ERROR_NO_NTP_SERVICE,  PatternCategory::ERROR,         "ERROR_NO_NTP_SERVICE",     "NTP time service unavailable"},
     {StatusLED::Pattern::FATAL_UNRECOVERABLE,   PatternCategory::FATAL,         "FATAL_UNRECOVERABLE",      "Fatal error (system halted)"},
@@ -84,7 +85,7 @@ std::string StatusLEDRenderer::generateTable() {
     }
 
     for (const auto& [category, patterns] : grouped) {
-        out << "# " << getCategoryName(category) << "\n";
+        //out << "# " << getCategoryName(category) << "\n";
         for (const auto* info : patterns) {
             std::string visual = renderPattern(info->pattern);
             std::string note = timingNote(info->pattern);
@@ -195,14 +196,14 @@ PatternInfo StatusLEDRenderer::getPatternInfo(StatusLED::Pattern pattern) {
 // ── Get Category Name ───────────────────────────────────────────────────────────────
 const char* StatusLEDRenderer::getCategoryName(PatternCategory category) {
     switch (category) {
-        case PatternCategory::BOOT: return "Boot & Initialization";
-        case PatternCategory::WIFI: return "WiFi Connection States";
-        case PatternCategory::CONNECTION: return "Client Connection";
-        case PatternCategory::AP_MODE: return "Access Point Mode";
-        case PatternCategory::OTA: return "Firmware Updates";
-        case PatternCategory::ERROR: return "Error States (Recoverable)";
-        case PatternCategory::FATAL: return "Fatal Errors (Unrecoverable)";
-        case PatternCategory::OFF: return "Power Off";
+        case PatternCategory::BOOT:         return "Boot & Initialization";
+        case PatternCategory::WIFI:         return "WiFi Connection States";
+        case PatternCategory::CONNECTION:   return "Client Connection";
+        case PatternCategory::AP_MODE:      return "Access Point Mode";
+        case PatternCategory::OTA:          return "Firmware Updates";
+        case PatternCategory::ERROR:        return "Error States (Recoverable)";
+        case PatternCategory::FATAL:        return "Fatal Errors (Unrecoverable)";
+        case PatternCategory::OFF:          return "Power Off";
         default: return "Other";
     }
 }

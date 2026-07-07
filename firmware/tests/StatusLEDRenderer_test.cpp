@@ -54,10 +54,10 @@ TEST(StatusLEDRendererTest, RenderPattern_OtaInProgress) {
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_AuthFailure) {
-    // AUTH_FAILURE: ERROR_3_PULSE (3x SHORT_FLASH 200ms + SHORT_GAP 200ms)
+    // ERROR_AUTH_FAILURE: ERROR_3_PULSE (3x SHORT_FLASH 200ms + SHORT_GAP 200ms)
     //              + 2×TINY_PULSE (2x TINY_FLASH 100ms + TINY_GAP 100ms)
     //              + SEPARATOR (2000ms)
-    std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::AUTH_FAILURE);
+    std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::ERROR_AUTH_FAILURE);
     // Expected: "--  --  --  - - |" (3 short pulses, separator, 2 tiny pulses, separator)
     EXPECT_EQ(rendered, "--  --  --  - - |");
 }
@@ -90,7 +90,7 @@ TEST(StatusLEDRendererTest, GenerateHelpText_ContainsAllPatterns) {
     EXPECT_NE(help.find("CLIENT_CONNECTED"), std::string::npos);
     EXPECT_NE(help.find("AP_MODE"), std::string::npos);
     EXPECT_NE(help.find("OTA_IN_PROGRESS"), std::string::npos);
-    EXPECT_NE(help.find("AUTH_FAILURE"), std::string::npos);
+    EXPECT_NE(help.find("ERROR_AUTH_FAILURE"), std::string::npos);
     EXPECT_NE(help.find("ERROR_RECOVERABLE"), std::string::npos);
     EXPECT_NE(help.find("ERROR_NO_NTP_SERVICE"), std::string::npos);
     EXPECT_NE(help.find("FATAL_UNRECOVERABLE"), std::string::npos);
@@ -109,7 +109,7 @@ TEST(StatusLEDRendererTest, GenerateHelpText_GroupsPatternsLogically) {
     EXPECT_NE(wifiConnected, std::string::npos);
 
     // Error states should be grouped together
-    size_t authFailure = help.find("AUTH_FAILURE");
+    size_t authFailure = help.find("ERROR_AUTH_FAILURE");
     size_t errorRecoverable = help.find("ERROR_RECOVERABLE");
     size_t errorNoNtp = help.find("ERROR_NO_NTP_SERVICE");
     size_t fatalUnrecoverable = help.find("FATAL_UNRECOVERABLE");

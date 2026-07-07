@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <functional>
+#include "WiFiManager.h"  // For IStatusLED interface
 
 namespace esp32_firmware {
 
@@ -42,12 +43,6 @@ struct ITimeNtp {
     virtual void gmtime_r(const time_t* timep, struct tm* result) = 0;
     virtual size_t strftime(char* s, size_t maxsize, const char* format, const struct tm* tm) = 0;
     virtual ~ITimeNtp() = default;
-};
-
-// StatusLED interface for pattern updates
-struct IStatusLED {
-    virtual void setPattern(int pattern) = 0;
-    virtual ~IStatusLED() = default;
 };
 
 class NtpTimeSync {

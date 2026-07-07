@@ -95,9 +95,11 @@ public:
 class MockStatusLED : public IStatusLED {
 public:
     MOCK_METHOD(void, setPattern, (int pattern), (override));
+    MOCK_METHOD(void, update, (uint32_t now), (override));
 
     void delegateToDummy() {
         ON_CALL(*this, setPattern(_)).WillByDefault([](int) {});
+        ON_CALL(*this, update(_)).WillByDefault([](uint32_t) {});
     }
 
     void reset() {}

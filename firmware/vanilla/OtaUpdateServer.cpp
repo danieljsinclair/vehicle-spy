@@ -1,5 +1,6 @@
 #include "OtaUpdateServer.h"
 #include <cstring>
+#include <algorithm>
 
 namespace esp32_firmware {
 

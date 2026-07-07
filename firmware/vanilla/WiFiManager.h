@@ -85,9 +85,10 @@ struct IPreferences {
     virtual ~IPreferences() = default;
 };
 
-// StatusLED interface for pattern updates
+// StatusLED interface for pattern updates and animation
 struct IStatusLED {
     virtual void setPattern(int pattern) = 0;  // Pattern enum from StatusLED
+    virtual void update(uint32_t now) = 0;     // Drive LED animation (call each tick)
     virtual ~IStatusLED() = default;
 };
 
@@ -180,7 +181,7 @@ private:
 };
 
 // Testable pure functions - standalone in namespace for testability
-CredentialSource determineCredentialSource(IPreferences& prefs);
+CredentialSource determineCredentialSource(IPreferences& prefs, const char* bakedSsid, const char* bakedPass);
 bool shouldFallbackToApMode(CredentialSource source, uint32_t connectDurationMs);
 bool isInitialConnectTimeout(uint32_t connectDurationMs);
 bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry);

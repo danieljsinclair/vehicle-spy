@@ -131,3 +131,6 @@ firmware-ready
 sonar-cfamily-taint-analysis-reproducer.tar.xz
 build-verify/Makefile
 build-verify/test/Makefile
+
+# SonarCloud cfamily analyzer crash reproducer (auto-generated at repo root by sonar-scanner)
+sonar-cfamily-reproducer.tar.xz

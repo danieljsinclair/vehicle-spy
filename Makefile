@@ -42,7 +42,7 @@ ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -o
 # app), and `sonar-scan-esp32` (vehicle-spy-esp32 = ESP32) are each
 # dependency-gated: a scan runs only when THAT project's inputs change.
 # `summary` (the THREE-LINE headline, one per project) is ALWAYS the last output.
-all: header test firmware ios coverage-run coverage-ios sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary coverage-summary summary
+all: header test firmware ios coverage-run coverage-ios coverage-firmware sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary coverage-summary summary
 
 # Shared macro to show build config (DRY)
 define show_wifi
@@ -282,6 +282,8 @@ install-deps:
 # when PASS is unset (defined above). Blank creds are permitted (AP mode).
 ESP32_WIFI_SSID ?=
 FIRMWARE_EXTRA_CFLAGS ?=
+# Force C++14 for std::make_unique, std::transform, std::round
+FIRMWARE_CFLAGS ?= -std=gnu++14
 
 # WiFi credentials as compiler defines (only in memory, never on disk)
 # Suppress SSID warning for discovery/discovery/join-wifi targets (not firmware-related)
@@ -326,7 +328,7 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(wildcard $(FIR
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
-	arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS)"
+	arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++14"
 	$(ESPTOOL) \
 		--chip esp32 \
 		$(ESPTOOL_MERGE_CMD) --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin --target-offset 0x0 \
@@ -721,8 +723,8 @@ $(FIRMWARE_TEST_REPORT): $(FIRMWARE_TEST_INPUTS)
 
 # coverage-firmware: build with llvm-cov instrumentation, run tests, export lcov.
 # Re-runs only when inputs or the CMakeLists change. The lcov covers
-# firmware/vanilla/*.cpp (the extracted SOLID C++ surface).
-$(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scripts/lcov_to_xml.py
+# firmware/vanilla/*.cpp (the extracted SOLID C++ surface) + .ino files.
+$(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scripts/lcov_to_xml.py scripts/lcov_add_uninstrumented.py
 	@echo "=== [firmware] Building host tests with coverage (llvm-cov) ==="
 	@mkdir -p $(FIRMWARE_BUILD_DIR)
 	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
@@ -739,7 +741,13 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 		--instr-profile=$(FIRMWARE_BUILD_DIR)/coverage.profdata \
 		--ignore-filename-regex='(firmware/tests|firmware/mocks|firmware/build-verify|/src/)' \
 		-format=lcov \
-		> $(FIRMWARE_COVERAGE_LCOV) 2>/dev/null || true
+		> $(FIRMWARE_COVERAGE_LCOV).tmp 2>/dev/null || true
+	@echo "=== [firmware] Adding uninstrumented files (.ino, Arduino wrappers) to lcov ==="
+	@python3 scripts/lcov_add_uninstrumented.py \
+		$(FIRMWARE_COVERAGE_LCOV).tmp \
+		$(FIRMWARE_COVERAGE_LCOV) \
+		--root "$(CURDIR)"
+	@rm -f $(FIRMWARE_COVERAGE_LCOV).tmp
 	@echo "=== [firmware] Converting lcov to Sonar XML ==="
 	@python3 scripts/lcov_to_xml.py \
 		$(FIRMWARE_COVERAGE_LCOV) \
@@ -909,7 +917,7 @@ $(SONAR_ESP32_REPORT): SS_SCANNER_LOG   := $(SONAR_ESP32_SCANNER_LOG)
 $(SONAR_ESP32_REPORT): SS_LABEL         := vehicle-spy-esp32
 $(SONAR_ESP32_REPORT): SS_COMPILE_DB    := $(SONAR_COMPILE_DB_FW)
 
-$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(SONAR_ESP32_PROPERTIES)
+$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_XML) $(SONAR_ESP32_PROPERTIES)
 	$(run_sonar_scan)
 
 # sonar-summary: regenerate only when a report file or the summary script

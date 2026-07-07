@@ -55,6 +55,9 @@ set(VANILLA_SOURCES
     vanilla/AtCommandDispatcher.cpp
     vanilla/OtaUpdateServer.cpp
     vanilla/StatusLEDRenderer.cpp
+    vanilla/FirmwareApp.cpp
+    vanilla/ArduinoWiFi.cpp
+    vanilla/ArduinoPreferences.cpp
 )
 
 # StatusLED already exists and is vanilla C++
@@ -96,6 +99,7 @@ add_executable(esp32-firmware-tests
     tests/OtaUpdateServer_test.cpp
     tests/StatusLED_test.cpp
     tests/StatusLEDRenderer_test.cpp
+    tests/FirmwareApp_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests
