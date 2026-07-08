@@ -1,7 +1,7 @@
 #include "vehicle-sim/pipeline/USBTransport.h"
 
+#include <array>
 #include <cerrno>
-#include <csignal>
 #include <cstring>
 #include <fcntl.h>
 #include <sys/select.h>
@@ -14,7 +14,6 @@
 namespace vehicle_sim::pipeline {
 
 namespace {
-std::atomic<bool> g_stopRequested{false};
 
 constexpr int READ_TIMEOUT_US = 500000;
 constexpr std::size_t MAX_PENDING_LEN = 4096;
@@ -29,18 +28,12 @@ bool setNonBlocking(int fd) noexcept {
 
 } // namespace
 
-void USBTransport::requestStop() noexcept {
-    g_stopRequested.store(true, std::memory_order_relaxed);
-}
-
-void USBTransport::resetStop() noexcept {
-    g_stopRequested.store(false, std::memory_order_relaxed);
-}
-
-USBTransport::USBTransport(std::string port, int baud, std::shared_ptr<ITransportOutput> output)
-    : port_(std::move(port))
+USBTransport::USBTransport(std::string_view port, int baud, std::shared_ptr<ITransportOutput> output,
+                           std::shared_ptr<StopToken> stop)
+    : port_(port)
     , baud_(baud)
-    , output_(std::move(output)) {
+    , output_(std::move(output))
+    , stop_(std::move(stop)) {
 }
 
 USBTransport::~USBTransport() {
@@ -124,13 +117,12 @@ std::optional<std::string> USBTransport::nextLine() {
     }
 
     while (true) {
-        if (g_stopRequested.load(std::memory_order_relaxed)) {
+        if (stop_->stopRequested()) {
             exhausted_ = true;
             return std::nullopt;
         }
 
-        const std::size_t end = pending_.find_first_of("\r\n");
-        if (end != std::string::npos) {
+        if (const std::size_t end = pending_.find_first_of("\r\n"); end != std::string::npos) {
             std::string line(pending_, 0, end);
             pending_.erase(0, end + 1);
             return line;
@@ -154,7 +146,7 @@ std::optional<std::string> USBTransport::nextLine() {
             return std::nullopt;
         }
 
-        if (g_stopRequested.load(std::memory_order_relaxed)) {
+        if (stop_->stopRequested()) {
             exhausted_ = true;
             return std::nullopt;
         }
@@ -163,8 +155,8 @@ std::optional<std::string> USBTransport::nextLine() {
             continue;
         }
 
-        char buffer[256];
-        const ssize_t n = ::read(fd_, buffer, sizeof(buffer));
+        std::array<char, 256> buffer;
+        const ssize_t n = ::read(fd_, buffer.data(), buffer.size());
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
@@ -178,7 +170,7 @@ std::optional<std::string> USBTransport::nextLine() {
             return std::nullopt;
         }
 
-        pending_.append(buffer, static_cast<std::size_t>(n));
+        pending_.append(buffer.data(), static_cast<std::size_t>(n));
         if (pending_.size() > MAX_PENDING_LEN) {
             pending_.erase(0, pending_.size() - MAX_PENDING_LEN);
         }

@@ -19,7 +19,7 @@ public:
 
     // BLEPlatform interface
     std::vector<BLEDeviceInfo> scanForDevices(int timeout_seconds) override;
-    bool connect(const std::string& device_identifier) override;
+    bool connect(std::string_view device_identifier) override;
     void disconnect() override;
     void setDeviceFoundCallback(DeviceCallback callback) override;
     void setDataReceivedCallback(DataCallback callback) override;
@@ -28,11 +28,11 @@ public:
     std::string getConnectedDeviceId() const override;
 
     // Mock-specific control
-    void simulateIncomingData(const std::vector<uint8_t>& data);
+    void simulateIncomingData(const std::vector<uint8_t>& data) const;
     void setDeviceList(const std::vector<BLEDeviceInfo>& devices);
 
 private:
-    bool connected_;
+    bool connected_{false};
     std::string connected_device_id_;
     DeviceCallback device_callback_;
     DataCallback data_callback_;

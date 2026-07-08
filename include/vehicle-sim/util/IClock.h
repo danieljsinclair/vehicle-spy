@@ -74,7 +74,7 @@ protected:
     [[nodiscard]] virtual bool waitForImpl(
         std::condition_variable& cv,
         std::unique_lock<std::mutex>& lock,
-        std::function<bool()> pred,
+        const std::function<bool()>& pred,
         time_point deadline) const = 0;
 };
 
@@ -92,7 +92,7 @@ protected:
     [[nodiscard]] bool waitForImpl(
         std::condition_variable& cv,
         std::unique_lock<std::mutex>& lock,
-        std::function<bool()> pred,
+        const std::function<bool()>& pred,
         time_point deadline) const override;
 };
 
@@ -165,7 +165,7 @@ protected:
     [[nodiscard]] bool waitForImpl(
         std::condition_variable& cv,
         std::unique_lock<std::mutex>& lock,
-        std::function<bool()> pred,
+        const std::function<bool()>& pred,
         time_point deadline) const override;
 
 private:

@@ -4,9 +4,7 @@
 namespace vehicle_sim::ble {
 
 TeslaBLETransport::TeslaBLETransport(std::unique_ptr<BLEPlatform> platform)
-    : platform_(std::move(platform))
-    , connected_(false)
-    , notification_callback_(nullptr) {
+    : platform_(std::move(platform)) {
     // Register callback with platform for incoming data
     platform_->setDataReceivedCallback([this](const std::vector<std::uint8_t>& data) {
         this->processIncomingData(data);
@@ -14,11 +12,11 @@ TeslaBLETransport::TeslaBLETransport(std::unique_ptr<BLEPlatform> platform)
 }
 
 TeslaBLETransport::~TeslaBLETransport() {
-    disconnect();
+    TeslaBLETransport::disconnect();
 }
 
 bool TeslaBLETransport::connect(const std::string& address) {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    std::scoped_lock lock(state_mutex_);
 
     if (connected_) {
         return true; // Already connected
@@ -29,7 +27,7 @@ bool TeslaBLETransport::connect(const std::string& address) {
 }
 
 void TeslaBLETransport::disconnect() {
-    std::lock_guard<std::mutex> state_lock(state_mutex_);
+    std::scoped_lock state_lock(state_mutex_);
 
     if (!connected_) {
         return; // Already disconnected
@@ -40,24 +38,24 @@ void TeslaBLETransport::disconnect() {
 
     // Clear receive buffer on disconnect
     {
-        std::lock_guard<std::mutex> buffer_lock(buffer_mutex_);
+        std::scoped_lock buffer_lock(buffer_mutex_);
         receive_buffer_.clear();
     }
 
     // Clear callback
     {
-        std::lock_guard<std::mutex> callback_lock(callback_mutex_);
+        std::scoped_lock callback_lock(callback_mutex_);
         notification_callback_ = nullptr;
     }
 }
 
 bool TeslaBLETransport::isConnected() const {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    std::scoped_lock lock(state_mutex_);
     return connected_ && platform_->isConnected();
 }
 
 std::optional<std::vector<std::uint8_t>> TeslaBLETransport::readData() {
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    std::scoped_lock lock(buffer_mutex_);
 
     if (receive_buffer_.empty()) {
         return std::nullopt;
@@ -77,7 +75,7 @@ std::optional<std::vector<std::uint8_t>> TeslaBLETransport::readData() {
 }
 
 void TeslaBLETransport::send(const std::vector<std::uint8_t>& data) {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    std::scoped_lock lock(state_mutex_);
 
     if (!connected_) {
         return; // Silently ignore send when not connected
@@ -88,18 +86,18 @@ void TeslaBLETransport::send(const std::vector<std::uint8_t>& data) {
 
 void TeslaBLETransport::subscribeToNotifications(
     std::function<void(const std::vector<std::uint8_t>&)> callback) {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
+    std::scoped_lock lock(callback_mutex_);
     notification_callback_ = std::move(callback);
 }
 
 void TeslaBLETransport::unsubscribe() {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
+    std::scoped_lock lock(callback_mutex_);
     notification_callback_ = nullptr;
 }
 
 void TeslaBLETransport::processIncomingData(const std::vector<std::uint8_t>& data) {
     {
-        std::lock_guard<std::mutex> lock(buffer_mutex_);
+        std::scoped_lock lock(buffer_mutex_);
         receive_buffer_.insert(receive_buffer_.end(), data.begin(), data.end());
     }
 
@@ -107,7 +105,8 @@ void TeslaBLETransport::processIncomingData(const std::vector<std::uint8_t>& dat
 }
 
 bool TeslaBLETransport::validatePacket(const std::vector<std::uint8_t>& packet) const {
-    // Minimum packet size: header(2) + length(1) + checksum(1) = 4 bytes
+    // Minimum packet size is 4 bytes: a 2-byte header, a 1-byte length field,
+    // and a 1-byte checksum.
     if (packet.size() < 4) {
         return false;
     }
@@ -118,8 +117,7 @@ bool TeslaBLETransport::validatePacket(const std::vector<std::uint8_t>& packet) 
     }
 
     // Validate length field matches packet size
-    std::uint8_t length = packet[2];
-    if (packet.size() != static_cast<size_t>(length + 4)) {
+    if (std::uint8_t length = packet[2]; packet.size() != static_cast<size_t>(length + 4)) {
         return false;
     }
 
@@ -140,7 +138,7 @@ std::uint8_t TeslaBLETransport::calculateChecksum(const std::vector<std::uint8_t
 }
 
 void TeslaBLETransport::extractCompletePackets() {
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    std::scoped_lock lock(buffer_mutex_);
 
     while (receive_buffer_.size() >= 4) {
         // Look for valid header
@@ -201,7 +199,7 @@ void TeslaBLETransport::extractCompletePackets() {
 }
 
 void TeslaBLETransport::forwardPacket(const std::vector<std::uint8_t>& packet) {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
+    std::scoped_lock lock(callback_mutex_);
 
     if (notification_callback_) {
         notification_callback_(packet);

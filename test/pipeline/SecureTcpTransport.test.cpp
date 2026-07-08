@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 #include "vehicle-sim/pipeline/SecureTcpTransport.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <sodium.h>
@@ -21,8 +22,11 @@
 
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <thread>
 #include <vector>
+
+namespace { std::shared_ptr<vehicle_sim::pipeline::StopToken> g_testStop = std::make_shared<vehicle_sim::pipeline::StopToken>(); }
 
 using namespace vehicle_sim::pipeline;
 using namespace vehicle_sim::discovery;
@@ -167,6 +171,66 @@ public:
         if (clientFd_ >= 0) { close(clientFd_); clientFd_ = -1; }
     }
 
+    // Build a valid encrypted frame for `line` exactly as sendEncryptedLine does,
+    // but return the raw bytes instead of sending them. Used by tests that need
+    // to deliver a frame in pieces or mutate it before sending.
+    std::vector<uint8_t> buildEncryptedFrame(const std::string& line) {
+        size_t plaintextLen = line.size();
+        size_t ctLen = plaintextLen + crypto_secretbox_xchacha20poly1305_MACBYTES;
+
+        std::vector<uint8_t> frame(
+            crypto_secretbox_xchacha20poly1305_NONCEBYTES + 2 + ctLen);
+
+        uint64_t nonceCounter = txNonceCounter_++;
+        std::memset(frame.data(), 0, crypto_secretbox_xchacha20poly1305_NONCEBYTES);
+        std::memcpy(frame.data(), &nonceCounter, sizeof(nonceCounter));
+
+        frame[crypto_secretbox_xchacha20poly1305_NONCEBYTES] =
+            static_cast<uint8_t>((ctLen >> 8) & 0xFF);
+        frame[crypto_secretbox_xchacha20poly1305_NONCEBYTES + 1] =
+            static_cast<uint8_t>(ctLen & 0xFF);
+
+        crypto_secretbox_xchacha20poly1305_easy(
+            frame.data() + crypto_secretbox_xchacha20poly1305_NONCEBYTES + 2,
+            reinterpret_cast<const uint8_t*>(line.data()), plaintextLen,
+            frame.data(), txKey_.data());
+
+        return frame;
+    }
+
+    // Send an encrypted line in two TCP writes, with `splitAt` bytes in the
+    // first write and the remainder in the second. Forces the client to
+    // reassemble a single frame across two recv() calls.
+    void sendEncryptedLineSplit(const std::string& line, size_t splitAt) {
+        auto frame = buildEncryptedFrame(line);
+        if (splitAt > frame.size()) splitAt = frame.size();
+        if (splitAt > 0) sendAll(frame.data(), splitAt);
+        // Give the client a beat to issue a recv() on the first chunk only.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (splitAt < frame.size()) {
+            sendAll(frame.data() + splitAt, frame.size() - splitAt);
+        }
+    }
+
+    // Send an encrypted line whose ciphertext has been tampered: the byte at
+    // `flipOffset` (counted from the start of the ciphertext) is inverted.
+    // Decryption must fail -> the client disconnects.
+    void sendTamperedEncryptedLine(const std::string& line, size_t flipOffset) {
+        auto frame = buildEncryptedFrame(line);
+        const size_t ctStart = crypto_secretbox_xchacha20poly1305_NONCEBYTES + 2;
+        const size_t ctLen = frame.size() - ctStart;
+        if (ctLen > 0) {
+            frame[ctStart + (flipOffset % ctLen)] ^= 0xFF;
+        }
+        sendAll(frame.data(), frame.size());
+    }
+
+    // Send arbitrary raw bytes on the client socket (no framing/crypto).
+    // Used to flood the client's raw buffer past its overflow cap.
+    void sendRawBytes(const uint8_t* data, size_t len) {
+        sendAll(data, len);
+    }
+
 private:
     bool sendAll(const uint8_t* data, size_t len) {
         size_t sent = 0;
@@ -206,8 +270,8 @@ TEST(SecureTcpTransportTest, HandshakeSuccess_WithCorrectKey) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     // Run the server handshake on a thread
     std::atomic<bool> serverOk{false};
@@ -235,9 +299,9 @@ TEST(SecureTcpTransportTest, HandshakeFails_WithWrongKey) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
     // Client has the WRONG public key
-    SecureTcpTransport t("127.0.0.1", server.port(), clientKp.publicKey);
+    SecureTcpTransport t("127.0.0.1", server.port(), clientKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -261,8 +325,8 @@ TEST(SecureTcpTransportTest, EncryptedDataRoundTrip) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -316,8 +380,8 @@ TEST(SecureTcpTransportTest, ConnectionRefused_OpenReturnsFalse) {
     close(refuseFd);
 
     auto kp = MockSecureServer::generateKeypair();
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", port, kp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", port, kp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
     EXPECT_FALSE(t.open());
     EXPECT_FALSE(t.isOpen());
 }
@@ -331,8 +395,8 @@ TEST(SecureTcpTransportTest, CleanDisconnect_ReturnsNullopt) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -359,11 +423,11 @@ TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
     // Tiny recv poll (1ms) so the stop flag is re-checked near-instantly,
     // instead of waiting the production 500ms poll floor.
     SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey,
-                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000);
+                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -377,7 +441,7 @@ TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(t.open());
 
     // Request stop from "signal handler"
-    SecureTcpTransport::requestStop();
+    g_testStop->requestStop();
 
     auto start = std::chrono::steady_clock::now();
     auto r = t.nextLine();
@@ -388,7 +452,7 @@ TEST(SecureTcpTransportTest, RequestStop_TerminatesNextLine) {
     EXPECT_LT(elapsed.count(), 1500) << "stop should be prompt";
 
     serverThread.join();
-    SecureTcpTransport::resetStop();
+    g_testStop->reset();
 }
 
 // ── Test: multiple lines in sequence ────────────────────────────────────────
@@ -400,8 +464,8 @@ TEST(SecureTcpTransportTest, MultipleLines_InSequence) {
     MockSecureServer server;
     ASSERT_TRUE(server.start());
 
-    SecureTcpTransport::resetStop();
-    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey);
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
 
     std::thread serverThread([&] {
         ASSERT_GE(server.acceptClient(), 0);
@@ -430,4 +494,107 @@ TEST(SecureTcpTransportTest, MultipleLines_InSequence) {
 
     EXPECT_EQ(count, 10);
     serverThread.join();
+}
+
+// ============================================================
+// S3776 refactor contracts — frame reassembly, tamper detection, overflow.
+// Each locks an externally observable behaviour of readEncryptedLine/nextLine
+// (input socket bytes -> returned plaintext / nullopt / open state), so the
+// S3776 (cc28) + S134 decomposition cannot drift it. Reuses the loopback +
+// libsodium mock infra above.
+// ============================================================
+
+TEST(SecureTcpTransportTest, SingleFrameSplitAcrossTwoSegments_Reassembled) {
+    // One encrypted frame delivered in two TCP writes: nextLine() must
+    // reassemble the partial frame across two recv() calls and return the
+    // correct plaintext line. Distinct from coalesced-multiframe (already
+    // locked by MultipleLines_InSequence), which only exercises whole frames.
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+        // Split a single frame: first 12 bytes, then the rest.
+        server.sendEncryptedLineSplit("118 3C 00 18 00 00 00 00 FF", 12);
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    auto line = t.nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(*line, "118 3C 00 18 00 00 00 00 FF");
+
+    serverThread.join();
+}
+
+TEST(SecureTcpTransportTest, TamperedCiphertext_AfterHandshake_ReturnsNulloptAndCloses) {
+    // A frame whose ciphertext/tag is flipped after the handshake: decryption
+    // fails, nextLine() returns nullopt, and the transport becomes not-open
+    // (exhausted). Locks the tamper-detection + disconnect path.
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+        // Valid framing, but flip the first ciphertext byte.
+        server.sendTamperedEncryptedLine("118 3C 00 18 00 00 00 00 FF", 0);
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    EXPECT_FALSE(t.nextLine().has_value());
+    EXPECT_FALSE(t.isOpen());
+
+    serverThread.join();
+}
+
+TEST(SecureTcpTransportTest, RawBufferOverflow_ReturnsNulloptAndCloses) {
+    // A peer that floods raw bytes beyond the overflow cap (MAX_LINE_LEN +
+    // nonce + len + mac) must cause nextLine() to return nullopt and the
+    // transport to become not-open, rather than growing the buffer unbounded.
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    g_testStop->reset();
+    // Short poll so the client re-checks data promptly during the flood.
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey,
+                         std::make_shared<StdOut>(), /*recvTimeoutUs=*/1000, g_testStop);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+
+        // Send well over the overflow cap (MAX_LINE_LEN 4096 + 24 + 2 + 16).
+        constexpr size_t kFloodLen = 8192;
+        std::vector<uint8_t> garbage(kFloodLen, 0xAA);
+        server.sendRawBytes(garbage.data(), garbage.size());
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    EXPECT_FALSE(t.nextLine().has_value());
+    EXPECT_FALSE(t.isOpen());
+
+    serverThread.join();
+    g_testStop->reset();
 }

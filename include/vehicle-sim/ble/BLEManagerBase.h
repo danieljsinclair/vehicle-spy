@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <functional>
 #include <memory>
@@ -11,9 +12,8 @@
 #include <thread>
 
 #include "vehicle-sim/ble/BLEDeviceInfo.h"
-#include "vehicle-sim/boundary/OBD2Protocol.h"
+#include "vehicle-sim/ble/Elm327Session.h"
 #include "vehicle-sim/boundary/ELM327Transport.h"
-#include "vehicle-sim/domain/VehicleDetector.h"
 
 namespace vehicle_sim {
 
@@ -83,14 +83,30 @@ struct OBD2Response {
  *
  * Platform-specific implementations (BLEManagerMacOS, BLEManageriOS)
  * should inherit from or use this base class for CoreBluetooth operations.
+ *
+ * The ELM327 OBD2 protocol, polling, CAN-monitor, VIN and auto-detection
+ * responsibilities live in the composed Elm327Session (see Elm327Session.h);
+ * this class is the slim BLE transport + device-discovery + connection-state
+ * core, and exposes the public OBD2 API as thin forwards to that session.
  */
-class BLEManagerBase {
+class BLEManagerBase : public Elm327SessionHost {
 public:
     using DeviceCallback = std::function<void(const BLEDeviceInfo& device)>;
     using DataCallback = std::function<void(const std::vector<uint8_t>& data)>;
     using ConnectionCallback = std::function<void(bool connected, const std::string& device_id)>;
 
     virtual ~BLEManagerBase() = default;
+
+    // --- Elm327SessionHost: the transport facilities the composed session
+    //     needs. These bridge the session to the BLE transport, connection
+    //     state, and the consumer data callback.
+    void sessionSendAscii(std::string_view command) override { sendASCII(command); }
+    bool sessionIsConnected() const override { return connected_.load(); }
+    void sessionDeliverParsed(const std::vector<uint8_t>& data) override {
+        if (data_callback_) {
+            data_callback_(data);
+        }
+    }
 
     // ================================================
     // Public API - Common BLE Operations
@@ -108,7 +124,7 @@ public:
      * @param device_identifier Device UUID or address
      * @return true if connection initiated successfully
      */
-    virtual bool connect(const std::string& device_identifier) = 0;
+    virtual bool connect(std::string_view device_identifier) = 0;
 
     /**
      * Disconnect from the current device.
@@ -164,81 +180,25 @@ public:
     // ================================================
 
     /**
+     * Access the composed ELM327 OBD2 session (roles 4+5: protocol, polling,
+     * CAN monitor, VIN, auto-detection). The OBD2 API lives here, not on the
+     * transport core, so callers reach it through this accessor — e.g.
+     * `manager.elm327Session().initializeELM327()`. This keeps BLEManagerBase
+     * a slim transport core (no god-class facade) while preserving the OBD2
+     * surface verbatim on Elm327Session.
+     */
+    Elm327Session& elm327Session() { return session_; }
+    const Elm327Session& elm327Session() const { return session_; }
+
+    /**
      * Send an OBD2 PID query using ELM327 ASCII encoding.
      * @param pid The PID to query
      * @return Empty response - actual response comes via data callback
      */
-    OBD2Response queryPID(uint8_t pid);
-
-    /**
-     * Send AT commands to initialize ELM327 adapter.
-     * Should be called after connection before querying PIDs.
-     * @return true if initialization successful
-     */
-    bool initializeELM327();
-
-    /**
-     * Start polling OBD2 PIDs at a specified interval.
-     * Sends queries for throttle, speed, RPM, etc. and returns
-     * parsed values via the data callback.
-     * @param interval_ms Polling interval in milliseconds
-     */
-    void startOBD2Polling(int interval_ms = 200);
-
-    /**
-     * Stop polling OBD2 PIDs.
-     */
-    void stopOBD2Polling();
-
-    /**
-     * Initialize ELM327 for CAN monitor mode.
-     * Sends CAN init sequence (ATZ, ATE0, ATSP6, ATH1, ATMA).
-     * @return true if initialization commands sent
-     */
-    bool initializeCANMonitor();
-
-    /**
-     * Initialize ELM327 for VIN query (safe, no protocol probing).
-     * Uses ATSP6 (specific CAN protocol) instead of ATSP0 (auto-probe).
-     * @return true if initialization commands sent
-     */
-    bool initializeForVINQuery();
-
-    /**
-     * Query vehicle VIN via OBD2 Mode 09 PID 02.
-     * Must call initializeForVINQuery() first.
-     * Blocks until VIN response received or timeout.
-     * @param timeout_ms Maximum wait for response (default 5000ms)
-     * @return VIN string (17 chars) if received, nullopt otherwise
-     */
-    std::optional<std::string> queryVIN(int timeout_ms = 5000);
-
-    /**
-     * Start CAN monitor mode.
-     * In CAN mode, ELM327 continuously streams CAN frames after ATMA.
-     * No polling loop needed — data arrives via BLE notifications.
-     * @param interval_ms Unused for CAN mode (kept for API compatibility)
-     */
-    void startCANMonitor(int interval_ms = 200);
-
-    /**
-     * Stop CAN monitor mode.
-     */
-    void stopCANMonitor();
-
-    /**
-     * Initialize OBD2 protocol with auto-detection.
-     * Sends AT commands, queries VIN and fuel type, and returns detection result.
-     * @return Vehicle detection result if successful, nullopt otherwise
-     */
-    std::optional<domain::VehicleDetectionResult> initializeOBD2WithDetection();
-
-    /**
-     * Process incoming ASCII data from ELM327 adapter.
-     * Routes data to OBD2Protocol handler which manages vehicle detection.
-     * @param asciiData Raw ASCII response from adapter
-     */
-    void processOBD2Data(const std::string& asciiData);
+    OBD2Response queryPID(uint8_t pid) {
+        sendASCII(boundary::ELM327Transport::buildOBD2Query(OBD2_MODE_LIVE_DATA, pid));
+        return OBD2Response{};
+    }
 
     /**
      * Convert RSSI to signal quality string.
@@ -251,7 +211,7 @@ public:
      * Get the vehicle detector for reading detection results.
      * @return Pointer to the active VehicleDetector (never null)
      */
-    domain::VehicleDetector* vehicleDetector() { return vehicle_detector_.get(); }
+    domain::VehicleDetector* vehicleDetector() { return session_.vehicleDetector(); }
 
     /**
      * Get count of raw BLE notifications received (before any parsing).
@@ -263,7 +223,7 @@ public:
      * Get hex dump of the last raw bytes received from BLE (before parsing).
      */
     [[nodiscard]] std::string lastRawHex() const {
-        std::lock_guard<std::mutex> lock(raw_mutex_);
+        std::scoped_lock lock(raw_mutex_);
         return last_raw_hex_;
     }
 
@@ -272,16 +232,25 @@ protected:
     // Protected Constructor - For derived classes
     // ================================================
 
-    BLEManagerBase();
+    /**
+     * @brief Construct with optional clock for time-dependent operations.
+     * @param clock If null, uses SystemClock (real time); for tests, pass a FakeClock.
+     */
+    explicit BLEManagerBase(util::IClock* clock = nullptr);
+
+    /**
+     * @brief Set the clock for time-dependent operations.
+     * Allows tests to inject a FakeClock after construction.
+     */
+    void setClock(util::IClock* clock) { session_.setClock(clock); }
 
     // ================================================
     // Common State (Shared by Derived Classes)
     // ================================================
 
-    mutable std::mutex devices_mutex_;
-    std::vector<BLEDeviceInfo> discovered_devices_;
+    std::vector<BLEDeviceInfo> discovered_devices_;  // guarded by devices_mutex_ (mutex now private)
 
-    std::atomic<bool> connected_;
+    std::atomic<bool> connected_{false};
     std::string connected_device_id_;
 
     // Callbacks (thread-safe via mutex where needed)
@@ -289,10 +258,11 @@ protected:
     DataCallback data_callback_;
     ConnectionCallback connection_callback_;
 
-    // Polling timing constants
-    static constexpr int DEFAULT_POLLING_INTERVAL_MS = 200;
-    static constexpr int PROMPT_TIMEOUT_MS = 2000;           // max wait for '>' prompt before skipping PID
-    static constexpr int POST_CONNECT_SETUP_DELAY_MS = 500;  // wait for characteristic notifications
+    // Polling timing constants (preserved for test/contract reference; the
+    // live values now live on Elm327Session).
+    static constexpr int DEFAULT_POLLING_INTERVAL_MS = Elm327Session::DEFAULT_POLLING_INTERVAL_MS;
+    static constexpr int PROMPT_TIMEOUT_MS = Elm327Session::PROMPT_TIMEOUT_MS;
+    static constexpr int POST_CONNECT_SETUP_DELAY_MS = Elm327Session::POST_CONNECT_SETUP_DELAY_MS;
 
     // OBD2 protocol constants
     static constexpr uint8_t OBD2_MODE_LIVE_DATA = 0x01;    // Mode 01: Show Current Data
@@ -302,34 +272,14 @@ protected:
     static constexpr int RSSI_GOOD = -65;
     static constexpr int RSSI_FAIR = -75;
 
-    // OBD2 polling state
-    std::atomic<bool> polling_active_{false};
-    std::thread polling_thread_;
-    int polling_interval_ms_ = DEFAULT_POLLING_INTERVAL_MS;
+    // The composed ELM327 OBD2 session (roles 4+5: protocol, polling, CAN
+    // monitor, VIN, auto-detection). Holds the obd2_protocol handler, the
+    // vehicle detector, prompt sequencing, the polling thread and can_mode.
+    Elm327Session session_;
 
-    // ELM327 prompt-driven sequencing state
-    // The ELM327 sends '>' when ready for the next command.
-    // BLE notifications may fragment ELM327 responses, so we buffer
-    // incoming data and scan for '>' across notification boundaries.
-    std::mutex prompt_mutex_;
-    std::condition_variable prompt_cv_;
-    bool prompt_ready_ = false;
-    std::string prompt_buffer_;
-    static constexpr size_t PROMPT_BUFFER_MAX = 256;
-
-    // OBD2 protocol handler for vehicle detection and command management
-    boundary::OBD2Protocol obd2_protocol_;
-
-    // CAN monitor mode flag
-    std::atomic<bool> can_mode_{false};
-
-    // Vehicle auto-detection (passive CAN ID observation)
-    std::unique_ptr<domain::VehicleDetector> vehicle_detector_;
-
-    // Raw BLE activity tracking (counts every notification before parsing)
+    // Raw BLE activity tracking (counts every notification before parsing).
+    // Transport-level bookkeeping; stays on the transport core, not the session.
     std::atomic<int> ble_notification_count_{0};
-    mutable std::mutex raw_mutex_;
-    std::string last_raw_hex_;
 
     // ================================================
     // Protected Helper Methods for Derived Classes
@@ -350,7 +300,7 @@ protected:
      * Invoke the device found callback (if set).
      * Thread-safe.
      */
-    void invokeDeviceCallback(const BLEDeviceInfo& device);
+    void invokeDeviceCallback(const BLEDeviceInfo& device) const;
 
     /**
      * Invoke the data received callback (if set).
@@ -362,50 +312,63 @@ protected:
      * Invoke the connection callback (if set).
      * Thread-safe.
      */
-    void invokeConnectionCallback(bool connected, const std::string& device_id);
+    void invokeConnectionCallback(bool connected, std::string_view device_id) const;
 
     /**
      * Update connection state and invoke callback.
      */
-    void setConnectionState(bool connected, const std::string& device_id = "");
+    void setConnectionState(bool connected, std::string_view device_id = "");
 
     /**
      * Get the discovered device by address.
      * Thread-safe.
      */
-    std::optional<BLEDeviceInfo> findDeviceByAddress(const std::string& address) const;
-
-    /**
-     * Parse ASCII response from ELM327 adapter to binary OBD2 data.
-     * @param asciiData Raw ASCII bytes from BLE notification
-     * @return Binary OBD2 data, or empty if not a valid OBD2 response
-     */
-    std::vector<uint8_t> parseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData);
+    std::optional<BLEDeviceInfo> findDeviceByAddress(std::string_view address) const;
 
     /**
      * Send an ASCII command string over BLE as raw bytes.
      */
-    void sendASCII(const std::string& command);
+    void sendASCII(std::string_view command);
 
-    /**
-     * Send a sequence of AT commands, waiting for the ELM327 '>' prompt
-     * after each one before sending the next.
-     */
-    void sendPromptDrivenSequence(const std::vector<boundary::ATCommand>& commands);
+    // --- Prompt / parse seams (thin forwards to the composed session).
+    //     Kept protected so fixtures that drive the prompt sequence and parse
+    //     helper keep compiling; the behaviour lives in Elm327Session.
 
-    /**
-     * Wait for ELM327 '>' prompt with timeout.
-     * Blocks until prompt is detected or timeout expires.
-     * @param timeout_ms Maximum time to wait in milliseconds
-     * @return true if prompt received, false if timed out
-     */
-    bool waitForPrompt(int timeout_ms = PROMPT_TIMEOUT_MS);
+    /// @copydoc Elm327Session::waitForPrompt(int)
+    bool waitForPrompt(int timeout_ms = PROMPT_TIMEOUT_MS) { return session_.waitForPrompt(timeout_ms); }
+
+    /// @copydoc Elm327Session::parseASCIIResponseToBinary(const std::vector<uint8_t>&) const
+    std::vector<uint8_t> parseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData) const {
+        return session_.parseASCIIResponseToBinary(asciiData);
+    }
 
     /**
      * Signal that the ELM327 '>' prompt has been received.
-     * Called from invokeDataCallback when '>' is detected in raw BLE data.
+     * Thin forward to the composed session; kept protected so existing
+     * fixtures that drive the prompt sequence keep compiling.
      */
-    void notifyPrompt();
+    void notifyPrompt() { session_.notifyPrompt(); }
+
+    /**
+     * Whether the adapter is in CAN monitor mode. Protected forward to the
+     * composed session's flag (replaces the former protected can_mode_ member).
+     */
+    [[nodiscard]] bool canMode() const noexcept { return session_.canMode(); }
+
+    /**
+     * Whether a '>' prompt has been signalled and not yet consumed by a wait.
+     * Protected forward to the composed session's prompt state (replaces the
+     * former protected prompt_ready_ member).
+     */
+    bool promptReady() const { return session_.promptReady(); }
+
+private:
+    // Mutable synchronization primitives and the state they guard are private
+    // so every access is channelled through this class's own (locking) methods,
+    // enforcing proper synchronization. No derivative touches these directly.
+    mutable std::mutex devices_mutex_;   // guards discovered_devices_
+    mutable std::mutex raw_mutex_;       // guards last_raw_hex_
+    std::string last_raw_hex_;
 };
 
 } // namespace vehicle_sim

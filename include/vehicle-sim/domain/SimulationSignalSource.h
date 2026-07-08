@@ -26,9 +26,9 @@ public:
 
 private:
     std::unique_ptr<VehicleSimulator> simulator_;
-    bool running_;
+    bool running_{false};
     mutable std::mutex signalMutex_;
-    VehicleSignal latestSignal_;
+    VehicleSignal latestSignal_{0};
 };
 
 } // namespace vehicle_sim::domain

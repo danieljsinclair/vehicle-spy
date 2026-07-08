@@ -28,10 +28,9 @@ bool DBCTranslationService::loadVehicle(const std::string& vehicleId, VehiclePro
     const VehicleConfig* config = pImpl->registry_.getConfig(vehicleId);
 
     // Use config's isCANProtocol to determine path, unless caller explicitly overrides
-    const bool useCAN = (protocol == VehicleProtocol::CAN) ||
-                        (config && config->isCANProtocol && protocol != VehicleProtocol::OBD2);
-
-    if (useCAN) {
+    if (const bool useCAN = (protocol == VehicleProtocol::CAN) ||
+                            (config && config->isCANProtocol && protocol != VehicleProtocol::OBD2);
+        useCAN) {
         if (!config) {
             return false;
         }
@@ -58,10 +57,9 @@ bool DBCTranslationService::loadVehicle(const std::string& vehicleId, VehiclePro
 bool DBCTranslationService::loadVehicleWithContent(const std::string& vehicleId, VehicleProtocol protocol, const std::string& dbcContent) {
     const VehicleConfig* config = pImpl->registry_.getConfig(vehicleId);
 
-    const bool useCAN = (protocol == VehicleProtocol::CAN) ||
-                        (config && config->isCANProtocol && protocol != VehicleProtocol::OBD2);
-
-    if (useCAN) {
+    if (const bool useCAN = (protocol == VehicleProtocol::CAN) ||
+                            (config && config->isCANProtocol && protocol != VehicleProtocol::OBD2);
+        useCAN) {
         if (!config) {
             return false;
         }
@@ -88,10 +86,9 @@ bool DBCTranslationService::loadVehicleWithContent(const std::string& vehicleId,
 bool DBCTranslationService::loadVehicleFromPath(const std::string& vehicleId, VehicleProtocol protocol, const std::string& dbcAbsolutePath) {
     const VehicleConfig* config = pImpl->registry_.getConfig(vehicleId);
 
-    const bool useCAN = (protocol == VehicleProtocol::CAN) ||
-                        (config && config->isCANProtocol && protocol != VehicleProtocol::OBD2);
-
-    if (useCAN) {
+    if (const bool useCAN = (protocol == VehicleProtocol::CAN) ||
+                            (config && config->isCANProtocol && protocol != VehicleProtocol::OBD2);
+        useCAN) {
         if (!config) {
             return false;
         }

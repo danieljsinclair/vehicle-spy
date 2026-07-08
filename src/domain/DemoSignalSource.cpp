@@ -1,5 +1,6 @@
 #include "vehicle-sim/domain/DemoSignalSource.h"
 #include "vehicle-sim/domain/Gear.h"
+#include <array>
 #include <chrono>
 #include <cmath>
 
@@ -7,9 +8,6 @@ namespace vehicle_sim::domain {
 
 DemoSignalSource::DemoSignalSource(int intervalMs) noexcept
     : intervalMs_(intervalMs)
-    , running_(false)
-    , latestSignal_(0)
-    , phase_(0.0)
 {
 }
 
@@ -18,7 +16,7 @@ DemoSignalSource::~DemoSignalSource() {
 }
 
 VehicleSignal DemoSignalSource::latestSignal() const noexcept {
-    std::lock_guard<std::mutex> lock(signalMutex_);
+    std::scoped_lock lock(signalMutex_);
     return latestSignal_;
 }
 
@@ -74,14 +72,14 @@ void DemoSignalSource::generateSignals() {
         double motorHvCurrent = std::abs(motorTorqueNm) / 10.0;
 
         // Gear: cycles through P, R, N, D using canonical constants
-        const std::int32_t gears[] = {
+        const std::array<std::int32_t, 5> gears = {
             Gear::PARK,
             Gear::REVERSE,
             Gear::NEUTRAL,
             Gear::AUTO_1,
             Gear::AUTO_2
         };
-        int newGearIndex = static_cast<int>(cycle * 5.0);
+        auto newGearIndex = static_cast<int>(cycle * 5.0);
         if (newGearIndex > 4) newGearIndex = 4;
         std::int32_t gearSelector = gears[newGearIndex];
 
@@ -100,7 +98,7 @@ void DemoSignalSource::generateSignals() {
         );
 
         {
-            std::lock_guard<std::mutex> lock(signalMutex_);
+            std::scoped_lock lock(signalMutex_);
             latestSignal_ = signal;
         }
 

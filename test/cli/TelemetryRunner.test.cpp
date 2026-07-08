@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "vehicle-sim/cli/TelemetryRunner.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "../domain/MockSignalSource.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
@@ -11,7 +12,7 @@ using namespace vehicle_sim::test;
 class TelemetryRunnerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        TelemetryRunner::resetRunningState();
+        stop_.reset();
 
         config_ = std::make_unique<VehicleConfig>(
             "test.dbc",
@@ -22,9 +23,10 @@ protected:
     }
 
     void TearDown() override {
-        TelemetryRunner::requestStop();
+        stop_.requestStop();
     }
 
+    vehicle_sim::pipeline::StopToken stop_;
     std::unique_ptr<VehicleConfig> config_;
 };
 
@@ -36,7 +38,8 @@ TEST_F(TelemetryRunnerTest, RunWithNullConfig_ReturnsError) {
         nullptr,
         "",
         "",
-        10
+        10,
+        stop_
     );
 
     EXPECT_EQ(exitCode, 1);
@@ -51,28 +54,31 @@ TEST_F(TelemetryRunnerTest, RunWithInvalidLogPath_ReturnsError) {
             config_.get(),
             "/nonexistent/directory/output.csv",
             "",
-            10
+            10,
+            stop_
         );
     }, std::runtime_error);
 }
 
-TEST_F(TelemetryRunnerTest, ResetRunningState_AllowsReuse) {
-    TelemetryRunner::resetRunningState();
-    SUCCEED();
+TEST_F(TelemetryRunnerTest, ResetToken_AllowsReuse) {
+    stop_.requestStop();
+    stop_.reset();
+    EXPECT_FALSE(stop_.stopRequested());
 }
 
 TEST_F(TelemetryRunnerTest, RunWithValidConfig_StopsWhenRequested) {
     auto mockSource = std::make_unique<MockSignalSource>();
     mockSource->setSignal(VehicleSignal(12345));
 
-    TelemetryRunner::requestStop();
+    stop_.requestStop();
 
     int exitCode = TelemetryRunner::run(
         std::move(mockSource),
         config_.get(),
         "",
         "",
-        10
+        10,
+        stop_
     );
 
     EXPECT_EQ(exitCode, 0);

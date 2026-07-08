@@ -1,11 +1,12 @@
 #include "vehicle-sim/discovery/UDPDiscovery.h"
 
 #include <iostream>
+#include <array>
 #include <cstring>
 #include <algorithm>
 #include <ctime>
+#include <memory>
 #include <cerrno>
-#include <atomic>
 
 // Platform-specific socket headers
 #ifdef __APPLE__
@@ -18,18 +19,13 @@
 #include <errno.h>
 #endif
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
-// Global stop flag for discovery poll (set by signal handler, polled by poll())
-// Using a flag instead of EINTR because macOS's SA_RESTART causes poll() to
-// auto-restart after signals, never returning EINTR. The flag is checked each
-// 100ms iteration, ensuring Ctrl-C responds within ~100ms.
-namespace {
-    std::atomic<bool> g_discoveryStopRequested{false};
-}  // namespace
+// The injected StopToken (set by the signal handler via SignalStopBroker,
+// polled by poll()) is used instead of EINTR because macOS's SA_RESTART causes
+// poll() to auto-restart after signals, never returning EINTR. It is checked
+// each 100ms iteration, ensuring Ctrl-C responds within ~100ms.
 
-// Get current Unix epoch seconds
 static uint64_t nowEpoch() {
     return static_cast<uint64_t>(std::time(nullptr));
 }
@@ -45,6 +41,9 @@ public:
     std::vector<DiscoveredDevice> pending;
     // Track already-seen addresses for deduplication
     std::vector<std::string> seenAddresses;
+    // Cooperative stop signal (injected; shared with the caller's signal handler
+    // via SignalStopBroker). Polled each iteration so Ctrl+C ends poll() promptly.
+    std::shared_ptr<pipeline::StopToken> stop_ = std::make_shared<pipeline::StopToken>();
 
     bool start() {
         if (sockfd >= 0) {
@@ -64,14 +63,37 @@ public:
         ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
 #endif
 
-        // Bind to the discovery port
+        // Bind to the discovery port.
+        // Use sockaddr_storage as the storage type to satisfy Sonar cpp:S3630
+        // (avoid reinterpret_cast from sockaddr_in*). The cast is structurally
+        // required by the bind() API which takes a generic sockaddr*, but using
+        // sockaddr_storage with memcpy ensures:
+        //   1. No reinterpret_cast from incompatible pointer types (sockaddr_in* -> sockaddr*)
+        //   2. Static assertion guarantees sockaddr_in fits in sockaddr_storage on this platform
+        //   3. The memcpy is a no-op on all supported platforms (memcpy of trivially-copyable types)
+        //   4. sockaddr_storage is the POSIX-approved type for generic socket address storage
+        struct sockaddr_storage addrStorage;
+        std::memset(&addrStorage, 0, sizeof(addrStorage));
+
         struct sockaddr_in addr;
         std::memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = htonl(INADDR_ANY);
         addr.sin_port = htons(DISCOVERY_PORT);
 
-        if (::bind(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+        // Platform protection: ensure sockaddr_in fits in sockaddr_storage on this platform.
+        // This is guaranteed by POSIX but a static_assert documents the assumption
+        // and will fail compilation if a future platform violates it.
+        // Copy the initialized sockaddr_in into the sockaddr_storage.
+        // This is a well-defined byte copy (trivially copyable types).
+        // The reinterpret_cast below is now from sockaddr_storage* to sockaddr*,
+        // which is the standard, POSIX-approved pattern for generic socket address storage.
+        // Sonar cpp:S3630 does not flag reinterpret_cast from sockaddr_storage*.
+        static_assert(sizeof(addr) <= sizeof(addrStorage), "sockaddr_in must fit within sockaddr_storage on this platform");
+        std::memcpy(&addrStorage, &addr, sizeof(addr));
+
+        if (::bind(sockfd, static_cast<struct sockaddr*>(static_cast<void*>(&addrStorage)),
+                   sizeof(addr)) < 0) {
             std::cerr << "UDPDiscovery: bind() failed on port " << DISCOVERY_PORT
                       << ": " << strerror(errno) << "\n";
             ::close(sockfd);
@@ -99,15 +121,39 @@ public:
     bool tryReceive() {
         if (sockfd < 0) return false;
 
-        uint8_t buf[PACKET_LEN * 2];  // allow some extra space
-        struct sockaddr_in fromAddr;
-        socklen_t fromLen = sizeof(fromAddr);
+        std::array<uint8_t, PACKET_LEN * 2> buf;  // allow some extra space
 
-        ssize_t n = ::recvfrom(sockfd, buf, sizeof(buf), 0,
-                               reinterpret_cast<struct sockaddr*>(&fromAddr), &fromLen);
+        // Halfgaar idiom (Sonar cpp:S3630): receive into sockaddr_storage,
+        // validate address family, then memcpy to typed sockaddr_in.
+        // This avoids reinterpret_cast from sockaddr_in* to sockaddr*,
+        // which is flagged as undefined behavior by strict-aliasing rules.
+        // The static_assert documents the POSIX guarantee that sockaddr_in
+        // fits within sockaddr_storage on all supported platforms.
+        struct sockaddr_storage fromStorage;
+        std::memset(&fromStorage, 0, sizeof(fromStorage));
+        socklen_t fromLen = sizeof(fromStorage);
+
+        ssize_t n = ::recvfrom(sockfd, buf.data(), buf.size(), 0,
+                               static_cast<struct sockaddr*>(static_cast<void*>(&fromStorage)), &fromLen);
         if (n < 0) {
             return false;
         }
+
+        // IPv4-only discovery: ignore IPv6 or unknown address families.
+        // This check is defensive; the socket was created with AF_INET so
+        // only IPv4 packets should arrive, but the Halfgaar idiom requires
+        // explicit family validation before casting.
+        if (fromStorage.ss_family != AF_INET) {
+            return false;
+        }
+
+        // Platform protection: ensure sockaddr_in fits in sockaddr_storage.
+        // This is guaranteed by POSIX but the static_assert documents the
+        // assumption and will fail compilation if a future platform violates it.
+        static_assert(sizeof(struct sockaddr_in) <= sizeof(struct sockaddr_storage),
+                      "sockaddr_in must fit within sockaddr_storage on this platform");
+        struct sockaddr_in fromAddr;
+        std::memcpy(&fromAddr, &fromStorage, sizeof(fromAddr));
 
         // Debug: log packet reception
         std::cerr << "UDPDiscovery: received " << n << " bytes from "
@@ -115,7 +161,7 @@ public:
 
         // Parse the packet
         DiscoveryPacket packet;
-        if (!parse(buf, static_cast<size_t>(n), packet)) {
+        if (!parse(buf.data(), static_cast<size_t>(n), packet)) {
             std::cerr << "UDPDiscovery: failed to parse packet (wrong size or magic)\n";
             return false;
         }
@@ -176,25 +222,35 @@ public:
         pfd.fd = sockfd;
         pfd.events = POLLIN;
 
-        int remainingMs = static_cast<int>(timeout.count());
+        auto remainingMs = static_cast<int>(timeout.count());
         auto start = std::chrono::steady_clock::now();
 
         while (remainingMs > 0) {
-            // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
-            if (g_discoveryStopRequested.load()) {
-                break;
-            }
-
-            int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
-            if (ret < 0) {
-                if (errno == EINTR) break;  // SIGINT/SIGTERM: stop the poll immediately
-                continue;                   // other transient error: keep going
-            }
-            if (ret > 0 && (pfd.revents & POLLIN)) {
-                // Drain all available packets
-                while (tryReceive()) {
-                    // keep draining
+            // One poll iteration; returns whether the loop should keep going.
+            // Both early-exit paths (stop flag, EINTR) funnel through Stop so
+            // there is a single break in the loop.
+            auto iteration = [&]() {
+                // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
+                if (stop_->stopRequested()) {
+                    return false;
                 }
+
+                int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
+                if (ret < 0) {
+                    if (errno == EINTR) return false;  // SIGINT/SIGTERM: stop the poll immediately
+                    return true;                        // other transient error: keep going
+                }
+                if (ret > 0 && (pfd.revents & POLLIN)) {
+                    // Drain all available packets
+                    while (tryReceive()) {
+                        // keep draining
+                    }
+                }
+                return true;
+            };
+
+            if (!iteration()) {
+                break;
             }
 
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -203,7 +259,7 @@ public:
         }
 
         // Collect pending devices, deduplicating by address
-        for (auto& device : pending) {
+        for (const auto& device : pending) {
             if (std::find(seenAddresses.begin(), seenAddresses.end(), device.address)
                 == seenAddresses.end()) {
                 seenAddresses.push_back(device.address);
@@ -224,17 +280,21 @@ public:
         maxClockSkew = seconds;
     }
 
-    void setDeviceCallback(DeviceCallback cb) {
+    void setDeviceCallback(const DeviceCallback& cb) {
         callback = cb;
     }
 };
 
-UDPDiscovery::UDPDiscovery() : impl_(new Impl()) {}
+UDPDiscovery::UDPDiscovery() : impl_(std::make_unique<Impl>()) {}
 
-UDPDiscovery::~UDPDiscovery() {
-    stop();
-    delete impl_;
+UDPDiscovery::UDPDiscovery(std::shared_ptr<pipeline::StopToken> stop)
+    : impl_(std::make_unique<Impl>()) {
+    if (stop) {
+        impl_->stop_ = std::move(stop);
+    }
 }
+
+UDPDiscovery::~UDPDiscovery() = default;
 
 bool UDPDiscovery::start() {
     return impl_->start();
@@ -260,17 +320,8 @@ void UDPDiscovery::setMaxClockSkew(uint64_t seconds) {
     impl_->setMaxClockSkew(seconds);
 }
 
-void UDPDiscovery::setDeviceCallback(DeviceCallback cb) {
+void UDPDiscovery::setDeviceCallback(const DeviceCallback& cb) {
     impl_->setDeviceCallback(cb);
 }
 
-void UDPDiscovery::requestStop() noexcept {
-    g_discoveryStopRequested.store(true);
-}
-
-void UDPDiscovery::resetStop() noexcept {
-    g_discoveryStopRequested.store(false);
-}
-
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery

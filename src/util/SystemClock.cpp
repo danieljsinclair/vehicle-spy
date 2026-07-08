@@ -1,4 +1,5 @@
 #include "vehicle-sim/util/IClock.h"
+#include <cassert>
 
 namespace vehicle_sim::util {
 
@@ -13,14 +14,14 @@ IClock::time_point SystemClock::now() const {
 bool SystemClock::waitForImpl(
     std::condition_variable& cv,
     std::unique_lock<std::mutex>& lock,
-    std::function<bool()> pred,
+    const std::function<bool()>& pred,
     time_point deadline) const {
     // Production path: park on the OS until real wall-clock time reaches the
     // deadline or the predicate is satisfied / the cv is notified.
     if (pred()) {
         return true;
     }
-    if (cv.wait_until(lock, deadline, [&] { return pred(); })) {
+    if (cv.wait_until(lock, deadline, [&pred]() { return pred(); })) {
         return true;
     }
     // wait_until returned false: deadline elapsed without pred becoming true.
@@ -34,7 +35,7 @@ bool SystemClock::waitForImpl(
 FakeClock::FakeClock(time_point initial) noexcept : now_(initial) {}
 
 IClock::time_point FakeClock::now() const {
-    std::lock_guard<std::mutex> guard(mutex_);
+    std::scoped_lock guard(mutex_);
     return now_;
 }
 
@@ -51,7 +52,7 @@ void FakeClock::advance(duration d) {
     std::condition_variable* cv = nullptr;
     std::mutex* consumerMutex = nullptr;
     {
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         cv = registeredCv_;
         if (registeredLock_ != nullptr) {
             consumerMutex = registeredLock_->mutex();
@@ -60,20 +61,26 @@ void FakeClock::advance(duration d) {
 
     if (cv == nullptr) {
         // No waiter parked: bump now_ under FakeClock::mutex_ only.
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         now_ += d;
         return;
     }
 
-    // A consumer IS parked. Take the CONSUMER's lock first (so the bump is
-    // serialized with the waiter's predicate-check + cv.wait, which hold that
-    // same lock), then FakeClock::mutex_ to mutate now_ consistently with the
-    // standalone now() reader. The waiter cannot pass its check AND release
-    // the lock to re-park in a way that misses our notify, because cv.wait
-    // atomically re-checks the predicate on wake under this same lock.
+    // A consumer IS parked (cv != nullptr). Since the waiter registers its cv
+    // and lock together atomically under mutex_ (see waitForImpl), cv != nullptr
+    // guarantees registeredLock_ != nullptr and that its unique_lock owns its
+    // mutex — i.e. consumerMutex is provably non-null here. Take BOTH the
+    // consumer lock and FakeClock::mutex_ in a single std::scoped_lock (which
+    // applies deadlock-avoidance) so the bump is serialized with the waiter's
+    // predicate-check + cv.wait (consumer lock) and consistent with the
+    // standalone now() reader (FakeClock::mutex_). The waiter cannot pass its
+    // check AND release the lock to re-park in a way that misses our notify,
+    // because cv.wait atomically re-checks the predicate on wake under this
+    // same consumer lock.
     {
-        std::lock_guard<std::mutex> consumerGuard(*consumerMutex);
-        std::lock_guard<std::mutex> fakeGuard(mutex_);
+        // Document the proven invariant: cv != nullptr guarantees registeredLock_ != nullptr
+        assert(consumerMutex != nullptr && "consumerMutex must be non-null when cv is registered");
+        std::scoped_lock guard(*consumerMutex, mutex_);
         now_ += d;
     }
     // Notify on the cv the waiter is actually parked on. Notifying is done
@@ -86,7 +93,7 @@ void FakeClock::advance(duration d) {
 bool FakeClock::waitForImpl(
     std::condition_variable& cv,
     std::unique_lock<std::mutex>& lock,
-    std::function<bool()> pred,
+    const std::function<bool()>& pred,
     time_point deadline) const {
     // Deterministic path: never park on the OS wall clock.
     //
@@ -100,10 +107,18 @@ bool FakeClock::waitForImpl(
         return true;
     }
 
+    // Check if the deadline is already past. If so, return false immediately
+    // without parking. This handles the case where the clock is advanced
+    // BEFORE the wait starts (e.g., in a test that advances the clock
+    // before calling waitForPrompt).
+    if (now() >= deadline) {
+        return false;
+    }
+
     // Register ourselves as the active waiter. The caller's `lock` is held on
     // entry and remains held; we keep it held across the cv.wait below.
     {
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         registeredCv_ = &cv;
         registeredLock_ = &lock;
     }
@@ -112,13 +127,13 @@ bool FakeClock::waitForImpl(
     // below. advance() that races here must take the consumer lock to bump
     // now_, so it cannot slip a bump+notify in between our check and our
     // cv.wait — the standard predicated cv.wait(lock, pred) guarantees this.
-    cv.wait(lock, [&] {
+    cv.wait(lock, [this, &pred, &deadline] {
         return pred() || now() >= deadline;
     });
 
     // Unregister on the way out (under FakeClock::mutex_).
     {
-        std::lock_guard<std::mutex> guard(mutex_);
+        std::scoped_lock guard(mutex_);
         registeredCv_ = nullptr;
         registeredLock_ = nullptr;
     }

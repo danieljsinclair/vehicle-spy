@@ -1,8 +1,10 @@
 #include "vehicle-sim/boundary/ELM327Transport.h"
 
-#include <sstream>
 #include <algorithm>
+#include <array>
+#include <cassert>
 #include <cctype>
+#include <string_view>
 #include <unordered_set>
 
 namespace vehicle_sim::boundary {
@@ -21,15 +23,13 @@ namespace {
         "SEARCHING", "BUSINIT", "OK"
     };
 
-    bool isErrorMessage(const std::string& str) {
-        std::string upper = str;
+    bool isErrorMessage(std::string_view str) {
+        std::string upper{str};
         std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-        for (const auto& error : ERROR_MESSAGES) {
-            if (upper.find(error) != std::string::npos) {
-                return true;
-            }
-        }
-        return false;
+        return std::any_of(ERROR_MESSAGES.begin(), ERROR_MESSAGES.end(),
+                           [&](std::string_view error) {
+                               return upper.find(error) != std::string::npos;
+                           });
     }
 
     std::uint8_t hexCharToByte(char c) {
@@ -49,6 +49,83 @@ namespace {
 
         return (high << 4) | low;
     }
+
+    // Strip the earliest informational banner (SEARCHING/BUSINIT/OK) and any
+    // trailing separator chars so the data following it is what gets parsed.
+    // Returns the substring after the earliest prefix, or the input unchanged
+    // when no informational prefix is present.
+    std::string stripInfoPrefixes(const std::string& cleaned) {
+        std::size_t dataStart = std::string::npos;
+        for (const auto& prefix : INFO_MESSAGES) {
+            std::size_t pos = cleaned.find(prefix);
+            if (pos != std::string::npos && (dataStart == std::string::npos || pos < dataStart)) {
+                dataStart = pos + prefix.length();
+                while (dataStart < cleaned.length() &&
+                       (cleaned[dataStart] == '.' || cleaned[dataStart] == ':' ||
+                        std::isspace(static_cast<unsigned char>(cleaned[dataStart])))) {
+                    ++dataStart;
+                }
+            }
+        }
+        return (dataStart != std::string::npos) ? cleaned.substr(dataStart) : cleaned;
+    }
+
+    // Decode complete hex byte-pairs from `hexStr` into `out`, leaving any
+    // trailing lone digit in `hexStr`. `hexStr` holds only isxdigit characters
+    // by construction (the accumulator only appends those), so every parseHexByte
+    // succeeds — the assert documents that invariant.
+    void flushHexAccumulator(std::string& hexStr, std::vector<std::uint8_t>& out) {
+        while (hexStr.length() >= 2) {
+            auto byte = parseHexByte(hexStr.substr(0, 2));
+            assert(byte.has_value() && "hexStr contains only isxdigit characters");
+            out.push_back(*byte);
+            hexStr = hexStr.substr(2);
+        }
+    }
+
+    // ELM327 status/error strings that are not CAN frames. `upper` must already
+    // be upper-cased; an exact (whole-line) match identifies a status response.
+    bool isStatusMessage(std::string_view upper) {
+        static constexpr std::array<std::string_view, 10> STATUSES = {
+            "OK", "NO DATA", "ERROR", "STOPPED", "UNABLE TO CONNECT",
+            "BUS ERROR", "BUFFER FULL", "CAN ERROR", "BUS INIT", "SEARCHING"
+        };
+        return std::any_of(STATUSES.begin(), STATUSES.end(),
+                           [&](std::string_view status) { return upper == status; });
+    }
+
+    // Split `cleaned` into upper-cased hex tokens, treating any run of non-hex
+    // characters as a separator. Empty tokens (leading/consecutive separators)
+    // are dropped.
+    std::vector<std::string> tokenizeHex(const std::string& cleaned) {
+        std::vector<std::string> tokens;
+        std::string current;
+        for (char c : cleaned) {
+            if (std::isxdigit(static_cast<unsigned char>(c))) {
+                current += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            } else if (!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
+            }
+        }
+        if (!current.empty()) {
+            tokens.push_back(current);
+        }
+        return tokens;
+    }
+
+    // For a 10-token frame, classify the leading token: a monitor-mode type
+    // prefix in the 0x600-0x6FF range returns offset 1 (data starts at token 1);
+    // anything else is malformed and returns nullopt. Frames with != 10 tokens
+    // have no type prefix, so offset 0 is returned.
+    std::optional<std::size_t> classifyTypePrefix(const std::vector<std::string>& tokens) {
+        if (tokens.size() != 10) return 0;
+
+        unsigned int type = 0;
+        if (sscanf(tokens[0].c_str(), "%X", &type) != 1) return std::nullopt;
+        if (type >= 0x600 && type <= 0x6FF) return 1;
+        return std::nullopt;
+    }
 }
 
 // ================================================
@@ -56,9 +133,9 @@ namespace {
 // ================================================
 
 std::string ELM327Transport::buildOBD2Query(uint8_t mode, uint8_t pid) {
-    char buffer[16];
-    snprintf(buffer, sizeof(buffer), "%02X %02X\r", mode, pid);
-    return std::string(buffer);
+    std::array<char, 16> buffer;
+    snprintf(buffer.data(), buffer.size(), "%02X %02X\r", mode, pid);
+    return std::string(buffer.data());
 }
 
 // ================================================
@@ -72,22 +149,7 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
     if (cleaned.empty() || cleaned == ">") return std::nullopt;
 
-    // Remove informational prefixes like "SEARCHING..." but keep the data
-    std::size_t dataStart = std::string::npos;
-    for (const auto& prefix : INFO_MESSAGES) {
-        std::size_t pos = cleaned.find(prefix);
-        if (pos != std::string::npos && (dataStart == std::string::npos || pos < dataStart)) {
-            dataStart = pos + prefix.length();
-            // Skip common trailing chars after info messages
-            while (dataStart < cleaned.length() && (cleaned[dataStart] == '.' || cleaned[dataStart] == ':' || std::isspace(cleaned[dataStart]))) {
-                dataStart++;
-            }
-        }
-    }
-
-    if (dataStart != std::string::npos) {
-        cleaned = cleaned.substr(dataStart);
-    }
+    cleaned = stripInfoPrefixes(cleaned);
 
     if (cleaned.empty()) return std::nullopt;
 
@@ -97,44 +159,26 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
     std::string hexStr;
 
     for (char c : cleaned) {
-        if (std::isxdigit(c)) {
-            hexStr += static_cast<char>(std::toupper(c));
-        } else {
-            // Check for line numbers like "014:" - reset hexStr if we hit ':' and have accumulated digits
-            // This prevents line numbers from being parsed as data
-            if (c == ':') {
-                hexStr.clear();
-                continue;
-            }
-
-            // Process accumulated hex when we hit a non-hex character
-            while (hexStr.length() >= 2) {
-                auto byte = parseHexByte(hexStr.substr(0, 2));
-                if (byte) {
-                    result.push_back(*byte);
-                } else {
-                    return std::nullopt; // Invalid hex found
-                }
-                hexStr = hexStr.substr(2);
-            }
+        if (std::isxdigit(static_cast<unsigned char>(c))) {
+            hexStr += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            continue;
         }
-    }
 
-    // Process remaining hex
-    while (hexStr.length() >= 2) {
-        auto byte = parseHexByte(hexStr.substr(0, 2));
-        if (byte) {
-            result.push_back(*byte);
-        } else {
-            return std::nullopt;
+        // A ':' marks a multi-frame line-number segment (e.g. "014:"): the
+        // digits accumulated before it must be discarded, not parsed as data.
+        if (c == ':') {
+            hexStr.clear();
+            continue;
         }
-        hexStr = hexStr.substr(2);
+
+        // Any other non-hex char is a separator: flush the accumulated pairs.
+        flushHexAccumulator(hexStr, result);
     }
 
-    // If there's an odd number of hex digits remaining, it's invalid
-    if (!hexStr.empty()) {
-        return std::nullopt;
-    }
+    flushHexAccumulator(hexStr, result);
+
+    // A trailing lone digit (odd count overall) cannot form a byte -> invalid.
+    if (!hexStr.empty()) return std::nullopt;
 
     if (result.empty()) return std::nullopt;
 
@@ -199,8 +243,7 @@ std::vector<ATCommand> ELM327Transport::buildVINQueryInitSequence() {
 // ================================================
 
 std::string ELM327Transport::extractPrompt(const std::string& response) {
-    size_t promptPos = response.find('>');
-    if (promptPos != std::string::npos) {
+    if (size_t promptPos = response.find('>'); promptPos != std::string::npos) {
         return response.substr(0, promptPos);
     }
     return response;
@@ -221,15 +264,13 @@ std::vector<ATCommand> ELM327Transport::buildCANMonitorInitSequence() {
 }
 
 std::string ELM327Transport::buildCANFilter(uint16_t canId) {
-    char buffer[32];
-    snprintf(buffer, sizeof(buffer), "ATCRA%X\r", canId);
-    return std::string(buffer);
+    std::array<char, 32> buffer;
+    snprintf(buffer.data(), buffer.size(), "ATCRA%X\r", canId);
+    return std::string(buffer.data());
 }
 
 std::optional<CANFrame> ELM327Transport::parseCANFrame(const std::string& line) {
-    if (line.empty()) {
-        return std::nullopt;
-    }
+    if (line.empty()) return std::nullopt;
 
     // Remove trailing line endings
     std::string cleaned = line;
@@ -238,93 +279,43 @@ std::optional<CANFrame> ELM327Transport::parseCANFrame(const std::string& line) 
     }
 
     // Check for prompt only
-    if (cleaned == ">") {
-        return std::nullopt;
-    }
+    if (cleaned == ">") return std::nullopt;
 
     // Check for ELM327 responses (not CAN frames)
     std::string upper = cleaned;
     std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
-    if (upper == "OK" || upper == "NO DATA" || upper == "ERROR" || upper == "STOPPED" ||
-        upper == "UNABLE TO CONNECT" || upper == "BUS ERROR" || upper == "BUFFER FULL" ||
-        upper == "CAN ERROR" || upper == "BUS INIT" || upper == "SEARCHING") {
-        return std::nullopt;
-    }
+    if (isStatusMessage(upper)) return std::nullopt;
 
     // Check for OBD2 multi-frame response with line numbers (e.g., "014:")
-    if (cleaned.find(':') != std::string::npos) {
-        return std::nullopt;
-    }
+    if (cleaned.find(':') != std::string::npos) return std::nullopt;
 
-    // Check for OBD2 response format (starts with 0x41 which is mode 01 response)
-    // A valid CAN frame should have more hex bytes than a typical OBD2 response
-    std::vector<std::string> tokens;
-    std::string current;
-    for (char c : cleaned) {
-        if (std::isxdigit(c)) {
-            current += static_cast<char>(std::toupper(c));
-        } else if (!current.empty()) {
-            tokens.push_back(current);
-            current.clear();
-        }
-    }
-    if (!current.empty()) {
-        tokens.push_back(current);
-    }
+    // A valid CAN frame is CAN ID + 8 data bytes (9 tokens), or a monitor-mode
+    // type prefix + CAN ID + 8 data bytes (10 tokens). Anything else is an OBD2
+    // response with fewer bytes.
+    auto tokens = tokenizeHex(cleaned);
+    if (tokens.size() < 9 || tokens.size() > 10) return std::nullopt;
 
-    // Need at least CAN ID + 8 data bytes (9 tokens minimum)
-    // Or CAN ID + type byte + 8 data bytes (10 tokens with type prefix)
-    if (tokens.size() < 9 || tokens.size() > 10) {
-        // Could be an OBD2 response with fewer bytes
-        return std::nullopt;
-    }
+    auto dataStart = classifyTypePrefix(tokens);
+    if (!dataStart.has_value()) return std::nullopt;
 
-    size_t dataStart = 0;
-    uint16_t canId = 0;
-
-    // Check if first token is a type byte (0x600-0x6FF range)
-    if (tokens.size() == 10) {
-        unsigned int type;
-        if (sscanf(tokens[0].c_str(), "%X", &type) != 1) {
-            return std::nullopt;
-        }
-        // Type byte in range 0x600-0x6FF indicates monitor mode type prefix
-        if (type >= 0x600 && type <= 0x6FF) {
-            dataStart = 1;
-        } else {
-            // Not a valid type prefix, might be malformed
-            return std::nullopt;
-        }
-    }
-
-    // Parse CAN ID (first token after optional type)
-    unsigned int id;
-    if (sscanf(tokens[dataStart].c_str(), "%X", &id) != 1) {
-        return std::nullopt;
-    }
-    canId = static_cast<uint16_t>(id);
+    // Parse CAN ID (first token after the optional type prefix)
+    unsigned int id = 0;
+    if (sscanf(tokens[*dataStart].c_str(), "%X", &id) != 1) return std::nullopt;
 
     // Verify we have exactly 8 data bytes remaining
-    size_t dataCount = tokens.size() - dataStart - 1;
-    if (dataCount != 8) {
-        return std::nullopt;
-    }
+    if (tokens.size() - *dataStart - 1 != 8) return std::nullopt;
 
     // Parse data bytes
     std::vector<uint8_t> data;
-    for (size_t i = dataStart + 1; i < tokens.size(); ++i) {
-        if (tokens[i].size() != 2) {
-            return std::nullopt;
-        }
+    for (std::size_t i = *dataStart + 1; i < tokens.size(); ++i) {
+        if (tokens[i].size() != 2) return std::nullopt;
         auto byte = parseHexByte(tokens[i]);
-        if (!byte) {
-            return std::nullopt;
-        }
+        if (!byte.has_value()) return std::nullopt;
         data.push_back(*byte);
     }
 
     CANFrame frame;
-    frame.canId = canId;
+    frame.canId = static_cast<uint16_t>(id);
     frame.data = std::move(data);
     return frame;
 }

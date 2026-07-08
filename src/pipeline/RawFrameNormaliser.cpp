@@ -1,5 +1,6 @@
 #include "vehicle-sim/pipeline/RawFrameNormaliser.h"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cstdint>
@@ -15,14 +16,13 @@ constexpr std::size_t CAN_PAYLOAD_BYTES = 8;
 
 bool isHex(std::string_view s) noexcept {
     if (s.empty()) return false;
-    for (char c : s) {
+    return std::all_of(s.begin(), s.end(), [](char c) {
         const auto u = static_cast<unsigned char>(c);
         const bool digit = u >= '0' && u <= '9';
         const bool lower = u >= 'a' && u <= 'f';
         const bool upper = u >= 'A' && u <= 'F';
-        if (!(digit || lower || upper)) return false;
-    }
-    return true;
+        return digit || lower || upper;
+    });
 }
 
 std::string_view rtrim(std::string_view s) noexcept {
@@ -34,16 +34,14 @@ std::string_view rtrim(std::string_view s) noexcept {
 }
 
 bool isBlank(std::string_view s) noexcept {
-    for (char c : s) {
-        if (c != ' ' && c != '\r' && c != '\n' && c != '\t') return false;
-    }
-    return true;
+    return std::all_of(s.begin(), s.end(), [](char c) {
+        return c == ' ' || c == '\r' || c == '\n' || c == '\t';
+    });
 }
 
 std::optional<std::uint32_t> parseHex(std::string_view s) noexcept {
     std::uint32_t v = 0;
-    auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16);
-    if (res.ec != std::errc{}) return std::nullopt;
+    if (auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16); res.ec != std::errc{}) return std::nullopt;
     return v;
 }
 
@@ -98,7 +96,7 @@ NormaliserResult RawFrameNormaliser::parseLiveLine(const std::string& line) noex
     }
 
     auto canId = parseHex(tokens[0]);
-    if (!canId) {
+    if (!canId.has_value()) {
         return NormaliserResult::malformed();
     }
 
@@ -107,7 +105,7 @@ NormaliserResult RawFrameNormaliser::parseLiveLine(const std::string& line) noex
     frame.canId = *canId;
     for (std::size_t t = 1; t < tokens.size(); ++t) {
         auto byte = parseHex(tokens[t]);
-        if (!byte || *byte > 0xFFu) {
+        if (!byte.has_value() || *byte > 0xFFu) {
             return NormaliserResult::malformed();
         }
         frame.data[t - 1] = static_cast<std::uint8_t>(*byte);

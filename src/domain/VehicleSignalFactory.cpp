@@ -1,8 +1,8 @@
 #include "vehicle-sim/domain/VehicleSignalFactory.h"
 #include "vehicle-sim/domain/DBCSignalMapper.h"
-#include "vehicle-sim/domain/Gear.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -53,6 +53,19 @@ VehicleSignalFactory::VehicleSignalFactory(
     resolveMappings();
 }
 
+VehicleSignalFactory::LocatedSignal VehicleSignalFactory::locateSignal(
+    std::string_view signalName
+) const noexcept {
+    for (const auto& [canId, defs] : parseResult_.signalsByCanId) {
+        for (const auto& def : defs) {
+            if (def.name == signalName) {
+                return LocatedSignal{canId, &def};
+            }
+        }
+    }
+    return LocatedSignal{0, nullptr};
+}
+
 void VehicleSignalFactory::resolveMappings() {
     // signalMappings: signalName -> fieldName. For each, find the CAN ID +
     // definition that carries signalName. The DBC join is O(signals) once;
@@ -62,36 +75,24 @@ void VehicleSignalFactory::resolveMappings() {
         const auto numericSlot = numericSlotFor(fieldName);
         const bool isGear = (fieldName == "gearSelector");
 
-        if (!numericSlot && !isGear) {
+        if (!numericSlot.has_value() && !isGear) {
             // Mapped to a field VehicleSignal does not expose (e.g. gearRequested).
             resolved_.push_back({FieldKind::Ignored, 0, nullptr, 0});
             continue;
         }
 
-        // Locate the single CAN ID + definition carrying this signal name.
-        const DBCSignalDefinition* foundDef = nullptr;
-        std::uint16_t foundCanId = 0;
-        for (const auto& [canId, defs] : parseResult_.signalsByCanId) {
-            for (const auto& def : defs) {
-                if (def.name == signalName) {
-                    foundDef = &def;
-                    foundCanId = canId;
-                    break;
-                }
-            }
-            if (foundDef) break;
-        }
+        const auto located = locateSignal(signalName);
 
         // No DBC definition for this mapped signal — nothing to decode; treat
         // it as ignored (matches the previous scan, which would find no frame).
-        if (!foundDef) {
+        if (located.def == nullptr) {
             resolved_.push_back({FieldKind::Ignored, 0, nullptr, 0});
             continue;
         }
 
         const std::size_t outIdx = isGear ? IDX_GEAR : *numericSlot;
         const FieldKind kind = isGear ? FieldKind::Gear : FieldKind::Numeric;
-        resolved_.push_back({kind, foundCanId, foundDef, outIdx});
+        resolved_.push_back({kind, located.canId, located.def, outIdx});
     }
 }
 
@@ -101,7 +102,7 @@ VehicleSignal VehicleSignalFactory::build(
 ) const noexcept {
     // Parallel output buffers: 9 numeric slots + 1 gear slot. Defaults
     // (nullopt) match the previous per-call initialisation.
-    std::optional<double> numeric[IDX_GEAR];  // 9 numeric slots (indices 0..8)
+    std::array<std::optional<double>, IDX_GEAR> numeric;  // 9 numeric slots (indices 0..8)
     std::optional<std::int32_t> gear;
 
     for (const auto& field : resolved_) {
@@ -128,12 +129,12 @@ VehicleSignal VehicleSignalFactory::build(
                 field.def->name,
                 parseResult_.signalsByCanId
             );
-            if (gearValue) {
+            if (gearValue.has_value()) {
                 gear = *gearValue;
             }
         } else {
             auto value = DBCSignalMapper::mapSignal(frameIt->second, *field.def);
-            if (value) {
+            if (value.has_value()) {
                 numeric[field.outputIndex] = *value;
             }
         }

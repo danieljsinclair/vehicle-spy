@@ -1,9 +1,10 @@
 .PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
 	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
-	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
+	        capture-tcp ota-keys flash-over-tcp flash-over-usb \
+			reboot reboot-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
 	        sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary sonar-compiledb sonar-compiledb-cpp sonar-compiledb-merge sonar-clean summary \
-	        coverage-run coverage-clean coverage-summary \
+	        coverage-run coverage-clean coverage-summary coverage-firmware coverage-firmware-clean \
 			header discovery join-wifi join-wifi-usb
 
 # Device ID (first connected/available device, excluding unavailable)
@@ -18,7 +19,10 @@ ESPTOOL_DIR   ?= $(shell python3 -c 'import pathlib; roots=sorted(pathlib.Path.h
 ESPTOOL       ?= $(ESPTOOL_DIR)/esptool
 ESPTOOL_MERGE_CMD ?= $(shell if [ -x "$(ESPTOOL)" ] && "$(ESPTOOL)" --help 2>/dev/null | grep -q 'merge-bin'; then printf 'merge-bin'; else printf 'merge_bin'; fi)
 ESP32_HOST    ?=
-ESP32_WIFI_PASS ?=
+# ESP32_WIFI_PASS is the current var; ESP32_WIFI_PASSWORD is a legacy alias
+# still supported so older shells/docs keep working. PASS wins when both are set.
+ESP32_WIFI_PASSWORD ?=
+ESP32_WIFI_PASS ?= $(ESP32_WIFI_PASSWORD)
 # Shared auto-discovery command: extracts the first TCP IP from the vehicle-sim discovery output.
 # Used in flash/reboot recipes when ESP32_HOST is not set.
 ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2
@@ -30,6 +34,7 @@ ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -o
         CYAN=\033[0;36m
       YELLOW=\033[1;33m
        WHITE=\033[1;37m
+       GREY=\033[0;90m
 	      NC=\033[0m
 
 # Default -- build + test all platforms + coverage + THREE sonar scans + headline.
@@ -37,18 +42,22 @@ ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -o
 # app), and `sonar-scan-esp32` (vehicle-spy-esp32 = ESP32) are each
 # dependency-gated: a scan runs only when THAT project's inputs change.
 # `summary` (the THREE-LINE headline, one per project) is ALWAYS the last output.
-all: header test firmware ios coverage-run coverage-ios sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary summary
+all: header test firmware ios coverage-run coverage-ios coverage-firmware sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary coverage-summary summary
 
 # Shared macro to show build config (DRY)
 define show_wifi
-	@if [ -n "$(ESP32_WIFI_SSID)" ]; then \
+	@if [ -z "$(ESP32_WIFI_SSID)" ]; then \
+		echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)"; \
+		echo " $(YELLOW)warning: ESP32_WIFI_SSID is blank — firmware will boot in AP mode (valid)$(NC)"; \
+	elif [ -z "$(ESP32_WIFI_PASS)" ]; then \
+		echo " ESP32_WIFI_SSID: $(PURPLE)$(ESP32_WIFI_SSID)$(NC)"; \
+		echo " $(YELLOW)warning: ESP32_WIFI_PASS is blank — auth will fail; firmware falls back to AP mode$(NC)"; \
+	else \
 		echo " ESP32_WIFI_SSID: $(GREEN)$(ESP32_WIFI_SSID)$(NC)"; \
 		_pass="$(ESP32_WIFI_PASS)"; \
 		_masked=$$(echo "$$_pass" | sed 's/./\*/g'); \
 		_masked=$${_pass%"$${_pass#?}"}$${_masked#?}; \
 		echo " ESP32_WIFI_PASS: $(RED)$${_masked}$(NC)"; \
-	else \
-		echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)"; \
 	fi
 endef
 
@@ -94,7 +103,8 @@ build-native/Makefile: CMakeLists.txt
 	@cd build-native && cmake .. -DBUILD_IOS=OFF -DBUILD_TESTS=ON -DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"
 
 native macos osx: build-native/Makefile
-	@$(MAKE) -C build-native all
+	@mkdir -p build-native/profraw
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native all
 
 # C++ gtest suite (green) + Python capture-notepad suite (must also be green).
 # A failure in either fails the build.
@@ -106,9 +116,10 @@ test-cpp: $(TEST_REPORT)
 	@cat "$(TEST_REPORT)"
 
 $(TEST_REPORT): build-native/Makefile CMakeLists.txt test/CMakeLists.txt $(shell find test include src -type f 2>/dev/null)
+	@mkdir -p build-native/profraw
 	@echo "--- Running C++ tests ---"
-	@$(MAKE) -C build-native vehicle-sim-tests
-	@$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes | tee "$(TEST_REPORT)"
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native vehicle-sim-tests
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes | tee "$(TEST_REPORT)"
 
 # -- iOS ------------------------------------------------------------------
 
@@ -267,14 +278,21 @@ install-deps:
 
 # WiFi credentials: read from environment, or prompt at build time.
 # Never use a silent default — the wrong SSID means the ESP32 won't connect.
+# ESP32_WIFI_PASS is current; ESP32_WIFI_PASSWORD is a legacy alias used only
+# when PASS is unset (defined above). Blank creds are permitted (AP mode).
 ESP32_WIFI_SSID ?=
-ESP32_WIFI_PASS ?=
 FIRMWARE_EXTRA_CFLAGS ?=
+# Force C++14 for std::make_unique, std::transform, std::round
+FIRMWARE_CFLAGS ?= -std=gnu++14
 
 # WiFi credentials as compiler defines (only in memory, never on disk)
 # Suppress SSID warning for discovery/discovery/join-wifi targets (not firmware-related)
 ifneq ($(ESP32_WIFI_SSID),)
 FIRMWARE_CFLAGS += -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASS=$(ESP32_WIFI_PASS)
+ifeq ($(ESP32_WIFI_PASS),)
+$(warning ESP32_WIFI_SSID is set but ESP32_WIFI_PASS is blank — auth will fail; firmware will fall back to AP mode.)
+$(warning Set: export ESP32_WIFI_PASS=yourpassword  (or legacy ESP32_WIFI_PASSWORD=yourpassword))
+endif
 else ifeq ($(filter discovery join-wifi join-wifi-usb,$(MAKECMDGOALS)),)
 $(warning ESP32_WIFI_SSID is not set. Firmware will use AP mode (ESP32-CAN).)
 $(warning Set: export ESP32_WIFI_SSID=yourSSID ESP32_WIFI_PASS=yourpassword)
@@ -310,7 +328,7 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(wildcard $(FIR
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
-	arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS)"
+	arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++14"
 	$(ESPTOOL) \
 		--chip esp32 \
 		$(ESPTOOL_MERGE_CMD) --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin --target-offset 0x0 \
@@ -342,7 +360,7 @@ monitor: firmware-port
 
 	@screen "$(ESP32_PORT)" 115200
 
-reboot-over-usb: firmware-port
+reboot reboot-usb reboot-over-usb: firmware-port
 	@if [ -z "$(ESPTOOL)" ]; then echo "${RED}Error: esptool not found under $(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/${NC}" >&2; exit 1; fi
 	@echo "Starting serial logger, then resetting ${PURPLE}$(ESP32_PORT)${NC} via esptool USB control reset..."
 	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool --esptool "$(ESPTOOL)"
@@ -384,20 +402,24 @@ OTA_KEYS_DIR ?= $(HOME)/.vehicle-sim/ota
 # Usage: make check-esp32 ESP32_HOST=192.168.68.60
 # Pings the device and reports whether it's reachable on the network.
 check-esp32:
+	@if [ -z "$(ESP32_HOST)" ]; then \
+		echo "${RED}Error: ESP32_HOST is required.${NC}" >&2; \
+		echo "Usage:" >&2; \
 		echo "  make check-esp32 ESP32_HOST=<esp32-ip>" >&2; \
 		exit 1; \
 	fi
-	@echo "Pinging $(_IP)..."
-	@ping -c 3 -t 2 "$(_IP)" 2>/dev/null | tail -1
-	@echo ""
-	@echo "ARP table:"
-	@arp -an | grep "$(_IP)" 2>/dev/null || echo "  (no ARP entry)"
-	@echo ""
-	@echo "TCP port 3333:"
-	@nc -z -w 2 "$(_IP)" 3333 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
-	@echo ""
-	@echo "TCP port 80:"
-	@nc -z -w 2 "$(_IP)" 80 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
+	@_IP="$(ESP32_HOST)"; \
+	echo "Pinging $$_IP..."; \
+	ping -c 3 -t 2 "$$_IP" 2>/dev/null | tail -1; \
+	echo ""; \
+	echo "ARP table:"; \
+	arp -an | grep "$$_IP" 2>/dev/null || echo "  (no ARP entry)"; \
+	echo ""; \
+	echo "TCP port 3333:"; \
+	nc -z -w 2 "$$_IP" 3333 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"; \
+	echo ""; \
+	echo "TCP port 80:"; \
+	nc -z -w 2 "$$_IP" 80 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
 
 # TCP auth token — single credential for TCP commands and OTA
 # Generated by make ota-creds, persisted in ~/.zshrc, baked into firmware via TCP_AUTH_TOKEN
@@ -449,9 +471,9 @@ dump-tcp:
 	@sudo tcpdump -i en0 -n -X udp port 3335
 
 
-flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
+flash-wifi flash-over-wifi flash-tcp flash-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
-		echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
+		echo "${YELLOW}ESP32_HOST not set — attempting auto-discovery...${NC}"; \
 		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
 		echo "      Set ESP32_HOST=<ip> to skip discovery."; \
 		DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
@@ -462,7 +484,10 @@ flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 		fi; \
 		echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
 		ESP32_HOST="$$DISCOVERED_IP"; \
+	else \
+		echo "${GREEN}ESP32_HOST is set: $(ESP32_HOST)${NC}"; \
 	fi
+	@$(MAKE) firmware native
 	@echo "--- Signing firmware ---"
 	@scripts/ota-sign.sh $(FIRMWARE_BUILD)/can-bridge.ino.bin --keys-dir "$(OTA_KEYS_DIR)"
 	@echo "--- Pushing signed firmware to $(ESP32_HOST):80 ---"
@@ -672,6 +697,71 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project.p
 
 coverage-ios: $(COVERAGE_XML_IOS)
 
+# == Firmware host test coverage (llvm-cov for vanilla C++) ==
+# The 6 extracted vanilla classes (firmware/vanilla/*.cpp) + StatusLEDRenderer
+# are host-tested via CMake/GoogleTest in firmware/build-verify. This coverage
+# instruments the vanilla C++ layer (the thin-veneer testable surface) before
+# the .ino routing refactor.
+FIRMWARE_BUILD_DIR     := firmware/build-verify
+FIRMWARE_COVERAGE_LCOV := $(FIRMWARE_BUILD_DIR)/lcov.info
+FIRMWARE_COVERAGE_XML  := $(FIRMWARE_BUILD_DIR)/coverage-sonar.xml
+FIRMWARE_TEST_REPORT   := $(FIRMWARE_BUILD_DIR)/test-report.txt
+FIRMWARE_TEST_INPUTS   := $(shell find firmware/CMakeLists.txt firmware/vanilla firmware/can-bridge/StatusLED.cpp firmware/can-bridge/HardwareStatusLEDOutput.cpp firmware/tests firmware/mocks -type f 2>/dev/null | sort)
+
+# firmware-host-tests: build and run the firmware host tests (no coverage).
+# File-artefact target: re-runs only when inputs change.
+.PHONY: firmware-host-tests
+firmware-host-tests: $(FIRMWARE_TEST_REPORT)
+
+$(FIRMWARE_TEST_REPORT): $(FIRMWARE_TEST_INPUTS)
+	@echo "=== [firmware] Building host tests (firmware/build-verify) ==="
+	@mkdir -p $(FIRMWARE_BUILD_DIR)
+	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug
+	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
+	@echo "=== [firmware] Running host tests ==="
+	@ctest --test-dir $(FIRMWARE_BUILD_DIR) --output-on-failure > $(FIRMWARE_TEST_REPORT) 2>&1 || true
+
+# coverage-firmware: build with llvm-cov instrumentation, run tests, export lcov.
+# Re-runs only when inputs or the CMakeLists change. The lcov covers
+# firmware/vanilla/*.cpp (the extracted SOLID C++ surface) + .ino files.
+$(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scripts/lcov_to_xml.py scripts/lcov_add_uninstrumented.py
+	@echo "=== [firmware] Building host tests with coverage (llvm-cov) ==="
+	@mkdir -p $(FIRMWARE_BUILD_DIR)
+	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
+	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON
+	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
+	@echo "=== [firmware] Running tests under coverage ==="
+	@LLVM_PROFILE_FILE="$(FIRMWARE_BUILD_DIR)/profraw/default-%p.profraw" \
+		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests | tee $(FIRMWARE_TEST_REPORT) 2>&1 || true
+	@echo "=== [firmware] Merging profdata and exporting lcov ==="
+	@$(LLVM_PROFDATA) merge -o $(FIRMWARE_BUILD_DIR)/coverage.profdata \
+		$(FIRMWARE_BUILD_DIR)/profraw/*.profraw 2>/dev/null || true
+	@$(LLVM_COV) export \
+		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests \
+		--instr-profile=$(FIRMWARE_BUILD_DIR)/coverage.profdata \
+		--ignore-filename-regex='(firmware/tests|firmware/mocks|firmware/build-verify|/src/)' \
+		-format=lcov \
+		> $(FIRMWARE_COVERAGE_LCOV).tmp 2>/dev/null || true
+	@echo "=== [firmware] Adding uninstrumented files (.ino, Arduino wrappers) to lcov ==="
+	@python3 scripts/lcov_add_uninstrumented.py \
+		$(FIRMWARE_COVERAGE_LCOV).tmp \
+		$(FIRMWARE_COVERAGE_LCOV) \
+		--root "$(CURDIR)"
+	@rm -f $(FIRMWARE_COVERAGE_LCOV).tmp
+	@echo "=== [firmware] Converting lcov to Sonar XML ==="
+	@python3 scripts/lcov_to_xml.py \
+		$(FIRMWARE_COVERAGE_LCOV) \
+		$(FIRMWARE_COVERAGE_XML) \
+		--project-root "$(CURDIR)" \
+		--src-root firmware/vanilla --src-root firmware/can-bridge
+
+
+coverage-firmware: $(FIRMWARE_COVERAGE_LCOV)
+
+coverage-firmware-clean:
+	@rm -f $(FIRMWARE_COVERAGE_LCOV) $(FIRMWARE_COVERAGE_XML) $(FIRMWARE_BUILD_DIR)/coverage.profdata $(FIRMWARE_TEST_REPORT)
+	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
+
 # == ESP32 firmware compile database (arduino-cli, xtensa) ==
 # Used by the vehicle-spy-esp32 project only. The vehicle-spy project
 # reads build-cov/compile_commands.json (C++ CMake) directly -- no Arduino DB.
@@ -827,7 +917,7 @@ $(SONAR_ESP32_REPORT): SS_SCANNER_LOG   := $(SONAR_ESP32_SCANNER_LOG)
 $(SONAR_ESP32_REPORT): SS_LABEL         := vehicle-spy-esp32
 $(SONAR_ESP32_REPORT): SS_COMPILE_DB    := $(SONAR_COMPILE_DB_FW)
 
-$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(SONAR_ESP32_PROPERTIES)
+$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_XML) $(SONAR_ESP32_PROPERTIES)
 	$(run_sonar_scan)
 
 # sonar-summary: regenerate only when a report file or the summary script
@@ -852,24 +942,35 @@ sonar-summary: $(SONAR_REPORT) $(SONAR_IOS_REPORT) $(SONAR_ESP32_REPORT) scripts
 		echo ""; \
 	fi
 
-# coverage-summary: print local coverage % (C++ lcov + iOS xccov). No prereq:
-# this must NEVER trigger a scan/build. Graceful if files are absent.
+# coverage-summary: print 3 blocks (vehicle-spy C++, vehicle-spy-ios, vehicle-spy-esp32).
+# Each block shows SonarCloud live (API) + local (lcov/xccov) + drift + exclusions.
+# No prereq: this must NEVER trigger a scan/build. Graceful if files/API are absent.
 coverage-summary:
 	@echo ""
-	@echo "=== [vehicle-spy] BEGIN: coverage summary ==="
-	@if [ -f "$(COVERAGE_LCOV)" ]; then \
-		echo "  C++ core (lcov):"; \
-		python3 -c "import sys; sys.path.insert(0,'scripts'); from build_summary import _lcov_coverage; c=_lcov_coverage('$(COVERAGE_LCOV)'); print('    {:.1f}% ({}/{})'.format(c[2],c[0],c[1]) if c else '    n/a')" 2>/dev/null || echo "    n/a"; \
-	else echo "  C++ core (lcov): n/a (run: make coverage-run)"; fi
-	@if [ -f "$(COVERAGE_JSON_IOS)" ]; then \
-		echo "  iOS app (xccov):"; \
-		python3 -c "import sys; sys.path.insert(0,'scripts'); from build_summary import _xccov_coverage; c=_xccov_coverage('$(COVERAGE_JSON_IOS)'); print('    {:.1f}% ({}/{})'.format(c[2],c[0],c[1]) if c else '    n/a')" 2>/dev/null || echo "    n/a"; \
-	else echo "  iOS app (xccov): n/a (run: make coverage-ios)"; fi
-	@echo "=== [vehicle-spy] END: coverage summary ==="
-
-# -- End-of-make headline (THREE compact coloured lines) --------------------
-#
-# The end-of-make summary. Emits THREE scannable lines, one per project:
+	@echo "=== [vehicle-spy] C++ core coverage ==="
+	@python3 scripts/coverage_block.py \
+		--project-key "$(SONAR_PROJECT_KEY)" \
+		--local-cov "$(COVERAGE_LCOV)" \
+		--local-type lcov \
+		--exclusions "$(SONAR_PROPERTIES)" \
+		--label "[vehicle-spy]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-run)$(NC)"
+	@echo ""
+	@echo "=== [vehicle-spy-ios] iOS app coverage ==="
+	@python3 scripts/coverage_block.py \
+		--project-key "$(SONAR_IOS_PROJECT_KEY)" \
+		--local-cov "$(COVERAGE_JSON_IOS)" \
+		--local-type xccov \
+		--exclusions "$(SONAR_IOS_PROPERTIES)" \
+		--label "[vehicle-spy-ios]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-ios)$(NC)"
+	@echo ""
+	@echo "=== [vehicle-spy-esp32] ESP32 firmware coverage ==="
+	@python3 scripts/coverage_block.py \
+		--project-key "$(SONAR_ESP32_PROJECT_KEY)" \
+		--local-cov "$(FIRMWARE_COVERAGE_LCOV)" \
+		--local-type lcov \
+		--exclusions "$(SONAR_ESP32_PROPERTIES)" \
+		--label "[vehicle-spy-esp32]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-firmware)$(NC)"
+	@echo ""
 #
 #     [vehicle-spy]         tests: PASS 882/887 | cov: 70.4% 3868/5491 | sonar: open N / total M (no blocker)
 #     [vehicle-spy-ios]     tests: PASS 30/35   | cov: 45.2% 623/1378 | sonar: open N / total M (no blocker)
@@ -896,11 +997,12 @@ SUMMARY_FILE := build-sonar/summary.txt
 # the headline prints even when nothing was rebuilt.
 .PHONY: summary
 summary: $(SUMMARY_FILE)
-	@cat $(SUMMARY_FILE)
+	@if [ -f $(SUMMARY_FILE) ]; then cat $(SUMMARY_FILE); \
+	else echo "$(YELLOW)summary unavailable$(NC) — run $(GREEN)make summary$(NC) after sonar-scan/coverage-run"; fi
 
-$(SUMMARY_FILE): $(SONAR_MEASURES) $(SONAR_IOS_MEASURES) $(SONAR_ESP32_MEASURES) \
-		$(COVERAGE_LCOV) $(COVERAGE_JSON_IOS) \
-		$(TEST_REPORT) \
+$(SUMMARY_FILE): $(wildcard $(SONAR_MEASURES)) $(wildcard $(SONAR_IOS_MEASURES)) $(wildcard $(SONAR_ESP32_MEASURES)) \
+		$(wildcard $(COVERAGE_LCOV)) $(wildcard $(COVERAGE_JSON_IOS)) $(wildcard $(FIRMWARE_COVERAGE_LCOV)) \
+		$(wildcard $(TEST_REPORT)) $(wildcard $(FIRMWARE_TEST_REPORT)) \
 		scripts/build_summary.py
 	@mkdir -p $$(dirname $@)
 	@_tmp=$$(mktemp build-sonar/.summary.XXXXXX); \
@@ -924,9 +1026,10 @@ $(SUMMARY_FILE): $(SONAR_MEASURES) $(SONAR_IOS_MEASURES) $(SONAR_ESP32_MEASURES)
 		--label "[vehicle-spy-esp32]" \
 		--sonar-report "$(SONAR_ESP32_REPORT)" \
 		--removed-facet "$(SONAR_ESP32_REMOVED_FACET)" \
+			--test-log "$(FIRMWARE_TEST_REPORT)" \
+			--local-cov "$(FIRMWARE_COVERAGE_LCOV)" --local-type lcov \
 		>> $$_tmp; \
-	echo "HINT: run 'make sonar-summary' (full issues) or 'make coverage-summary' (coverage %)." >> $$_tmp; \
-	mv $$_tmp $@
+	mv $$_tmp $(SUMMARY_FILE)
 
 sonar-clean:
 	@rm -f $(SONAR_REPORT) $(SONAR_REMOVED_FACET) $(SONAR_MEASURES)
@@ -976,12 +1079,13 @@ capture capture-usb capture-over-usb: test-cpp
 #
 # Requires ESP32_HOST to be set (the ESP32 IP/hostname on the local network).
 
-capture-tcp capture-over-tcp capture-wifi capture-over-wifi: native
+capture-tcp capture-over-tcp capture-wifi capture-over-wifi:
 	@if [ -z "$(ESP32_HOST)" ]; then \
 		echo "${RED}Error: ESP32_HOST is required.${NC}" >&2; \
 		echo "  make capture-tcp ESP32_HOST=<esp32-ip>" >&2; \
 		exit 1; \
 	fi
+	@$(MAKE) native
 	@mkdir -p $(CAPDIR)
 	@ts=$$(date +%Y-%m-%d-%H%M%S); \
 		if [ -n "$(CAPFILE)" ]; then name="$(CAPFILE)_$$ts"; else name="capture_$$ts"; fi; \
@@ -1014,9 +1118,9 @@ help:
 	@echo "  coverage-ios     - Run iOS tests with xcodebuild -enableCodeCoverage + xccov/XML"
 	@echo "  coverage-summary - Print local coverage % (C++ lcov + iOS xccov)"
 	@echo "  test-ios         - Run iOS unit tests on the simulator (no coverage)"
-	@echo "  sonar-scan        - Run SonarCloud analysis on vehicle-spy (C++ core, needs SONAR_TOKEN)"
-	@echo "  sonar-scan-ios    - Run SonarCloud analysis on vehicle-spy-ios (iOS app, needs SONAR_TOKEN)"
-	@echo "  sonar-scan-esp32  - Run SonarCloud analysis on vehicle-spy-esp32 (ESP32, needs SONAR_TOKEN)"
+	@echo "  sonar-scan        - Run SonarCloud analysis on vehicle-spy (C++ core, needs SONAR_TOKEN_ES)"
+	@echo "  sonar-scan-ios    - Run SonarCloud analysis on vehicle-spy-ios (iOS app, needs SONAR_TOKEN_ES)"
+	@echo "  sonar-scan-esp32  - Run SonarCloud analysis on vehicle-spy-esp32 (ESP32, needs SONAR_TOKEN_ES)"
 	@echo "  sonar-summary     - Print cached/live SonarCloud issue counts by severity for ALL THREE projects"
 	@echo "  sonar-compiledb  - Regenerate ESP32 (arduino-cli) compilation database only"
 	@echo "  sonar-compiledb-cpp - Ensure C++ (CMake) compilation database exists (build-cov)"
@@ -1032,20 +1136,23 @@ help:
 	@echo "  clean            - Clean build artifacts"
 	@echo "  scrub            - Full clean including toolchain sentinel"
 	@echo "  help             - Show this help message"
-reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp: native
+reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
-			echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
-			echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
-			echo "      Set ESP32_HOST=<ip> to skip discovery."; \
-			DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
-			if [ -z "$$DISCOVERED_IP" ]; then \
-				echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
-				echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \
-				exit 1; \
-			fi; \
-			echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
-			ESP32_HOST="$$DISCOVERED_IP"; \
-		fi
+		echo "${YELLOW}ESP32_HOST not set — attempting auto-discovery...${NC}"; \
+		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
+		echo "      Set ESP32_HOST=<ip> to skip discovery."; \
+		DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
+		if [ -z "$$DISCOVERED_IP" ]; then \
+			echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
+			echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \
+			exit 1; \
+		fi; \
+		echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
+		ESP32_HOST="$$DISCOVERED_IP"; \
+	else \
+		echo "${GREEN}ESP32_HOST is set: $(ESP32_HOST)${NC}"; \
+	fi
+	@$(MAKE) native
 	@echo "Rebooting $(ESP32_HOST):3333..."
 	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATZ\rATE0\rATREBOOT\r' | nc -w 5 "$(ESP32_HOST)" 3333 2>/dev/null; \
 		_rc=$$?; \

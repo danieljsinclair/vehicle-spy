@@ -33,6 +33,7 @@
 
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <array>
@@ -41,8 +42,7 @@
 #include <optional>
 #include <string>
 
-namespace vehicle_sim {
-namespace pipeline {
+namespace vehicle_sim::pipeline {
 
 class SecureTcpTransport final : public ITransport {
 public:
@@ -61,9 +61,10 @@ public:
     SecureTcpTransport(
         std::string host,
         int port,
-        std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey,
+        const std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN>& publicKey,
         std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
-        int recvTimeoutUs = static_cast<int>(RECV_TIMEOUT_US)
+        int recvTimeoutUs = static_cast<int>(RECV_TIMEOUT_US),
+        std::shared_ptr<StopToken> stop = std::make_shared<StopToken>()
     );
 
     ~SecureTcpTransport() override;
@@ -77,10 +78,13 @@ public:
     [[nodiscard]] bool isOpen() const noexcept override;
     std::optional<std::string> nextLine() override;
 
-    //! Request that nextLine() return nullopt at the next opportunity.
-    static void requestStop() noexcept;
-    //! Reset the stop flag (for tests / repeated runs).
-    static void resetStop() noexcept;
+    //! Request that nextLine() return nullopt at the next opportunity. The
+    //! shared StopToken (injected at construction, owned by the live run-context)
+    //! is the cooperative stop signal; the signal handler flips it via
+    //! SignalStopBroker. requestStop()/reset() are async-signal-safe atomic ops.
+    void requestStop() noexcept { stop_->requestStop(); }
+    //! Reset the stop token (for tests / repeated runs).
+    void resetStop() noexcept { stop_->reset(); }
 
     // Wire format constants (public for utility function access)
     static constexpr size_t X25519_PUBLIC_KEY_LEN = 32;
@@ -108,10 +112,24 @@ private:
     bool performHandshake();
     std::optional<std::string> readEncryptedLine();
 
+    // If rawBuffer_ holds a complete encrypted frame, decrypt it, consume the
+    // frame bytes, and return the plaintext line. Returns nullopt when no full
+    // frame is buffered yet (caller should recv more), or nullopt with
+    // exhausted_ set when the buffered frame fails authentication (tamper).
+    std::optional<std::string> tryDecryptBufferedFrame();
+
+    // Poll the socket for one recv() and append any bytes to rawBuffer_. Returns
+    // true to indicate the caller should retry frame extraction (more bytes
+    // arrived, a transient EINTR/timeout, or the stop flag is still clear);
+    // returns false when the stream is terminal (disconnect, recv error, stop
+    // requested, or raw buffer overflow) with exhausted_ set.
+    bool pollRecvOrExhaust();
+
     std::string host_;
     int port_;
     std::array<uint8_t, discovery::ED25519_PUBLIC_KEY_LEN> publicKey_;
     std::shared_ptr<ITransportOutput> output_;
+    std::shared_ptr<StopToken> stop_;
     int recvTimeoutUs_ = static_cast<int>(RECV_TIMEOUT_US);
 
     int fd_ = -1;
@@ -130,7 +148,6 @@ private:
     std::string plaintextBuf_;
 };
 
-} // namespace pipeline
-} // namespace vehicle_sim
+} // namespace vehicle_sim::pipeline
 
 #endif // VEHICLE_SIM_PIPELINE_SECURE_TCP_TRANSPORT_H

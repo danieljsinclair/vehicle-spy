@@ -12,6 +12,12 @@ PROFRAW_DIR="$BUILD_DIR/profraw"
 LLVM_COV="${LLVM_COV:-$(xcrun --find llvm-cov 2>/dev/null || which llvm-cov 2>/dev/null)}"
 LLVM_PROFDATA="${LLVM_PROFDATA:-$(xcrun --find llvm-profdata 2>/dev/null || which llvm-profdata 2>/dev/null)}"
 
+# Change to project root before running tests so relative paths (e.g., resources/dbc/)
+# resolve correctly. The CMakeLists.txt sets CTEST_WORKING_DIRECTORY for CTest, but
+# this script runs test binaries directly, which inherit the shell's CWD.
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROJECT_ROOT"
+
 mkdir -p "$PROFRAW_DIR"
 
 # Discover test binaries: executable regular files whose BASENAME matches
@@ -87,7 +93,9 @@ PROJECT_ROOT="$(cd "$BUILD_DIR/.." && pwd)"
 python3 "$SCRIPT_DIR/lcov_to_xml.py" \
     "$BUILD_DIR/lcov.info" \
     "$BUILD_DIR/coverage-sonar.xml" \
-    --project-root "$PROJECT_ROOT"
+    --project-root "$PROJECT_ROOT" \
+    --src-root src \
+    --src-root include
 
 # Guard: every src/ file that has DA line data in lcov.info MUST appear in the
 # XML, otherwise coverage is silently lost. This catches a stale build dir that

@@ -2,9 +2,11 @@
 
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
 #include <memory>
 #include <string>
+#include <string_view>
 
 // TCP auth token — injected at build time via compiler define
 // Makefile passes -DTCP_AUTH_TOKEN=\"...\" for firmware; CMakeLists.txt sets it for native
@@ -13,6 +15,25 @@
 #endif
 
 namespace vehicle_sim::pipeline {
+
+/**
+ * Socket/read-timing configuration for TCPTransport. A cohesive domain grouping
+ * of the three values that govern read behaviour and are always co-passed; held
+ * as one named, defaultable config so the transport ctor stays below the S107
+ * parameter threshold and a tuner varies timing as a unit.
+ *
+ *   - readTimeoutUs       Max select() wait (microseconds) before re-checking
+ *                         the stop flag. Default 500000 (0.5s).
+ *   - atInitDelayMs       Inter-command pacing (ms) between ELM327 AT-init
+ *                         commands. -1 = use each command's own delayMs
+ *                         (production). >= 0 overrides every command's delay.
+ *   - socketRecvTimeoutMs SO_RCVTIMEO (ms) for recv(). Default 1000ms.
+ */
+struct TcpReadTiming {
+    int readTimeoutUs = 500000;
+    int atInitDelayMs = -1;
+    int socketRecvTimeoutMs = 1000;
+};
 
 /**
  * Live raw TCP transport: opens a POSIX socket to a CAN-bridge (e.g. the ESP32
@@ -37,33 +58,22 @@ namespace vehicle_sim::pipeline {
 class TCPTransport final : public ITransport {
 public:
     /**
-     * @param host               IPv4/hostname of the CAN-bridge.
-     * @param port               TCP port (firmware default 3333).
-     * @param adapterProtocol    "raw" (no init) or "elm327" (send AT-init).
-     * @param output             Where to emit human-readable status/error lines.
-     * @param readTimeoutUs      Max wait (microseconds) for a select() read before
-     *                           re-checking the stop flag. Defaults to 500000 (0.5s)
-     *                           — matches the capture tool's robustness target.
-     *                           Injectable so tests can pass a tiny value and see a
-     *                           requestStop() in ~0 ms instead of waiting out the
-     *                           full production poll. Production default unchanged.
-     * @param atInitDelayMs      Inter-command pacing (milliseconds) between ELM327
-     *                           AT-init commands. -1 (default) means use each
-     *                           command's own cmd.delayMs (production behaviour —
-     *                           a real adapter needs the settle time). Any value
-     *                           >= 0 overrides every command's delay to that value,
-     *                           so tests can pass 0 and skip the ~700ms of pacing.
-     * @param socketRecvTimeoutMs Socket SO_RCVTIMEO (milliseconds) for recv().
-     *                           Defaults to 1000ms (production). Injectable so
-     *                           tests can pass 1ms and avoid waiting the full
-     *                           second on auth/handshake recv timeouts. Production
-     *                           default unchanged.
+     * @param host            IPv4/hostname of the CAN-bridge.
+     * @param port            TCP port (firmware default 3333).
+     * @param adapterProtocol "raw" (no init) or "elm327" (send AT-init).
+     * @param output          Where to emit human-readable status/error lines.
+     * @param timing          Socket/read-timing config (see TcpReadTiming);
+     *                        defaults to production values. Injectable so tests
+     *                        can pass tiny values and see requestStop()/recv
+     *                        timeouts in ~0 ms instead of the full poll.
+     * @param stop            Shared cooperative stop signal (injected, owned by
+     *                        the live run-context); must exist at construction
+     *                        for the hot loop.
      */
-    TCPTransport(std::string host, int port, std::string adapterProtocol = "raw",
+    TCPTransport(std::string_view host, int port, std::string_view adapterProtocol = "raw",
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
-                 int readTimeoutUs = 500000,
-                 int atInitDelayMs = -1,
-                 int socketRecvTimeoutMs = 1000);
+                 TcpReadTiming timing = TcpReadTiming{},
+                 std::shared_ptr<StopToken> stop = std::make_shared<StopToken>());
 
     ~TCPTransport() override;
 
@@ -78,12 +88,14 @@ public:
 
     /**
      * Request that nextLine() return nullopt at the next select() timeout.
-     * Used by the live run context's signal handler to stop a live stream
-     * cleanly without hanging. Safe to call from a signal handler (atomic).
+     * The shared StopToken (injected at construction, owned by the live
+     * run-context) is the cooperative stop signal; the signal handler flips it
+     * via SignalStopBroker. requestStop()/reset() are async-signal-safe atomic
+     * ops on the token.
      */
-    static void requestStop() noexcept;
-    /** Reset the stop flag (for tests / repeated runs). */
-    static void resetStop() noexcept;
+    void requestStop() noexcept { stop_->requestStop(); }
+    /** Reset the stop token (for tests / repeated runs). */
+    void resetStop() noexcept { stop_->reset(); }
 
     /**
      * HELO/ACK pre-flight: send ATHELO and parse ACK response.
@@ -110,7 +122,7 @@ public:
     static constexpr const char* kEsp32TagPrefix = "ESP32";
 
 private:
-    bool sendAll(int fd, const std::string& data) noexcept;
+    bool sendAll(int fd, std::string_view data) const noexcept;
     bool sendElm327Init(int fd) noexcept;
     // Falls back to DEFAULT_PER_COMMAND_DELAY_MS (50ms) when no positive value is supplied
     int perCommandDelayMs(int cmdDelayMs) const;
@@ -125,6 +137,7 @@ private:
     int port_;
     std::string adapterProtocol_;
     std::shared_ptr<ITransportOutput> output_;
+    std::shared_ptr<StopToken> stop_;
     int readTimeoutUs_ = 500000;
     int atInitDelayMs_ = -1;
     int socketRecvTimeoutMs_ = 1000;
@@ -137,6 +150,31 @@ private:
     std::string deviceIdHex_;
     // Accumulated bytes not yet terminated by a line ending.
     std::string pending_;
+
+    // True when nextLine() may legitimately read more: the transport was
+    // opened, holds a live descriptor, and has not been marked EOF/exhausted.
+    bool canRead() const noexcept { return opened_ && fd_ >= 0 && !exhausted_; }
+
+    // If a complete line (terminated by '\r' or '\n') is already buffered in
+    // pending_, remove and return it; otherwise return nullopt. find_first_of
+    // splits on each '\r' and each '\n' individually, so a "\r\n" sequence
+    // yields one line plus a following empty banner line — do NOT collapse.
+    std::optional<std::string> takeBufferedLine();
+
+    // Wait up to one bounded poll for fd_ to become readable. Returns the
+    // select() ready count (negative on error). EINTR retry and the
+    // exhausted_/stop mutations stay in nextLine(), the caller.
+    int selectReady() const;
+
+    // recv() one chunk (256 bytes) into a local buffer and append it to
+    // pending_ (with the MAX_PENDING_LEN runaway cap). Returns the recv byte
+    // count — <= 0 means peer-closed/error, handled by the caller. Line
+    // extraction from pending_ stays in nextLine().
+    ssize_t readSocketIntoPending();
+
+    // stop_ is the injected cooperative stop signal (shared with the live
+    // run-context); re-load it per call rather than caching across the read loop.
+    bool shouldStop() const;
 };
 
 } // namespace vehicle_sim::pipeline

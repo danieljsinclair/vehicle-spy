@@ -204,14 +204,15 @@ namespace vehicle_sim {
 // C++ Implementation starts here
 BLEManagerMacOS::BLEManagerMacOS()
     : BLEManagerBase()  // Initialize base class
-    , connected_(false)
 {
     // Create delegate and assign to member variable
     BLEMacOSDelegate* delegate = [[BLEMacOSDelegate alloc] init];
     delegate.manager = this;
 
-    // Store delegate to prevent deallocation (manual retain since no ARC)
-    delegate_ = (void*)CFBridgingRetain(delegate);
+    // Store delegate to prevent deallocation (manual retain since no ARC).
+    // CFBridgingRetain performs the +1 retain (balanced by CFRelease in the
+    // dtor); the __bridge cast does not add a second retain.
+    delegate_ = (__bridge BLEMacOSDelegate*)CFBridgingRetain(delegate);
     [delegate release];
 
     // Create dispatch queue for BLE operations
@@ -236,7 +237,7 @@ BLEManagerMacOS::~BLEManagerMacOS() {
 
     // Release delegate
     if (delegate_) {
-        CFRelease(delegate_);
+        CFRelease((__bridge CFTypeRef)delegate_);
         delegate_ = nullptr;
     }
 }
@@ -280,7 +281,7 @@ std::vector<BLEDeviceInfo> BLEManagerMacOS::scanForDevices(int timeout_seconds) 
     return discovered_devices_;
 }
 
-bool BLEManagerMacOS::connect(const std::string& device_identifier) {
+bool BLEManagerMacOS::connect(std::string_view device_identifier) {
     std::cout << "[BLEManagerMacOS] Attempting to connect to: " << device_identifier << std::endl;
 
     if (!central_manager_) {
@@ -305,7 +306,8 @@ bool BLEManagerMacOS::connect(const std::string& device_identifier) {
         const_cast<BLEDeviceInfo&>(*device).peripheral = nullptr;
     } else {
         // Try to retrieve by UUID if not in discovered list
-        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:device_identifier.c_str()]];
+        std::string identifier_str(device_identifier);
+        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:identifier_str.c_str()]];
         if (uuid) {
             NSArray* peripherals = [central_manager_ retrievePeripheralsWithIdentifiers:@[uuid]];
             if (peripherals.count > 0) {
@@ -330,7 +332,7 @@ bool BLEManagerMacOS::connect(const std::string& device_identifier) {
     // Connection is async - report success if no immediate error
     // The delegate callbacks will confirm actual connection state
     connected_ = true;
-    connected_device_id_ = device_identifier;
+    connected_device_id_ = std::string(device_identifier);
 
     // Update base class state
     setConnectionState(true, device_identifier);
@@ -438,7 +440,7 @@ void BLEManagerMacOS::onCharacteristicDiscovered(CBCharacteristic* characteristi
     }
 
     if (gotWrite || gotNotify) {
-        std::lock_guard<std::mutex> lock(characteristics_mutex_);
+        std::scoped_lock lock(characteristics_mutex_);
         characteristics_cv_.notify_all();
     }
 }
@@ -502,7 +504,7 @@ CBPeripheral* BLEManagerMacOS::findPeripheralByAddress(const std::string& addres
 }
 
 bool BLEManagerMacOS::waitForCharacteristics(int timeout_ms) {
-    std::unique_lock<std::mutex> lock(characteristics_mutex_);
+    std::unique_lock lock(characteristics_mutex_);
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
     while (!write_characteristic_ || !notify_characteristic_) {

@@ -23,8 +23,9 @@ namespace vehicle_sim::pipeline {
  *
  * 29-bit (extended) CAN IDs are out of scope. They cannot be reliably
  * distinguished from 11-bit frames on the monitor line alone without protocol
- * context, so they are not specially detected here; a TODO marks the future
- * extension point. KISS: the normaliser knows ONLY monitor-line -> RawFrame.
+ * context, so they are not specially detected here; a MARKER notes the future
+ * extension point (tracked separately). KISS: the normaliser knows ONLY
+ * monitor-line -> RawFrame.
  * It must NOT know transport (AT-init, socket) or DBC decode (Open/Closed).
  *
  * This is the normaliser the live ELM327 path uses (TCPTransport with

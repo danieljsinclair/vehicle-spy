@@ -274,7 +274,7 @@ std::vector<BLEDeviceInfo> BLEManageriOS::scanForDevices(int timeout_seconds) {
     return discovered_devices_;
 }
 
-bool BLEManageriOS::connect(const std::string& device_identifier) {
+bool BLEManageriOS::connect(std::string_view device_identifier) {
     std::cout << "[BLEManageriOS] Attempting to connect to: " << device_identifier << std::endl;
 
     if (!central_manager_) {
@@ -293,7 +293,8 @@ bool BLEManageriOS::connect(const std::string& device_identifier) {
         const_cast<BLEDeviceInfo&>(*device).peripheral = nullptr;
     } else {
         // Try to retrieve by UUID if not in discovered list
-        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:device_identifier.c_str()]];
+        std::string identifier_str(device_identifier);
+        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:identifier_str.c_str()]];
         if (uuid) {
             NSArray* peripherals = [central_manager_ retrievePeripheralsWithIdentifiers:@[uuid]];
             if (peripherals.count > 0) {
@@ -316,7 +317,7 @@ bool BLEManageriOS::connect(const std::string& device_identifier) {
 
     // Connection is async - report success if no immediate error
     connected_ = true;
-    connected_device_id_ = device_identifier;
+    connected_device_id_ = std::string(device_identifier);
 
     // Update base class state
     setConnectionState(true, device_identifier);
@@ -372,11 +373,6 @@ int BLEManageriOS::getBluetoothState() const {
 
 bool BLEManageriOS::isBluetoothReady() const {
     return central_manager_ && central_manager_.state == CBManagerStatePoweredOn;
-}
-
-bool BLEManageriOS::initializeELM327() {
-    // Use base class implementation
-    return BLEManagerBase::initializeELM327();
 }
 
 // MARK: - Private Callback Methods (Platform-specific)
@@ -488,13 +484,13 @@ void BLEManageriOS::onCharacteristicDiscovered(CBCharacteristic* characteristic)
     }
 
     if (gotWrite || gotNotify) {
-        std::lock_guard<std::mutex> lock(characteristics_mutex_);
+        std::scoped_lock lock(characteristics_mutex_);
         characteristics_cv_.notify_all();
     }
 }
 
 bool BLEManageriOS::waitForCharacteristics(int timeout_ms) {
-    std::unique_lock<std::mutex> lock(characteristics_mutex_);
+    std::unique_lock lock(characteristics_mutex_);
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
     while (!write_characteristic_ || !notify_characteristic_) {

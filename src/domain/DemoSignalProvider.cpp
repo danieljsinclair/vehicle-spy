@@ -1,5 +1,6 @@
 #include "vehicle-sim/domain/DemoSignalProvider.h"
 #include "vehicle-sim/domain/Gear.h"
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -16,9 +17,6 @@ public:
     explicit Impl(int intervalMs, std::shared_ptr<util::IClock> clock) noexcept
         : intervalMs_(intervalMs)
         , clock_(std::move(clock))
-        , running_(false)
-        , phase_(0.0)
-        , gearIndex_(0)
     {
     }
 
@@ -40,7 +38,7 @@ public:
         // to release a parked waiter, then join. After stop() returns, no
         // further callback invocations occur.
         {
-            std::lock_guard<std::mutex> lk(mutex_);
+            std::scoped_lock lk(mutex_);
             running_.store(false);
         }
         cv_.notify_all();
@@ -70,7 +68,7 @@ private:
             // virtual time is advanced past the deadline (by the test thread),
             // making the tick loop deterministic. A SystemClock blocks for real
             // wall-clock time. The predicate releases the waiter on stop().
-            std::unique_lock<std::mutex> lock(mutex_);
+            std::unique_lock lock(mutex_);
             clock_->waitFor(cv_, lock,
                             [this] { return !running_.load(); },
                             clock_->now() + std::chrono::milliseconds(intervalMs_));
@@ -105,14 +103,14 @@ private:
         double motorRpm = baseRpm;
 
         // Gear: cycles through P, R, N, D based on phase using canonical constants
-        const std::int32_t gears[] = {
+        const std::array<std::int32_t, 5> gears = {
             Gear::PARK,
             Gear::REVERSE,
             Gear::NEUTRAL,
             Gear::AUTO_1,
             Gear::AUTO_2
         };
-        int newGearIndex = static_cast<int>(cycle * 5.0);
+        auto newGearIndex = static_cast<int>(cycle * 5.0);
         if (newGearIndex > 4) newGearIndex = 4;
         if (newGearIndex != gearIndex_) {
             gearIndex_ = newGearIndex;
@@ -149,7 +147,7 @@ private:
             motorHvVoltage,
             motorHvCurrent,
             motorTorqueNm,
-            std::optional<std::int32_t>(gearSelector)
+            gearSelector
         );
     }
 
@@ -157,13 +155,13 @@ private:
     std::shared_ptr<util::IClock> clock_;
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::atomic<bool> running_;
+    std::atomic<bool> running_{false};
     std::thread worker_;
     SignalCallback callback_;
 
     // Simulation state
-    double phase_;
-    int gearIndex_;
+    double phase_{0.0};
+    int gearIndex_{0};
 };
 
 DemoSignalProvider::DemoSignalProvider(

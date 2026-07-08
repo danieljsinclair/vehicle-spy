@@ -45,22 +45,24 @@ final class ESP32DiscoveryListener {
     private let queue: DispatchQueue
 
     private let lock = NSLock()
-    private var _listener: NWListener?
-    private var _isListening = false
+    private var listenerStorage: NWListener?
+    private var isListeningStorage = false
 
     private var listener: NWListener? {
-        get { lock.withLock { _listener } }
-        set { lock.withLock { _listener = newValue } }
+        get { lock.withLock { listenerStorage } }
+        set { lock.withLock { listenerStorage = newValue } }
     }
 
     var isListening: Bool {
-        lock.withLock { _isListening }
+        lock.withLock { isListeningStorage }
     }
 
     init(
         publicKey: Curve25519.Signing.PublicKey? = nil,
         onDiscovered: @escaping @Sendable (DiscoveredESP32) -> Void,
-        onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in },
+        onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in
+            // no-op: default error handler. Callers that don't supply an onError intentionally ignore discovery errors.
+        },
         queue: DispatchQueue = .global(qos: .userInitiated)
     ) {
         self.verifier = DiscoveryVerifier(publicKey: publicKey)
@@ -89,13 +91,13 @@ final class ESP32DiscoveryListener {
             switch state {
             case .ready:
                 self.logger.info("Discovery listener ready on port \(DiscoveryConstants.broadcastPort)")
-                self.lock.withLock { self._isListening = true }
+                self.lock.withLock { self.isListeningStorage = true }
             case .failed(let error):
                 self.logger.error("Discovery listener failed: \(error.localizedDescription)")
-                self.lock.withLock { self._isListening = false }
+                self.lock.withLock { self.isListeningStorage = false }
                 self.onError(.listenerFailed(error))
             case .cancelled:
-                self.lock.withLock { self._isListening = false }
+                self.lock.withLock { self.isListeningStorage = false }
             default:
                 break
             }
@@ -108,7 +110,7 @@ final class ESP32DiscoveryListener {
     func stop() {
         listener?.cancel()
         listener = nil
-        lock.withLock { _isListening = false }
+        lock.withLock { isListeningStorage = false }
     }
 
     deinit {
@@ -168,19 +170,24 @@ final class ESP32DiscoveryListener {
 
 private extension NWEndpoint {
     var hostAddressString: String {
-        switch self {
-        case .hostPort(let host, _):
-            switch host {
-            case .ipv4(let addr):
+        // Expressed as if/else (not switch) per swift:S1301 — only one handled case.
+        // The outer `if case .hostPort` matches the only endpoint shape we can resolve a
+        // host from; the trailing `else` covers every other NWEndpoint case AND any
+        // @unknown case added in a later SDK (future-proofed fallback to "unknown").
+        if case .hostPort(let host, _) = self {
+            // Equivalent to a switch over host (.ipv4/.ipv6/.name + @unknown default),
+            // expressed as if/else. The final else is the future-proofed fallback for any
+            // @unknown case added to NWEndpoint.Host in a later SDK.
+            if case .ipv4(let addr) = host {
                 return addr.debugDescription
-            case .ipv6(let addr):
+            } else if case .ipv6(let addr) = host {
                 return addr.debugDescription
-            case .name(let name, _):
+            } else if case .name(let name, _) = host {
                 return name
-            @unknown default:
+            } else {
                 return "unknown"
             }
-        default:
+        } else {
             return "unknown"
         }
     }

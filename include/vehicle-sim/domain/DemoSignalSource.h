@@ -35,11 +35,11 @@ private:
     void generateSignals();
 
     int intervalMs_;
-    std::atomic<bool> running_;
+    std::atomic<bool> running_{false};
     std::thread worker_;
-    VehicleSignal latestSignal_;
+    VehicleSignal latestSignal_{0};
     mutable std::mutex signalMutex_;
-    double phase_;
+    double phase_{0.0};
 };
 
 } // namespace vehicle_sim::domain

@@ -14,8 +14,7 @@ std::optional<double> CANDecoder::extractSignal(
         return std::nullopt;
     }
 
-    const std::size_t lastBit = startBit + bitLength - 1;
-    if (lastBit >= frame.size() * 8) {
+    if (const std::size_t lastBit = startBit + bitLength - 1; lastBit >= frame.size() * 8) {
         return std::nullopt;
     }
 
@@ -59,8 +58,7 @@ std::int64_t CANDecoder::toSigned(
         return static_cast<std::int64_t>(raw);
     }
 
-    const std::uint64_t signBit = 1ULL << (bitLength - 1);
-    if (raw & signBit) {
+    if (const std::uint64_t signBit = 1ULL << (bitLength - 1); raw & signBit) {
         // Two's complement: extend sign
         raw |= ~((1ULL << bitLength) - 1);
         return static_cast<std::int64_t>(raw);

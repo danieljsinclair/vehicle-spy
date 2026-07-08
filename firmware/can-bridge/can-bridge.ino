@@ -18,6 +18,8 @@
 #include <Preferences.h>  // NVS storage for WiFi credentials
 #include <driver/twai.h>  // TWAI for CAN communication
 #include <vector>         // Command pattern registry
+#include <array>          // Fixed-size buffers (S5945)
+#include <algorithm>      // std::copy for byte buffers
 
 // DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
 
@@ -26,9 +28,26 @@
 #include "StatusLED.h"
 #include "HardwareStatusLEDOutput.h"
 
-// Use firmware namespace for StatusLED components
+// ── FirmwareApp Components ───────────────────────────────────────────────────────────
+// Vanilla firmware orchestrator (WiFi/LED state machine + callback seams)
+#include "ArduinoWiFi.h"
+#include "ArduinoPreferences.h"
+#include "ArduinoUdp.h"
+#include "ArduinoTime.h"
+#include "ArduinoSntp.h"
+#include "ArduinoTimeNtp.h"
+#include "FirmwareApp.h"
+
+// Use firmware namespace for components
 using firmware::StatusLED;
 using firmware::HardwareStatusLEDOutput;
+using esp32_firmware::ArduinoWiFi;
+using esp32_firmware::ArduinoPreferences;
+using esp32_firmware::ArduinoUdp;
+using esp32_firmware::ArduinoTime;
+using esp32_firmware::ArduinoSntp;
+using esp32_firmware::ArduinoTimeNtp;
+using esp32_firmware::FirmwareApp;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -40,14 +59,13 @@ namespace Constants {
     // Timing intervals (milliseconds)
     static constexpr uint32_t WIFI_CONNECT_RETRY_INTERVAL_MS = 5000;
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
-    static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 120;
+    static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 60;  // 5 minutes at 5s interval
     static constexpr uint32_t SERIAL_BAUD = 115200;
     static constexpr uint32_t SERIAL_QUIET_DURATION_MS = 250;
 
     // TCP timeouts
     static constexpr uint32_t TCP_AUTH_TIMEOUT_MS = 5000;
     static constexpr uint32_t TCP_COMMAND_TIMEOUT_MS = 100;
-    static constexpr uint32_t TCP_FLUSH_DELAY_MS = 250;
     static constexpr uint32_t TCP_REBOOT_DELAY_MS = 100;
 
     // Buffer sizes
@@ -85,7 +103,7 @@ namespace Constants {
     // Factory reset pin hook (future implementation)
     // GPIO pin for factory reset: hold during boot → wipe stored WiFi NVS → boot to AP mode
     // Same firmware, no reflash needed. Pin pull-up recommended; active-low logic.
-    // MARKER: FACTORY_RESET_HOOK - not TODO: (Sonar), future implementation
+    // MARKER: FACTORY_RESET_HOOK (future implementation, not an open task)
     static constexpr gpio_num_t FACTORY_RESET_PIN = GPIO_NUM_0;  // Boot button (GPIO0)
     static constexpr uint32_t FACTORY_RESET_HOLD_MS = 3000;      // Hold 3 seconds to trigger
 }
@@ -129,7 +147,7 @@ struct StateTransition {
     StateTransition() : nextState(WiFiState::State::DISCONNECTED),
                        setTcpServerRestartFlag(false), initNtp(false), message(nullptr) {}
 
-    StateTransition(WiFiState::State state, bool tcpRestart = false, bool ntp = false, const char* msg = nullptr)
+    explicit StateTransition(WiFiState::State state, bool tcpRestart = false, bool ntp = false, const char* msg = nullptr)
         : nextState(state), setTcpServerRestartFlag(tcpRestart), initNtp(ntp), message(msg) {}
 };
 
@@ -145,7 +163,7 @@ struct AtCommandResult {
     bool shouldReboot;
     bool shouldFlushClient;
 
-    AtCommandResult(const char* resp = "", bool reboot = false, bool flush = false)
+    explicit AtCommandResult(const char* resp = "", bool reboot = false, bool flush = false)
         : response(resp), shouldReboot(reboot), shouldFlushClient(flush) {}
 };
 
@@ -160,19 +178,10 @@ struct AtCommandHandler {
 struct SetWifiParams {
     String ssid;
     String password;
-    bool valid;
+    bool valid = false;
 
-    SetWifiParams() : valid(false) {}
+    SetWifiParams() = default;
 };
-
-// ── NTP State ───────────────────────────────────────────────────────────────────
-namespace NtpState {
-    struct Context {
-        bool synced = false;
-        uint32_t lastSyncMs = 0;
-        uint32_t syncAttempts = 0;
-    };
-}
 
 // ── Discovery State ────────────────────────────────────────────────────────────
 namespace DiscoveryState {
@@ -183,12 +192,16 @@ namespace DiscoveryState {
     };
 }
 
-static NtpState::Context ntpCtx;
+// NOTE: NTP state is now owned inside NtpTimeSync (vanilla, host-tested). The
+// inline ntpCtx and ntpSyncCallback/initNtpSync have been removed; FirmwareApp
+// drives NTP start from the WiFi-connected event via NtpTimeSync.
 static DiscoveryState::Context discoveryCtx;
 
 // ANSI color codes for serial output
 static const char* const RED    = "\033[0;31m";
 static const char* const GREEN  = "\033[0;32m";
+static const char* const BLUE   = "\033[0;34m";
+static const char* const CYAN   = "\033[0;36m";
 static const char* const PURPLE = "\033[0;35m";
 static const char* const YELLOW  = "\033[0;33m";
 static const char* const NC     = "\033[0m";
@@ -217,13 +230,13 @@ static bool loadWifiCredentials(String& ssid, String& pass) {
     size_t passLen = wifiCredentials.getBytesLength(NVS_WIFI_PASS);
 
     if (ssidLen > 0 && passLen > 0) {
-        char ssidBuf[33];  // Max SSID length
-        char passBuf[65];  // Max password length
-        ssidLen = wifiCredentials.getString(NVS_WIFI_SSID, ssidBuf, sizeof(ssidBuf));
-        passLen = wifiCredentials.getString(NVS_WIFI_PASS, passBuf, sizeof(passBuf));
+        std::array<char, 33> ssidBuf{};  // Max SSID length
+        std::array<char, 65> passBuf{};  // Max password length
+        (void)wifiCredentials.getString(NVS_WIFI_SSID, ssidBuf.data(), ssidBuf.size());
+        (void)wifiCredentials.getString(NVS_WIFI_PASS, passBuf.data(), passBuf.size());
         wifiCredentials.end();
-        ssid = String(ssidBuf);
-        pass = String(passBuf);
+        ssid = String(ssidBuf.data());
+        pass = String(passBuf.data());
         return true;
     }
     wifiCredentials.end();
@@ -249,16 +262,16 @@ static bool clearWifiCredentials() {
 }
 
 // Device ID declaration - needed for message tagging
-static uint8_t discoveryDeviceId[16];
+static std::array<uint8_t, 16> discoveryDeviceId;
 
 // ── Message Tagging ────────────────────────────────────────────────────────────
 // Tag Serial diagnostic messages with device ID for clarity in monitor output
 static String deviceMessageTag() {
-    char tag[32];
-    snprintf(tag, sizeof(tag), "[%02X%02X%02X%02X] ",
+    std::array<char, 32> tag{};
+    snprintf(tag.data(), tag.size(), "[%02X%02X%02X%02X] ",
              discoveryDeviceId[0], discoveryDeviceId[1],
              discoveryDeviceId[2], discoveryDeviceId[3]);
-    return String(tag);
+    return String(tag.data());
 }
 
 // Helper to print tagged messages (optional - can be used for key diagnostics)
@@ -323,16 +336,42 @@ static constexpr const char* WIFI_PASSWORD = nullptr;
 static constexpr const char* AP_SSID = "ESP32-CAN";
 static constexpr const char* AP_PASS = "cancan12";
 
-static WiFiServer tcpServer(Constants::TCP_PORT);
-static WiFiClient client;
-static bool monitorActive = false;
-static uint32_t serialQuietUntilMs = 0;
-static WiFiState::Context wifiCtx;
-
 // ── Status LED ─────────────────────────────────────────────────────────────────
 // Visual feedback using the blue LED on GPIO2
 static HardwareStatusLEDOutput ledOutput(2);  // GPIO2 for ESP32 blue LED
 static StatusLED statusLed(&ledOutput);
+
+// ── FirmwareApp Components ─────────────────────────────────────────────────────
+// Arduino adapters for vanilla interfaces (scoped to .ino via ARDUINO ifdef)
+static ArduinoWiFi arduinoWiFi;
+static ArduinoPreferences arduinoPrefs;
+static ArduinoUdp arduinoUdp;
+static ArduinoTime arduinoTime;
+static ArduinoSntp arduinoSntp;        // ISntp adapter for NTP sync
+static ArduinoTimeNtp arduinoTimeNtp;  // ITimeNtp adapter for NTP sync
+
+// Baked credentials: use the build-injected ESP32_WIFI_SSID/ESP32_WIFI_PASS when
+// present (the real station credentials), otherwise nullptr so WiFiManager falls
+// back to AP mode. NOTE: the previous refactor hardcoded dummy "baked-ssid"/
+// "baked-pass" here, which made FirmwareApp call WiFi.begin() with bogus creds and
+// never join the real network. Must match the inline state machine's WIFI_SSID.
+static constexpr const char* BAKED_SSID = (WIFI_SSID != nullptr) ? WIFI_SSID : nullptr;
+static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASSWORD : nullptr;
+
+// FirmwareApp orchestrator - delegates WiFi/LED/NTP to vanilla managers
+// ArduinoWiFi implements both IWiFi and IWiFiDiscovery
+// NTP is routed through FirmwareApp (owns NtpTimeSync + ArduinoSntp/ArduinoTimeNtp)
+static FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
+                              arduinoWiFi, arduinoUdp, arduinoTime,
+                              arduinoSntp, arduinoTimeNtp,
+                              discoveryDeviceId,
+                              BAKED_SSID, BAKED_PASS);
+
+static WiFiServer tcpServer(Constants::TCP_PORT);
+static WiFiClient client;
+static bool monitorActive = false;
+static uint32_t serialQuietUntilMs = 0;
+static WiFiState::Context wifiCtx;  // TODO: Remove once fully routed to FirmwareApp
 
 // ── UDP Discovery Broadcast ──────────────────────────────────────────────
 // Broadcasts unsigned discovery packets on UDP port 3335 so that CLI and iOS
@@ -341,56 +380,10 @@ static uint32_t lastDiscoveryBroadcast = 0;
 static WiFiUDP udpDiscovery;
 
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
-// NTP sync callback - called when time sync completes
-static void ntpSyncCallback(struct timeval* tv) {
-    // Only log on first successful sync, not on periodic re-syncs
-    if (!ntpCtx.synced) {
-        ntpCtx.synced = true;
-        ntpCtx.syncAttempts = 0;
-        // Convert Unix timestamp to human-readable UTC time
-        time_t utcTime = tv->tv_sec;
-        struct tm* utcInfo = gmtime(&utcTime);
-        char timeBuf[32];
-        strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S UTC", utcInfo);
-        Serial.printf("%sNTP synced: %s%s\r\n", GREEN, timeBuf, NC);
-    }
-    // Always update last sync time for monitoring
-    ntpCtx.lastSyncMs = millis();
-}
-
-// Initialize NTP sync - call this when WiFi connects
-static void initNtpSync() {
-    if (ntpCtx.synced) return;
-    // SNTP_OPMODE_POLL retries internally on NTP_RETRY_INTERVAL_MS — never re-init
-    // while it's already running: sntp_setoperatingmode() asserts ("Operating mode
-    // must not be set while SNTP client is running") → boot loop. Idempotent across
-    // reconnects/retries. If NTP never syncs, getCurrentTimestamp() falls back to uptime.
-    if (sntp_enabled()) return;
-
-    ntpCtx.syncAttempts++;
-    if (ntpCtx.syncAttempts > Constants::NTP_SYNC_RETRY_MAX) {
-        Serial.printf("%sNTP sync: max attempts reached, using fallback time%s\r\n", YELLOW, NC);
-        // Only show ERROR_NO_NTP_SERVICE in STA mode (AP mode has no internet by design)
-        if (WiFi.getMode() == WIFI_STA && WiFi.status() == WL_CONNECTED) {
-            statusLed.setPattern(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
-        }
-        return;
-    }
-
-    Serial.printf("NTP: syncing time (attempt %u)...", ntpCtx.syncAttempts);
-
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
-    sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
-    sntp_set_sync_interval(Constants::NTP_RETRY_INTERVAL_MS);
-    sntp_set_time_sync_notification_cb(ntpSyncCallback);
-    sntp_init();
-
-    // Set timezone to UTC
-    setenv("TZ", "UTC", 1);
-    tzset();
-}
-
+// NTP is now driven entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
+// ArduinoTimeNtp adapters). The inline initNtpSync()/ntpSyncCallback() were
+// removed — NTP starts when WiFiManager reports connected (deferred out of the
+// boot path). Discovery timestamps use NtpTimeSync via FirmwareApp's wiring.
 // Get current timestamp with NTP sync fallback
 static uint64_t getCurrentTimestamp() {
     time_t now = time(nullptr);
@@ -543,7 +536,7 @@ static void signDiscoveryPacket(uint8_t* packet) {
 }
 #else
 // Stub when signing is disabled - packets remain unsigned
-static void signDiscoveryPacket(uint8_t* packet) {
+static void signDiscoveryPacket(const uint8_t* packet) {
     // Signature field already zeroed by buildDiscoveryPacket()
     (void)packet;  // Suppress unused warning
 }
@@ -562,9 +555,9 @@ static void broadcastDiscovery() {
     // Broadcast in AP mode (always ready) or STA mode (if ready)
     // STA mode is ready when: connected, disconnected (was connected), or connecting
     // This allows broadcasting during initial connection and reconnects, not just when fully connected
-    if (WiFi.getMode() == WIFI_AP) {
+    if (WiFiClass::getMode() == WIFI_AP) {
         // AP mode - always ready to broadcast
-    } else if (WiFi.getMode() == WIFI_STA) {
+    } else if (WiFiClass::getMode() == WIFI_STA) {
         // STA mode - broadcast if WiFi is initialized (mode is set)
         // Don't check status here - allow broadcasting during connection/reconnection
         // UDP will fail silently if WiFi isn't truly ready, which is acceptable
@@ -572,17 +565,17 @@ static void broadcastDiscovery() {
         return;  // Mode not set yet - can't broadcast
     }
 
-    uint8_t packet[Constants::DISCOVERY_PACKET_SIZE];
-    buildDiscoveryPacket(packet, discoveryDeviceId, Constants::TCP_PORT, Constants::OTA_HTTP_PORT);
+    std::array<uint8_t, Constants::DISCOVERY_PACKET_SIZE> packet;
+    buildDiscoveryPacket(packet.data(), discoveryDeviceId.data(), Constants::TCP_PORT, Constants::OTA_HTTP_PORT);
 
     // Sign discovery packet if signing is enabled (optional/guarded)
     // Falls back to unsigned (zeros) if signing disabled or key not available
-    signDiscoveryPacket(packet);
+    signDiscoveryPacket(packet.data());
 
     // Use SDK's broadcastIP() which respects actual subnet mask
     IPAddress broadcastIp = WiFi.broadcastIP();
     udpDiscovery.beginPacket(broadcastIp, Constants::DISCOVERY_PORT);
-    udpDiscovery.write(packet, Constants::DISCOVERY_PACKET_SIZE);
+    udpDiscovery.write(packet.data(), Constants::DISCOVERY_PACKET_SIZE);
     udpDiscovery.endPacket();
 }
 
@@ -621,8 +614,9 @@ static CredentialSource determineCredentialSource() {
 }
 
 // Testable pure function: Check if AP mode fallback is needed
+// Applies to both stored NVS and baked-in credentials after timeout
 static bool shouldFallbackToApMode(CredentialSource source, uint32_t connectDurationMs) {
-    return (source == CredentialSource::STORED_NVS) &&
+    return (source == CredentialSource::STORED_NVS || source == CredentialSource::BAKED_IN) &&
            (connectDurationMs > Constants::WIFI_CONNECT_TIMEOUT_MS);
 }
 
@@ -646,14 +640,14 @@ struct IWiFi {
 };
 
 struct RealWiFi : public IWiFi {
-    void setMode(wifi_mode_t mode) override { WiFi.mode(mode); }
+    void setMode(wifi_mode_t mode) override { WiFiClass::mode(mode); }
     void begin(const char* ssid, const char* pass) override { WiFi.begin(ssid, pass); }
     void disconnect(bool wifiOff, bool eraseAP) override { WiFi.disconnect(wifiOff, eraseAP); }
-    wl_status_t status() const override { return WiFi.status(); }
+    wl_status_t status() const override { return WiFiClass::status(); }
     IPAddress localIP() const override { return WiFi.localIP(); }
     IPAddress softAPIP() const override { return WiFi.softAPIP(); }
     void softAP(const char* ssid, const char* pass) override { WiFi.softAP(ssid, pass); }
-    void setHostname(const char* name) override { WiFi.setHostname(name); }
+    void setHostname(const char* name) override { WiFiClass::setHostname(name); }
 };
 
 static RealWiFi realWifi;
@@ -662,14 +656,15 @@ extern IWiFi& wifi;
 // Handler for DISCONNECTED state - determines initial connection strategy
 struct DisconnectedStateHandler : public WiFiStateHandler {
     IWiFi& wifi_;
-    explicit DisconnectedStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+    explicit DisconnectedStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         CredentialSource source = determineCredentialSource();
 
         switch (source) {
             case CredentialSource::STORED_NVS: {
-                String storedSsid, storedPass;
+                String storedSsid;
+                String storedPass;
                 if (loadWifiCredentials(storedSsid, storedPass)) {
                     Serial.printf("Using stored WiFi credentials: %s\r\n", storedSsid.c_str());
                     wifi_.setMode(WIFI_STA);
@@ -702,14 +697,14 @@ struct DisconnectedStateHandler : public WiFiStateHandler {
                 return StateTransition(WiFiState::State::CONNECTED_AP);
         }
 
-        return StateTransition();  // Stay DISCONNECTED if something failed
+        return StateTransition(ctx.state);  // Stay DISCONNECTED if something failed
     }
 };
 
 // Handler for CONNECTING state - monitors connection progress
 struct ConnectingStateHandler : public WiFiStateHandler {
     IWiFi& wifi_;
-    explicit ConnectingStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+    explicit ConnectingStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         const wl_status_t status = wifi_.status();
@@ -735,7 +730,8 @@ struct ConnectingStateHandler : public WiFiStateHandler {
             }
 
             if (shouldRetryWiFi(WiFiState::State::CONNECTING, now, ctx.lastRetryMs)) {
-                String storedSsid, storedPass;
+                String storedSsid;
+                String storedPass;
                 bool hasStored = (source == CredentialSource::STORED_NVS) &&
                                 loadWifiCredentials(storedSsid, storedPass);
 
@@ -760,7 +756,7 @@ struct ConnectingStateHandler : public WiFiStateHandler {
 
             if (source == CredentialSource::STORED_NVS) {
                 Serial.printf("%sStored WiFi credentials timeout, falling back to AP mode%s\r\n", YELLOW, NC);
-                WiFi.mode(WIFI_AP);
+                WiFiClass::mode(WIFI_AP);
                 WiFi.softAP(AP_SSID, AP_PASS);
                 const String ip = WiFi.softAPIP().toString();
                 Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
@@ -774,14 +770,14 @@ struct ConnectingStateHandler : public WiFiStateHandler {
             ctx.lastRetryMs = now;
         }
 
-        return StateTransition();  // Stay in CONNECTING
+        return StateTransition(ctx.state);  // Stay in CONNECTING
     }
 };
 
 // Handler for RECONNECTING state - retries indefinitely ("60 years")
 struct ReconnectingStateHandler : public WiFiStateHandler {
     IWiFi& wifi_;
-    explicit ReconnectingStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+    explicit ReconnectingStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         // Check if reconnection succeeded
@@ -799,7 +795,8 @@ struct ReconnectingStateHandler : public WiFiStateHandler {
                             static_cast<int>(ctx.lastDisconnectReason), NC);
             wifi_.disconnect(false, true);
 
-            String storedSsid, storedPass;
+            String storedSsid;
+            String storedPass;
             if (hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass)) {
                 wifi_.begin(storedSsid.c_str(), storedPass.c_str());
             } else {
@@ -808,17 +805,17 @@ struct ReconnectingStateHandler : public WiFiStateHandler {
             ctx.lastRetryMs = now;
         }
 
-        return StateTransition();  // Stay in RECONNECTING
+        return StateTransition(ctx.state);  // Stay in RECONNECTING
     }
 };
 
 // Handler for CONNECTED_STA state - monitors connection health
 struct ConnectedStaStateHandler : public WiFiStateHandler {
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        if (WiFi.status() != WL_CONNECTED) {
+        if (WiFiClass::status() != WL_CONNECTED) {
             return StateTransition(WiFiState::State::RECONNECTING, true, false);
         }
-        return StateTransition();  // Stay CONNECTED_STA
+        return StateTransition(ctx.state);  // Stay CONNECTED_STA
     }
 };
 
@@ -826,7 +823,7 @@ struct ConnectedStaStateHandler : public WiFiStateHandler {
 struct ConnectedApStateHandler : public WiFiStateHandler {
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         // AP mode stays connected unless explicitly changed - no transitions
-        return StateTransition();
+        return StateTransition(ctx.state);
     }
 };
 
@@ -853,12 +850,17 @@ IWiFi& wifi = realWifi;
 #endif
 // ── State Transition Application ───────────────────────────────────────────────────
 static void applyStateTransition(const StateTransition& transition, WiFiState::Context& ctx) {
-    if (transition.nextState == WiFiState::State::DISCONNECTED &&
-        ctx.state == WiFiState::State::DISCONNECTED) {
-        return;  // No transition
+    // Treat "stay in current state" as idempotent no-op (regardless of which state)
+    if (transition.nextState == ctx.state) {
+        return;  // No transition - stay sentinel
     }
 
+    const WiFiState::State previousState = ctx.state;
     ctx.state = transition.nextState;
+
+    // Debug: log the state transition (fires only on a real state change)
+    Serial.printf("%s[WiFi] %s -> %s%s\r\n", PURPLE,
+                  wifiStateName(previousState), wifiStateName(ctx.state), NC);
 
     // Update LED pattern based on WiFi state
     switch (transition.nextState) {
@@ -883,34 +885,16 @@ static void applyStateTransition(const StateTransition& transition, WiFiState::C
         ctx.tcpServerNeedsRestart = true;
     }
 
-    if (transition.initNtp) {
-        initNtpSync();
-    }
+    // NOTE: transition.initNtp is no longer acted on here. NTP is driven by
+    // FirmwareApp (owns NtpTimeSync), started from the WiFi-connected event
+    // inside WiFiManager — not from this legacy inline state machine, which is
+    // superseded by WiFiManager and not invoked in loop().
 }
 
 static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
-    wifiCtx.lastDisconnectReason = static_cast<wifi_err_reason_t>(info.wifi_sta_disconnected.reason);
-
-    // Special handling for AUTH_FAIL (202) - make the message more descriptive
-    if (wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_EXPIRE ||
-        wifiCtx.lastDisconnectReason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
-        wifiCtx.lastDisconnectReason == WIFI_REASON_AUTH_FAIL) {
-        Serial.printf("\n%sAUTH_FAIL (%d): password rejected for SSID '%s' — check credentials%s\r\n", RED,
-                        static_cast<int>(wifiCtx.lastDisconnectReason), WiFi.SSID().c_str(), NC);
-        statusLed.setPattern(StatusLED::Pattern::AUTH_FAILURE);
-    } else {
-        Serial.printf("\n%sWiFi disconnected: reason=%d %s%s [%s]\r\n", RED,
-                        static_cast<int>(wifiCtx.lastDisconnectReason),
-                        WiFi.disconnectReasonName(wifiCtx.lastDisconnectReason), NC, WiFi.SSID().c_str());
-    }
-
-    // Transition to RECONNECTING state - never give up
-    if (wifiCtx.state == WiFiState::State::CONNECTED_STA) {
-        wifiCtx.state = WiFiState::State::RECONNECTING;
-        wifiCtx.tcpServerNeedsRestart = true;
-        wifiCtx.lastRetryMs = millis();
-        Serial.printf("%sEntering WiFi RECONNECTING state (will retry indefinitely)%s\r\n", YELLOW, NC);
-    }
+    // WiFiManager (via FirmwareApp) owns the WiFi state machine.
+    // This handler is now a thin veneer - all state transitions are handled by WiFiManager.
+    firmwareApp.onWiFiDisconnected(info.wifi_sta_disconnected.reason);
 }
 
 static void updateWiFiStateMachine() {
@@ -936,8 +920,6 @@ static void sendSerialPrompt(const char* response) {
     Serial.flush();
 }
 
-// ── AT Command Pattern Implementation ───────────────────────────────────────────────
-
 // Testable pure function: Normalize AT command (testable)
 static String normalizeAtCommand(const String& cmd) {
     String normalized = cmd;
@@ -948,16 +930,21 @@ static String normalizeAtCommand(const String& cmd) {
 
 // Testable pure function: Build HELO response (testable)
 static String buildHeloResponse() {
-    char response[128];
-    int len = snprintf(response, sizeof(response),
+    std::array<char, 128> response{};
+    int len = snprintf(response.data(), response.size(),
         "ACK DEVICE=%s FIRMWARE=%s DEVICEID=",
         Constants::DEVICE_NAME, Constants::FIRMWARE_VERSION);
-    // Append device ID as hex (16 bytes -> 32 hex chars)
-    for (int i = 0; i < 16 && len < (int)sizeof(response) - 3; i++) {
-        len += snprintf(response + len, sizeof(response) - len, "%02X", discoveryDeviceId[i]);
+    // Append device ID as hex (16 bytes -> 32 hex chars). Stop iterating once
+    // we've written every device-id byte, or once the buffer is too full to
+    // safely hold another hex pair plus the trailing "\r".
+    const int tailRoom = 3;  // reserve space for one more "%02X" + trailing "\r"
+    size_t i = 0;
+    while (i < discoveryDeviceId.size() && len < (int)response.size() - tailRoom) {
+        len += snprintf(response.data() + len, response.size() - len, "%02X", discoveryDeviceId[i]);
+        ++i;
     }
-    snprintf(response + len, sizeof(response) - len, "\r");
-    return String(response);
+    snprintf(response.data() + len, response.size() - len, "\r");
+    return String(response.data());
 }
 
 // ATZ - Reset handler
@@ -1085,13 +1072,13 @@ struct AtsetwifiCommandHandler : public AtCommandHandler {
         }
 
         // Validate SSID length
-        if (wifiParams.ssid.length() == 0 || wifiParams.ssid.length() > 32) {
+        if (wifiParams.ssid.isEmpty() || wifiParams.ssid.length() > 32) {
             Serial.printf("%sSET-WIFI: Invalid SSID length from authenticated client%s\r\n", RED, NC);
             return AtCommandResult("ERROR Invalid SSID length (1-32 chars)");
         }
 
         // Validate password length
-        if (wifiParams.password.length() == 0 || wifiParams.password.length() > 64) {
+        if (wifiParams.password.isEmpty() || wifiParams.password.length() > 64) {
             Serial.printf("%sSET-WIFI: Invalid password length from authenticated client%s\r\n", RED, NC);
             return AtCommandResult("ERROR Invalid password length (1-64 chars)");
         }
@@ -1153,6 +1140,11 @@ static void registerAtCommandHandlers() {
 }
 
 // ── AT Command Dispatcher (Flat loop with registry lookup) ───────────────────────────
+// Prompt sender passed as a plain `void(*)(const char*)` function pointer. Both callers
+// (handleAT, handleSerialAT) pass a free function (sendPrompt / sendSerialPrompt), so no
+// std::function erasure is needed. Note: the earlier S5205 swap to std::function was an
+// over-correction — only *template* parameters are mangled by the Arduino .ino auto-prototype
+// generator; a plain function-pointer type is fine.
 static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)) {
     // Initialize command registry on first call
     registerAtCommandHandlers();
@@ -1161,8 +1153,8 @@ static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)
     String normalizedCmd = normalizeAtCommand(cmd);
 
     // Find matching handler (flat loop over registry)
-    AtCommandHandler* matchingHandler = nullptr;
-    for (auto* handler : atCommandHandlers) {
+    const AtCommandHandler* matchingHandler = nullptr;
+    for (const AtCommandHandler* handler : atCommandHandlers) {
         if (handler->matches(normalizedCmd)) {
             matchingHandler = handler;
             break;
@@ -1202,9 +1194,9 @@ static void drainSerialATCommands() {
     static String serialCmd;
 
     while (Serial.available()) {
-        const char c = Serial.read();
+        const auto c = static_cast<char>(Serial.read());
         if (c == '\r' || c == '\n') {
-            if (serialCmd.length() > 0) {
+            if (!serialCmd.isEmpty()) {
                 handleSerialAT(serialCmd);
                 serialQuietUntilMs = millis() + Constants::SERIAL_QUIET_DURATION_MS;
                 serialCmd = "";
@@ -1222,20 +1214,20 @@ static void streamFrame(const twai_message_t& msg) {
     // Always build the frame in the canonical ELM327-ish text format
     // (3-digit zero-padded hex ID, space-separated byte hex) so both
     // vehicle-sim's parseCANFrame and raw serial capture tools work.
-    char buf[Constants::CAN_FRAME_BUFFER_SIZE];
-    int n = snprintf(buf, sizeof(buf), "%03X", msg.identifier);
+    std::array<char, Constants::CAN_FRAME_BUFFER_SIZE> buf{};
+    int n = snprintf(buf.data(), buf.size(), "%03X", msg.identifier);
     uint8_t len = min(msg.data_length_code, (uint8_t)8);
     for (uint8_t i = 0; i < len; i++) {
-        n += snprintf(buf + n, sizeof(buf) - n, " %02X", msg.data[i]);
+        n += snprintf(buf.data() + n, buf.size() - n, " %02X", msg.data[i]);
     }
-    snprintf(buf + n, sizeof(buf) - n, "\r");
+    snprintf(buf.data() + n, buf.size() - n, "\r");
 
     // USB serial: always emit, independent of any TCP client.
-    Serial.print(buf);
+    Serial.print(buf.data());
 
     // WiFi TCP: only when a client is connected and ATMA monitoring is active.
     if (client.connected() && monitorActive) {
-        client.print(buf);
+        client.print(buf.data());
     }
 }
 
@@ -1268,6 +1260,35 @@ static bool isValidAuthToken(const String& received) {
     return received.equals(expected);
 }
 
+// ── FirmwareApp Callback Handlers ──────────────────────────────────────────────────
+// Bridge FirmwareApp signals to inline logic (TCP/NTP/Discovery/OTA)
+// These will be routed into FirmwareApp in Task #2
+static void onRestartTcpServer() {
+    // Flag TCP server for restart (happens when WiFi reconnects with new IP)
+    // Actual restart happens in loop() via restartTcpServerIfNeeded()
+    // For now, set the flag directly on wifiCtx (TODO: remove once fully routed)
+    wifiCtx.tcpServerNeedsRestart = true;
+}
+
+static void onBroadcastDiscovery() {
+    // Broadcast discovery packet
+    broadcastDiscovery();
+}
+
+static void onHandleOta() {
+    // Service OTA upload (non-blocking, handles one connection)
+#if VEHICLE_SIM_ENABLE_OTA_SERVER
+    otaLoop();
+#endif
+}
+
+// FirmwareCallbacks structure for FirmwareApp
+static esp32_firmware::FirmwareCallbacks firmwareCallbacks = {
+    .restartTcpServer = onRestartTcpServer,
+    .broadcastDiscovery = onBroadcastDiscovery,
+    .handleOta = onHandleOta
+};
+
 // Factory reset: check if GPIO0 (BOOT button) is held at boot
 static bool checkFactoryReset() {
     pinMode(Constants::FACTORY_RESET_PIN, INPUT_PULLUP);
@@ -1275,7 +1296,7 @@ static bool checkFactoryReset() {
     // Check if button is pressed (low = pressed on GPIO0 with pullup)
     if (digitalRead(Constants::FACTORY_RESET_PIN) == LOW) {
         Serial.printf("%sFactory reset: GPIO0 held at boot, waiting %lums to confirm...%s\r\n",
-                        YELLOW, Constants::FACTORY_RESET_HOLD_MS, NC);
+                        YELLOW, static_cast<unsigned long>(Constants::FACTORY_RESET_HOLD_MS), NC);
 
         // Wait to see if button continues to be held
         uint32_t heldMs = 0;
@@ -1305,9 +1326,25 @@ void setup() {
 
     // Factory reset check before WiFi init - allows wiping stored credentials
     // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
-    bool factoryReset = checkFactoryReset();
+    (void)checkFactoryReset();
 
-    WiFi.onEvent(onWiFiDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    // ── Initialize FirmwareApp (replaces inline WiFi state machine) ───────────────
+    // FirmwareApp.init() sets up WiFiManager and drives initial connection
+    firmwareApp.init();
+    firmwareApp.setCallbacks(firmwareCallbacks);
+
+    // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
+    // Bridge Arduino WiFi events to FirmwareApp
+    // NOTE: This is a temporary bridge until ArduinoWiFi.onEvent is fully implemented
+    // The inline onWiFiDisconnected() below provides auth-failure logging
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+            // Call inline handler first (for auth-failure logging)
+            onWiFiDisconnected(event, info);
+            // Then notify FirmwareApp (which handles state transitions)
+            firmwareApp.onWiFiDisconnected(info.wifi_sta_disconnected.reason);
+        }
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
     // TWAI init — listen-only so we never transmit on the vehicle bus
 #if VEHICLE_SIM_ENABLE_TWAI
@@ -1328,25 +1365,29 @@ void setup() {
     Serial.println("TWAI disabled via VEHICLE_SIM_ENABLE_TWAI=0");
 #endif
 
-    // Initialize WiFi state machine and start connection
-    wifiCtx.state = WiFiState::State::DISCONNECTED;
-    updateWiFiStateMachine();
+    // NOTE: WiFi state machine is now driven by FirmwareApp
+    // FirmwareApp.init() already called updateWiFiStateMachine() internally
+    // No need to manually initialize wifiCtx.state or call updateWiFiStateMachine()
 
     // Initialize discovery backoff timer - reset on boot
     resetDiscoveryBackoff();
 
-    // Start NTP sync for accurate discovery timestamps
-    initNtpSync();
+    // NOTE: NTP sync is NO LONGER started here at boot. Starting SNTP/sockets
+    // during setup() crashed the ESP32 (netif not up). FirmwareApp now starts
+    // NtpTimeSync from the WiFi-connected event (deferred into loop()/update()).
 
     // Start TCP server (will be restarted on WiFi reconnect/IP change)
     tcpServer.begin();
     Serial.printf("TCP listening on port %u\r\n", Constants::TCP_PORT);
 
     // Initialize device ID from MAC address
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    memset(discoveryDeviceId, 0, 16);
-    memcpy(discoveryDeviceId, mac, 6);
+    std::array<uint8_t, 6> mac;
+    WiFi.macAddress(mac.data());
+    discoveryDeviceId.fill(0);
+    std::copy(mac.begin(), mac.end(), discoveryDeviceId.begin());
+
+    // Tagged boot diagnostic (carries the device-id tag once it is known)
+    printTagged(GREEN, "CAN bridge ready");
 
     // Start UDP discovery
 #if VEHICLE_SIM_ENABLE_DISCOVERY
@@ -1369,11 +1410,13 @@ void setup() {
 }
 
 void loop() {
-    // Update WiFi state machine - handles reconnection indefinitely
-    updateWiFiStateMachine();
+    // ── Update FirmwareApp (drives WiFiManager + StatusLED) ────────────────────────
+    // This replaces the inline updateWiFiStateMachine() call
+    // FirmwareApp.update() calls WiFiManager.update() and statusLed.update()
+    firmwareApp.update(millis());
 
-    // Update StatusLED pattern (non-blocking, must be called each loop iteration)
-    statusLed.update(millis());
+    // NOTE: statusLed.update() is now called by FirmwareApp.update()
+    // No need to call it separately here
 
     // Restart TCP server if WiFi reconnected with new IP
     restartTcpServerIfNeeded();
@@ -1443,7 +1486,7 @@ void loop() {
     if (haveClient && !monitorActive && client.available()) {
         client.setTimeout(Constants::TCP_COMMAND_TIMEOUT_MS);
         String cmd = client.readStringUntil('\r');
-        if (cmd.length() > 0) handleAT(cmd);
+        if (!cmd.isEmpty()) handleAT(cmd);
     }
 
     // Check if client disconnected - cleanup resources and reset discovery backoff

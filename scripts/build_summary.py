@@ -409,14 +409,19 @@ def local_coverage(path, local_type):
 
 
 def coverage_for(cov_measures_path, local_cov_pairs):
-    """Coverage from cached SonarCloud measures, else summed local sources.
+    """Prefer the SonarCloud measures JSON written by the most recent scan
+    (the displayed headline; same number the dashboard will show once the
+    upload settles), else fall back to summed local sources.
 
-    ``local_cov_pairs`` is a list of (path, type). When multiple local sources
-    are given (C++ lcov + iOS xccov) their covered/total are SUMMED and the pct
-    recomputed over the union. None when no source yields data.
+    The measures JSON is produced BY `make sonar-scan-*` — it is the scan's
+    own fresh output, NOT a stale cache and NOT a live API call (the live API
+    lags by one upload, so it would be wrong mid-`make`). ``local_cov_pairs``
+    is a list of (path, type); when multiple local sources are given (C++ lcov
+    + iOS xccov) their covered/total are SUMMED and the pct recomputed over the
+    union. None when no source yields data.
     """
     cov = _measures_coverage(cov_measures_path)
-    if cov is not None:
+    if cov is not None and cov[2] > 0:
         return cov
     covered = 0
     total = 0
@@ -637,7 +642,8 @@ def main(argv=None):
                         'testsCount/testsFailedCount are read via xcresulttool. '
                         'When given alongside --test-log the counts are SUMMED.')
     p.add_argument('--cov-measures',
-                   help='Cached sonar-measures.json (preferred coverage source)')
+                   help='sonar-measures.json written by the most recent scan '
+                        '(preferred coverage source; matches the dashboard upload)')
     # Repeatable --local-cov / --local-type pairs (C++ lcov + iOS xccov).
     p.add_argument('--local-cov', action='append', default=[],
                    help='Local coverage file (repeatable). Pairs positionally '

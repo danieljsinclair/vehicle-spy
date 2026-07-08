@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <sstream>
@@ -25,7 +26,7 @@ constexpr std::uint32_t GEAR_DRIVE = 4;
 
 // Write `bits` bits of `value` into `data` starting at bit `startBit`
 // (little-endian / Intel byte order: bit 0 = LSB of byte 0).
-void packBits(std::array<std::uint8_t, 8>& data,
+void packBits(std::array<std::byte, 8>& data,
               std::uint32_t startBit,
               std::uint32_t bits,
               std::uint64_t value) noexcept {
@@ -33,10 +34,11 @@ void packBits(std::array<std::uint8_t, 8>& data,
         const std::uint32_t bitIndex = startBit + i;
         const std::size_t byteIdx = bitIndex / 8;
         const std::uint32_t bitInByte = bitIndex % 8;
+        const std::byte mask{static_cast<unsigned char>(1u << bitInByte)};
         if (value & (std::uint64_t{1} << i)) {
-            data[byteIdx] |= static_cast<std::uint8_t>(1u << bitInByte);
+            data[byteIdx] |= mask;
         } else {
-            data[byteIdx] &= static_cast<std::uint8_t>(~(1u << bitInByte));
+            data[byteIdx] &= ~mask;
         }
         if (byteIdx >= data.size()) return;  // defensive
     }
@@ -44,9 +46,9 @@ void packBits(std::array<std::uint8_t, 8>& data,
 
 // Encode DI_systemStatus (CAN 280): DI_accelPedalPos (bit 32, 8b, scale 0.4)
 // and DI_gear (bit 21, 3b). throttlePct in [0,100].
-std::array<std::uint8_t, 8> encodeSystemStatus(double throttlePct,
+std::array<std::byte, 8> encodeSystemStatus(double throttlePct,
                                                std::uint32_t gear) noexcept {
-    std::array<std::uint8_t, 8> data{};
+    std::array<std::byte, 8> data{};
     // raw = pct / 0.4 ; clamp to [0,255] (255 = SNA).
     double raw = throttlePct / 0.4;
     auto rawPedal = static_cast<std::uint64_t>(
@@ -58,8 +60,8 @@ std::array<std::uint8_t, 8> encodeSystemStatus(double throttlePct,
 
 // Encode DI_torque (CAN 264): DI_torqueActual (bit 27, 13b signed, scale 2).
 // torqueNm in Nm.
-std::array<std::uint8_t, 8> encodeTorque(double torqueNm) noexcept {
-    std::array<std::uint8_t, 8> data{};
+std::array<std::byte, 8> encodeTorque(double torqueNm) noexcept {
+    std::array<std::byte, 8> data{};
     // raw = Nm / 2 ; signed 13-bit two's complement.
     double rawD = torqueNm / 2.0;
     long raw = std::lround(rawD);
@@ -73,8 +75,8 @@ std::array<std::uint8_t, 8> encodeTorque(double torqueNm) noexcept {
 
 // Encode DI_speed (CAN 599): DI_vehicleSpeed (bit 12, 12b, scale 0.08, off -40).
 // speedKmh in kph.
-std::array<std::uint8_t, 8> encodeSpeed(double speedKmh) noexcept {
-    std::array<std::uint8_t, 8> data{};
+std::array<std::byte, 8> encodeSpeed(double speedKmh) noexcept {
+    std::array<std::byte, 8> data{};
     // raw = (kph + 40) / 0.08 ; clamp to [0, 4095] (4095 = SNA).
     double raw = (speedKmh + 40.0) / 0.08;
     auto rawSpeed = static_cast<std::uint64_t>(
@@ -83,16 +85,16 @@ std::array<std::uint8_t, 8> encodeSpeed(double speedKmh) noexcept {
     return data;
 }
 
-std::string formatFrame(std::uint32_t canId, const std::array<std::uint8_t, 8>& data) {
+std::string formatFrame(std::uint32_t canId, const std::array<std::byte, 8>& data) {
     // "<ID> <D0> <D1> ... <D7>" — same form a raw CAN adapter streams. The CAN
     // ID is emitted as HEX digits (the normaliser parses it as hex), data bytes
     // as two-digit hex.
     std::ostringstream ss;
     ss << std::hex << canId;
-    for (std::uint8_t b : data) {
-        char buf[4];
-        std::snprintf(buf, sizeof(buf), " %02X", b);
-        ss << buf;
+    for (std::byte b : data) {
+        std::array<char, 4> buf;
+        std::snprintf(buf.data(), buf.size(), " %02X", std::to_integer<unsigned>(b));
+        ss << buf.data();
     }
     return ss.str();
 }

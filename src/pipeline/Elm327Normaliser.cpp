@@ -18,14 +18,13 @@ constexpr std::uint32_t CAN_11BIT_MAX = 0x7FFu;   // 11-bit standard CAN ID ceil
 
 bool isHex(std::string_view s) noexcept {
     if (s.empty()) return false;
-    for (char c : s) {
+    return std::all_of(s.begin(), s.end(), [](char c) {
         const auto u = static_cast<unsigned char>(c);
         const bool digit = u >= '0' && u <= '9';
         const bool lower = u >= 'a' && u <= 'f';
         const bool upper = u >= 'A' && u <= 'F';
-        if (!(digit || lower || upper)) return false;
-    }
-    return true;
+        return digit || lower || upper;
+    });
 }
 
 // Mirror RawFrameNormaliser's rtrim so the two live normalisers agree on how
@@ -40,16 +39,14 @@ std::string_view rtrim(std::string_view s) noexcept {
 }
 
 bool isBlank(std::string_view s) noexcept {
-    for (char c : s) {
-        if (c != ' ' && c != '\r' && c != '\n' && c != '\t') return false;
-    }
-    return true;
+    return std::all_of(s.begin(), s.end(), [](char c) {
+        return c == ' ' || c == '\r' || c == '\n' || c == '\t';
+    });
 }
 
 std::optional<std::uint32_t> parseHex(std::string_view s) noexcept {
     std::uint32_t v = 0;
-    auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16);
-    if (res.ec != std::errc{}) return std::nullopt;
+    if (auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16); res.ec != std::errc{}) return std::nullopt;
     return v;
 }
 
@@ -81,17 +78,15 @@ std::string toUpper(std::string s) {
 bool isAdapterChatter(std::string_view trimmed) noexcept {
     if (trimmed == ">") return true;          // ready prompt
     const auto upper = toUpper(std::string(trimmed));
-    static constexpr std::string_view kKnown[] = {
+    static constexpr std::array<std::string_view, 14> kKnown = {
         "OK", "NO DATA", "DATA ERROR", "STOPPED", "?", "SEARCHING...",
         "SEARCHING", "ELM327", "UNABLE TO CONNECT", "BUS ERROR",
         "BUFFER FULL", "CAN ERROR", "BUS INIT", "ERROR",
     };
-    for (auto kw : kKnown) {
-        if (upper == kw) return true;
-    }
     // Version banners like "ELM327 v2.3" or "v1.5" start non-hex and are caught
     // by the isHex gate; nothing to do here.
-    return false;
+    return std::any_of(std::begin(kKnown), std::end(kKnown),
+                       [&](std::string_view kw) { return upper == kw; });
 }
 
 } // namespace
@@ -122,8 +117,8 @@ NormaliserResult Elm327Normaliser::parseMonitorLine(const std::string& line) noe
     // 11-bit CAN ID occupies up to 3 hex digits. More digits => not an 11-bit
     // monitor frame. (29-bit extended IDs are out of scope; a future change
     // can add an explicit extended-frame path here.)
-    // TODO(#18): detect & handle 29-bit extended CAN IDs when ATSP6/ATH1
-    //            extended-frame output is exercised on real hardware.
+    // MARKER(#18): detect & handle 29-bit extended CAN IDs when ATSP6/ATH1
+    //              extended-frame output is exercised on real hardware.
     if (tokens[0].size() > 3) {
         return NormaliserResult::malformed();
     }
@@ -140,7 +135,7 @@ NormaliserResult Elm327Normaliser::parseMonitorLine(const std::string& line) noe
     }
 
     auto canId = parseHex(tokens[0]);
-    if (!canId) {
+    if (!canId.has_value()) {
         return NormaliserResult::malformed();
     }
     if (*canId > CAN_11BIT_MAX) {
@@ -152,7 +147,7 @@ NormaliserResult Elm327Normaliser::parseMonitorLine(const std::string& line) noe
     frame.canId = *canId;
     for (std::size_t t = 1; t < tokens.size(); ++t) {
         auto byte = parseHex(tokens[t]);
-        if (!byte || *byte > 0xFFu) {
+        if (!byte.has_value() || *byte > 0xFFu) {
             return NormaliserResult::malformed();
         }
         frame.data[t - 1] = static_cast<std::uint8_t>(*byte);

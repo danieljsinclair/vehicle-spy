@@ -17,16 +17,11 @@ static std::uint64_t nowUtcMs() {
 // Define the PIMPL implementation
 class VehicleSimulator::Impl {
 public:
-    Impl()
-        : running_(false)
-        , tick_(0)
-        , speed_(0.0)
-        , lastSpeed_(0.0)
-    {}
+    Impl() = default;
 
     ~Impl() = default;
 
-    bool initialize(const std::string& config_file) {
+    bool initialize(const std::string& config_file) const {
 #ifndef VEHICLE_SIM_TEST_SILENTLY
         std::cout << "[VehicleSimulator] Initializing with config: "
                   << (config_file.empty() ? "default" : config_file) << std::endl;
@@ -109,15 +104,15 @@ public:
         return running_;
     }
 
-    std::string getLatestTelemetry() {
+    std::string getLatestTelemetry() const {
         return getTelemetry();
     }
 
 private:
-    bool running_;
-    int tick_;
-    double speed_;
-    double lastSpeed_;
+    bool running_{false};
+    int tick_{0};
+    double speed_{0.0};
+    double lastSpeed_{0.0};
     domain::VehicleSignal latestSignal_{0, std::nullopt, std::nullopt, std::nullopt, std::nullopt};
     TelemetryCallback callback_;
 };
@@ -126,7 +121,7 @@ private:
 VehicleSimulator::VehicleSimulator() : pImpl(std::make_unique<Impl>()) {}
 VehicleSimulator::~VehicleSimulator() = default;
 
-bool VehicleSimulator::initialize(const std::string& config_file) {
+bool VehicleSimulator::initialize(const std::string& config_file) const {
     return pImpl->initialize(config_file);
 }
 
@@ -158,7 +153,7 @@ bool VehicleSimulator::hasNewData() const {
     return pImpl->hasNewData();
 }
 
-std::string VehicleSimulator::getLatestTelemetry() {
+std::string VehicleSimulator::getLatestTelemetry() const {
     return pImpl->getLatestTelemetry();
 }
 

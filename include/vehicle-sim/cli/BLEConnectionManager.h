@@ -21,7 +21,7 @@ class BLEConnectionManager {
 public:
     using DataCallback = std::function<void(const std::vector<std::uint8_t>& data)>;
 
-    BLEConnectionManager(std::unique_ptr<BLEManager> bleManager) noexcept;
+    explicit BLEConnectionManager(std::unique_ptr<BLEManager> bleManager) noexcept;
     ~BLEConnectionManager();
 
     BLEConnectionManager(const BLEConnectionManager&) = delete;
@@ -37,7 +37,7 @@ public:
      */
     [[nodiscard]] bool connect(const std::string& address,
                                 domain::VehicleProtocol protocol,
-                                DataCallback callback);
+                                const DataCallback& callback);
 
     /**
      * Start data polling
@@ -83,9 +83,9 @@ public:
 
 private:
     std::unique_ptr<BLEManager> bleManager_;
-    bool isConnected_;
-    bool polling_;
-    domain::VehicleProtocol protocol_;
+    bool isConnected_{false};
+    bool polling_{false};
+    domain::VehicleProtocol protocol_{domain::VehicleProtocol::OBD2};
 };
 
 } // namespace vehicle_sim::cli

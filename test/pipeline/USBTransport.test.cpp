@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "vehicle-sim/pipeline/USBTransport.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
 #include <fcntl.h>
 #ifdef __APPLE__
@@ -18,6 +19,8 @@
 #include <thread>
 
 using namespace vehicle_sim::pipeline;
+
+static std::shared_ptr<StopToken> g_testStop = std::make_shared<StopToken>();
 
 namespace {
 
@@ -61,8 +64,8 @@ TEST(USBTransportTest, ReadsNewlineDelimitedLinesFromPTY) {
     PtyPair pty;
     ASSERT_TRUE(pty.valid());
 
-    USBTransport::resetStop();
-    USBTransport transport(pty.masterPath());
+    g_testStop->reset();
+    USBTransport transport(pty.masterPath(), 115200, std::make_shared<StdOut>(), g_testStop);
     ASSERT_TRUE(transport.open());
 
     writeAll(pty.masterFd(), "1D5 29 00 00 00 00 00 A0 9F\r");
@@ -71,18 +74,18 @@ TEST(USBTransportTest, ReadsNewlineDelimitedLinesFromPTY) {
     ASSERT_TRUE(line.has_value());
     EXPECT_EQ(*line, "1D5 29 00 00 00 00 00 A0 9F");
 
-    USBTransport::resetStop();
+    g_testStop->reset();
 }
 
 TEST(USBTransportTest, RequestStop_TerminatesQuietPTY) {
     PtyPair pty;
     ASSERT_TRUE(pty.valid());
 
-    USBTransport::resetStop();
-    USBTransport transport(pty.masterPath());
+    g_testStop->reset();
+    USBTransport transport(pty.masterPath(), 115200, std::make_shared<StdOut>(), g_testStop);
     ASSERT_TRUE(transport.open());
 
-    USBTransport::requestStop();
+    g_testStop->requestStop();
     const auto start = std::chrono::steady_clock::now();
     auto line = transport.nextLine();
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -92,12 +95,12 @@ TEST(USBTransportTest, RequestStop_TerminatesQuietPTY) {
     EXPECT_LT(elapsed.count(), 1500) << "stop should be prompt";
     EXPECT_FALSE(transport.isOpen());
 
-    USBTransport::resetStop();
+    g_testStop->reset();
 }
 
 TEST(USBTransportTest, OpenFailsOnBogusPath) {
-    USBTransport::resetStop();
-    USBTransport transport("/dev/does-not-exist-for-vehicle-sim");
+    g_testStop->reset();
+    USBTransport transport("/dev/does-not-exist-for-vehicle-sim", 115200, std::make_shared<StdOut>(), g_testStop);
 
     EXPECT_FALSE(transport.open());
     EXPECT_FALSE(transport.isOpen());

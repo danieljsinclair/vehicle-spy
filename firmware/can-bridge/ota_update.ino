@@ -13,6 +13,11 @@
 #include <esp_partition.h>
 #include <esp_task_wdt.h>
 #include "OtaPublicKey.h"
+#include <string_view>
+#include <array>
+extern "C" {
+#include <sodium.h>
+}
 
 // ── Named Constants ────────────────────────────────────────────────────────────
 namespace OtaConstants {
@@ -32,10 +37,6 @@ namespace OtaConstants {
     static constexpr int HTTP_BAD_REQUEST = 400;
 }
 
-extern "C" {
-#include <sodium.h>
-}
-
 static const char* OTA_SIG_HDR = "X-Firmware-Signature";
 
 static WebServer otaHttp(OtaConstants::HTTP_PORT);
@@ -44,7 +45,7 @@ static bool sodiumReady = false;
 static uint32_t otaUploadStartTime = 0;
 
 // ── Signature verification (called after upload, before HTTP response) ──
-static uint8_t otaSig[64];
+static std::array<uint8_t, 64> otaSig;
 static bool otaHasSig = false;
 static String otaErr;
 
@@ -81,9 +82,10 @@ static bool hexToByte(char c, uint8_t& v) {
 static bool parseHexSig(const String& hex, uint8_t* out) {
     if (hex.length() != 128) return false;
     for (size_t i = 0; i < 64; i++) {
-        uint8_t hi = 0, lo = 0;
+        uint8_t hi = 0;
+        uint8_t lo = 0;
         if (!hexToByte(hex[i*2], hi) || !hexToByte(hex[i*2+1], lo)) return false;
-        out[i] = (hi << 4) | lo;
+        out[i] = static_cast<uint8_t>((hi << 4) | lo);
     }
     return true;
 }
@@ -101,18 +103,18 @@ static bool verifyPartition(const esp_partition_t* part, uint32_t size, const ui
         return false;
     }
 
-    uint8_t chunk[OtaConstants::VERIFY_CHUNK_SIZE];
+    std::array<uint8_t, OtaConstants::VERIFY_CHUNK_SIZE> chunk;
     uint32_t off = 0;
     while (off < size) {
         size_t n = (size - off < OtaConstants::VERIFY_CHUNK_SIZE) ?
                    (size - off) : OtaConstants::VERIFY_CHUNK_SIZE;
 
-        if (esp_partition_read(part, off, chunk, n) != ESP_OK) {
+        if (esp_partition_read(part, off, chunk.data(), n) != ESP_OK) {
             Serial.printf("%sOTA: partition read failed at offset %u%s\r\n", RED, off, NC);
             return false;
         }
 
-        if (crypto_sign_ed25519ph_update(&state, chunk, n) != 0) {
+        if (crypto_sign_ed25519ph_update(&state, chunk.data(), n) != 0) {
             Serial.printf("%sOTA: signature update failed%s\r\n", RED, NC);
             return false;
         }
@@ -173,8 +175,8 @@ void otaSetup() {
         Serial.printf("%sOTA: sodium crypto library failed to initialize%s\r\n", RED, NC);
     }
 
-    static const char* hdrs[] = { OTA_SIG_HDR };
-    otaHttp.collectHeaders(hdrs, 1);
+    static std::array<const char*, 1> hdrs = { OTA_SIG_HDR };
+    otaHttp.collectHeaders(hdrs.data(), hdrs.size());
 
     // Use HTTPUpdateServer with no auth (signature is the security boundary)
     otaUpdater.setup(&otaHttp, "/update", "", "");
@@ -240,7 +242,7 @@ void otaSetup() {
                 }
 
                 String sig = otaHttp.header(OTA_SIG_HDR);
-                if (!parseHexSig(sig, otaSig)) {
+                if (!parseHexSig(sig, otaSig.data())) {
                     otaErr = otaErrorMessage(OtaError::BAD_SIGNATURE_HEADER);
                     Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
                     return;
@@ -306,7 +308,7 @@ void otaSetup() {
                     return;
                 }
 
-                if (!verifyPartition(target, up.totalSize, otaSig)) {
+                if (!verifyPartition(target, up.totalSize, otaSig.data())) {
                     otaErr = otaErrorMessage(OtaError::SIGNATURE_VERIFY_FAILED);
                     // Abort update and trigger rollback
                     Update.abort();

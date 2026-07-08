@@ -1,7 +1,7 @@
 #pragma once
 
 #include "vehicle-sim/domain/DBCTranslationService.h"
-#include "vehicle-sim/domain/VehicleConfig.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include <atomic>
 #include <string>
 
@@ -17,10 +17,12 @@ public:
 
 private:
     static int runWithAutoDetection(const std::string& address,
-                                     domain::DBCTranslationService& translationService);
+                                     domain::DBCTranslationService& translationService,
+                                     const pipeline::StopToken& stop);
     static int runWithProtocol(const std::string& address,
                                 domain::VehicleProtocol protocol,
-                                domain::DBCTranslationService& translationService);
+                                const domain::DBCTranslationService& translationService,
+                                const pipeline::StopToken& stop);
 
     struct MonitorStats {
         std::atomic<int> signalCount{0};

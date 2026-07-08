@@ -457,7 +457,6 @@ class VehicleViewModel: ObservableObject {
         guard let wrapper = wrapper else { return }
         let address = esp32.host
         let port = esp32.canPort
-        let tcpTarget = "tcp:\(address):\(port)"
 
         // Pause discovery during connection attempt
         stopESP32Discovery()
@@ -481,8 +480,8 @@ class VehicleViewModel: ObservableObject {
                 // Check if we're still in WiFi mode
                 DispatchQueue.main.async {
                     if self.connectionMode != .wifi {
-                        // Mode changed, abort connection attempt
-                        return
+                        // Mode changed; abort this connection attempt. The surrounding
+                        // while-loop re-checks connectionMode on its next iteration.
                     }
                 }
 

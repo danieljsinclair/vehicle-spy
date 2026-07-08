@@ -18,23 +18,6 @@ VehicleConfig::VehicleConfig(
     , isCANProtocol(isCANProtocol)
 {}
 
-bool VehicleConfig::operator==(
-    const VehicleConfig& other
-) const noexcept {
-    return dbcFilePath == other.dbcFilePath
-        && dbcBundleFileName == other.dbcBundleFileName
-        && vehicleName == other.vehicleName
-        && signalMappings == other.signalMappings
-        && canBus == other.canBus
-        && isCANProtocol == other.isCANProtocol;
-}
-
-bool VehicleConfig::operator!=(
-    const VehicleConfig& other
-) const noexcept {
-    return !(*this == other);
-}
-
 bool VehicleConfig::hasMapping(
     const std::string& signalName
 ) const noexcept {

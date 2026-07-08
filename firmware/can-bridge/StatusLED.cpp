@@ -1,6 +1,14 @@
 #include "StatusLED.h"
 #include "IStatusLEDOutput.h"
 
+#ifdef ARDUINO
+// Real Arduino/ESP32 build: Serial + core defs for the DEBUG traces in
+// setPattern()/resetPattern(). Host builds (native vehicle-sim-lib and the
+// firmware host-test harness) define no ARDUINO, so these traces — and this
+// include — are excluded, keeping StatusLED fully host-testable.
+#include <Arduino.h>
+#endif
+
 namespace firmware {
 
 // ── Declarative Pattern Table ────────────────────────────────────────────────────
@@ -49,7 +57,7 @@ static constexpr LEDStep PATTERN_OTA_IN_PROGRESS[] = {
     {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS}
 };
 
-// AUTH_FAILURE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
+// ERROR_AUTH_FAILURE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
 static constexpr LEDStep PATTERN_AUTH_FAILURE[] = {
     // ERROR_3_PULSE (6 steps)
     {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
@@ -153,7 +161,7 @@ std::pair<const LEDStep*, size_t> StatusLED::getPatternSteps(Pattern pattern) {
             return {PATTERN_AP_MODE, sizeof(PATTERN_AP_MODE) / sizeof(LEDStep)};
         case Pattern::OTA_IN_PROGRESS:
             return {PATTERN_OTA_IN_PROGRESS, sizeof(PATTERN_OTA_IN_PROGRESS) / sizeof(LEDStep)};
-        case Pattern::AUTH_FAILURE:
+        case Pattern::ERROR_AUTH_FAILURE:
             return {PATTERN_AUTH_FAILURE, sizeof(PATTERN_AUTH_FAILURE) / sizeof(LEDStep)};
         case Pattern::ERROR_RECOVERABLE:
             return {PATTERN_ERROR_RECOVERABLE, sizeof(PATTERN_ERROR_RECOVERABLE) / sizeof(LEDStep)};
@@ -189,14 +197,36 @@ void StatusLED::init() {
     setPattern(Pattern::BOOT);
 }
 
+const char* StatusLED::getPatternName(Pattern pattern) {
+    switch (pattern) {
+        case Pattern::OFF:                  return "OFF";
+        case Pattern::BOOT:                 return "BOOT";
+        case Pattern::WIFI_SEARCHING:       return "WIFI_SEARCHING";
+        case Pattern::WIFI_CONNECTED:       return "WIFI_CONNECTED";
+        case Pattern::CLIENT_CONNECTED:     return "CLIENT_CONNECTED";
+        case Pattern::AP_MODE:              return "AP_MODE";
+        case Pattern::OTA_IN_PROGRESS:      return "OTA_IN_PROGRESS";
+        case Pattern::ERROR_AUTH_FAILURE:   return "ERROR_AUTH_FAILURE";
+        case Pattern::ERROR_RECOVERABLE:    return "ERROR_RECOVERABLE";
+        case Pattern::ERROR_NO_NTP_SERVICE: return "ERROR_NO_NTP_SERVICE";
+        case Pattern::FATAL_UNRECOVERABLE:  return "FATAL_UNRECOVERABLE";
+        default: return "UNKNOWN_PATTERN";
+    }
+}
+
 // ── Set Pattern ───────────────────────────────────────────────────────────────────
-void StatusLED::setPattern(Pattern pattern) {
+void StatusLED::setPatternInternal(Pattern pattern) {
     currentPattern_ = pattern;
     // Pattern will reset on next update when change is detected
+#ifdef ARDUINO
+    // Serial trace (hardware only — no-op on host builds). getPatternName is
+    // host-safe (plain names), so the call compiles but only links Serial under ARDUINO.
+    Serial.printf("[DEBUG] StatusLED::setPattern: %s\r\n", getPatternName(pattern));
+#endif
 }
 
 // ── Update (called from loop) ────────────────────────────────────────────────────
-void StatusLED::update(uint32_t currentTime) {
+void StatusLED::updateInternal(uint32_t currentTime) {
     // DESIGN NOTE: interrupts the current pattern immediately — does NOT finish the
     // current cycle. This is required because OFF/ON patterns use long durations
     // (up to 1h+). If changed to finish-cycle behaviour, ALL pattern durations must
@@ -251,6 +281,9 @@ void StatusLED::resetPattern(uint32_t currentTime) {
         bool newState = (steps[0].state == LEDState::ON);
         setLedOn(newState);
     }
+#ifdef ARDUINO
+    Serial.printf("[DEBUG] StatusLED::resetPattern: %s\r\n", getPatternName(currentPattern_));
+#endif
 }
 
 // ── Set LED State ─────────────────────────────────────────────────────────────────
@@ -261,6 +294,15 @@ void StatusLED::setLedOn(bool on) {
             output_->setOn(on);
         }
     }
+}
+
+// ── IStatusLED Interface Implementation ──────────────────────────────────────────────
+void StatusLED::setPattern(int pattern) {
+    setPatternInternal(static_cast<Pattern>(pattern));
+}
+
+void StatusLED::update(uint32_t now) {
+    updateInternal(now);
 }
 
 } // namespace firmware

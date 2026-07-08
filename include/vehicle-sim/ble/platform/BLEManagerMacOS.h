@@ -8,12 +8,14 @@
 #ifdef __APPLE__
     #ifdef __OBJC__
         #import <CoreBluetooth/CoreBluetooth.h>
+        @class BLEMacOSDelegate;
     #else
         // Forward declarations when not in Objective-C mode
-        typedef struct objc_object CBCentralManager;
-        typedef struct objc_object CBPeripheral;
-        typedef struct objc_object CBCharacteristic;
-        typedef struct objc_object CBService;
+        using CBCentralManager = struct objc_object;
+        using CBPeripheral = struct objc_object;
+        using CBCharacteristic = struct objc_object;
+        using CBService = struct objc_object;
+        using BLEMacOSDelegate = struct objc_object;
     #endif
 #endif
 
@@ -40,7 +42,7 @@ public:
 
     // BLEPlatform interface (required by BLEManagerBase)
     std::vector<BLEDeviceInfo> scanForDevices(int timeout_seconds) override;
-    bool connect(const std::string& device_identifier) override;
+    bool connect(std::string_view device_identifier) override;
     void disconnect() override;
     void send(const std::vector<uint8_t>& data) override;
     bool isConnected() const override;
@@ -93,14 +95,11 @@ private:
     CBCharacteristic* write_characteristic_ = nullptr;
     CBCharacteristic* notify_characteristic_ = nullptr;
 
-    // Objective-C delegate for CoreBluetooth callbacks
-    // Stored as void* to keep header C++ compatible
-    void* delegate_ = nullptr;
+    // Objective-C delegate for CoreBluetooth callbacks.
+    // Opaque pointer typed as the delegate class (forward-declared above) to
+    // keep this header C++ compatible while avoiding `void*`.
+    BLEMacOSDelegate* delegate_ = nullptr;
 #endif
-
-    // Connection state (atomic for thread-safe access)
-    std::atomic<bool> connected_;
-    std::string connected_device_id_;
 
     // Platform-specific helper methods
     bool waitForBluetoothReady(int timeout_ms);

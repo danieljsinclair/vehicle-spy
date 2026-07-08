@@ -50,6 +50,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/presentation/TelemetryFormatter.cpp
     src/ble/BLEManager.cpp
     src/ble/BLEManagerBase.cpp
+    src/ble/Elm327Session.cpp
     src/ble/TeslaBLETransport.cpp
     src/ble/platform/BLEManagerMock.cpp
     src/config/ConfigLoader.cpp
@@ -90,6 +91,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/DecodedCsvSink.cpp
     src/pipeline/ConsoleProgressReporter.cpp
     src/pipeline/PipelineReplay.cpp
+    src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
     src/cli/Orchestration.cpp
     src/cli/BLEConnectionManager.cpp
@@ -110,6 +112,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/ITransportOutput.cpp
     firmware/can-bridge/StatusLED.cpp
     firmware/can-bridge/HardwareStatusLEDOutput.cpp
+    firmware/vanilla/StatusLEDRenderer.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
@@ -164,6 +167,7 @@ target_include_directories(vehicle-sim-lib
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/firmware
     ${CMAKE_CURRENT_SOURCE_DIR}/firmware/can-bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/firmware/vanilla
 )
 
 target_compile_options(vehicle-sim-lib PRIVATE -g -Wall -Wextra -Werror)

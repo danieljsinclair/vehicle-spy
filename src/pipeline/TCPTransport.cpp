@@ -7,6 +7,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -18,22 +19,6 @@
 #include <unistd.h>
 
 namespace vehicle_sim::pipeline {
-
-// Process-wide stop flag, set by requestStop() (from a signal handler) and
-// polled by nextLine() on each select() timeout so a live stream stops cleanly
-// without hanging. A single flag serves all TCPTransport instances — only one
-// live transport runs per process.
-namespace {
-std::atomic<bool> g_stopRequested{false};
-}  // namespace
-
-void TCPTransport::requestStop() noexcept {
-    g_stopRequested.store(true);
-}
-
-void TCPTransport::resetStop() noexcept {
-    g_stopRequested.store(false);
-}
 
 namespace {
 
@@ -60,8 +45,7 @@ int connectToHost(const std::string& host, int port) {
     std::string portStr = std::to_string(port);
 
     addrinfo* result = nullptr;
-    int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
-    if (rc != 0 || result == nullptr) {
+    if (int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result); rc != 0 || result == nullptr) {
         if (result != nullptr) freeaddrinfo(result);
         return -1;
     }
@@ -100,18 +84,18 @@ int connectToHost(const std::string& host, int port) {
 
 } // namespace
 
-TCPTransport::TCPTransport(std::string host, int port, std::string adapterProtocol,
+TCPTransport::TCPTransport(std::string_view host, int port, std::string_view adapterProtocol,
                            std::shared_ptr<ITransportOutput> output,
-                           int readTimeoutUs,
-                           int atInitDelayMs,
-                           int socketRecvTimeoutMs)
-    : host_(std::move(host))
+                           TcpReadTiming timing,
+                           std::shared_ptr<StopToken> stop)
+    : host_(host)
     , port_(port)
-    , adapterProtocol_(std::move(adapterProtocol))
+    , adapterProtocol_(adapterProtocol)
     , output_(std::move(output))
-    , readTimeoutUs_(readTimeoutUs > 0 ? readTimeoutUs : 500000)
-    , atInitDelayMs_(atInitDelayMs)
-    , socketRecvTimeoutMs_(socketRecvTimeoutMs > 0 ? socketRecvTimeoutMs : 1000) {
+    , stop_(std::move(stop))
+    , readTimeoutUs_(timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000)
+    , atInitDelayMs_(timing.atInitDelayMs)
+    , socketRecvTimeoutMs_(timing.socketRecvTimeoutMs > 0 ? timing.socketRecvTimeoutMs : 1000) {
 }
 
 TCPTransport::~TCPTransport() {
@@ -130,7 +114,7 @@ int TCPTransport::perCommandDelayMs(int cmdDelayMs) const {
     return cmdDelayMs > 0 ? cmdDelayMs : DEFAULT_PER_COMMAND_DELAY_MS;
 }
 
-bool TCPTransport::sendAll(int fd, const std::string& data) noexcept {
+bool TCPTransport::sendAll(int fd, std::string_view data) const noexcept {
     std::size_t sent = 0;
     while (sent < data.size()) {
         ssize_t n = send(fd, data.data() + sent, data.size() - sent, 0);
@@ -161,10 +145,9 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
         struct timeval tv{};
         tv.tv_sec = 0;
         tv.tv_usec = 100000;  // 100ms timeout for response
-        int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv);
-        if (ready > 0) {
-            char resp[256] = {};
-            int n = recv(fd, resp, sizeof(resp) - 1, 0);
+        if (int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv); ready > 0) {
+            std::array<char, 256> resp{};
+            auto n = static_cast<int>(recv(fd, resp.data(), resp.size() - 1, 0));
             if (n <= 0) {
                 output_->err("[tcp] ELM327 init: no response to AT command (peer closed or error)");
                 return false;
@@ -189,17 +172,14 @@ bool TCPTransport::connectAndAuth() {
     (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
 
     // Authenticate: send token, expect "OK" back
-    std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r";
-    if (!sendAll(fd_, authCmd)) { closeConnection(); return false; }
-    char authResp[64] = {};
-    int n = recv(fd_, authResp, sizeof(authResp) - 1, 0);
-    if (n <= 0 || std::string(authResp, n).find("OK") == std::string::npos) {
+    if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(fd_, authCmd)) { closeConnection(); return false; }
+    std::array<char, 64> authResp{};
+    if (auto n = static_cast<int>(recv(fd_, authResp.data(), authResp.size() - 1, 0));
+        n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
         closeConnection(); return false;
     }
 
-    if (adapterProtocol_ == "elm327") {
-        if (!sendElm327Init(fd_)) { closeConnection(); return false; }
-    }
+    if (adapterProtocol_ == "elm327" && !sendElm327Init(fd_)) { closeConnection(); return false; }
 
     // Perform HELO handshake to validate device and capture deviceId
     if (!performHeloHandshake()) {
@@ -216,7 +196,7 @@ namespace {
 // Returns true on success, false if the input is not valid hex.
 bool parseHexByte(const std::string& s, std::size_t offset, uint8_t& out) {
     if (offset + 2 > s.size()) return false;
-    auto hexCharToInt = [](char c) -> int {
+    auto hexCharToInt = [](char c) {
         if (c >= '0' && c <= '9') return c - '0';
         if (c >= 'A' && c <= 'F') return c - 'A' + 10;
         if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -233,16 +213,13 @@ bool parseHexByte(const std::string& s, std::size_t offset, uint8_t& out) {
 
 bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     // First ensure we have an authenticated connection.
-    if (fd_ < 0) {
-        if (!connectAndAuth()) {
-            output_->err("[tcp] HELO pre-flight: connection failed");
-            return false;
-        }
+    if (fd_ < 0 && !connectAndAuth()) {
+        output_->err("[tcp] HELO pre-flight: connection failed");
+        return false;
     }
 
     // Send ATI (device info query)
-    const std::string atiCmd = "ATI\r";
-    if (!sendAll(fd_, atiCmd)) {
+    if (const std::string atiCmd = "ATI\r"; !sendAll(fd_, atiCmd)) {
         output_->err("[tcp] HELO pre-flight: failed to send ATI");
         closeConnection();
         return false;
@@ -250,11 +227,11 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
 
     // Read and discard ATI response (we don't parse it, just clear the buffer)
     // Use recv loop to handle fragmented TCP responses
-    char atiResp[256] = {};
+    std::array<char, 256> atiResp{};
     int totalAti = 0;
     bool atiComplete = false;
-    while (totalAti < static_cast<int>(sizeof(atiResp) - 1) && !atiComplete) {
-        int n = recv(fd_, atiResp + totalAti, sizeof(atiResp) - 1 - totalAti, 0);
+    while (totalAti < static_cast<int>(atiResp.size() - 1) && !atiComplete) {
+        auto n = static_cast<int>(recv(fd_, atiResp.data() + totalAti, atiResp.size() - 1 - static_cast<std::size_t>(totalAti), 0));
         if (n <= 0) {
             // Timeout or error - ATI response is optional, continue
             break;
@@ -278,8 +255,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     // Send ATHELO command
-    const std::string heloCmd = "ATHELO\r";
-    if (!sendAll(fd_, heloCmd)) {
+    if (const std::string heloCmd = "ATHELO\r"; !sendAll(fd_, heloCmd)) {
         output_->err("[tcp] HELO pre-flight: failed to send ATHELO");
         closeConnection();
         return false;
@@ -287,11 +263,11 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
 
     // Read HELO ACK response with proper recv loop for fragmented TCP
     // Expected format: ACK DEVICE=<name> FIRMWARE=<version> DEVICEID=<16-byte hex>\r\r>
-    char heloResp[256] = {};
+    std::array<char, 256> heloResp{};
     int totalHelo = 0;
     bool heloComplete = false;
-    while (totalHelo < static_cast<int>(sizeof(heloResp) - 1) && !heloComplete) {
-        int n = recv(fd_, heloResp + totalHelo, sizeof(heloResp) - 1 - totalHelo, 0);
+    while (totalHelo < static_cast<int>(heloResp.size() - 1) && !heloComplete) {
+        auto n = static_cast<int>(recv(fd_, heloResp.data() + totalHelo, heloResp.size() - 1 - static_cast<std::size_t>(totalHelo), 0));
         if (n <= 0) {
             // Timeout or error
             break;
@@ -310,7 +286,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
         closeConnection();
         return false;
     }
-    std::string response(heloResp, static_cast<std::size_t>(totalHelo));
+    std::string response(heloResp.data(), static_cast<std::size_t>(totalHelo));
 
     // Validate ACK format
     const std::string ackPrefix = "ACK DEVICE=";
@@ -334,8 +310,8 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     std::size_t hexStart = deviceIdPos + deviceIdToken.length();
     std::string hexId = response.substr(hexStart);
 
-    // Clean up any trailing whitespace/CRLF
-    while (!hexId.empty() && (hexId.back() == '\r' || hexId.back() == '\n' || hexId.back() == ' ')) {
+    // Clean up any trailing whitespace/CRLF/prompt
+    while (!hexId.empty() && (hexId.back() == '\r' || hexId.back() == '\n' || hexId.back() == ' ' || hexId.back() == '>')) {
         hexId.pop_back();
     }
 
@@ -371,9 +347,9 @@ bool TCPTransport::performHeloHandshake() {
     deviceIdHex_.clear();
     deviceIdHex_.reserve(32);
     for (uint8_t byte : deviceIdBytes) {
-        char hex[3];
-        snprintf(hex, sizeof(hex), "%02X", byte);
-        deviceIdHex_.append(hex);
+        std::array<char, 3> hex{};
+        snprintf(hex.data(), hex.size(), "%02X", byte);
+        deviceIdHex_.append(hex.data());
     }
     return true;
 }
@@ -405,7 +381,7 @@ bool TCPTransport::enterHuntingState() {
         }
 
         // Keep polling until connection succeeds or we're told to stop
-        while (!shouldStopDiscovery.load() && !g_stopRequested.load()) {
+        while (!shouldStopDiscovery.load() && !stop_->stopRequested()) {
             auto devices = hunter.poll(std::chrono::milliseconds(500));
 
             // Check if we found our device (or first available if no deviceId)
@@ -446,7 +422,7 @@ bool TCPTransport::enterHuntingState() {
     bool reconnected = false;
     retryCount_ = 0;
 
-    while (retryCount_ < MAX_RETRIES && !discoveryFound.load() && !g_stopRequested.load()) {
+    while (retryCount_ < MAX_RETRIES && !discoveryFound.load() && !stop_->stopRequested()) {
         retryCount_++;
         int delayMs = calculateRetryDelayMs(retryCount_ - 1);
 
@@ -536,42 +512,69 @@ bool TCPTransport::isOpen() const noexcept {
     return opened_ && fd_ >= 0 && !exhausted_;
 }
 
+std::optional<std::string> TCPTransport::takeBufferedLine() {
+    const std::size_t end = pending_.find_first_of("\r\n");
+    if (end == std::string::npos) {
+        return std::nullopt;  // no complete line buffered — need more bytes
+    }
+    std::string line(pending_, 0, end);
+    pending_.erase(0, end + 1);
+    // We return the line verbatim (the normaliser tolerates a trailing '\r'
+    // already stripped here by the terminator split). An empty line from a
+    // "\r\r" banner sequence is delivered as "" — the normaliser Skip's it.
+    return line;
+}
+
+int TCPTransport::selectReady() const {
+    fd_set readSet;
+    FD_ZERO(&readSet);
+    FD_SET(fd_, &readSet);
+
+    // Honour the injected read timeout, but cap each select() poll at a
+    // 1ms floor so the loop still wakes promptly on stop/disconnect even
+    // when a test injects a sub-millisecond value. Production default
+    // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
+    // and the stop flag is re-checked every poll, same as before.
+    const int pollUs = std::min(readTimeoutUs_, READ_TIMEOUT_US_FLOOR);
+    struct timeval tv{};
+    tv.tv_sec = 0;
+    tv.tv_usec = pollUs;
+
+    return select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
+}
+
+ssize_t TCPTransport::readSocketIntoPending() {
+    std::array<char, 256> buffer;
+    ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
+    if (n > 0) {
+        pending_.append(buffer.data(), static_cast<std::size_t>(n));
+
+        // Defensive cap so a peer that never sends a line ending can't grow
+        // the buffer without bound.
+        if (pending_.size() > MAX_PENDING_LEN) {
+            pending_.clear();
+        }
+    }
+    return n;
+}
+
+bool TCPTransport::shouldStop() const {
+    return stop_->stopRequested();
+}
+
 std::optional<std::string> TCPTransport::nextLine() {
-    if (!opened_ || fd_ < 0 || exhausted_) {
+    if (!canRead()) {
         return std::nullopt;
     }
 
     // First, satisfy the request from any already-buffered complete line.
-    while (true) {
-        std::size_t end = pending_.find_first_of("\r\n");
-        if (end == std::string::npos) {
-            break;  // no complete line buffered — need more bytes
-        }
-        std::string line(pending_, 0, end);
-        pending_.erase(0, end + 1);
-        // We return the line verbatim (the normaliser tolerates a trailing '\r'
-        // already stripped here by the terminator split). An empty line from a
-        // "\r\r" banner sequence is delivered as "" — the normaliser Skip's it.
-        return line;
+    if (auto line = takeBufferedLine()) {
+        return *line;
     }
 
     // Read more bytes from the socket with a bounded select() so we never hang.
     while (true) {
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(fd_, &readSet);
-
-        // Honour the injected read timeout, but cap each select() poll at a
-        // 1ms floor so the loop still wakes promptly on stop/disconnect even
-        // when a test injects a sub-millisecond value. Production default
-        // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
-        // and the stop flag is re-checked every poll, same as before.
-        const int pollUs = std::min(readTimeoutUs_, READ_TIMEOUT_US_FLOOR);
-        struct timeval tv{};
-        tv.tv_sec = 0;
-        tv.tv_usec = pollUs;
-
-        int ready = select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
+        int ready = selectReady();
         if (ready < 0) {
             if (errno == EINTR) continue;  // signal — retry
             exhausted_ = true;             // genuine error → treat as EOF
@@ -582,22 +585,20 @@ std::optional<std::string> TCPTransport::nextLine() {
             // bus is normal) — UNLESS a stop was requested (Ctrl+C from the
             // live run context's signal handler), in which case we return
             // nullopt so runReplay() terminates cleanly.
-            if (g_stopRequested.load()) {
+            if (shouldStop()) {
                 exhausted_ = true;
                 return std::nullopt;
             }
             continue;
         }
 
-        char buffer[256];
-        ssize_t n = recv(fd_, buffer, sizeof(buffer), 0);
-        if (n <= 0) {
+        if (ssize_t n = readSocketIntoPending(); n <= 0) {
             // Peer closed (0) or error (<0): attempt reconnection, unless stop
             // was requested (e.g. test cleanup or Ctrl+C). The stop flag is
             // checked before entering expensive hunting logic so tests that call
             // requestStop() before nextLine() terminate promptly instead of
             // waiting for exponential backoff.
-            if (g_stopRequested.load()) {
+            if (shouldStop()) {
                 exhausted_ = true;
                 return std::nullopt;
             }
@@ -622,14 +623,6 @@ std::optional<std::string> TCPTransport::nextLine() {
             exhausted_ = true;
             return std::nullopt;
 #endif
-        }
-
-        pending_.append(buffer, static_cast<std::size_t>(n));
-
-        // Defensive cap so a peer that never sends a line ending can't grow
-        // the buffer without bound.
-        if (pending_.size() > MAX_PENDING_LEN) {
-            pending_.clear();
         }
 
         // Try to extract a complete line from the newly buffered bytes.

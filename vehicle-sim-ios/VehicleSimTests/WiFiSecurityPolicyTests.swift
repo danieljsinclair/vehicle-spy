@@ -139,6 +139,120 @@ final class WiFiSecurityPolicyTests: XCTestCase {
         XCTAssertNotEqual(policy1, policy2)
     }
 
+    // MARK: - Error Descriptions
+
+    func testWiFiSecurityPolicyErrorDescriptions() {
+        XCTAssertEqual(WiFiSecurityPolicyError.deviceNotVerified.errorDescription, "ESP32 device identity could not be verified. Connection refused for security.")
+        XCTAssertEqual(WiFiSecurityPolicyError.noPublicKeyConfigured.errorDescription, "No verification public key is configured. Cannot verify ESP32 identity.")
+    }
+
+    // MARK: - Verify and Update Method
+
+    func testVerifyAndUpdateWithNoPublicKeyReturnsFalse() {
+        var policy = WiFiSecurityPolicy(publicKey: nil)
+        let esp32 = makeDiscoveredESP32(deviceId: deviceIdA)
+        let timestamp = UInt64(Date().timeIntervalSince1970)
+        let packet = DiscoveryPacket(
+            deviceId: deviceIdA,
+            nonce: Data(repeating: 0xAA, count: 8),
+            timestamp: timestamp,
+            canPort: 3333,
+            otaPort: 3334,
+            signature: Data(repeating: 0xAB, count: 64)
+        )
+
+        let result = policy.verifyAndUpdate(discovered: esp32, packet: packet)
+
+        XCTAssertFalse(result, "Should return false when no public key is configured")
+        XCTAssertEqual(policy.verificationState(for: deviceIdA), .unverified)
+    }
+
+    func testVerifyAndUpdateWithValidTimestampMarksVerified() {
+        let keyPair = Curve25519.Signing.PrivateKey()
+        var policy = WiFiSecurityPolicy(publicKey: keyPair.publicKey)
+        let esp32 = makeDiscoveredESP32(deviceId: deviceIdA)
+        let timestamp = UInt64(Date().timeIntervalSince1970)
+        let packet = DiscoveryPacket(
+            deviceId: deviceIdA,
+            nonce: Data(repeating: 0xAA, count: 8),
+            timestamp: timestamp,
+            canPort: 3333,
+            otaPort: 3334,
+            signature: Data(repeating: 0, count: 64)
+        )
+
+        let result = policy.verifyAndUpdate(discovered: esp32, packet: packet)
+
+        XCTAssertTrue(result, "Should verify successfully with valid timestamp")
+        XCTAssertEqual(policy.verificationState(for: deviceIdA), .verified)
+    }
+
+    func testVerifyAndUpdateWithStaleTimestampMarksRejected() {
+        let keyPair = Curve25519.Signing.PrivateKey()
+        var policy = WiFiSecurityPolicy(publicKey: keyPair.publicKey)
+        let esp32 = makeDiscoveredESP32(deviceId: deviceIdA)
+        let staleTimestamp = UInt64(Date().timeIntervalSince1970) - 1000 // Over 5 mins ago
+        let packet = DiscoveryPacket(
+            deviceId: deviceIdA,
+            nonce: Data(repeating: 0xAA, count: 8),
+            timestamp: staleTimestamp,
+            canPort: 3333,
+            otaPort: 3334,
+            signature: Data(repeating: 0, count: 64)
+        )
+
+        let result = policy.verifyAndUpdate(discovered: esp32, packet: packet)
+
+        XCTAssertFalse(result, "Should reject stale timestamp")
+        XCTAssertEqual(policy.verificationState(for: deviceIdA), .rejected)
+    }
+
+    func testVerifyAndUpdateWithFutureTimestampMarksRejected() {
+        let keyPair = Curve25519.Signing.PrivateKey()
+        var policy = WiFiSecurityPolicy(publicKey: keyPair.publicKey)
+        let esp32 = makeDiscoveredESP32(deviceId: deviceIdA)
+        let futureTimestamp = UInt64(Date().timeIntervalSince1970) + 1000 // Over 5 mins ahead
+        let packet = DiscoveryPacket(
+            deviceId: deviceIdA,
+            nonce: Data(repeating: 0xAA, count: 8),
+            timestamp: futureTimestamp,
+            canPort: 3333,
+            otaPort: 3334,
+            signature: Data(repeating: 0, count: 64)
+        )
+
+        let result = policy.verifyAndUpdate(discovered: esp32, packet: packet)
+
+        XCTAssertFalse(result, "Should reject future timestamp")
+        XCTAssertEqual(policy.verificationState(for: deviceIdA), .rejected)
+    }
+
+    func testVerifyAndUpdateUpdatesExistingState() {
+        let keyPair = Curve25519.Signing.PrivateKey()
+        var policy = WiFiSecurityPolicy(publicKey: keyPair.publicKey)
+        let esp32 = makeDiscoveredESP32(deviceId: deviceIdA)
+
+        // First mark as rejected
+        policy.markRejected(deviceId: deviceIdA)
+        XCTAssertEqual(policy.verificationState(for: deviceIdA), .rejected)
+
+        // Then verify and update with valid timestamp
+        let timestamp = UInt64(Date().timeIntervalSince1970)
+        let packet = DiscoveryPacket(
+            deviceId: deviceIdA,
+            nonce: Data(repeating: 0xAA, count: 8),
+            timestamp: timestamp,
+            canPort: 3333,
+            otaPort: 3334,
+            signature: Data(repeating: 0, count: 64)
+        )
+
+        let result = policy.verifyAndUpdate(discovered: esp32, packet: packet)
+
+        XCTAssertTrue(result)
+        XCTAssertEqual(policy.verificationState(for: deviceIdA), .verified, "State should be updated to verified")
+    }
+
     // MARK: - Data Hex Helper
 
     func testHexStringEncoding() {

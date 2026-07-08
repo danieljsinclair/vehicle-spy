@@ -1,5 +1,7 @@
 #include "vehicle-sim/domain/CaptureLog.h"
 
+#include <algorithm>
+#include <array>
 #include <charconv>
 #include <fstream>
 
@@ -19,35 +21,31 @@ std::string_view rtrim(std::string_view s) noexcept {
 
 std::optional<std::uint64_t> parseDecimal(std::string_view s) noexcept {
     std::uint64_t v = 0;
-    auto res = std::from_chars(s.data(), s.data() + s.size(), v, 10);
-    if (res.ec != std::errc{}) return std::nullopt;
+    if (auto res = std::from_chars(s.data(), s.data() + s.size(), v, 10); res.ec != std::errc{}) return std::nullopt;
     return v;
 }
 
 std::optional<std::uint32_t> parseHex(std::string_view s) noexcept {
     std::uint32_t v = 0;
-    auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16);
-    if (res.ec != std::errc{}) return std::nullopt;
+    if (auto res = std::from_chars(s.data(), s.data() + s.size(), v, 16); res.ec != std::errc{}) return std::nullopt;
     return v;
 }
 
 bool isHex(std::string_view s) noexcept {
     if (s.empty()) return false;
-    for (char c : s) {
+    return std::all_of(s.begin(), s.end(), [](char c) {
         const auto u = static_cast<unsigned char>(c);
         const bool digit = u >= '0' && u <= '9';
         const bool lower = u >= 'a' && u <= 'f';
         const bool upper = u >= 'A' && u <= 'F';
-        if (!(digit || lower || upper)) return false;
-    }
-    return true;
+        return digit || lower || upper;
+    });
 }
 
 bool isBlank(std::string_view s) noexcept {
-    for (char c : s) {
-        if (c != ' ' && c != '\r' && c != '\n' && c != '\t') return false;
-    }
-    return true;
+    return std::all_of(s.begin(), s.end(), [](char c) {
+        return c == ' ' || c == '\r' || c == '\n' || c == '\t';
+    });
 }
 
 // Parse a legacy CSV row "timestampMs,canId,dlc,dataHex" (the caller has
@@ -55,10 +53,10 @@ bool isBlank(std::string_view s) noexcept {
 // NotAFrame (this path is only reached when the line is frame-shaped).
 CaptureLineParse parseLegacyCsv(std::string_view tsField,
                                 std::string_view restFields) noexcept {
-    std::string_view fields[4];
+    std::array<std::string_view, 4> fields;
     fields[0] = tsField;
     // Re-split restFields ("canId,dlc,dataHex") into fields[1..3].
-    std::string_view rest[3];
+    std::array<std::string_view, 3> rest;
     int n = 0;
     std::size_t start = 0;
     bool tooMany = false;
@@ -81,7 +79,7 @@ CaptureLineParse parseLegacyCsv(std::string_view tsField,
     auto ts = parseDecimal(fields[0]);
     auto canId = parseHex(fields[1]);
     auto dlc = parseDecimal(fields[2]);
-    if (!ts || !canId || !dlc || *dlc > CAN_PAYLOAD_BYTES) {
+    if (!ts.has_value() || !canId.has_value() || !dlc.has_value() || *dlc > CAN_PAYLOAD_BYTES) {
         out.result = CaptureParseResult::Malformed;
         return out;
     }
@@ -94,7 +92,7 @@ CaptureLineParse parseLegacyCsv(std::string_view tsField,
     RawFrame frame;
     for (std::size_t i = 0; i < hex.size(); i += 2) {
         auto byte = parseHex(hex.substr(i, 2));
-        if (!byte) {
+        if (!byte.has_value()) {
             out.result = CaptureParseResult::Malformed;
             return out;
         }
@@ -117,7 +115,7 @@ CaptureLineParse parseVerbatim(std::string_view tsField,
                                std::string_view payload) noexcept {
     CaptureLineParse out;
     auto ts = parseDecimal(tsField);
-    if (!ts) {
+    if (!ts.has_value()) {
         out.result = CaptureParseResult::Malformed;
         return out;
     }
@@ -161,14 +159,14 @@ CaptureLineParse parseVerbatim(std::string_view tsField,
     RawFrame frame;
     frame.timestampMs = *ts;
     auto canId = parseHex(tokens[0]);
-    if (!canId) {
+    if (!canId.has_value()) {
         out.result = CaptureParseResult::Malformed;
         return out;
     }
     frame.canId = *canId;
     for (std::size_t t = 1; t < tokens.size(); ++t) {
         auto byte = parseHex(tokens[t]);
-        if (!byte || *byte > 0xFFu) {
+        if (!byte.has_value() || *byte > 0xFFu) {
             out.result = CaptureParseResult::Malformed;
             return out;
         }

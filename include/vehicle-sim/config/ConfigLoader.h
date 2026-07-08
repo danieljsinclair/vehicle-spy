@@ -20,7 +20,7 @@ public:
     ~ConfigLoader();
 
     // Load configuration from file (JSON, YAML, or similar)
-    bool loadFromFile(const std::string& filepath);
+    bool loadFromFile(const std::string& filepath) const;
 
     // Load default configuration
     VehicleConfig getDefaultConfig() const;

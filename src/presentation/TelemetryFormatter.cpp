@@ -6,8 +6,7 @@ namespace vehicle_sim {
 
 TelemetryFormatter::TelemetryFormatter(Format format)
     : format_(format)
-    , include_headers_(true)
-    , delimiter_(',') {
+{
 }
 
 void TelemetryFormatter::setFormat(Format format) {
@@ -22,7 +21,7 @@ void TelemetryFormatter::setDelimiter(char delimiter) {
     delimiter_ = delimiter;
 }
 
-std::string TelemetryFormatter::format(const domain::TelemetrySignal& data) {
+std::string TelemetryFormatter::format(const domain::TelemetrySignal& data) const {
     std::ostringstream oss;
 
     switch (format_) {

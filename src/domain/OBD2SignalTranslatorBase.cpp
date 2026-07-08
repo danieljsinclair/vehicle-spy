@@ -4,14 +4,7 @@
 
 namespace vehicle_sim::domain {
 
-OBD2SignalTranslatorBase::OBD2SignalTranslatorBase()
-    : lastThrottle_(0.0)
-    , lastSpeed_(0.0)
-    , lastAcceleration_(0.0)
-    , lastBrake_(0.0)
-    , lastTimestamp_(0)
-    , currentData_(nullptr)
-{}
+OBD2SignalTranslatorBase::OBD2SignalTranslatorBase() = default;
 
 OBD2SignalTranslatorBase::~OBD2SignalTranslatorBase() = default;
 
@@ -46,25 +39,45 @@ std::optional<VehicleSignal> OBD2SignalTranslatorBase::translate(
     // (replay path); otherwise fall back to wall-clock now() (live/BLE path).
     const std::uint64_t effectiveTs = timestampUtcMs.value_or(getCurrentTimestamp());
 
-    {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        updateSignalField(pid, value);
-        lastTimestamp_ = effectiveTs;
+    // The full locked critical section (field routing + timestamp + snapshot)
+    // lives in applyUpdateAndSnapshot(); translate() does NOT pre-hold the lock,
+    // since state_mutex_ is non-recursive and applyUpdateAndSnapshot() takes it.
+    return applyUpdateAndSnapshot(pid, value, effectiveTs);
+}
 
-        return VehicleSignal(
-            lastTimestamp_,
-            lastThrottle_,
-            lastSpeed_,
-            lastAcceleration_,
-            lastBrake_,
-            std::nullopt,  // steeringAngleDeg
-            std::nullopt,  // motorRpm
-            std::nullopt,  // motorHvVoltage
-            std::nullopt,  // motorHvCurrent
-            std::nullopt,  // motorTorqueNm
-            std::nullopt   // gearSelector
-        );
+VehicleSignal OBD2SignalTranslatorBase::applyUpdateAndSnapshot(
+    std::uint8_t pid,
+    double value,
+    std::uint64_t effectiveTimestamp
+) const noexcept {
+    // One acquisition covers the field routing, the timestamp write, and the
+    // snapshot, so the emitted VehicleSignal is atomic with the update. The
+    // field writes are lexically inside this locked function (not factored out)
+    // so every mutation of the last-known state is provably under state_mutex_.
+    std::scoped_lock lock(state_mutex_);
+
+    switch (pid) {
+        case PID_THROTTLE_POSITION: case PID_ACCELERATOR_POS_D: case PID_ACCELERATOR_POS_P: lastThrottle_ = value; break;
+        case PID_VEHICLE_SPEED: lastSpeed_ = value; break;
+        case PID_ENGINE_LOAD: lastAcceleration_ = (value / 100.0) * 2.0 - 1.0; break;
+        case PID_BRAKE_PRESSURE: lastBrake_ = value; break;
+        default: break;
     }
+    lastTimestamp_ = effectiveTimestamp;
+
+    return VehicleSignal(
+        lastTimestamp_,
+        lastThrottle_,
+        lastSpeed_,
+        lastAcceleration_,
+        lastBrake_,
+        std::nullopt,  // steeringAngleDeg
+        std::nullopt,  // motorRpm
+        std::nullopt,  // motorHvVoltage
+        std::nullopt,  // motorHvCurrent
+        std::nullopt,  // motorTorqueNm
+        std::nullopt   // gearSelector
+    );
 }
 
 double OBD2SignalTranslatorBase::extractPIDValue(
@@ -73,20 +86,6 @@ double OBD2SignalTranslatorBase::extractPIDValue(
 ) const noexcept {
     // Default: no PIDs recognized
     return 0.0;
-}
-
-void OBD2SignalTranslatorBase::updateSignalField(
-    std::uint8_t pid,
-    double value
-) const noexcept {
-    // Default mapping
-    switch (pid) {
-        case PID_THROTTLE_POSITION: case PID_ACCELERATOR_POS_D: case PID_ACCELERATOR_POS_P: lastThrottle_ = value; break;
-        case PID_VEHICLE_SPEED: lastSpeed_ = value; break;
-        case PID_ENGINE_LOAD: lastAcceleration_ = (value / 100.0) * 2.0 - 1.0; break;
-        case PID_BRAKE_PRESSURE: lastBrake_ = value; break;
-        default: break;
-    }
 }
 
 std::uint64_t OBD2SignalTranslatorBase::getCurrentTimestamp() const noexcept {

@@ -9,7 +9,7 @@ namespace vehicle_sim::telemetry {
 
 class RawTraceLogger {
 public:
-    explicit RawTraceLogger(std::string filePath);
+    explicit RawTraceLogger(const std::string& filePath);
     ~RawTraceLogger();
 
     void write(std::uint64_t timestampMs, const std::vector<std::uint8_t>& data) noexcept;

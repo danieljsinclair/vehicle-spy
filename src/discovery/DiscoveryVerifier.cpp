@@ -1,11 +1,11 @@
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 
 #include <sodium.h>
+#include <array>
 #include <fstream>
 #include <cstring>
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
 bool loadPublicKey(const std::string& path,
                    std::array<uint8_t, ED25519_PUBLIC_KEY_LEN>& out) {
@@ -15,13 +15,13 @@ bool loadPublicKey(const std::string& path,
     }
 
     // Read raw 32 bytes
-    char buf[ED25519_PUBLIC_KEY_LEN];
-    file.read(buf, ED25519_PUBLIC_KEY_LEN);
+    std::array<char, ED25519_PUBLIC_KEY_LEN> buf;
+    file.read(buf.data(), ED25519_PUBLIC_KEY_LEN);
     if (file.gcount() != ED25519_PUBLIC_KEY_LEN) {
         return false;
     }
 
-    std::copy(buf, buf + ED25519_PUBLIC_KEY_LEN, out.begin());
+    std::copy(buf.begin(), buf.end(), out.begin());
     return true;
 }
 
@@ -66,5 +66,4 @@ bool verify(const DiscoveryPacket& packet,
     return verifySignature(packet, publicKey);
 }
 
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery
