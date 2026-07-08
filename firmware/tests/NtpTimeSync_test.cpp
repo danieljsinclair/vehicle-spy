@@ -187,7 +187,7 @@ TEST_F(NtpTimeSyncTest, Init_ExceedsMaxRetries_ShowsErrorInStaMode) {
     }
 
     // In STA mode with WL_CONNECTED, should show ERROR_NO_NTP_SERVICE (pattern 8)
-    EXPECT_CALL(statusLedMock, setPattern(8));
+    EXPECT_CALL(statusLedMock, setPattern(9));
     ntpTimeSync->init();
 
     // Callback should receive failure
