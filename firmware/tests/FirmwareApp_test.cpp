@@ -41,6 +41,28 @@ public:
     MOCK_METHOD(uint32_t, millis, (), (const, override));
 };
 
+// Mock ISntp for FirmwareApp NTP routing
+class MockSntp : public ISntp {
+public:
+    MOCK_METHOD(bool, enabled, (), (const, override));
+    MOCK_METHOD(void, setOperatingMode, (int mode), (override));
+    MOCK_METHOD(void, setServerName, (int idx, const char* server), (override));
+    MOCK_METHOD(void, setSyncMode, (int mode), (override));
+    MOCK_METHOD(void, setSyncInterval, (int32_t intervalMs), (override));
+    MOCK_METHOD(void, setTimeSyncNotificationCallback, (std::function<void(struct timeval*)> cb), (override));
+    MOCK_METHOD(void, init, (), (override));
+};
+
+// Mock ITimeNtp for FirmwareApp NTP routing
+class MockTimeNtp : public ITimeNtp {
+public:
+    MOCK_METHOD(void, setenv, (const char* name, const char* value, int overwrite), (override));
+    MOCK_METHOD(void, tzset, (), (override));
+    MOCK_METHOD(time_t, time, (time_t* t), (override));
+    MOCK_METHOD(void, gmtime_r, (const time_t* timep, struct tm* result), (override));
+    MOCK_METHOD(size_t, strftime, (char* s, size_t maxsize, const char* format, const struct tm* tm), (override));
+};
+
 class FirmwareAppTest : public ::testing::Test {
 protected:
     WiFiMock wifiMock;
@@ -48,6 +70,8 @@ protected:
     NiceMock<MockStatusLED> statusLedMock;
     NiceMock<MockUdp> udpMock;
     NiceMock<MockTime> timeMock;
+    NiceMock<MockSntp> sntpMock;
+    NiceMock<MockTimeNtp> timeNtpMock;
     std::unique_ptr<FirmwareApp> firmwareApp;
 
     // Test device ID for DiscoveryManager
@@ -82,6 +106,8 @@ protected:
         // Allow NiceMock leak (gmock quirk with NiceMock members)
         testing::Mock::AllowLeak(&udpMock);
         testing::Mock::AllowLeak(&timeMock);
+        testing::Mock::AllowLeak(&sntpMock);
+        testing::Mock::AllowLeak(&timeNtpMock);
 
         // Create FirmwareApp with all dependencies
         firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
@@ -103,6 +129,7 @@ protected:
             wifiMock, prefsMock, statusLedMock,
             wifiMock,  // WiFiMock implements both IWiFi and IWiFiDiscovery
             udpMock, timeMock,
+            sntpMock, timeNtpMock,
             testDeviceId,
             bakedSsid, bakedPass
         );
@@ -118,6 +145,7 @@ TEST_F(FirmwareAppTest, Ctor_DoesNotThrow) {
     EXPECT_NO_THROW({
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
+                       sntpMock, timeNtpMock,
                        testDeviceId);
     });
 }
@@ -127,6 +155,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_DoesNotThrow) {
     EXPECT_NO_THROW({
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
+                       sntpMock, timeNtpMock,
                        testDeviceId, "test-ssid", "test-pass");
     });
 }
@@ -387,6 +416,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_HasStoredReturnsFalse) {
     // Baked credentials should NOT count as stored credentials
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
+                   sntpMock, timeNtpMock,
                    testDeviceId, "baked-ssid", "baked-pass");
     app.init();
 
@@ -397,6 +427,7 @@ TEST_F(FirmwareAppTest, StoreCredentials_OverridesBaked_WhenStored) {
     // Stored credentials should take precedence over baked
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
+                   sntpMock, timeNtpMock,
                    testDeviceId, "baked-ssid", "baked-pass");
     app.init();
 
@@ -467,9 +498,11 @@ TEST_F(FirmwareAppTest, TwoInstances_SameDependencies_DoNotInterfere) {
 
     FirmwareApp app1(wifiMock, prefsMock, statusLedMock,
                     wifiMock, udpMock, timeMock,
+                    sntpMock, timeNtpMock,
                     testDeviceId);
     FirmwareApp app2(wifiMock, prefsMock, statusLedMock2,
                     wifiMock, udpMock2, timeMock2,
+                    sntpMock, timeNtpMock,
                     testDeviceId);
 
     app1.init();

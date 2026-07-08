@@ -10,6 +10,7 @@ namespace esp32_firmware {
 
 FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
                          IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
+                         ISntp& sntp, ITimeNtp& timeNtp,
                          const std::array<uint8_t, 16>& deviceId,
                          const char* bakedSsid, const char* bakedPass)
     : wifi_(wifi)
@@ -18,6 +19,8 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     , wifiDiscovery_(wifiDiscovery)
     , udp_(udp)
     , time_(time)
+    , sntp_(sntp)
+    , timeNtp_(timeNtp)
     , deviceId_(deviceId)
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
@@ -36,6 +39,7 @@ void FirmwareApp::init() {
 
     initialized_ = true;
     discoveryStarted_ = false;
+    ntpStarted_ = false;
 }
 
 void FirmwareApp::setupManagers() {
@@ -50,6 +54,15 @@ void FirmwareApp::setupManagers() {
 
     // Create DiscoveryManager (UDP broadcast discovery)
     discoveryManager_ = std::make_unique<DiscoveryManager>(udp_, wifiDiscovery_, time_, deviceId_);
+
+    // Create NtpTimeSync (NTP time synchronization). Construction only wires the
+    // injected ISntp/ITimeNtp/IStatusLED — NO hardware/socket work here. NTP init
+    // (which touches SNTP/sockets) is deferred to update() after WiFi connects,
+    // matching the boot-crash lesson (never touch netif at boot).
+    // wifiMode/wifiStatus are passed as 0/0 now; they are read live from the WiFi
+    // adapter inside init() via NtpTimeSync's ITimeNtp call path at sync time.
+    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp_, timeNtp_, statusLed_,
+                                                 0, 0);
 
     // NOTE: discoveryManager_->init() opens the UDP socket (udp_.begin()). On ESP32
     // this MUST NOT run during boot/static-init: when FirmwareApp::init() executes
@@ -77,6 +90,14 @@ void FirmwareApp::setupCallbacks() {
             callbacks_.restartTcpServer();
         }
     });
+
+    // NTP init is triggered by WiFiManager when it transitions to "WiFi
+    // connected" (StateTransition.initNtp == true). Defer the actual NtpTimeSync
+    // start into update() via ntpStarted_ so we never touch SNTP/sockets on the
+    // boot path. The callback only sets the one-shot flag.
+    wifiManager_->setNtpInitCallback([this]() {
+        ntpStarted_ = true;
+    });
 }
 
 void FirmwareApp::update(uint32_t now) {
@@ -95,6 +116,15 @@ void FirmwareApp::update(uint32_t now) {
     // Update WiFi state machine (primary driver)
     // WiFiManager internally handles state transitions and calls setPattern() on the LED
     wifiManager_->update(now);
+
+    // Drive NTP start from the first loop tick AFTER WiFi reports connected.
+    // WiFiManager sets ntpStarted_ (via its NTP-init callback) only when it
+    // transitions to a connected STA state, so NtpTimeSync::init() — which
+    // touches SNTP/sockets — never runs on the boot path (boot-crash lesson).
+    if (ntpStarted_ && !ntpTimeSync_->isSynced()) {
+        ntpTimeSync_->setWifiState(wifi_.getMode(), wifi_.status());
+        ntpTimeSync_->init();
+    }
 
     // Update DiscoveryManager with current time and client status
     // DiscoveryManager needs to know if we have a TCP client to adjust broadcast cadence

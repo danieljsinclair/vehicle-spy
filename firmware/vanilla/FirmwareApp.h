@@ -17,6 +17,7 @@
 #include <array>
 #include "WiFiManager.h"
 #include "DiscoveryManager.h"
+#include "NtpTimeSync.h"
 
 namespace esp32_firmware {
 
@@ -57,10 +58,13 @@ public:
     // - wifiDiscovery: WiFi discovery interface (ArduinoWiFi also implements this, or mock)
     // - udp: UDP interface for discovery (ArduinoUdp or mock)
     // - time: time interface for discovery (ArduinoTime or mock)
+    // - sntp: SNTP interface for NTP time sync (ArduinoSntp or mock)
+    // - timeNtp: time interface for NTP sync (ArduinoTimeNtp or mock)
     // - deviceId: 16-byte device ID for discovery packets
     // - bakedSsid/bakedPass: optional compile-time WiFi credentials
     FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
                 IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
+                ISntp& sntp, ITimeNtp& timeNtp,
                 const std::array<uint8_t, 16>& deviceId,
                 const char* bakedSsid = nullptr, const char* bakedPass = nullptr);
 
@@ -123,6 +127,8 @@ private:
     IWiFiDiscovery& wifiDiscovery_;
     IUdp& udp_;
     ITime& time_;
+    ISntp& sntp_;
+    ITimeNtp& timeNtp_;
     const std::array<uint8_t, 16>& deviceId_;
     const char* bakedSsid_;
     const char* bakedPass_;
@@ -130,6 +136,7 @@ private:
     // Managers (owned by this app)
     std::unique_ptr<WiFiManager> wifiManager_;
     std::unique_ptr<DiscoveryManager> discoveryManager_;
+    std::unique_ptr<NtpTimeSync> ntpTimeSync_;
     std::unique_ptr<CanBridge> canBridge_;
     std::unique_ptr<AtCommandDispatcher> atDispatcher_;
     std::unique_ptr<OtaUpdateServer> otaServer_;
@@ -144,6 +151,11 @@ private:
     // so the hardware-touching udp_.begin() never runs on the boot path before the
     // WiFi netif is up. Set true once DiscoveryManager::init() has run.
     bool discoveryStarted_;
+
+    // NTP sync is deferred until WiFi is connected (no socket/hardware work at
+    // boot — mirrors the DiscoveryManager deferral). Set true once NtpTimeSync has
+    // been told to start; the WiFiManager NTP-init callback is the trigger.
+    bool ntpStarted_;
 
     // Helper methods
     void setupManagers();

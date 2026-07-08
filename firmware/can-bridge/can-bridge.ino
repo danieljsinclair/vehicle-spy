@@ -183,15 +183,6 @@ struct SetWifiParams {
     SetWifiParams() = default;
 };
 
-// ── NTP State ───────────────────────────────────────────────────────────────────
-namespace NtpState {
-    struct Context {
-        bool synced = false;
-        uint32_t lastSyncMs = 0;
-        uint32_t syncAttempts = 0;
-    };
-}
-
 // ── Discovery State ────────────────────────────────────────────────────────────
 namespace DiscoveryState {
     struct Context {
@@ -201,7 +192,9 @@ namespace DiscoveryState {
     };
 }
 
-static NtpState::Context ntpCtx;
+// NOTE: NTP state is now owned inside NtpTimeSync (vanilla, host-tested). The
+// inline ntpCtx and ntpSyncCallback/initNtpSync have been removed; FirmwareApp
+// drives NTP start from the WiFi-connected event via NtpTimeSync.
 static DiscoveryState::Context discoveryCtx;
 
 // ANSI color codes for serial output
@@ -354,6 +347,8 @@ static ArduinoWiFi arduinoWiFi;
 static ArduinoPreferences arduinoPrefs;
 static ArduinoUdp arduinoUdp;
 static ArduinoTime arduinoTime;
+static ArduinoSntp arduinoSntp;        // ISntp adapter for NTP sync
+static ArduinoTimeNtp arduinoTimeNtp;  // ITimeNtp adapter for NTP sync
 
 // Baked credentials: use the build-injected ESP32_WIFI_SSID/ESP32_WIFI_PASS when
 // present (the real station credentials), otherwise nullptr so WiFiManager falls
@@ -363,10 +358,12 @@ static ArduinoTime arduinoTime;
 static constexpr const char* BAKED_SSID = (WIFI_SSID != nullptr) ? WIFI_SSID : nullptr;
 static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASSWORD : nullptr;
 
-// FirmwareApp orchestrator - delegates WiFi/LED to vanilla WiFiManager
+// FirmwareApp orchestrator - delegates WiFi/LED/NTP to vanilla managers
 // ArduinoWiFi implements both IWiFi and IWiFiDiscovery
+// NTP is routed through FirmwareApp (owns NtpTimeSync + ArduinoSntp/ArduinoTimeNtp)
 static FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
                               arduinoWiFi, arduinoUdp, arduinoTime,
+                              arduinoSntp, arduinoTimeNtp,
                               discoveryDeviceId,
                               BAKED_SSID, BAKED_PASS);
 
@@ -383,58 +380,10 @@ static uint32_t lastDiscoveryBroadcast = 0;
 static WiFiUDP udpDiscovery;
 
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
-// NTP sync callback - called when time sync completes
-static void ntpSyncCallback(struct timeval* tv) {
-    // Only log on first successful sync, not on periodic re-syncs
-    if (!ntpCtx.synced) {
-        ntpCtx.synced = true;
-        ntpCtx.syncAttempts = 0;
-        // Convert Unix timestamp to human-readable UTC time
-        time_t utcTime = tv->tv_sec;
-        struct tm utcInfoBuf;
-        gmtime_r(&utcTime, &utcInfoBuf);
-        const struct tm* const utcInfo = &utcInfoBuf;  // read-only view of the result
-        std::array<char, 32> timeBuf{};
-        strftime(timeBuf.data(), timeBuf.size(), "%Y-%m-%d %H:%M:%S UTC", utcInfo);
-        Serial.printf("%sNTP synced: %s%s\r\n", GREEN, timeBuf.data(), NC);
-    }
-    // Always update last sync time for monitoring
-    ntpCtx.lastSyncMs = millis();
-}
-
-// Initialize NTP sync - call this when WiFi connects
-static void initNtpSync() {
-    if (ntpCtx.synced) return;
-    // SNTP_OPMODE_POLL retries internally on NTP_RETRY_INTERVAL_MS — never re-init
-    // while it's already running: sntp_setoperatingmode() asserts ("Operating mode
-    // must not be set while SNTP client is running") → boot loop. Idempotent across
-    // reconnects/retries. If NTP never syncs, getCurrentTimestamp() falls back to uptime.
-    if (sntp_enabled()) return;
-
-    ntpCtx.syncAttempts++;
-    if (ntpCtx.syncAttempts > Constants::NTP_SYNC_RETRY_MAX) {
-        Serial.printf("%sNTP sync: max attempts reached, using fallback time%s\r\n", YELLOW, NC);
-        // Only show ERROR_NO_NTP_SERVICE in STA mode (AP mode has no internet by design)
-        if (WiFiClass::getMode() == WIFI_STA && WiFiClass::status() == WL_CONNECTED) {
-            statusLed.setPattern(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
-        }
-        return;
-    }
-
-    Serial.printf("NTP: syncing time (attempt %u)...", ntpCtx.syncAttempts);
-
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
-    sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
-    sntp_set_sync_interval(Constants::NTP_RETRY_INTERVAL_MS);
-    sntp_set_time_sync_notification_cb(ntpSyncCallback);
-    sntp_init();
-
-    // Set timezone to UTC
-    setenv("TZ", "UTC", 1);
-    tzset();
-}
-
+// NTP is now driven entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
+// ArduinoTimeNtp adapters). The inline initNtpSync()/ntpSyncCallback() were
+// removed — NTP starts when WiFiManager reports connected (deferred out of the
+// boot path). Discovery timestamps use NtpTimeSync via FirmwareApp's wiring.
 // Get current timestamp with NTP sync fallback
 static uint64_t getCurrentTimestamp() {
     time_t now = time(nullptr);
@@ -936,9 +885,10 @@ static void applyStateTransition(const StateTransition& transition, WiFiState::C
         ctx.tcpServerNeedsRestart = true;
     }
 
-    if (transition.initNtp) {
-        initNtpSync();
-    }
+    // NOTE: transition.initNtp is no longer acted on here. NTP is driven by
+    // FirmwareApp (owns NtpTimeSync), started from the WiFi-connected event
+    // inside WiFiManager — not from this legacy inline state machine, which is
+    // superseded by WiFiManager and not invoked in loop().
 }
 
 static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
@@ -1422,8 +1372,9 @@ void setup() {
     // Initialize discovery backoff timer - reset on boot
     resetDiscoveryBackoff();
 
-    // Start NTP sync for accurate discovery timestamps
-    initNtpSync();
+    // NOTE: NTP sync is NO LONGER started here at boot. Starting SNTP/sockets
+    // during setup() crashed the ESP32 (netif not up). FirmwareApp now starts
+    // NtpTimeSync from the WiFi-connected event (deferred into loop()/update()).
 
     // Start TCP server (will be restarted on WiFi reconnect/IP change)
     tcpServer.begin();
