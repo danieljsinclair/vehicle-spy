@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <sys/time.h>
 #include "vanilla/FirmwareApp.h"
 #include "mocks/WiFiMock.h"
 #include "mocks/PreferencesMock.h"
@@ -84,6 +85,9 @@ protected:
     bool broadcastDiscoveryCalled = false;
     bool handleOtaCalled = false;
 
+    // Captured SNTP sync-notification callback (wired through ISntp by NtpTimeSync)
+    std::function<void(struct timeval*)> capturedSyncCallback_;
+
     // Callback spies
     FirmwareCallbacks callbackSpies;
 
@@ -102,6 +106,7 @@ protected:
 
         // Reset spy flags
         resetSpyFlags();
+        capturedSyncCallback_ = nullptr;
 
         // Allow NiceMock leak (gmock quirk with NiceMock members)
         testing::Mock::AllowLeak(&udpMock);
@@ -633,3 +638,106 @@ TEST_F(FirmwareAppTest, NtpTimeSync_ReusesExistingITimeDependency_SameInjected) 
     });
 }
 */
+
+// ============================================================================
+// NTP TIME SYNC ROUTING TESTS (BLIND / SPEC-FIRST)
+//
+// These lock the CONTRACT of how FirmwareApp routes NTP startup through
+// NtpTimeSync, per the spec:
+//   - NTP init (which touches SNTP/sockets) MUST be deferred until WiFi is
+//     connected, and MUST NOT run on the boot path (boot-crash regression).
+//   - When WiFi connects, FirmwareApp drives NtpTimeSync::startIfWiFiConnected
+//     which configures ISntp and wires the SNTP sync-notification callback.
+//   - Once synced, NTP must NOT re-init on later ticks.
+// Assertions are about INTENT (ISntp configured w/ expected mode/server,
+// callback wired, formatting invoked), not fragile call-ordering.
+// ============================================================================
+
+TEST_F(FirmwareAppTest, NtpRouting_StartsOnWiFiConnect_ConfiguresSntp) {
+    // CONTRACT: after init + callbacks + WiFi CONNECTED_STA + update,
+    // NtpTimeSync::init() must drive ISntp (operating mode / server / sync
+    // mode / interval / init) AND wire the SNTP sync-notification callback.
+    firmwareApp->init();
+    firmwareApp->setCallbacks(callbackSpies);
+
+    EXPECT_CALL(sntpMock, setTimeSyncNotificationCallback(_))
+        .WillOnce(SaveArg<0>(&capturedSyncCallback_));
+    EXPECT_CALL(sntpMock, setOperatingMode(1)).Times(1);  // SNTP_OPMODE_POLL
+    EXPECT_CALL(sntpMock, setServerName(0, NtpConfig::NTP_SERVER)).Times(1);
+    EXPECT_CALL(sntpMock, setSyncMode(1)).Times(1);        // SNTP_SYNC_MODE_IMMED
+    EXPECT_CALL(sntpMock, setSyncInterval(NtpConfig::NTP_RETRY_INTERVAL_MS)).Times(1);
+    EXPECT_CALL(sntpMock, init()).Times(1);
+    EXPECT_CALL(timeNtpMock, setenv("TZ", "UTC", 1)).Times(AtLeast(1));
+    EXPECT_CALL(timeNtpMock, tzset()).Times(AtLeast(1));
+
+    wifiMock.simulateConnectSuccess();
+    firmwareApp->update(5000);
+
+    // The sync-notification callback MUST be wired on connect.
+    ASSERT_TRUE(capturedSyncCallback_) << "SNTP sync-notification callback was not wired";
+}
+
+TEST_F(FirmwareAppTest, NtpRouting_Deferred_NotStartedAtBoot) {
+    // CONTRACT (boot-crash regression guard): NTP init must NOT run on the
+    // boot path. Before WiFi connects, update() must NOT drive ISntp init /
+    // configuration even across multiple ticks.
+    firmwareApp->init();
+    firmwareApp->setCallbacks(callbackSpies);
+
+    EXPECT_CALL(sntpMock, init()).Times(0);
+    EXPECT_CALL(sntpMock, setOperatingMode(_)).Times(0);
+    EXPECT_CALL(sntpMock, setServerName(_, _)).Times(0);
+    EXPECT_CALL(sntpMock, setSyncMode(_)).Times(0);
+    EXPECT_CALL(sntpMock, setSyncInterval(_)).Times(0);
+    EXPECT_CALL(sntpMock, setTimeSyncNotificationCallback(_)).Times(0);
+
+    // WiFi is NOT connected (disconnected at boot) — tick the loop several times.
+    firmwareApp->update(1000);
+    firmwareApp->update(2000);
+    firmwareApp->update(3000);
+}
+
+TEST_F(FirmwareAppTest, NtpRouting_NoReinitAfterSync) {
+    // CONTRACT: after a successful sync, a later update() must NOT re-init
+    // ISntp (no boot loop / duplicate sockets).
+    firmwareApp->init();
+    firmwareApp->setCallbacks(callbackSpies);
+
+    EXPECT_CALL(sntpMock, setTimeSyncNotificationCallback(_))
+        .WillOnce(SaveArg<0>(&capturedSyncCallback_));
+    EXPECT_CALL(sntpMock, init()).Times(1);  // exactly one init on connect
+
+    wifiMock.simulateConnectSuccess();
+    firmwareApp->update(5000);  // first connect -> NTP init once
+
+    ASSERT_TRUE(capturedSyncCallback_) << "sync callback must be wired before sync";
+    timeval tv{1000000000, 0};  // valid Unix time -> onSyncComplete marks synced
+    capturedSyncCallback_(&tv);
+
+    // Subsequent ticks after sync must NOT re-init ISmtp.
+    EXPECT_CALL(sntpMock, init()).Times(0);
+    firmwareApp->update(6000);
+    firmwareApp->update(7000);
+}
+
+TEST_F(FirmwareAppTest, NtpRouting_SyncCallbackDrivesTimeFormatting) {
+    // CONTRACT (optional): the SNTP sync-notification callback wired by
+    // NtpTimeSync::init() must be FUNCTIONAL — when SNTP fires it, onSyncComplete
+    // runs and formats the time via the injected ITimeNtp (gmtime_r + strftime).
+    // Locks "onSyncComplete marks synced" observably through the mock, without
+    // depending on a nonexistent FirmwareApp sync accessor.
+    firmwareApp->init();
+    firmwareApp->setCallbacks(callbackSpies);
+
+    EXPECT_CALL(sntpMock, setTimeSyncNotificationCallback(_))
+        .WillOnce(SaveArg<0>(&capturedSyncCallback_));
+    EXPECT_CALL(timeNtpMock, gmtime_r(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(timeNtpMock, strftime(_, _, _, _)).Times(AtLeast(1));
+
+    wifiMock.simulateConnectSuccess();
+    firmwareApp->update(5000);
+
+    ASSERT_TRUE(capturedSyncCallback_) << "sync callback must be wired before firing";
+    timeval tv{1234567890, 0};
+    capturedSyncCallback_(&tv);  // simulate SNTP firing the sync-notification
+}
