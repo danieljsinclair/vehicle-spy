@@ -59,10 +59,13 @@ void FirmwareApp::setupManagers() {
     // injected ISntp/ITimeNtp/IStatusLED — NO hardware/socket work here. NTP init
     // (which touches SNTP/sockets) is deferred to update() after WiFi connects,
     // matching the boot-crash lesson (never touch netif at boot).
-    // wifiMode/wifiStatus are passed as 0/0 now; they are read live from the WiFi
-    // adapter inside init() via NtpTimeSync's ITimeNtp call path at sync time.
+    // wifiMode/wifiStatus are passed as placeholder values now; they are
+    // overwritten by WiFiManager's NTP-init callback via startIfWiFiConnected()
+    // before init() reads them. These are compile-time placeholders only.
+    constexpr int WIFI_MODE_PLACEHOLDER = 0;
+    constexpr int WIFI_STATUS_PLACEHOLDER = 0;
     ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp_, timeNtp_, statusLed_,
-                                                 0, 0);
+                                                 WIFI_MODE_PLACEHOLDER, WIFI_STATUS_PLACEHOLDER);
 
     // NOTE: discoveryManager_->init() opens the UDP socket (udp_.begin()). On ESP32
     // this MUST NOT run during boot/static-init: when FirmwareApp::init() executes
