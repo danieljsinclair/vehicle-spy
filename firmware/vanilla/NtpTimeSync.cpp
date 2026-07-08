@@ -8,9 +8,10 @@ NtpTimeSync::NtpTimeSync(ISntp& sntp, ITimeNtp& time, IStatusLED& statusLed,
     : sntp_(sntp), time_(time), statusLed_(statusLed)
     , wifiMode_(wifiMode), wifiStatus_(wifiStatus) {}
 
-void NtpTimeSync::setWifiState(int wifiMode, int wifiStatus) {
+void NtpTimeSync::startIfWiFiConnected(int wifiMode, int wifiStatus) {
     wifiMode_ = wifiMode;
     wifiStatus_ = wifiStatus;
+    init();
 }
 
 void NtpTimeSync::init() {

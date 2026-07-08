@@ -121,9 +121,9 @@ void FirmwareApp::update(uint32_t now) {
     // WiFiManager sets ntpStarted_ (via its NTP-init callback) only when it
     // transitions to a connected STA state, so NtpTimeSync::init() — which
     // touches SNTP/sockets — never runs on the boot path (boot-crash lesson).
+    // The when/how-to-start knowledge lives inside NtpTimeSync (startIfWiFiConnected).
     if (ntpStarted_ && !ntpTimeSync_->isSynced()) {
-        ntpTimeSync_->setWifiState(wifi_.getMode(), wifi_.status());
-        ntpTimeSync_->init();
+        ntpTimeSync_->startIfWiFiConnected(wifi_.getMode(), wifi_.status());
     }
 
     // Update DiscoveryManager with current time and client status

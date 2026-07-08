@@ -55,11 +55,12 @@ public:
     // Initialize NTP sync - call when WiFi connects
     void init();
 
-    // Feed the live WiFi mode/status so init() can decide whether to show the
-    // ERROR_NO_NTP_SERVICE LED pattern (only meaningful in STA + WL_CONNECTED).
-    // The orchestrator (FirmwareApp) calls this just before init() since it owns
-    // the live IWiFi; NtpTimeSync itself stays free of IWiFi (DI, SRP).
-    void setWifiState(int wifiMode, int wifiStatus);
+    // Orchestrator seam: called every loop tick once the WiFi-connected event
+    // has fired. Feeds the live WiFi mode/status AND triggers init() — keeping
+    // the "when/how to start NTP" knowledge inside NtpTimeSync (SRP) rather than
+    // as glue in the orchestrator. No-op once synced. The orchestrator owns the
+    // live IWiFi; NtpTimeSync itself stays free of IWiFi (DI, SRP).
+    void startIfWiFiConnected(int wifiMode, int wifiStatus);
 
     // Get current timestamp with NTP sync fallback
     uint64_t getCurrentTimestamp() const;
