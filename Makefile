@@ -825,6 +825,7 @@ define run_sonar_scan
 	@mkdir -p $$(dirname $(SS_SCANNER_LOG))
 	@SONAR_TOKEN="$${SONAR_TOKEN_ES}" sonar-scanner \
 		-Dproject.settings=$(SS_PROPERTIES) \
+		-Dsonar.working.directory=$(SS_BUILD_DIR)/.sonar \
 		> $(SS_SCANNER_LOG) 2>&1; \
 		rc=$$?; \
 		if [ $$rc -ne 0 ]; then \
@@ -833,9 +834,9 @@ define run_sonar_scan
 		fi
 	@echo "=== [$(SS_LABEL)] Waiting for SonarCloud Compute Engine to finish ==="
 	@TOKEN="$${SONAR_TOKEN_ES}"; \
-		CETASKID=$$(grep -E '^ceTaskId=' .scannerwork/report-task.txt 2>/dev/null | cut -d= -f2); \
+		CETASKID=$$(grep -E '^ceTaskId=' $(SS_BUILD_DIR)/.sonar/report-task.txt 2>/dev/null | cut -d= -f2); \
 		if [ -z "$$CETASKID" ]; then \
-			echo "${RED}ERROR: [$(SS_LABEL)] no ceTaskId in .scannerwork/report-task.txt; cannot confirm analysis settled${NC}"; exit 1; \
+			echo "${RED}ERROR: [$(SS_LABEL)] no ceTaskId in $(SS_BUILD_DIR)/.sonar/report-task.txt; cannot confirm analysis settled${NC}"; exit 1; \
 		fi; \
 		echo "  CE task: $$CETASKID"; \
 		dead=0; \
@@ -889,6 +890,7 @@ $(SONAR_REPORT): SS_MEASURES      := $(SONAR_MEASURES)
 $(SONAR_REPORT): SS_SCANNER_LOG   := $(SONAR_SCANNER_LOG)
 $(SONAR_REPORT): SS_LABEL         := vehicle-spy
 $(SONAR_REPORT): SS_COMPILE_DB    := $(BUILD_COV_DIR)/compile_commands.json
+$(SONAR_REPORT): SS_BUILD_DIR     := build-sonar
 
 $(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_XML_CPP) $(SONAR_PROPERTIES)
 	$(run_sonar_scan)
@@ -902,6 +904,7 @@ $(SONAR_IOS_REPORT): SS_REMOVED_FACET := $(SONAR_IOS_REMOVED_FACET)
 $(SONAR_IOS_REPORT): SS_MEASURES      := $(SONAR_IOS_MEASURES)
 $(SONAR_IOS_REPORT): SS_SCANNER_LOG   := $(SONAR_IOS_SCANNER_LOG)
 $(SONAR_IOS_REPORT): SS_LABEL         := vehicle-spy-ios
+$(SONAR_IOS_REPORT): SS_BUILD_DIR     := build-ios
 
 $(SONAR_IOS_REPORT): $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES)
 	$(run_sonar_scan)
@@ -916,6 +919,7 @@ $(SONAR_ESP32_REPORT): SS_MEASURES      := $(SONAR_ESP32_MEASURES)
 $(SONAR_ESP32_REPORT): SS_SCANNER_LOG   := $(SONAR_ESP32_SCANNER_LOG)
 $(SONAR_ESP32_REPORT): SS_LABEL         := vehicle-spy-esp32
 $(SONAR_ESP32_REPORT): SS_COMPILE_DB    := $(SONAR_COMPILE_DB_FW)
+$(SONAR_ESP32_REPORT): SS_BUILD_DIR     := build-firmware
 
 $(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_XML) $(SONAR_ESP32_PROPERTIES)
 	$(run_sonar_scan)
