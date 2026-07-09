@@ -1,9 +1,11 @@
 #include "vehicle-sim/domain/CANDecoder.h"
 
+#include <cstddef>
+
 namespace vehicle_sim::domain {
 
 std::optional<double> CANDecoder::extractSignal(
-    const std::vector<uint8_t>& frame,
+    const std::vector<std::byte>& frame,
     std::size_t startBit,
     std::size_t bitLength,
     double scale,
@@ -31,7 +33,7 @@ std::optional<double> CANDecoder::extractSignal(
 }
 
 std::uint64_t CANDecoder::extractRawBits(
-    const std::vector<uint8_t>& frame,
+    const std::vector<std::byte>& frame,
     std::size_t startBit,
     std::size_t bitLength
 ) noexcept {
@@ -42,7 +44,7 @@ std::uint64_t CANDecoder::extractRawBits(
         const std::size_t byteIdx = bitPos / 8;
         const std::size_t bitIdx = bitPos % 8;
 
-        if (frame[byteIdx] & (1u << bitIdx)) {
+        if (static_cast<unsigned char>(frame[byteIdx]) & (1u << bitIdx)) {
             result |= (1ULL << i);
         }
     }

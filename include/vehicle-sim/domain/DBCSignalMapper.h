@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -100,7 +101,7 @@ private:
      * @return Raw unsigned integer value
      */
     [[nodiscard]] static std::uint64_t extractRawBits(
-        const std::vector<std::uint8_t>& frame,
+        const std::vector<std::byte>& frame,
         const DBCSignalDefinition& definition
     ) noexcept;
 };

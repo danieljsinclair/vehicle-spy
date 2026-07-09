@@ -1,9 +1,20 @@
 #include <gtest/gtest.h>
 #include <cstdint>
+#include <cstddef>
+#include <algorithm>
 #include <vector>
 #include "vehicle-sim/domain/CANDecoder.h"
 
 using namespace vehicle_sim::domain;
+
+// Serialization-edge adapter: view a uint8_t test frame as byte-oriented data
+// for CANDecoder::extractSignal (which takes std::vector<std::byte>).
+[[nodiscard]] static std::vector<std::byte> asBytes(const std::vector<std::uint8_t>& frame) {
+    std::vector<std::byte> bytes(frame.size());
+    std::transform(frame.begin(), frame.end(), bytes.begin(),
+                   [](std::uint8_t b) { return static_cast<std::byte>(b); });
+    return bytes;
+}
 
 // ================================================
 // Shared CAN Signal Decoder Tests
@@ -45,7 +56,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesAcceleratorPedalPositionFromCAN280)
     // Byte 4 (bit 32) contains the 8-bit value
     canFrame[4] = 200;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 80.0, 0.5);
@@ -54,7 +65,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesAcceleratorPedalPositionFromCAN280)
 TEST_F(CANSignalDecoderSharedTest, DecodesAcceleratorPedalAtZeroFromCAN280)
 {
     // 0% throttle: raw = 0
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 0.0);
@@ -65,7 +76,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesAcceleratorPedalAtFullFromCAN280)
     // 100% throttle: raw = 100 / 0.4 = 250
     canFrame[4] = 250;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 100.0, 0.5);
@@ -76,7 +87,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesAcceleratorPedalAtMidRangeFromCAN280)
     // 50% throttle: raw = 50 / 0.4 = 125
     canFrame[4] = 125;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 50.0, 0.5);
@@ -87,7 +98,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesAcceleratorPedalAtLightFromCAN280)
     // 20% throttle: raw = 20 / 0.4 = 50
     canFrame[4] = 50;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 20.0, 0.5);
@@ -105,7 +116,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesBrakePedalStateFromCAN280)
     // Bit 17 = byte 2 bit 1 → byte 2 = 0x02
     canFrame[2] = 0x02;
 
-    auto result = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 1.0);
@@ -114,7 +125,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesBrakePedalStateFromCAN280)
 TEST_F(CANSignalDecoderSharedTest, DecodesBrakePedalNotPressedFromCAN280)
 {
     // Brake pedal not pressed: bit 17 clear (value 0)
-    auto result = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 0.0);
@@ -126,7 +137,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesBrakePedalStateValue3FromCAN280)
     // Bits 1-2 of byte 2 set → byte 2 = 0x06
     canFrame[2] = 0x06;
 
-    auto result = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 3.0);
@@ -138,7 +149,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesBrakePedalStateValue2FromCAN280)
     // Bit 2 of byte 2 set → byte 2 = 0x04
     canFrame[2] = 0x04;
 
-    auto result = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 2.0);
@@ -155,8 +166,8 @@ TEST_F(CANSignalDecoderSharedTest, DecodesBothAcceleratorAndBrakeFromCAN280)
     // Brake pedal pressed: byte 2 bit 1 set
     canFrame[2] = 0x02;
 
-    auto throttleResult = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
-    auto brakeResult = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto throttleResult = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
+    auto brakeResult = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(throttleResult.has_value());
     ASSERT_TRUE(brakeResult.has_value());
@@ -179,7 +190,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesSteeringAngleAtCenterFromCAN297)
     canFrame[2] = 0x00;
     canFrame[3] = 0x20;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 0.0, 0.5);
@@ -194,7 +205,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesSteeringAnglePositiveFromCAN297)
     canFrame[2] = 0x84;
     canFrame[3] = 0x23;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 90.0, 1.0);
@@ -208,7 +219,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesSteeringAngleNegativeFromCAN297)
     canFrame[2] = 0x7C;
     canFrame[3] = 0x1C;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, -90.0, 1.0);
@@ -222,7 +233,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesSteeringAngleAtMaxRightFromCAN297)
     canFrame[2] = 0xFF;
     canFrame[3] = 0x3F;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 819.1, 1.0);
@@ -235,7 +246,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesSteeringAngleAtMaxLeftFromCAN297)
     canFrame[2] = 0x00;
     canFrame[3] = 0x00;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, -819.2, 1.0);
@@ -249,7 +260,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesSteeringAngle180RightFromCAN297)
     canFrame[2] = 0x08;
     canFrame[3] = 0x27;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 180.0, 1.0);
@@ -263,7 +274,7 @@ TEST_F(CANSignalDecoderSharedTest, DecodesSteeringAngle180LeftFromCAN297)
     canFrame[2] = 0xF8;
     canFrame[3] = 0x18;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, -180.0, 1.0);
@@ -283,7 +294,7 @@ TEST_F(CANSignalDecoderSharedTest, AcceleratorPedalDecodesIdenticallyForTeslaAnd
     const uint8_t rawValue = static_cast<uint8_t>(expectedThrottle / 0.4);  // 150
     canFrame[4] = rawValue;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, expectedThrottle, 0.5);
@@ -299,7 +310,7 @@ TEST_F(CANSignalDecoderSharedTest, SteeringAngleDecodesIdenticallyForTeslaAndAud
     canFrame[2] = 0xC2;
     canFrame[3] = 0x21;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, expectedAngle, 1.0);
@@ -312,7 +323,7 @@ TEST_F(CANSignalDecoderSharedTest, BrakePedalStateDecodesIdenticallyForTeslaAndA
     // This test documents the shared behavior
     canFrame[2] = 0x02;  // Brake pressed (bit 17 set)
 
-    auto result = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 1.0);
@@ -328,7 +339,7 @@ TEST_F(CANSignalDecoderSharedTest, HandlesMinimalAcceleratorInputFromCAN280)
     // 1% throttle: raw = 1 / 0.4 = 2.5 → rounds to 3
     canFrame[4] = 3;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 1.2, 0.5);  // 3 * 0.4 = 1.2
@@ -340,7 +351,7 @@ TEST_F(CANSignalDecoderSharedTest, HandlesAcceleratorOver100PercentFromCAN280)
     // Application layer should clamp to 100
     canFrame[4] = 255;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 102.0, 0.5);
@@ -353,7 +364,7 @@ TEST_F(CANSignalDecoderSharedTest, HandlesSteeringAngleNearCenterFromCAN297)
     canFrame[2] = 0x0A;
     canFrame[3] = 0x20;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 1.0, 0.5);
@@ -364,7 +375,7 @@ TEST_F(CANSignalDecoderSharedTest, ReturnsNulloptForTooShortCANFrame)
     // Frame too short for bit extraction
     std::vector<uint8_t> shortFrame{0, 0};
 
-    auto result = CANDecoder::extractSignal(shortFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(shortFrame), 32, 8, 0.4, 0.0, false);
 
     EXPECT_FALSE(result.has_value());
 }
@@ -379,8 +390,8 @@ TEST_F(CANSignalDecoderSharedTest, ExtractsAllSharedSignalsFromCompleteCAN280)
     canFrame[4] = 200;   // 80% throttle (200 * 0.4)
     canFrame[2] = 0x02;  // Brake pressed (bit 17 set)
 
-    auto throttle = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
-    auto brake = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto throttle = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
+    auto brake = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(throttle.has_value());
     ASSERT_TRUE(brake.has_value());
@@ -394,7 +405,7 @@ TEST_F(CANSignalDecoderSharedTest, ExtractsSteeringAngleFromCompleteCAN297)
     canFrame[2] = 0xC2;  // See calculation in DecodesSteeringAngleIdenticallyForTeslaAndAudi
     canFrame[3] = 0x21;
 
-    auto angle = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto angle = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(angle.has_value());
     EXPECT_NEAR(*angle, 45.0, 1.0);

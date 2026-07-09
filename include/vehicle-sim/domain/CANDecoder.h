@@ -40,7 +40,7 @@ public:
      * @return physical value, or nullopt if frame is too short
      */
     [[nodiscard]] static std::optional<double> extractSignal(
-        const std::vector<uint8_t>& frame,
+        const std::vector<std::byte>& frame,
         std::size_t startBit,
         std::size_t bitLength,
         double scale,
@@ -62,7 +62,7 @@ public:
 
 private:
     [[nodiscard]] static std::uint64_t extractRawBits(
-        const std::vector<uint8_t>& frame,
+        const std::vector<std::byte>& frame,
         std::size_t startBit,
         std::size_t bitLength
     ) noexcept;

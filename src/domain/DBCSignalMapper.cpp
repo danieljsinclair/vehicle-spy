@@ -3,6 +3,7 @@
 #include "vehicle-sim/domain/Gear.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 
 namespace vehicle_sim::domain {
@@ -71,6 +72,17 @@ namespace {
 
 } // namespace
 
+// Serialization-edge adapter: view a uint8_t frame as byte-oriented data for the
+// bit-extraction helpers, without changing the wire format.
+namespace {
+[[nodiscard]] std::vector<std::byte> toByteView(const std::vector<std::uint8_t>& frame) {
+    std::vector<std::byte> bytes(frame.size());
+    std::transform(frame.begin(), frame.end(), bytes.begin(),
+                   [](std::uint8_t b) { return static_cast<std::byte>(b); });
+    return bytes;
+}
+} // namespace
+
 std::optional<double> DBCSignalMapper::mapSignal(
     const std::vector<std::uint8_t>& frame,
     const DBCSignalDefinition& definition
@@ -79,7 +91,7 @@ std::optional<double> DBCSignalMapper::mapSignal(
         return std::nullopt;
     }
 
-    const auto rawBits = extractRawBits(frame, definition);
+    const auto rawBits = extractRawBits(toByteView(frame), definition);
     return applyScaleOffsetClamp(rawBits, definition);
 }
 
@@ -115,7 +127,7 @@ std::optional<std::int32_t> DBCSignalMapper::mapGearSignal(
 
     for (const auto& def : it->second) {
         if (def.name == signalName) {
-            const std::uint64_t rawBits = extractRawBits(frame, def);
+            const std::uint64_t rawBits = extractRawBits(toByteView(frame), def);
             const auto rawValue = static_cast<std::int64_t>(rawBits);
 
             // Check for INVALID (0) or SNA (7) - return nullopt
@@ -138,7 +150,7 @@ std::optional<std::int32_t> DBCSignalMapper::mapGearSignal(
 }
 
 std::uint64_t DBCSignalMapper::extractRawBits(
-    const std::vector<std::uint8_t>& frame,
+    const std::vector<std::byte>& frame,
     const DBCSignalDefinition& definition
 ) noexcept {
     if (definition.bitLength == 0 || definition.bitLength > 64) return 0;
@@ -152,7 +164,8 @@ std::uint64_t DBCSignalMapper::extractRawBits(
             const std::size_t byteIdx = bitPos / 8;
             const std::size_t bitIdx = bitPos % 8;
 
-            if (byteIdx < frame.size() && (frame[byteIdx] & (1ULL << bitIdx))) {
+            if (byteIdx < frame.size() &&
+                (static_cast<unsigned char>(frame[byteIdx]) & (1ULL << bitIdx))) {
                 result |= (1ULL << i);
             }
         }
@@ -177,7 +190,8 @@ std::uint64_t DBCSignalMapper::extractRawBits(
             const std::size_t bitInByte = dbcBit % 8;
             const std::size_t resultBit = definition.bitLength - 1 - i;
 
-            if (byteIdx < frame.size() && (frame[byteIdx] & (1ULL << bitInByte))) {
+            if (byteIdx < frame.size() &&
+                (static_cast<unsigned char>(frame[byteIdx]) & (1ULL << bitInByte))) {
                 result |= (1ULL << resultBit);
             }
 

@@ -4,6 +4,7 @@
 #include <array>
 #include <cassert>
 #include <cctype>
+#include <cstddef>
 #include <string_view>
 #include <unordered_set>
 
@@ -39,7 +40,7 @@ namespace {
         return 0xFF;
     }
 
-    std::optional<std::uint8_t> parseHexByte(const std::string& hex) {
+    std::optional<std::byte> parseHexByte(const std::string& hex) {
         if (hex.size() != 2) return std::nullopt;
 
         std::uint8_t high = hexCharToByte(hex[0]);
@@ -47,7 +48,7 @@ namespace {
 
         if (high == 0xFF || low == 0xFF) return std::nullopt;
 
-        return (high << 4) | low;
+        return std::byte{(static_cast<std::uint8_t>((high << 4) | low))};
     }
 
     // Strip the earliest informational banner (SEARCHING/BUSINIT/OK) and any
@@ -74,7 +75,7 @@ namespace {
     // trailing lone digit in `hexStr`. `hexStr` holds only isxdigit characters
     // by construction (the accumulator only appends those), so every parseHexByte
     // succeeds — the assert documents that invariant.
-    void flushHexAccumulator(std::string& hexStr, std::vector<std::uint8_t>& out) {
+    void flushHexAccumulator(std::string& hexStr, std::vector<std::byte>& out) {
         while (hexStr.length() >= 2) {
             auto byte = parseHexByte(hexStr.substr(0, 2));
             assert(byte.has_value() && "hexStr contains only isxdigit characters");
@@ -155,7 +156,7 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
     if (isErrorMessage(cleaned)) return std::nullopt;
 
-    std::vector<uint8_t> result;
+    std::vector<std::byte> result;
     std::string hexStr;
 
     for (char c : cleaned) {
@@ -182,7 +183,12 @@ std::optional<std::vector<uint8_t>> ELM327Transport::parseOBD2Response(const std
 
     if (result.empty()) return std::nullopt;
 
-    return result;
+    // Cast the byte buffer back to uint8_t at the serialization edge. The wire
+    // format is unchanged; std::byte models the byte-oriented data internally.
+    std::vector<uint8_t> bytes(result.size());
+    std::transform(result.begin(), result.end(), bytes.begin(),
+                   [](std::byte b) { return static_cast<uint8_t>(b); });
+    return bytes;
 }
 
 // ================================================
@@ -306,7 +312,7 @@ std::optional<CANFrame> ELM327Transport::parseCANFrame(const std::string& line) 
     if (tokens.size() - *dataStart - 1 != 8) return std::nullopt;
 
     // Parse data bytes
-    std::vector<uint8_t> data;
+    std::vector<std::byte> data;
     for (std::size_t i = *dataStart + 1; i < tokens.size(); ++i) {
         if (tokens[i].size() != 2) return std::nullopt;
         auto byte = parseHexByte(tokens[i]);
@@ -316,7 +322,9 @@ std::optional<CANFrame> ELM327Transport::parseCANFrame(const std::string& line) 
 
     CANFrame frame;
     frame.canId = static_cast<uint16_t>(id);
-    frame.data = std::move(data);
+    frame.data = std::vector<uint8_t>(data.size());
+    std::transform(data.begin(), data.end(), frame.data.begin(),
+                   [](std::byte b) { return static_cast<uint8_t>(b); });
     return frame;
 }
 
