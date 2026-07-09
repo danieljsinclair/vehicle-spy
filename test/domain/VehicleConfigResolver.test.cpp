@@ -43,13 +43,6 @@ TEST_F(VehicleConfigResolverTest, ResolveValidAudiVehicle_ReturnsOBD2Protocol) {
     EXPECT_EQ(result.protocol, VehicleProtocol::CAN) << "Audi MLB Evo uses CAN protocol";
 }
 
-TEST_F(VehicleConfigResolverTest, ResolveInvalidVehicle_ThrowsRuntimeError) {
-    EXPECT_THROW(
-        (void)resolver_->resolve("nonexistent_vehicle"),
-        std::runtime_error
-    );
-}
-
 TEST_F(VehicleConfigResolverTest, ResolveInvalidVehicle_ErrorMessageIncludesAvailableVehicles) {
     try {
         (void)resolver_->resolve("nonexistent_vehicle");

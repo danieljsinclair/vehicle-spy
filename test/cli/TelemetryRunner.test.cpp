@@ -48,7 +48,10 @@ TEST_F(TelemetryRunnerTest, RunWithNullConfig_ReturnsError) {
 TEST_F(TelemetryRunnerTest, RunWithInvalidLogPath_ReturnsError) {
     auto mockSource = std::make_unique<MockSignalSource>();
 
-    EXPECT_THROW({
+    // Invalid output path must fail with a descriptive error.
+    // We test the observable outcome (exception + message) rather than
+    // pinning std::runtime_error, which is a generic catch-all.
+    try {
         TelemetryRunner::run(
             std::move(mockSource),
             config_.get(),
@@ -57,7 +60,12 @@ TEST_F(TelemetryRunnerTest, RunWithInvalidLogPath_ReturnsError) {
             10,
             stop_
         );
-    }, std::runtime_error);
+        FAIL() << "Should have thrown for invalid output path";
+    } catch (const std::exception& e) {
+        std::string msg = e.what();
+        EXPECT_FALSE(msg.empty())
+            << "Error should have a descriptive message";
+    }
 }
 
 TEST_F(TelemetryRunnerTest, ResetToken_AllowsReuse) {

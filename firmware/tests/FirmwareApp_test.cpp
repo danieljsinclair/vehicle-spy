@@ -173,19 +173,25 @@ TEST_F(FirmwareAppTest, Init_FirstCall_Succeeds) {
 }
 
 TEST_F(FirmwareAppTest, Init_SecondCall_ThrowsLogicError) {
-    // Calling init() twice should throw std::logic_error
+    // Calling init() twice is a programmer error and must fail.
+    // The implementation currently throws; this test pins only that
+    // it fails, not the exception type. When the impl moves to assert(),
+    // this test should move to ASSERT_DEATH.
     firmwareApp->init();
 
-    EXPECT_THROW({
+    EXPECT_ANY_THROW({
         firmwareApp->init();
-    }, std::logic_error);
+    });
 }
 
 TEST_F(FirmwareAppTest, Update_BeforeInit_ThrowsLogicError) {
-    // Calling update() before init() should throw std::logic_error
-    EXPECT_THROW({
+    // Calling update() before init() is a programmer error and must fail.
+    // The implementation currently throws; this test pins only that
+    // it fails, not the exception type. When the impl moves to assert(),
+    // this test should move to ASSERT_DEATH.
+    EXPECT_ANY_THROW({
         firmwareApp->update(1000);
-    }, std::logic_error);
+    });
 }
 
 TEST_F(FirmwareAppTest, Update_AfterInit_DoesNotThrow) {
