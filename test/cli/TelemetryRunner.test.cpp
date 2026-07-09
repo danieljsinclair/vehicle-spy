@@ -68,7 +68,7 @@ TEST_F(TelemetryRunnerTest, ResetToken_AllowsReuse) {
 
 TEST_F(TelemetryRunnerTest, RunWithValidConfig_StopsWhenRequested) {
     auto mockSource = std::make_unique<MockSignalSource>();
-    mockSource->setSignal(VehicleSignal(12345));
+    mockSource->setSignal(VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 12345}));
 
     stop_.requestStop();
 

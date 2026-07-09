@@ -65,7 +65,7 @@ public:
 
     [[nodiscard]] VehicleSignal latestSignal() const noexcept override {
         std::lock_guard<std::mutex> lock(mutex_);
-        return latestSignal_.value_or(VehicleSignal(0));
+        return latestSignal_.value_or(VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 0}));
     }
 
     void start() override {

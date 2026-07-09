@@ -2,30 +2,18 @@
 
 namespace vehicle_sim::domain {
 
-VehicleSignal::VehicleSignal(
-    std::uint64_t timestampUtcMs,
-    std::optional<double> throttlePercent,
-    std::optional<double> speedKmh,
-    std::optional<double> accelerationG,
-    std::optional<double> brakePercent,
-    std::optional<double> steeringAngleDeg,
-    std::optional<double> motorRpm,
-    std::optional<double> motorHvVoltage,
-    std::optional<double> motorHvCurrent,
-    std::optional<double> motorTorqueNm,
-    std::optional<std::int32_t> gearSelector
-) noexcept
-    : m_throttlePercent(std::move(throttlePercent))
-    , m_speedKmh(std::move(speedKmh))
-    , m_accelerationG(std::move(accelerationG))
-    , m_brakePercent(std::move(brakePercent))
-    , m_steeringAngleDeg(std::move(steeringAngleDeg))
-    , m_motorRpm(std::move(motorRpm))
-    , m_motorHvVoltage(std::move(motorHvVoltage))
-    , m_motorHvCurrent(std::move(motorHvCurrent))
-    , m_motorTorqueNm(std::move(motorTorqueNm))
-    , m_gearSelector(gearSelector)
-    , m_timestampUtcMs(timestampUtcMs)
+VehicleSignal::VehicleSignal(Params params) noexcept
+    : m_throttlePercent(std::move(params.throttlePercent))
+    , m_speedKmh(std::move(params.speedKmh))
+    , m_accelerationG(std::move(params.accelerationG))
+    , m_brakePercent(std::move(params.brakePercent))
+    , m_steeringAngleDeg(std::move(params.steeringAngleDeg))
+    , m_motorRpm(std::move(params.motorRpm))
+    , m_motorHvVoltage(std::move(params.motorHvVoltage))
+    , m_motorHvCurrent(std::move(params.motorHvCurrent))
+    , m_motorTorqueNm(std::move(params.motorTorqueNm))
+    , m_gearSelector(std::move(params.gearSelector))
+    , m_timestampUtcMs(params.timestampUtcMs)
 {
 }
 

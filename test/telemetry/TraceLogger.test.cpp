@@ -53,7 +53,7 @@ TEST_F(TraceLoggerTest, WritesHeaderOnConstruction) {
 
 TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(123456789ULL, 50.0, 100.0, 0.5, 25.0, -12.5, 3500.5, 400.0, 25.3, 150.0, 4097);
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 123456789ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = 0.5, .brakePercent = 25.0, .steeringAngleDeg = -12.5, .motorRpm = 3500.5, .motorHvVoltage = 400.0, .motorHvCurrent = 25.3, .motorTorqueNm = 150.0, .gearSelector = 4097});
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -70,8 +70,8 @@ TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
 
 TEST_F(TraceLoggerTest, WritesMultipleRows) {
     TraceLogger logger(testFile);
-    VehicleSignal signal1(1000ULL, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -2);
-    VehicleSignal signal2(2000ULL, 100.0, 200.0, 2.0, 80.0, {}, 5000.0, 380.5, 25.2, 300.0, 0);
+    VehicleSignal signal1(VehicleSignal::Params{.timestampUtcMs = 1000ULL, .throttlePercent = 0.0, .speedKmh = 0.0, .accelerationG = 0.0, .brakePercent = 0.0, .steeringAngleDeg = 0.0, .motorRpm = 0.0, .motorHvVoltage = 0.0, .motorHvCurrent = 0.0, .motorTorqueNm = 0.0, .gearSelector = -2});
+    VehicleSignal signal2(VehicleSignal::Params{.timestampUtcMs = 2000ULL, .throttlePercent = 100.0, .speedKmh = 200.0, .accelerationG = 2.0, .brakePercent = 80.0, .steeringAngleDeg = {}, .motorRpm = 5000.0, .motorHvVoltage = 380.5, .motorHvCurrent = 25.2, .motorTorqueNm = 300.0, .gearSelector = 0});
 
     logger(signal1);
     logger(signal2);
@@ -91,7 +91,7 @@ TEST_F(TraceLoggerTest, WritesMultipleRows) {
 
 TEST_F(TraceLoggerTest, LeavesEmptyCellsForNulloptValues) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(12345ULL);  // all fields nullopt
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 12345ULL});  // all fields nullopt
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -108,7 +108,7 @@ TEST_F(TraceLoggerTest, LeavesEmptyCellsForNulloptValues) {
 
 TEST_F(TraceLoggerTest, LeavesEmptyCellForNulloptGearSelector) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(12345ULL, 50.0, 100.0, {}, {}, {}, 3500.0, {}, {}, {});
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 12345ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = {}, .brakePercent = {}, .steeringAngleDeg = {}, .motorRpm = 3500.0, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = {}});
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -127,7 +127,7 @@ TEST_F(TraceLoggerTest, LeavesEmptyCellForNulloptGearSelector) {
 
 TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(12345ULL, {}, 50.0, -2.5, {}, -180.0, {}, {}, {}, -500.0, -1);
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 12345ULL, .throttlePercent = {}, .speedKmh = 50.0, .accelerationG = -2.5, .brakePercent = {}, .steeringAngleDeg = -180.0, .motorRpm = {}, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = -500.0, .gearSelector = -1});
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -144,7 +144,7 @@ TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
 
 TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     TraceLogger logger1(testFile);
-    VehicleSignal signal(12345ULL, 50.0, 100.0, 0.5, 25.0, {}, 3500.0, {}, {}, 150.0, 4097);
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 12345ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = 0.5, .brakePercent = 25.0, .steeringAngleDeg = {}, .motorRpm = 3500.0, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = 150.0, .gearSelector = 4097});
 
     TraceLogger logger2(std::move(logger1));
     logger2(signal);
@@ -163,7 +163,7 @@ TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
 
 TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(54321ULL, 75.0, 150.0, 1.0, 50.0, {}, 4000.0, {}, {}, 200.0, 4098);
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 54321ULL, .throttlePercent = 75.0, .speedKmh = 150.0, .accelerationG = 1.0, .brakePercent = 50.0, .steeringAngleDeg = {}, .motorRpm = 4000.0, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = 200.0, .gearSelector = 4098});
 
     logger(signal);
 
@@ -181,7 +181,7 @@ TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
 
 TEST_F(TraceLoggerTest, WritesVehicleIdWhenProvided) {
     TraceLogger logger(testFile, "tesla");
-    VehicleSignal signal(1000ULL, 50.0, 100.0, {}, {}, {}, {}, {}, {}, {}, Gear::AUTO_1);
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 1000ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = {}, .brakePercent = {}, .steeringAngleDeg = {}, .motorRpm = {}, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = {}, .gearSelector = Gear::AUTO_1});
     logger(signal);
 
     std::string content = readFileContent(testFile);

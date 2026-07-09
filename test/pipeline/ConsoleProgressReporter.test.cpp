@@ -137,8 +137,8 @@ TEST(PipelineReplayProgressTest, NullReporterRunsSilentlyWithoutCrashing) {
 TEST(ConsoleProgressReporterTest, EmitsEveryFrameOnNewline) {
     std::ostringstream out;
     ConsoleProgressReporter reporter(out, "tesla");
-    VehicleSignal first(1000ULL, 50.0, 80.0, {}, {}, {}, {}, {}, {}, {}, 4097);
-    VehicleSignal second(1500ULL, 51.0, 81.0, {}, {}, {}, {}, {}, {}, {}, 4097);
+    VehicleSignal first(VehicleSignal::Params{.timestampUtcMs = 1000ULL, .throttlePercent = 50.0, .speedKmh = 80.0, .accelerationG = {}, .brakePercent = {}, .steeringAngleDeg = {}, .motorRpm = {}, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = {}, .gearSelector = 4097});
+    VehicleSignal second(VehicleSignal::Params{.timestampUtcMs = 1500ULL, .throttlePercent = 51.0, .speedKmh = 81.0, .accelerationG = {}, .brakePercent = {}, .steeringAngleDeg = {}, .motorRpm = {}, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = {}, .gearSelector = 4097});
 
     reporter.onFrame(first, 0, 0);
     reporter.onFrame(second, 1, 0);
@@ -155,8 +155,7 @@ TEST(ConsoleProgressReporterTest, EmitsEveryFrameOnNewline) {
 TEST(ConsoleProgressReporterTest, EmitsAllSchemaFields) {
     std::ostringstream out;
     ConsoleProgressReporter reporter(out, "tesla");
-    VehicleSignal sig(1234567ULL, 42.5, 88.0, 0.25, 7.5, -13.0,
-                      1234.0, 390.0, 120.0, 250.0, 4097);
+    VehicleSignal sig(VehicleSignal::Params{.timestampUtcMs = 1234567ULL, .throttlePercent = 42.5, .speedKmh = 88.0, .accelerationG = 0.25, .brakePercent = 7.5, .steeringAngleDeg = -13.0, .motorRpm = 1234.0, .motorHvVoltage = 390.0, .motorHvCurrent = 120.0, .motorTorqueNm = 250.0, .gearSelector = 4097});
     reporter.onFrame(sig, 0, 0);
     reporter.onComplete(ReplayStats{});
 
@@ -179,7 +178,7 @@ TEST(ConsoleProgressReporterTest, EmitsAllSchemaFields) {
 TEST(ConsoleProgressReporterTest, ShowsPercentageWhenTotalHintsKnown) {
     std::ostringstream out;
     ConsoleProgressReporter reporter(out, "tesla");
-    VehicleSignal sig(100ULL, 1.0, 2.0, {}, {}, {}, {}, {}, {}, {}, 4097);
+    VehicleSignal sig(VehicleSignal::Params{.timestampUtcMs = 100ULL, .throttlePercent = 1.0, .speedKmh = 2.0, .accelerationG = {}, .brakePercent = {}, .steeringAngleDeg = {}, .motorRpm = {}, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = {}, .gearSelector = 4097});
     reporter.onFrame(sig, 49, /*totalHints=*/100); // 50%
     reporter.onComplete(ReplayStats{});
 

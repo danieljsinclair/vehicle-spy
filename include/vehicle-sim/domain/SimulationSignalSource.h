@@ -28,7 +28,7 @@ private:
     std::unique_ptr<VehicleSimulator> simulator_;
     bool running_{false};
     mutable std::mutex signalMutex_;
-    VehicleSignal latestSignal_{0};
+    VehicleSignal latestSignal_{VehicleSignal::Params{.timestampUtcMs = 0}};
 };
 
 } // namespace vehicle_sim::domain

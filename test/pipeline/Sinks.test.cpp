@@ -85,8 +85,10 @@ TEST(DecodedCsvSinkTest, WritesOneRowPerSignal) {
     std::string base = dir.base("rows");
     {
         DecodedCsvSink sink(base);
-        sink.write(VehicleSignal(1000, 50.0, 80.75, {}, {}, {}, {}, {}, {}, {}, Gear::AUTO_1));
-        sink.write(VehicleSignal(2000, 0.0, 0.0, {}, {}, {}, {}, {}, {}, {}, Gear::PARK));
+        sink.write(VehicleSignal(VehicleSignal::Params{
+            .timestampUtcMs = 1000, .throttlePercent = 50.0, .speedKmh = 80.75, .gearSelector = Gear::AUTO_1}));
+        sink.write(VehicleSignal(VehicleSignal::Params{
+            .timestampUtcMs = 2000, .gearSelector = Gear::PARK}));
     }
     auto content = dir.read("rows.csv");
     // Header + 2 rows.
@@ -102,7 +104,7 @@ TEST(DecodedCsvSinkTest, IsMovable) {
     ASSERT_TRUE(a.isValid());
     DecodedCsvSink b(std::move(a));
     EXPECT_TRUE(b.isValid());
-    b.write(VehicleSignal(1, {}, 42.0));
+    b.write(VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 1, .speedKmh = 42.0}));
     auto content = dir.read("mv.csv");
     EXPECT_NE(content.find("42.00"), std::string::npos);
 }

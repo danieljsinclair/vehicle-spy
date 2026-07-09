@@ -18,22 +18,30 @@ namespace vehicle_sim::domain {
 class VehicleSignal final {
 public:
     /**
-     * Construct a VehicleSignal
-     * All parameters default to nullopt except timestampUtcMs
+     * Parameter object grouping the (mostly optional) signal fields that make
+     * up a VehicleSignal. Bundles the constructor's 11 arguments into one
+     * object so call sites read by name and stay resilient to field order.
+     * Every field defaults to nullopt except timestampUtcMs.
      */
-    explicit VehicleSignal(
-        std::uint64_t timestampUtcMs,
-        std::optional<double> throttlePercent = std::nullopt,
-        std::optional<double> speedKmh = std::nullopt,
-        std::optional<double> accelerationG = std::nullopt,
-        std::optional<double> brakePercent = std::nullopt,
-        std::optional<double> steeringAngleDeg = std::nullopt,
-        std::optional<double> motorRpm = std::nullopt,
-        std::optional<double> motorHvVoltage = std::nullopt,
-        std::optional<double> motorHvCurrent = std::nullopt,
-        std::optional<double> motorTorqueNm = std::nullopt,
-        std::optional<std::int32_t> gearSelector = std::nullopt
-    ) noexcept;
+    struct Params {
+        std::uint64_t timestampUtcMs = 0;
+        std::optional<double> throttlePercent;
+        std::optional<double> speedKmh;
+        std::optional<double> accelerationG;
+        std::optional<double> brakePercent;
+        std::optional<double> steeringAngleDeg;
+        std::optional<double> motorRpm;
+        std::optional<double> motorHvVoltage;
+        std::optional<double> motorHvCurrent;
+        std::optional<double> motorTorqueNm;
+        std::optional<std::int32_t> gearSelector;
+    };
+
+    /**
+     * Construct a VehicleSignal from a Params object (cpp:S107 parameter object
+     * replacing the 11-argument constructor).
+     */
+    explicit VehicleSignal(Params params) noexcept;
 
     // Default copy / move
     VehicleSignal(const VehicleSignal&) noexcept = default;

@@ -136,19 +136,19 @@ private:
         // HV current: proportional to torque
         double motorHvCurrent = std::abs(motorTorqueNm) / 10.0;
 
-        return VehicleSignal(
-            timestampUtcMs,
-            throttlePercent,
-            speedKmh,
-            accelerationG,
-            brakePercent,
-            steeringAngleDeg,
-            motorRpm,
-            motorHvVoltage,
-            motorHvCurrent,
-            motorTorqueNm,
-            gearSelector
-        );
+        return VehicleSignal(VehicleSignal::Params{
+            .timestampUtcMs = timestampUtcMs,
+            .throttlePercent = throttlePercent,
+            .speedKmh = speedKmh,
+            .accelerationG = accelerationG,
+            .brakePercent = brakePercent,
+            .steeringAngleDeg = steeringAngleDeg,
+            .motorRpm = motorRpm,
+            .motorHvVoltage = motorHvVoltage,
+            .motorHvCurrent = motorHvCurrent,
+            .motorTorqueNm = motorTorqueNm,
+            .gearSelector = gearSelector
+        });
     }
 
     int intervalMs_;

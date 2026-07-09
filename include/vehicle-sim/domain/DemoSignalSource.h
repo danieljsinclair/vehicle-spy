@@ -37,7 +37,7 @@ private:
     int intervalMs_;
     std::atomic<bool> running_{false};
     std::thread worker_;
-    VehicleSignal latestSignal_{0};
+    VehicleSignal latestSignal_{VehicleSignal::Params{.timestampUtcMs = 0}};
     mutable std::mutex signalMutex_;
     double phase_{0.0};
 };

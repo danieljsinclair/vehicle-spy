@@ -67,13 +67,13 @@ public:
             : 0.0;
 
         // Store latest signal
-        latestSignal_ = domain::VehicleSignal(
-            nowUtcMs(),
-            throttle,
-            speed_,
-            acceleration,
-            brake
-        );
+        latestSignal_ = domain::VehicleSignal(domain::VehicleSignal::Params{
+            .timestampUtcMs = nowUtcMs(),
+            .throttlePercent = throttle,
+            .speedKmh = speed_,
+            .accelerationG = acceleration,
+            .brakePercent = brake
+        });
 
         // Fire callback if set
         if (callback_) {
@@ -113,7 +113,7 @@ private:
     int tick_{0};
     double speed_{0.0};
     double lastSpeed_{0.0};
-    domain::VehicleSignal latestSignal_{0, std::nullopt, std::nullopt, std::nullopt, std::nullopt};
+    domain::VehicleSignal latestSignal_{domain::VehicleSignal::Params{.timestampUtcMs = 0}};
     TelemetryCallback callback_;
 };
 

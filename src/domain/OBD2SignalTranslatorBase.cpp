@@ -65,19 +65,15 @@ VehicleSignal OBD2SignalTranslatorBase::applyUpdateAndSnapshot(
     }
     lastTimestamp_ = effectiveTimestamp;
 
-    return VehicleSignal(
-        lastTimestamp_,
-        lastThrottle_,
-        lastSpeed_,
-        lastAcceleration_,
-        lastBrake_,
-        std::nullopt,  // steeringAngleDeg
-        std::nullopt,  // motorRpm
-        std::nullopt,  // motorHvVoltage
-        std::nullopt,  // motorHvCurrent
-        std::nullopt,  // motorTorqueNm
-        std::nullopt   // gearSelector
-    );
+    return VehicleSignal(VehicleSignal::Params{
+        .timestampUtcMs = lastTimestamp_,
+        .throttlePercent = lastThrottle_,
+        .speedKmh = lastSpeed_,
+        .accelerationG = lastAcceleration_,
+        .brakePercent = lastBrake_
+        // steeringAngleDeg, motorRpm, motorHvVoltage, motorHvCurrent,
+        // motorTorqueNm, gearSelector default to nullopt
+    });
 }
 
 double OBD2SignalTranslatorBase::extractPIDValue(

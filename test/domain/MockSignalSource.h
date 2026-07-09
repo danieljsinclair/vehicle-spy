@@ -58,7 +58,7 @@ public:
 
 private:
     mutable std::mutex mutex_;
-    domain::VehicleSignal latestSignal_{0};
+    domain::VehicleSignal latestSignal_{domain::VehicleSignal::Params{.timestampUtcMs = 0}};
     bool started_ = false;
 };
 

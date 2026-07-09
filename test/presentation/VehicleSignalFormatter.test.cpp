@@ -10,7 +10,7 @@ using namespace vehicle_sim::domain;
 class VehicleSignalFormatterTest : public ::testing::Test {
 protected:
     VehicleSignal makeSignal(double throttle, double speed, double accel, double brake) {
-        return VehicleSignal(1000, throttle, speed, accel, brake);
+        return VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 1000, .throttlePercent = throttle, .speedKmh = speed, .accelerationG = accel, .brakePercent = brake});
     }
 
     VehicleConfig makeConfig(const std::string& name) {

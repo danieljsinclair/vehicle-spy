@@ -140,19 +140,19 @@ VehicleSignal VehicleSignalFactory::build(
         }
     }
 
-    return VehicleSignal(
-        timestampUtcMs,
-        numeric[IDX_THROTTLE],
-        numeric[IDX_SPEED],
-        numeric[IDX_ACCEL],
-        numeric[IDX_BRAKE],
-        numeric[IDX_STEERING],
-        numeric[IDX_RPM],
-        numeric[IDX_HV_VOLTAGE],
-        numeric[IDX_HV_CURRENT],
-        numeric[IDX_TORQUE],
-        gear
-    );
+    return VehicleSignal(VehicleSignal::Params{
+        .timestampUtcMs = timestampUtcMs,
+        .throttlePercent = numeric[IDX_THROTTLE],
+        .speedKmh = numeric[IDX_SPEED],
+        .accelerationG = numeric[IDX_ACCEL],
+        .brakePercent = numeric[IDX_BRAKE],
+        .steeringAngleDeg = numeric[IDX_STEERING],
+        .motorRpm = numeric[IDX_RPM],
+        .motorHvVoltage = numeric[IDX_HV_VOLTAGE],
+        .motorHvCurrent = numeric[IDX_HV_CURRENT],
+        .motorTorqueNm = numeric[IDX_TORQUE],
+        .gearSelector = gear
+    });
 }
 
 } // namespace vehicle_sim::domain

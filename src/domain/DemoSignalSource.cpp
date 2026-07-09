@@ -83,19 +83,19 @@ void DemoSignalSource::generateSignals() {
         if (newGearIndex > 4) newGearIndex = 4;
         std::int32_t gearSelector = gears[newGearIndex];
 
-        VehicleSignal signal(
-            static_cast<std::uint64_t>(timestamp),
-            throttlePercent,
-            speedKmh,
-            accelerationG,
-            brakePercent,
-            steeringAngleDeg,
-            baseRpm,
-            motorHvVoltage,
-            motorHvCurrent,
-            motorTorqueNm,
-            gearSelector
-        );
+        VehicleSignal signal(VehicleSignal::Params{
+            .timestampUtcMs = static_cast<std::uint64_t>(timestamp),
+            .throttlePercent = throttlePercent,
+            .speedKmh = speedKmh,
+            .accelerationG = accelerationG,
+            .brakePercent = brakePercent,
+            .steeringAngleDeg = steeringAngleDeg,
+            .motorRpm = baseRpm,
+            .motorHvVoltage = motorHvVoltage,
+            .motorHvCurrent = motorHvCurrent,
+            .motorTorqueNm = motorTorqueNm,
+            .gearSelector = gearSelector
+        });
 
         {
             std::scoped_lock lock(signalMutex_);

@@ -41,7 +41,7 @@ protected:
 TEST_F(EventDispatcherTest, SingleConsumerReceivesEvents) {
     // Arrange
     std::atomic<int> callCount{0};
-    VehicleSignal receivedSignal(0);
+    VehicleSignal receivedSignal(VehicleSignal::Params{.timestampUtcMs = 0});
 
     auto consumer = [&](const VehicleSignal& signal) {
         callCount++;
@@ -51,7 +51,9 @@ TEST_F(EventDispatcherTest, SingleConsumerReceivesEvents) {
     auto token = dispatcher->registerConsumer(consumer);
 
     // Act
-    VehicleSignal testSignal(12345, 50.0, 100.0, 0.5, 0.0);
+    VehicleSignal testSignal(VehicleSignal::Params{
+        .timestampUtcMs = 12345, .throttlePercent = 50.0, .speedKmh = 100.0,
+        .accelerationG = 0.5, .brakePercent = 0.0});
     dispatcher->dispatch(testSignal);
 
     // Assert
@@ -84,7 +86,9 @@ TEST_F(EventDispatcherTest, MultipleConsumersReceiveSameEvent) {
     auto token3 = dispatcher->registerConsumer(consumer3);
 
     // Act
-    VehicleSignal testSignal(67890, 75.0, 120.0, 0.8, 10.0);
+    VehicleSignal testSignal(VehicleSignal::Params{
+        .timestampUtcMs = 67890, .throttlePercent = 75.0, .speedKmh = 120.0,
+        .accelerationG = 0.8, .brakePercent = 10.0});
     dispatcher->dispatch(testSignal);
 
     // Assert
@@ -114,13 +118,17 @@ TEST_F(EventDispatcherTest, UnregisteredConsumerDoesNotReceiveEvents) {
     auto token = dispatcher->registerConsumer(consumer);
 
     // Act - First dispatch
-    dispatcher->dispatch(VehicleSignal(1, 50.0, 100.0, 0.5, 0.0));
+    dispatcher->dispatch(VehicleSignal(VehicleSignal::Params{
+        .timestampUtcMs = 1, .throttlePercent = 50.0, .speedKmh = 100.0,
+        .accelerationG = 0.5, .brakePercent = 0.0}));
 
     // Unregister
     dispatcher->unregisterConsumer(token);
 
     // Second dispatch
-    dispatcher->dispatch(VehicleSignal(2, 60.0, 110.0, 0.6, 0.0));
+    dispatcher->dispatch(VehicleSignal(VehicleSignal::Params{
+        .timestampUtcMs = 2, .throttlePercent = 60.0, .speedKmh = 110.0,
+        .accelerationG = 0.6, .brakePercent = 0.0}));
 
     // Assert
     EXPECT_EQ(callCount.load(), 1); // Only received first event
@@ -149,13 +157,12 @@ TEST_F(EventDispatcherTest, ConcurrentDispatchFromMultipleThreads) {
     for (int i = 0; i < numThreads; ++i) {
         threads.emplace_back([this, i]() {
             for (int j = 0; j < dispatchesPerThread; ++j) {
-                VehicleSignal signal(
-                    static_cast<std::uint64_t>(i * 1000 + j),
-                    static_cast<double>(i * 10 + j),
-                    static_cast<double>(i * 20 + j),
-                    0.1 * (i + j),
-                    0.0
-                );
+                VehicleSignal signal(VehicleSignal::Params{
+                    .timestampUtcMs = static_cast<std::uint64_t>(i * 1000 + j),
+                    .throttlePercent = static_cast<double>(i * 10 + j),
+                    .speedKmh = static_cast<double>(i * 20 + j),
+                    .accelerationG = 0.1 * (i + j),
+                    .brakePercent = 0.0});
                 dispatcher->dispatch(signal);
             }
         });
@@ -203,7 +210,10 @@ TEST_F(EventDispatcherTest, ConcurrentRegistrationDuringDispatch) {
 
     std::thread dispatchThread([&]() {
         for (int i = 0; i < dispatchesPerRound * numConsumers; ++i) {
-            VehicleSignal signal(static_cast<std::uint64_t>(i), 50.0, 100.0, 0.5, 0.0);
+            VehicleSignal signal(VehicleSignal::Params{
+                .timestampUtcMs = static_cast<std::uint64_t>(i),
+                .throttlePercent = 50.0, .speedKmh = 100.0,
+                .accelerationG = 0.5, .brakePercent = 0.0});
             dispatcher->dispatch(signal);
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
@@ -243,13 +253,12 @@ TEST_F(EventDispatcherTest, ThroughputExceeds10HzRequirement) {
     auto startTime = std::chrono::high_resolution_clock::now();
 
     for (int i = 0; i < numDispatches; ++i) {
-        VehicleSignal signal(
-            static_cast<std::uint64_t>(i),
-            static_cast<double>(i),
-            static_cast<double>(i * 2),
-            0.1,
-            0.0
-        );
+        VehicleSignal signal(VehicleSignal::Params{
+            .timestampUtcMs = static_cast<std::uint64_t>(i),
+            .throttlePercent = static_cast<double>(i),
+            .speedKmh = static_cast<double>(i * 2),
+            .accelerationG = 0.1,
+            .brakePercent = 0.0});
         dispatcher->dispatch(signal);
     }
 
@@ -280,15 +289,12 @@ TEST_F(EventDispatcherTest, ThroughputExceeds10HzRequirement) {
  */
 TEST_F(EventDispatcherTest, EventDataIntegrityPreserved) {
     // Arrange
-    VehicleSignal originalSignal(
-        9876543210ULL, // timestamp
-        85.5,  // throttle
-        145.2, // speed
-        0.75,  // acceleration
-        25.0   // brake
-    );
+    VehicleSignal originalSignal(VehicleSignal::Params{
+        .timestampUtcMs = 9876543210ULL,
+        .throttlePercent = 85.5, .speedKmh = 145.2,
+        .accelerationG = 0.75, .brakePercent = 25.0});
 
-    VehicleSignal receivedSignal(0);
+    VehicleSignal receivedSignal(VehicleSignal::Params{.timestampUtcMs = 0});
     std::atomic<bool> signalReceived{false};
 
     auto consumer = [&](const VehicleSignal& signal) {
@@ -340,13 +346,12 @@ TEST_F(EventDispatcherTest, IntegrationWithSignalCallbackPattern) {
 
     // Act - Simulate parser generating signals
     for (int i = 0; i < 5; ++i) {
-        VehicleSignal signal(
-            static_cast<std::uint64_t>(i),
-            static_cast<double>(i * 10),
-            static_cast<double>(i * 20),
-            0.1 * i,
-            0.0
-        );
+        VehicleSignal signal(VehicleSignal::Params{
+            .timestampUtcMs = static_cast<std::uint64_t>(i),
+            .throttlePercent = static_cast<double>(i * 10),
+            .speedKmh = static_cast<double>(i * 20),
+            .accelerationG = 0.1 * i,
+            .brakePercent = 0.0});
         parserCallback(signal); // Parser callback feeds dispatcher
     }
 
@@ -371,7 +376,10 @@ TEST_F(EventDispatcherTest, NoMemoryLeaksWithRapidRegistrationUnregistration) {
     for (int i = 0; i < iterations; ++i) {
         auto consumer = [&](const VehicleSignal& signal) {};
         auto token = dispatcher->registerConsumer(consumer);
-        dispatcher->dispatch(VehicleSignal(static_cast<std::uint64_t>(i), 50.0, 100.0, 0.5, 0.0));
+        dispatcher->dispatch(VehicleSignal(VehicleSignal::Params{
+            .timestampUtcMs = static_cast<std::uint64_t>(i),
+            .throttlePercent = 50.0, .speedKmh = 100.0,
+            .accelerationG = 0.5, .brakePercent = 0.0}));
         dispatcher->unregisterConsumer(token);
     }
 
@@ -389,7 +397,9 @@ TEST_F(EventDispatcherTest, HandlesZeroConsumersGracefully) {
     // Arrange - No consumers registered
 
     // Act - Dispatch with no consumers
-    VehicleSignal signal(12345, 50.0, 100.0, 0.5, 0.0);
+    VehicleSignal signal(VehicleSignal::Params{
+        .timestampUtcMs = 12345, .throttlePercent = 50.0, .speedKmh = 100.0,
+        .accelerationG = 0.5, .brakePercent = 0.0});
     EXPECT_NO_THROW(dispatcher->dispatch(signal));
 
     // Assert - No crash or error
@@ -416,7 +426,10 @@ TEST_F(EventDispatcherTest, SequentialDispatchMaintainsOrder) {
 
     // Act
     for (int i = 0; i < 10; ++i) {
-        VehicleSignal signal(static_cast<std::uint64_t>(i), static_cast<double>(i), 0.0, 0.0, 0.0);
+        VehicleSignal signal(VehicleSignal::Params{
+            .timestampUtcMs = static_cast<std::uint64_t>(i),
+            .throttlePercent = static_cast<double>(i), .speedKmh = 0.0,
+            .accelerationG = 0.0, .brakePercent = 0.0});
         dispatcher->dispatch(signal);
     }
 
@@ -450,8 +463,12 @@ TEST_F(EventDispatcherTest, MultipleDispatchersOperateIndependently) {
     dispatcher2->registerConsumer(consumer2);
 
     // Act
-    VehicleSignal signal1(1, 50.0, 100.0, 0.5, 0.0);
-    VehicleSignal signal2(2, 60.0, 110.0, 0.6, 0.0);
+    VehicleSignal signal1(VehicleSignal::Params{
+        .timestampUtcMs = 1, .throttlePercent = 50.0, .speedKmh = 100.0,
+        .accelerationG = 0.5, .brakePercent = 0.0});
+    VehicleSignal signal2(VehicleSignal::Params{
+        .timestampUtcMs = 2, .throttlePercent = 60.0, .speedKmh = 110.0,
+        .accelerationG = 0.6, .brakePercent = 0.0});
 
     dispatcher1->dispatch(signal1);
     dispatcher2->dispatch(signal2);
