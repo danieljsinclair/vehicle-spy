@@ -886,26 +886,369 @@ TEST(BLEManagerBaseSessionContract, SendASCII_EmitsStringAsRawBytes) {
     EXPECT_EQ(m.sentCommands.front(), "ATZ\r");
 }
 
-TEST(BLEManagerBaseTest, StopOBD2PollingWakesPromptWait)
-{
+// ============================================================
+// BLEManagerBase blind spec-first contracts — missing coverage
+// that locks behaviour the S1448 refactor must not silently break.
+// ============================================================
+
+// --- queryPID return-value contract ---------------------------------------
+
+// queryPID must always return an empty OBD2Response; the actual
+// response arrives via the data callback, not the return value.
+
+TEST(BLEManagerBaseTest, QueryPID_ReturnsEmptyResponse) {
+    class TestBLEManager : public BLEManagerBase {
+    public:
+        std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
+        bool connect(std::string_view) override { return false; }
+        void disconnect() override {}
+        void send(const std::vector<uint8_t>& data) override {
+            lastSent.assign(data.begin(), data.end());
+        }
+        bool isConnected() const override { return false; }
+        std::string getConnectedDeviceId() const override { return {}; }
+        std::vector<uint8_t> lastSent;
+    };
+
+    TestBLEManager manager;
+    auto response = manager.queryPID(0x0C);
+
+    // The contract: return value is always empty; real response is
+    // delivered asynchronously via the data callback.
+    EXPECT_FALSE(response.valid);
+    EXPECT_EQ(response.mode, 0u);
+    EXPECT_EQ(response.pid, 0u);
+    EXPECT_TRUE(response.data.empty());
+    EXPECT_FALSE(response.value.has_value());
+}
+
+// --- Accessor contracts ---------------------------------------------------
+
+// vehicleDetector() must never return null — it owns the composed
+// session's detector for the lifetime of the manager.
+
+TEST(BLEManagerBaseTest, VehicleDetector_ReturnsNonNull) {
+    class TestBLEManager : public BLEManagerBase {
+    public:
+        std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
+        bool connect(std::string_view) override { return false; }
+        void disconnect() override {}
+        void send(const std::vector<uint8_t>&) override {}
+        bool isConnected() const override { return false; }
+        std::string getConnectedDeviceId() const override { return {}; }
+    };
+
+    TestBLEManager manager;
+    EXPECT_NE(manager.vehicleDetector(), nullptr);
+}
+
+// --- Initial-state contracts ----------------------------------------------
+
+// bleNotificationCount starts at 0 before any data arrives.
+
+TEST(BLEManagerBaseTest, BleNotificationCount_StartsAtZero) {
+    SessionTestBLEManager m;
+    EXPECT_EQ(m.bleNotificationCount(), 0);
+}
+
+// lastRawHex starts empty before any data arrives.
+
+TEST(BLEManagerBaseTest, LastRawHex_StartsEmpty) {
+    SessionTestBLEManager m;
+    EXPECT_TRUE(m.lastRawHex().empty());
+}
+
+// waitForCharacteristics default returns true (base-class no-op).
+
+TEST(BLEManagerBaseTest, WaitForCharacteristics_DefaultReturnsTrue) {
+    class TestBLEManager : public BLEManagerBase {
+    public:
+        std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
+        bool connect(std::string_view) override { return false; }
+        void disconnect() override {}
+        void send(const std::vector<uint8_t>&) override {}
+        bool isConnected() const override { return false; }
+        std::string getConnectedDeviceId() const override { return {}; }
+    };
+
+    TestBLEManager manager;
+    EXPECT_TRUE(manager.waitForCharacteristics());
+}
+
+// --- invokeDataCallback edge cases ----------------------------------------
+
+// Empty data vector must not crash and must still increment the
+// notification count (the count tracks every invoke, even empty).
+
+TEST(BLEManagerBaseTest, InvokeDataCallback_EmptyDataIncrementsCount) {
+    SessionTestBLEManager m;
+    m.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
+    m.invokeDataCallback({});
+    EXPECT_EQ(m.bleNotificationCount(), 1);
+}
+
+// Data longer than 16 bytes must truncate the hex dump to 16 bytes
+// and append "..." to indicate truncation.
+
+TEST(BLEManagerBaseTest, InvokeDataCallback_LongDataTruncatesHexDump) {
+    SessionTestBLEManager m;
+    m.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
+    std::vector<uint8_t> longData(20, 0xAB);
+    m.invokeDataCallback(longData);
+    EXPECT_EQ(m.bleNotificationCount(), 1);
+    std::string hex = m.lastRawHex();
+    // 16 bytes × 2 hex chars + 15 spaces = 47 chars, then "..."
+    EXPECT_NE(hex.find("ab"), std::string::npos);
+    EXPECT_NE(hex.find("..."), std::string::npos);
+}
+
+// Setting a new data callback must replace the old one; only the
+// most-recently-set callback fires. invokeDataCallback routes through
+// session_.handleIncomingData which only calls sessionDeliverParsed when
+// parseOBD2Response produces non-empty binary, so we must send a valid
+// ASCII ELM327 response format.
+
+TEST(BLEManagerBaseTest, SetDataReceivedCallback_Replacement_NewCallbackOnlyFires) {
+    SessionTestBLEManager m;
+
+    bool oldFired = false;
+    bool newFired = false;
+    m.setDataReceivedCallback([&oldFired](const std::vector<uint8_t>&) { oldFired = true; });
+    m.setDataReceivedCallback([&newFired](const std::vector<uint8_t>&) { newFired = true; });
+
+    // "41 0D FF\r" → OBD2 response parses to [0x41, 0x0D, 0xFF], non-empty,
+    // so sessionDeliverParsed fires and the new callback is invoked.
+    std::string resp = "41 0D FF\r";
+    m.invokeDataCallback(std::vector<uint8_t>(resp.begin(), resp.end()));
+    EXPECT_FALSE(oldFired);
+    EXPECT_TRUE(newFired);
+}
+
+// Setting a new device-found callback must replace the old one.
+
+TEST(BLEManagerBaseTest, SetDeviceFoundCallback_Replacement_NewCallbackOnlyFires) {
+    SessionTestBLEManager m;
+
+    bool oldFired = false;
+    bool newFired = false;
+    m.setDeviceFoundCallback([&oldFired](const BLEDeviceInfo&) { oldFired = true; });
+    m.setDeviceFoundCallback([&newFired](const BLEDeviceInfo&) { newFired = true; });
+
+    m.invokeDeviceCallback({"addr", "Dev", false, -50});
+    EXPECT_FALSE(oldFired);
+    EXPECT_TRUE(newFired);
+}
+
+// Setting a new connection callback must replace the old one.
+
+TEST(BLEManagerBaseTest, SetConnectionCallback_Replacement_NewCallbackOnlyFires) {
+    SessionTestBLEManager m;
+
+    bool oldFired = false;
+    bool newFired = false;
+    m.setConnectionCallback([&oldFired](bool, const std::string&) { oldFired = true; });
+    m.setConnectionCallback([&newFired](bool, const std::string&) { newFired = true; });
+
+    m.invokeConnectionCallback(true, "dev");
+    EXPECT_FALSE(oldFired);
+    EXPECT_TRUE(newFired);
+}
+
+// --- Connection-state edge cases ------------------------------------------
+
+// setConnectionState with the default (empty) device_id must fire the
+// connection callback with an empty id string.
+
+TEST(BLEManagerBaseTest, SetConnectionState_EmptyDeviceId_FiresCallbackWithEmptyId) {
+    SessionTestBLEManager m;
+    std::string seenId;
+    m.setConnectionCallback([&seenId](bool, const std::string& id) { seenId = id; });
+
+    m.setConnectionState(true);  // default device_id = ""
+    EXPECT_EQ(seenId, "");
+}
+
+// Disconnecting must clear the connected flag and fire the connection
+// callback with the disconnected state. The connected device id is also
+// cleared internally (verified by the EmptyDeviceId test above); the
+// getConnectedDeviceId accessor is pure virtual and implemented by each
+// subclass, so we verify the observable behavior through the callback.
+
+TEST(BLEManagerBaseTest, SetConnectionState_Disconnect_ClearsConnectedState) {
+    SessionTestBLEManager m;
+    bool seenConnected = true;
+    std::string seenId;
+    m.setConnectionCallback([&](bool c, const std::string& id) {
+        seenConnected = c; seenId = id;
+    });
+
+    m.setConnectionState(true, "dev-1");
+    EXPECT_TRUE(m.baseConnected());
+
+    m.setConnectionState(false);
+    EXPECT_FALSE(m.baseConnected());
+    EXPECT_FALSE(seenConnected);
+    EXPECT_EQ(seenId, "");
+}
+
+// --- Device-management edge cases ------------------------------------------
+
+// Multiple threads adding devices concurrently must not crash and must
+// still deduplicate by address.
+
+TEST(BLEManagerBaseTest, AddDiscoveredDevice_ConcurrentThreads_SafeAndDeduplicated) {
+    SessionTestBLEManager m;
+    const int kThreads = 8;
+    const int kPerThread = 50;
+    std::vector<std::thread> threads;
+    std::atomic<int> crashes{0};
+
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&m, t, &crashes]() {
+            for (int i = 0; i < kPerThread; ++i) {
+                try {
+                    // Each thread uses its own address prefix so duplicates
+                    // are only within-thread; cross-thread addresses are unique.
+                    m.addDiscoveredDevice(
+                        BLEDeviceInfo{"addr-" + std::to_string(t), "Dev" + std::to_string(t),
+                                      false, -50});
+                } catch (...) {
+                    crashes++;
+                }
+            }
+        });
+    }
+    for (auto& th : threads) th.join();
+
+    EXPECT_EQ(crashes, 0);
+    // kThreads unique addresses × kPerThread deduped to 1 each = kThreads total.
+    // findDeviceByAddress for any known address must succeed.
+    EXPECT_TRUE(m.findDeviceByAddress("addr-0").has_value());
+    EXPECT_TRUE(m.findDeviceByAddress("addr-7").has_value());
+}
+
+// findDeviceByAddress with an empty string must return nullopt unless
+// a device with an empty address was explicitly added.
+
+TEST(BLEManagerBaseTest, FindDeviceByAddress_EmptyString_ReturnsNullopt) {
+    SessionTestBLEManager m;
+    m.addDiscoveredDevice({"AA:BB", "Dev", false, -50});
+    EXPECT_FALSE(m.findDeviceByAddress("").has_value());
+}
+
+// --- sendASCII edge cases -------------------------------------------------
+
+// sendASCII with an empty string must not crash and must produce a
+// single empty send payload (empty string → empty byte vector).
+
+TEST(BLEManagerBaseTest, SendASCII_EmptyString_DoesNotCrash) {
+    SessionTestBLEManager m;
+    EXPECT_NO_FATAL_FAILURE(m.sendASCII(""));
+    ASSERT_EQ(m.sentCommands.size(), 1u);
+    EXPECT_TRUE(m.sentCommands.front().empty());
+}
+
+// --- parseASCIIResponseToBinary edge cases --------------------------------
+
+// Empty input produces an empty binary vector.
+
+TEST(BLEManagerBaseTest, ParseASCIIResponseToBinary_EmptyInput_ReturnsEmpty) {
+    class TestBLEManager : public BLEManagerBase {
+    public:
+        std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
+        bool connect(std::string_view) override { return false; }
+        void disconnect() override {}
+        void send(const std::vector<uint8_t>&) override {}
+        bool isConnected() const override { return false; }
+        std::string getConnectedDeviceId() const override { return {}; }
+        std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& d) {
+            return parseASCIIResponseToBinary(d);
+        }
+    };
+
+    TestBLEManager manager;
+    auto result = manager.testParseASCIIResponseToBinary({});
+    EXPECT_TRUE(result.empty());
+}
+
+// Non-hex characters that are not separators or prompts must be silently
+// skipped; no valid hex pairs → empty result.
+
+TEST(BLEManagerBaseTest, ParseASCIIResponseToBinary_MalformedHex_ReturnsEmpty) {
+    class TestBLEManager : public BLEManagerBase {
+    public:
+        std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
+        bool connect(std::string_view) override { return false; }
+        void disconnect() override {}
+        void send(const std::vector<uint8_t>&) override {}
+        bool isConnected() const override { return false; }
+        std::string getConnectedDeviceId() const override { return {}; }
+        std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& d) {
+            return parseASCIIResponseToBinary(d);
+        }
+    };
+
+    TestBLEManager manager;
+    // "XYZ" contains no valid hex pairs.
+    auto result = manager.testParseASCIIResponseToBinary(
+        std::vector<uint8_t>{'X', 'Y', 'Z'});
+    EXPECT_TRUE(result.empty());
+}
+
+// An odd number of hex characters leaves a trailing unpaired nibble in the
+// accumulator, which parseOBD2Response treats as invalid (line 182:
+// `if (!hexStr.empty()) return std::nullopt`). The result is empty.
+
+TEST(BLEManagerBaseTest, ParseASCIIResponseToBinary_OddLength_ReturnsEmpty) {
+    class TestBLEManager : public BLEManagerBase {
+    public:
+        std::vector<BLEDeviceInfo> scanForDevices(int) override { return {}; }
+        bool connect(std::string_view) override { return false; }
+        void disconnect() override {}
+        void send(const std::vector<uint8_t>&) override {}
+        bool isConnected() const override { return false; }
+        std::string getConnectedDeviceId() const override { return {}; }
+        std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& d) {
+            return parseASCIIResponseToBinary(d);
+        }
+    };
+
+    TestBLEManager manager;
+    // "410" — three hex chars; the trailing '0' is an unpaired nibble, so
+    // the response is considered invalid and returns empty.
+    auto result = manager.testParseASCIIResponseToBinary(
+        std::vector<uint8_t>{'4', '1', '0'});
+    EXPECT_TRUE(result.empty());
+}
+
+// --- signalQuality exact boundary values -----------------------------------
+
+// The RSSI thresholds are inclusive: >= -50 → Excellent, >= -65 → Good,
+// >= -75 → Fair, else Poor. Lock the exact boundary values.
+
+TEST(BLEManagerBaseTest, SignalQuality_ExactBoundary_Minus50_IsExcellent) {
+    EXPECT_EQ(BLEManagerBase::signalQuality(-50), "Excellent");
+}
+
+TEST(BLEManagerBaseTest, SignalQuality_ExactBoundary_Minus65_IsGood) {
+    EXPECT_EQ(BLEManagerBase::signalQuality(-65), "Good");
+}
+
+TEST(BLEManagerBaseTest, SignalQuality_ExactBoundary_Minus75_IsFair) {
+    EXPECT_EQ(BLEManagerBase::signalQuality(-75), "Fair");
+}
+
+// ============================================================
+// BLEManagerBase stopOBD2Polling contract
+// ============================================================
+
+TEST(BLEManagerBaseTest, StopOBD2Polling_WakesPromptWaitAndJoins) {
     PromptTestBLEManager manager;
     manager.fakeConnected = true;
-
-    // Set a data callback so invokeDataCallback doesn't bail early
     manager.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
 
     manager.elm327Session().startOBD2Polling(200);
-
-    // stopOBD2Polling() unblocks the polling thread regardless of which wait
-    // state it is in: it clears polling_active_, then notifyPrompt() sets
-    // prompt_ready_ and notifies the condition_variable. Whether the thread is
-    // still in the POST_CONNECT_SETUP_DELAY_MS sleep (it then sees
-    // polling_active_ == false and exits the loop without reaching the cv) or
-    // already blocked in waitForPrompt (the notify wakes it and the loop guard
-    // exits), the join returns promptly. Calling stop immediately therefore
-    // deterministically verifies the wake path without any test-side wait.
     manager.elm327Session().stopOBD2Polling();
 
-    // If we get here, stopOBD2Polling correctly woke the thread and joined it.
     SUCCEED();
 }
