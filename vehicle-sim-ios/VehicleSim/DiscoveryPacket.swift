@@ -159,24 +159,24 @@ extension UInt16 {
 }
 
 extension UInt64 {
+    /// Assemble a big-endian `UInt64` from an 8-byte buffer. The `Data`
+    /// argument is the parameter object grouping the eight wire bytes so the
+    /// initializer keeps a single, well-typed parameter instead of eight
+    /// scalar arguments.
     init(bigEndianBytes data: Data) {
         precondition(data.count == MemoryLayout<UInt64>.size,
                      "UInt64 bigEndianBytes requires exactly \(MemoryLayout<UInt64>.size) bytes")
         let s = data.startIndex
-        self = UInt64(bigEndianBytes: data[s], data[s + 1], data[s + 2], data[s + 3],
-                      data[s + 4], data[s + 5], data[s + 6], data[s + 7])
-    }
-
-    init(bigEndianBytes b0: UInt8, _ b1: UInt8, _ b2: UInt8, _ b3: UInt8,
-         _ b4: UInt8, _ b5: UInt8, _ b6: UInt8, _ b7: UInt8) {
-        self = (UInt64(b0) << 56)
-            | (UInt64(b1) << 48)
-            | (UInt64(b2) << 40)
-            | (UInt64(b3) << 32)
-            | (UInt64(b4) << 24)
-            | (UInt64(b5) << 16)
-            | (UInt64(b6) << 8)
-            | UInt64(b7)
+        let b0 = UInt64(data[s])
+        let b1 = UInt64(data[s + 1])
+        let b2 = UInt64(data[s + 2])
+        let b3 = UInt64(data[s + 3])
+        let b4 = UInt64(data[s + 4])
+        let b5 = UInt64(data[s + 5])
+        let b6 = UInt64(data[s + 6])
+        let b7 = UInt64(data[s + 7])
+        self = (b0 << 56) | (b1 << 48) | (b2 << 40) | (b3 << 32)
+             | (b4 << 24) | (b5 << 16) | (b6 << 8) | b7
     }
 
     var bigEndianBytes: Data {
