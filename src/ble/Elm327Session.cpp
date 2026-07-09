@@ -19,25 +19,18 @@ constexpr uint8_t OBD2_MODE_LIVE_DATA = 0x01;
 // (OBD2PIDs is defined at vehicle_sim scope in BLEManagerBase.h).
 // ================================================
 
-namespace {
-
-// SystemClock instance for production use (singleton, never deleted).
-std::unique_ptr<util::SystemClock> g_systemClock;
-
-} // anonymous namespace
-
 Elm327Session::Elm327Session(Elm327SessionHost& host, util::IClock* clock)
     : host_(host), clock_(clock ? clock : &getSystemClock()) {
     obd2_protocol_.setSendCallback(
         [this](std::string_view cmd) { host_.sessionSendAscii(cmd); });
 }
 
-// Accessor for the singleton SystemClock (lazy-initialized).
+// Accessor for the singleton SystemClock (lazy-initialized). The singleton is a
+// function-local static, not a namespace global, so there is no non-const global
+// variable. Initialization is thread-safe in C++11+ (Meyers singleton).
 util::IClock& Elm327Session::getSystemClock() {
-    if (!g_systemClock) {
-        g_systemClock = std::make_unique<util::SystemClock>();
-    }
-    return *g_systemClock;
+    static util::SystemClock systemClock;
+    return systemClock;
 }
 
 Elm327Session::~Elm327Session() {
