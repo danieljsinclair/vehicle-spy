@@ -209,6 +209,53 @@ bool parseHexByte(const std::string& s, std::size_t offset, uint8_t& out) {
     return true;
 }
 
+// Parse/validate a HELO ACK string and fill deviceId (16 bytes) on success.
+// Pure and socket-free: it only inspects the supplied string.
+//
+// Returns true iff the string has the "ACK DEVICE=" prefix, a "DEVICEID="
+// token whose value is exactly 32 valid hex chars (after stripping any
+// trailing \r \n space '>'), and every byte decodes. On failure returns false
+// and leaves deviceId untouched. The FIRMWARE= token is intentionally not
+// required (it is informational in the protocol) — a valid ACK needs only the
+// two tokens above plus the well-formed device id.
+bool parseHeloAck(const std::string& ack, std::array<uint8_t, 16>& deviceId) {
+    const std::string ackPrefix = "ACK DEVICE=";
+    const std::string deviceIdToken = "DEVICEID=";
+
+    if (ack.find(ackPrefix) == std::string::npos) {
+        return false;
+    }
+
+    const std::size_t deviceIdPos = ack.find(deviceIdToken);
+    if (deviceIdPos == std::string::npos) {
+        return false;
+    }
+
+    const std::size_t hexStart = deviceIdPos + deviceIdToken.length();
+    std::string hexId = ack.substr(hexStart);
+
+    // Clean up any trailing whitespace/CRLF/prompt.
+    while (!hexId.empty() &&
+           (hexId.back() == '\r' || hexId.back() == '\n' ||
+            hexId.back() == ' ' || hexId.back() == '>')) {
+        hexId.pop_back();
+    }
+
+    // Validate we have exactly 32 hex characters.
+    if (hexId.length() != 32) {
+        return false;
+    }
+
+    // Parse each byte.
+    for (int i = 0; i < 16; ++i) {
+        if (!parseHexByte(hexId, static_cast<std::size_t>(i * 2), deviceId[i])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 } // namespace
 
 bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
@@ -288,52 +335,15 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     }
     std::string response(heloResp.data(), static_cast<std::size_t>(totalHelo));
 
-    // Validate ACK format
-    const std::string ackPrefix = "ACK DEVICE=";
-    const std::string firmwareToken = "FIRMWARE=";
-    const std::string deviceIdToken = "DEVICEID=";
-
-    if (response.find(ackPrefix) == std::string::npos) {
-        output_->err("[tcp] HELO pre-flight: invalid ACK (missing ACK DEVICE=)");
+    // Parse/validate the ACK string (pure, socket-free). On failure we must
+    // close the authenticated connection and treat the handshake as failed.
+    if (!parseHeloAck(response, deviceId)) {
         closeConnection();
         return false;
-    }
-
-    // Extract device ID (32 hex chars = 16 bytes)
-    std::size_t deviceIdPos = response.find(deviceIdToken);
-    if (deviceIdPos == std::string::npos) {
-        output_->err("[tcp] HELO pre-flight: invalid ACK (missing DEVICEID=)");
-        closeConnection();
-        return false;
-    }
-
-    std::size_t hexStart = deviceIdPos + deviceIdToken.length();
-    std::string hexId = response.substr(hexStart);
-
-    // Clean up any trailing whitespace/CRLF/prompt
-    while (!hexId.empty() && (hexId.back() == '\r' || hexId.back() == '\n' || hexId.back() == ' ' || hexId.back() == '>')) {
-        hexId.pop_back();
-    }
-
-    // Validate we have exactly 32 hex characters
-    if (hexId.length() != 32) {
-        output_->err("[tcp] HELO pre-flight: invalid device ID length (expected 32 hex chars, got " +
-                   std::to_string(hexId.length()) + ")");
-        closeConnection();
-        return false;
-    }
-
-    // Parse each byte
-    for (int i = 0; i < 16; ++i) {
-        if (!parseHexByte(hexId, static_cast<std::size_t>(i * 2), deviceId[i])) {
-            output_->err("[tcp] HELO pre-flight: invalid hex in device ID at position " + std::to_string(i));
-            closeConnection();
-            return false;
-        }
     }
 
     // HELO succeeded
-    output_->out("[tcp] HELO pre-flight: device acknowledged (DEVICEID=" + hexId + ")");
+    output_->out("[tcp] HELO pre-flight: device acknowledged");
     return true;
 }
 
