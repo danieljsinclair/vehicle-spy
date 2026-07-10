@@ -119,7 +119,10 @@ void FirmwareApp::update(uint32_t now) {
     // Lazily open the UDP discovery socket on the first loop tick. This defers the
     // hardware-touching udp_.begin() out of the synchronous boot path (init()), where
     // the WiFi netif is not yet up, into loop() where WiFi.begin() has taken effect.
-    if (!discoveryStarted_ && discoveryManager_) {
+    // Gated by discoveryEnabled_ so the build-time VEHICLE_SIM_ENABLE_DISCOVERY=0
+    // toggle keeps the socket closed (no hardware/UDP work) — the .ino sets this
+    // from the macro in setup().
+    if (!discoveryStarted_ && discoveryManager_ && discoveryEnabled_) {
         discoveryManager_->init();
         discoveryStarted_ = true;
     }
@@ -137,19 +140,32 @@ void FirmwareApp::update(uint32_t now) {
         ntpTimeSync_->startIfWiFiConnected(wifi_.getMode(), wifi_.status());
     }
 
-    // Update DiscoveryManager with current time and client status
-    // DiscoveryManager needs to know if we have a TCP client to adjust broadcast cadence
-    // For now, we pass false (no client) - this will be wired to actual client state later
-    // TODO: Wire to actual TCP client state when bridging is complete
-    bool haveClient = false;
-    if (discoveryManager_) {
-        discoveryManager_->update(now, haveClient);
+    // Drive DiscoveryManager with the current time and the live TCP-client state.
+    // DiscoveryManager already knows whether to broadcast (it checks haveClient and
+    // the WiFi mode internally); it opens/uses the UDP socket only after
+    // discoveryManager_->init() ran above. When discovery is disabled this is a no-op.
+    if (discoveryManager_ && discoveryEnabled_) {
+        discoveryManager_->update(now, clientConnected_);
     }
 
     // Update LED pattern animation every tick
     // StatusLED.update() drives the current pattern animation (blinking, etc.)
     // This is separate from setPattern() which changes the pattern itself
     statusLed_.update(now);
+}
+
+void FirmwareApp::setDiscoveryEnabled(bool enabled) {
+    discoveryEnabled_ = enabled;
+}
+
+void FirmwareApp::setClientConnected(bool connected) {
+    clientConnected_ = connected;
+}
+
+void FirmwareApp::resetDiscoveryBackoff() {
+    if (discoveryManager_) {
+        discoveryManager_->resetBackoff();
+    }
 }
 
 void FirmwareApp::onWiFiDisconnected(int reason) {

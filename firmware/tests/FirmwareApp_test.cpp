@@ -350,6 +350,51 @@ TEST_F(FirmwareAppTest, Update_DoesNotFireDiscoveryBeforeCadence_CallbackNotFire
     EXPECT_FALSE(broadcastDiscoveryCalled);
 }
 
+TEST_F(FirmwareAppTest, Update_DiscoveryDisabled_NoUdpOpenOrBroadcast) {
+    // Stage 3: the .ino injects the build-time VEHICLE_SIM_ENABLE_DISCOVERY toggle
+    // via FirmwareApp::setDiscoveryEnabled(). When disabled, the vanilla
+    // DiscoveryManager must never open the UDP socket nor broadcast — this mirrors
+    // the removed inline `#if VEHICLE_SIM_ENABLE_DISCOVERY` guard.
+    firmwareApp->setCallbacks(callbackSpies);
+    firmwareApp->init();
+    firmwareApp->setDiscoveryEnabled(false);
+
+    // UDP socket open (begin) must NOT happen when discovery is disabled.
+    EXPECT_CALL(udpMock, begin(_)).Times(0);
+    // No discovery packet should be written/sent.
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(0);
+    EXPECT_CALL(udpMock, write(_, _)).Times(0);
+    EXPECT_CALL(udpMock, endPacket()).Times(0);
+
+    // Run several loop ticks past the fast-cadence window.
+    firmwareApp->update(0);
+    firmwareApp->update(1000);
+    firmwareApp->update(2000);
+    firmwareApp->update(3000);
+
+    EXPECT_FALSE(broadcastDiscoveryCalled)
+        << "Discovery broadcast callback must not fire when discovery is disabled.";
+}
+
+TEST_F(FirmwareAppTest, Update_ClientConnected_SuppressesBroadcast) {
+    // Stage 3: the .ino feeds the live TCP-client state into FirmwareApp via
+    // setClientConnected(); DiscoveryManager should skip broadcasts while a buddy
+    // is connected (replaces the inline `haveClient` early-return).
+    firmwareApp->setCallbacks(callbackSpies);
+    firmwareApp->init();
+    EXPECT_CALL(udpMock, begin(_)).Times(AtLeast(1));  // socket opens on first tick
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(0);
+    EXPECT_CALL(udpMock, write(_, _)).Times(0);
+    EXPECT_CALL(udpMock, endPacket()).Times(0);
+
+    firmwareApp->setClientConnected(true);
+    firmwareApp->update(0);
+    firmwareApp->update(1000);
+
+    EXPECT_FALSE(broadcastDiscoveryCalled)
+        << "Discovery should be suppressed while a TCP client is connected.";
+}
+
 // ============================================================================
 // CREDENTIAL OPERATIONS TESTS
 // ============================================================================

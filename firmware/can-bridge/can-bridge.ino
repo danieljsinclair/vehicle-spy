@@ -168,20 +168,6 @@ struct WiFiStateHandler {
 // noexcept-move edits on the old inline structs are superseded by this
 // extraction (see Stage 2 notes).
 
-// ── Discovery State ────────────────────────────────────────────────────────────
-namespace DiscoveryState {
-    struct Context {
-        uint32_t connectTimeMs = 0;      // When we started looking for a buddy
-        uint32_t lastBroadcastMs = 0;
-        bool backoffActive = false;
-    };
-}
-
-// NOTE: NTP state is now owned inside NtpTimeSync (vanilla, host-tested). The
-// inline ntpCtx and ntpSyncCallback/initNtpSync have been removed; FirmwareApp
-// drives NTP start from the WiFi-connected event via NtpTimeSync.
-static DiscoveryState::Context discoveryCtx;
-
 // ANSI color codes for serial output
 static const char* const RED    = "\033[0;31m";
 static const char* const GREEN  = "\033[0;32m";
@@ -445,214 +431,22 @@ static WiFiServer tcpServer(Constants::TCP_PORT);
 static uint32_t serialQuietUntilMs = 0;
 static WiFiState::Context wifiCtx;  // TODO: Remove once fully routed to FirmwareApp
 
-// ── UDP Discovery Broadcast ──────────────────────────────────────────────
-// Broadcasts unsigned discovery packets on UDP port 3335 so that CLI and iOS
-// apps can auto-discover this ESP32 without manual IP configuration.
-static uint32_t lastDiscoveryBroadcast = 0;
-static WiFiUDP udpDiscovery;
-
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
-// NTP is now driven entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
+// NTP time is now owned entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
 // ArduinoTimeNtp adapters). The inline initNtpSync()/ntpSyncCallback() were
 // removed — NTP starts when WiFiManager reports connected (deferred out of the
-// boot path). Discovery timestamps use NtpTimeSync via FirmwareApp's wiring.
-// Get current timestamp with NTP sync fallback
-static uint64_t getCurrentTimestamp() {
-    time_t now = time(nullptr);
-    if (now < 1000000) {  // If time is clearly invalid (before Sept 2001)
-        // Fallback to uptime-based timestamp (milliseconds since boot / 1000)
-        // This won't be real Unix time but will be monotonically increasing
-        return millis() / 1000;
-    }
-    return now;
-}
+// boot path). Discovery timestamps are now produced inside DiscoveryManager via
+// its injected ITime adapter (ArduinoTime), so the .ino no longer carries a
+// discovery timestamp fallback.
 
-// ── Discovery Backoff ───────────────────────────────────────────────────────────
-// Testable pure function: Calculate discovery interval based on age (testable unit)
-static uint32_t discoveryIntervalMs(uint32_t ageMs) {
-    if (ageMs < Constants::DISCOVERY_AGE_1_MIN_MS) {
-        return Constants::DISCOVERY_INTERVAL_FAST_MS;
-    } else if (ageMs < Constants::DISCOVERY_AGE_5_MIN_MS) {
-        return Constants::DISCOVERY_INTERVAL_1_5_MIN_MS;
-    } else if (ageMs < Constants::DISCOVERY_AGE_10_MIN_MS) {
-        return Constants::DISCOVERY_INTERVAL_5_10_MIN_MS;
-    } else if (ageMs < Constants::DISCOVERY_AGE_15_MIN_MS) {
-        return Constants::DISCOVERY_INTERVAL_10_15_MIN_MS;
-    } else if (ageMs < Constants::DISCOVERY_AGE_30_MIN_MS) {
-        return Constants::DISCOVERY_INTERVAL_15_30_MIN_MS;
-    } else {
-        return Constants::DISCOVERY_INTERVAL_SLOW_MS;
-    }
-}
-
-// Reset discovery backoff timer - call on boot and disconnect
-static void resetDiscoveryBackoff() {
-    discoveryCtx.connectTimeMs = millis();
-    discoveryCtx.backoffActive = true;
-    Serial.printf("%sDiscovery backoff timer reset%s\r\n", YELLOW, NC);
-}
-
-// ── Discovery ─────────────────────────────────────────────────────────────────
-// Device ID (first 16 bytes of MAC address, hex) - declared earlier for message tagging
-// Testable pure function: Build discovery packet header (testable unit)
-static void buildDiscoveryPacket(uint8_t* packet, const uint8_t* deviceId, uint32_t tcpPort, uint16_t otaPort) {
-    // Magic: "VSIM"
-    packet[0] = 0x56; packet[1] = 0x53; packet[2] = 0x49; packet[3] = 0x4D;
-    // Version
-    packet[4] = 1;
-    // Packet type: 1 = discovery
-    packet[5] = 1;
-    // Device ID (16 bytes)
-    memcpy(packet + 6, deviceId, 16);
-    // Nonce (8 bytes) — use millis as simple nonce
-    uint32_t nonceVal = millis();
-    memcpy(packet + 22, &nonceVal, 4);
-    memset(packet + 26, 0, 4);
-    // Timestamp (8 bytes, big-endian Unix epoch) - use NTP-synced time with fallback
-    uint64_t now = getCurrentTimestamp();
-    for (int i = 7; i >= 0; --i) {
-        packet[30 + i] = (uint8_t)(now & 0xFF);
-        now >>= 8;
-    }
-    // CAN port (2 bytes, big-endian)
-    packet[38] = (tcpPort >> 8) & 0xFF;
-    packet[39] = tcpPort & 0xFF;
-    // OTA port (2 bytes, big-endian)
-    packet[40] = (otaPort >> 8) & 0xFF;
-    packet[41] = otaPort & 0xFF;
-
-    // Signature bytes remain zeroed for unsigned discovery broadcasts.
-    // If signing is enabled, signDiscoveryPacket() will fill this in.
-    memset(packet + 42, 0, 64);
-}
-
-// ── Discovery Signing (Optional/Guarded) ───────────────────────────────────────
-// Sign discovery packet with Ed25519 private key for host verification.
-// Format: Ed25519 signature (64 bytes) over packet[0..41] (first 42 bytes).
-// The signature fills the reserved 64-byte field at packet[42..105].
-//
-// PROPOSED FORMAT for host-side verification:
-//   - Signed data: packet[0..41] (42 bytes: magic, version, type, deviceId, nonce, timestamp, ports)
-//   - Signature: Ed25519 (64 bytes) at packet[42..105]
-//   - Key format: Ed25519 private seed (32 bytes), baked at build time
-//   - Public key: Host needs the corresponding public key for verification
-//
-// COORDINATION with host-engineer:
-//   The host should:
-//   1. Extract the first 42 bytes (signed payload)
-//   2. Extract the last 64 bytes (signature)
-//   3. Verify using the device's Ed25519 public key (matching the baked private key)
-//   4. Reject discovery packets with invalid signatures (or allow unsigned if key unknown)
-//
-// IMPLEMENTATION:
-//   If VEHICLE_SIM_ENABLE_DISCOVERY_SIGNING=1 and libsodium is available:
-//   - Sign the packet payload with the baked private key
-//   - Fall back to unsigned (zeros) if signing fails or key not available
-//   If disabled (default), packets remain unsigned (all zeros)
-#if VEHICLE_SIM_ENABLE_DISCOVERY_SIGNING
-#include <sodium.h>
-#include "DiscoveryPrivateKey.h"  // Baked private key header (not committed)
-
-static void signDiscoveryPacket(uint8_t* packet) {
-    // Check if crypto is initialized and key is available
-    static bool cryptoInitialized = false;
-    static bool hasSigningKey = false;
-
-    if (!cryptoInitialized) {
-        if (sodium_init() < 0) {
-            Serial.printf("%sDiscovery signing: libsodium init failed, using unsigned%s\r\n", YELLOW, NC);
-            cryptoInitialized = true;
-            return;
-        }
-        cryptoInitialized = true;
-
-        // Check if signing key is baked (non-zero)
-        // DiscoveryPrivateKey.h should define: static const uint8_t DISCOVERY_PRIVATE_KEY[32]
-        #ifdef DISCOVERY_PRIVATE_KEY
-        // Check if key is non-zero (has been baked)
-        for (size_t i = 0; i < 32; i++) {
-            if (DISCOVERY_PRIVATE_KEY[i] != 0) {
-                hasSigningKey = true;
-                break;
-            }
-        }
-        #endif
-    }
-
-    if (!hasSigningKey) {
-        // No signing key available - keep signature zeroed (unsigned)
-        return;
-    }
-
-    // Sign the packet payload (first 42 bytes)
-    // Signature format: Ed25519 over packet[0..41], result at packet[42..105]
-    unsigned long long sigLen;
-    #ifdef DISCOVERY_PRIVATE_KEY
-    int signResult = crypto_sign_detached(
-        packet + 42,              // Signature output (64 bytes)
-        &sigLen,                  // Signature length
-        packet,                   // Message to sign (42 bytes)
-        42,                       // Message length
-        DISCOVERY_PRIVATE_KEY    // Private key (32 bytes)
-    );
-
-    if (signResult != 0 || sigLen != 64) {
-        // Signing failed - keep signature zeroed (unsigned)
-        Serial.printf("%sDiscovery signing failed (code=%d), using unsigned%s\r\n",
-                        YELLOW, signResult, NC);
-        memset(packet + 42, 0, 64);
-    }
-    #else
-    // No key defined - keep unsigned
-    #endif
-}
-#else
-// Stub when signing is disabled - packets remain unsigned
-static void signDiscoveryPacket(const uint8_t* packet) {
-    // Signature field already zeroed by buildDiscoveryPacket()
-    (void)packet;  // Suppress unused warning
-}
-#endif
-
-// Broadcast a discovery packet. The packet reserves the same signature field as
-// the CLI/iOS wire format; current firmware broadcasts unsigned discovery so
-// first connection remains usable before OTA keys are flashed.
-// IMPORTANT: Continues broadcasting during reconnects so host can always find device.
-static void broadcastDiscovery() {
-    // Discovery broadcasts continue regardless of TCP client state.
-    // A connected client does not mean the device should be hidden — new hosts
-    // (iOS app, `make discover`, `make reboot-tcp`) still need to find it.
-    const bool haveClient = client && client.connected();
-    if (haveClient) {
-        return;  // Don't broadcast if we have a buddy
-    }
-
-    // Broadcast in AP mode (always ready) or STA mode (if ready)
-    // STA mode is ready when: connected, disconnected (was connected), or connecting
-    // This allows broadcasting during initial connection and reconnects, not just when fully connected
-    if (WiFiClass::getMode() == WIFI_AP) {
-        // AP mode - always ready to broadcast
-    } else if (WiFiClass::getMode() == WIFI_STA) {
-        // STA mode - broadcast if WiFi is initialized (mode is set)
-        // Don't check status here - allow broadcasting during connection/reconnection
-        // UDP will fail silently if WiFi isn't truly ready, which is acceptable
-    } else {
-        return;  // Mode not set yet - can't broadcast
-    }
-
-    std::array<uint8_t, Constants::DISCOVERY_PACKET_SIZE> packet;
-    buildDiscoveryPacket(packet.data(), discoveryDeviceId.data(), Constants::TCP_PORT, Constants::OTA_HTTP_PORT);
-
-    // Sign discovery packet if signing is enabled (optional/guarded)
-    // Falls back to unsigned (zeros) if signing disabled or key not available
-    signDiscoveryPacket(packet.data());
-
-    // Use SDK's broadcastIP() which respects actual subnet mask
-    IPAddress broadcastIp = WiFi.broadcastIP();
-    udpDiscovery.beginPacket(broadcastIp, Constants::DISCOVERY_PORT);
-    udpDiscovery.write(packet.data(), Constants::DISCOVERY_PACKET_SIZE);
-    udpDiscovery.endPacket();
-}
+// ── UDP Discovery (delegated to FirmwareApp) ───────────────────────────────────
+// Discovery broadcast (packet build, backoff cadence, signing, UDP send) now
+// lives in the vanilla DiscoveryManager owned by FirmwareApp. The .ino no longer
+// contains any discovery logic — it only (1) injects the build-time
+// VEHICLE_SIM_ENABLE_DISCOVERY toggle and the live TCP-client state, and
+// (2) resets the backoff timer on boot / buddy-disconnect, both via FirmwareApp.
+// See FirmwareApp::update() which drives DiscoveryManager::update(now, haveClient)
+// on every loop tick.
 
 // ── WiFi State Machine ────────────────────────────────────────────────────────
 // Testable pure function: Determine if WiFi retry is needed (testable unit)
@@ -1055,8 +849,10 @@ static void onRestartTcpServer() {
 }
 
 static void onBroadcastDiscovery() {
-    // Broadcast discovery packet
-    broadcastDiscovery();
+    // FirmwareApp owns DiscoveryManager and performs the UDP send itself; this
+    // callback is a post-broadcast firmware-effect hook (DiscoveryManager fires it
+    // after each successful send). Leave as a documented no-op for now — any
+    // .ino-only side effect (e.g. LED pulse) would be added here.
 }
 
 static void onHandleOta() {
@@ -1157,8 +953,12 @@ void setup() {
     // FirmwareApp.init() already called updateWiFiStateMachine() internally
     // No need to manually initialize wifiCtx.state or call updateWiFiStateMachine()
 
-    // Initialize discovery backoff timer - reset on boot
-    resetDiscoveryBackoff();
+    // Initialize discovery: hand FirmwareApp the build-time enable flag, then reset
+    // the vanilla DiscoveryManager's backoff timer (replaces the inline
+    // resetDiscoveryBackoff()). The UDP socket itself is opened lazily by
+    // FirmwareApp on the first loop tick (deferred out of the boot path).
+    firmwareApp.setDiscoveryEnabled(VEHICLE_SIM_ENABLE_DISCOVERY);
+    firmwareApp.resetDiscoveryBackoff();
 
     // NOTE: NTP sync is NO LONGER started here at boot. Starting SNTP/sockets
     // during setup() crashed the ESP32 (netif not up). FirmwareApp now starts
@@ -1185,13 +985,9 @@ void setup() {
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");
 
-    // Start UDP discovery
-#if VEHICLE_SIM_ENABLE_DISCOVERY
-    udpDiscovery.begin(Constants::DISCOVERY_PORT);
-    Serial.printf("UDP discovery on port %u\r\n", Constants::DISCOVERY_PORT);
-#else
-    Serial.println("UDP discovery disabled via VEHICLE_SIM_ENABLE_DISCOVERY=0");
-#endif
+    // UDP discovery socket is opened lazily by FirmwareApp on the first loop tick
+    // (deferred out of the boot path — see setDiscoveryEnabled above). No inline
+    // udpDiscovery.begin() here; the .ino owns no discovery UDP state.
 
     // OTA: first mark THIS firmware's boot as healthy (cancels any pending
     // rollback from a previous OTA), then start the signed-image OTA server.
@@ -1226,13 +1022,16 @@ void loop() {
                       firmwareApp.isMonitorActive() ? "ACTIVE" : "idle");
     }
 
-    // ── Update FirmwareApp (drives WiFiManager + StatusLED) ────────────────────────
-    // This replaces the inline updateWiFiStateMachine() call
-    // FirmwareApp.update() calls WiFiManager.update() and statusLed.update()
+    // ── Update FirmwareApp (drives WiFiManager + StatusLED + Discovery) ────────────
+    // This replaces the inline updateWiFiStateMachine() call. Tell FirmwareApp the
+    // live TCP-client state so DiscoveryManager can suppress broadcasts while a
+    // buddy is connected (replaces the inline haveClient gate). FirmwareApp.update()
+    // calls WiFiManager.update(), statusLed.update(), and DiscoveryManager.update().
+    firmwareApp.setClientConnected(client && client.connected());
     firmwareApp.update(millis());
 
-    // NOTE: statusLed.update() is now called by FirmwareApp.update()
-    // No need to call it separately here
+    // NOTE: statusLed.update() and discovery broadcast are now driven by
+    // FirmwareApp.update(); no separate calls needed here.
 
     // Restart TCP server if WiFi reconnected with new IP
     restartTcpServerIfNeeded();
@@ -1243,18 +1042,9 @@ void loop() {
     otaLoop();
 #endif
 
-    // Broadcast discovery packet periodically with backoff schedule
-    // Always broadcast when no buddy - "welcome a buddy" - continues during reconnect
-#if VEHICLE_SIM_ENABLE_DISCOVERY
-    uint32_t now = millis();
-    uint32_t ageMs = now - discoveryCtx.connectTimeMs;
-    uint32_t intervalMs = discoveryIntervalMs(ageMs);
-
-    if (now - lastDiscoveryBroadcast >= intervalMs) {
-        lastDiscoveryBroadcast = now;
-        broadcastDiscovery();
-    }
-#endif
+    // Discovery broadcasting is driven entirely by FirmwareApp.update() above
+    // (which calls DiscoveryManager::update on the cadence). No inline broadcast
+    // logic remains in the .ino.
 
     // Accept new TCP connections - with proper error handling and cleanup
     if (!client || !client.connected()) {
@@ -1311,7 +1101,7 @@ void loop() {
     // Check if client disconnected - cleanup resources and reset discovery backoff
     if (!haveClient && firmwareApp.isMonitorActive()) {
         firmwareApp.setMonitorActive(false);
-        resetDiscoveryBackoff();  // Reset backoff timer to welcome a new buddy
+        firmwareApp.resetDiscoveryBackoff();  // Reset backoff timer to welcome a new buddy
         // Revert LED pattern to WiFi state
         if (wifiCtx.state == WiFiState::State::CONNECTED_STA ||
             wifiCtx.state == WiFiState::State::CONNECTED_AP) {
