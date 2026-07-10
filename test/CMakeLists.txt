@@ -63,6 +63,7 @@ add_executable(vehicle-sim-tests
     firmware/AtCommandDispatcher.test.cpp
     firmware/DiscoveryManager.test.cpp
     firmware/WiFiManager.test.cpp
+    firmware/FirmwareApp.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests
