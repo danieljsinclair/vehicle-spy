@@ -511,6 +511,16 @@ public:
     using BLEManagerBase::setConnectionState;
     using BLEManagerBase::canMode;
 
+    // Raw state accessors re-exposed for the S1448 characterisation tests.
+    // These mirror the exact methods the .mm platform subclasses read/write
+    // directly; the refactor will move them into collaborators and delete the
+    // base forwarding shims, so we lock their current contract here.
+    using BLEManagerBase::discoveredDevicesRaw;
+    using BLEManagerBase::isConnectedRaw;
+    using BLEManagerBase::setConnected;
+    using BLEManagerBase::setConnectedDeviceId;
+    using BLEManagerBase::connectedDeviceIdRaw;
+
     // Expose setClock for test injection
     using BLEManagerBase::setClock;
 };
@@ -1090,6 +1100,64 @@ TEST(BLEManagerBaseTest, SetConnectionState_Disconnect_ClearsConnectedState) {
     EXPECT_FALSE(m.baseConnected());
     EXPECT_FALSE(seenConnected);
     EXPECT_EQ(seenId, "");
+}
+
+// --- S1448 raw-accessor characterisation (Clusters B & D) ------------------
+//
+// These three tests LOCK the contract of the raw state accessors the .mm
+// platform subclasses read/write directly (BLEManagerMacOS.mm / BLEManageriOS.mm).
+// The S1448 Option A refactor extracts DeviceRegistry + ConnectionState
+// collaborators, deletes the base's forwarding shims, and re-points ~80 callers.
+// They must not break these observable behaviours. Each test owns its own
+// SessionTestBLEManager instance (independent, no cross-test coupling).
+
+// Cluster B: BLEManagerMacOS.mm:279-281 / BLEManageriOS.mm:271-273 read
+// discoveredDevicesRaw().size() then copy the returned vector out. Lock that
+// the vector is populated by addDiscoveredDevice and cleared by
+// clearDiscoveredDevices.
+TEST(BLEManagerBaseTest, DiscoveredDevicesRaw_ReturnsPopulatedVectorAndReflectsClear) {
+    SessionTestBLEManager m;
+
+    m.addDiscoveredDevice({"addr-1", "Dev One", false, -50});
+    m.addDiscoveredDevice({"addr-2", "Dev Two", false, -60});
+
+    const std::vector<BLEDeviceInfo>& devices = m.discoveredDevicesRaw();
+    ASSERT_EQ(devices.size(), 2u);
+    // Lock that both addresses are present in the reference-returned vector the
+    // .mm subclasses copy out (order is insertion order: addr-1 then addr-2).
+    EXPECT_EQ(devices[0].address, "addr-1");
+    EXPECT_EQ(devices[1].address, "addr-2");
+
+    m.clearDiscoveredDevices();
+    EXPECT_TRUE(m.discoveredDevicesRaw().empty());
+}
+
+// Cluster D: BLEManagerMacOS.mm:334,356,409 / BLEManageriOS.mm:318,340,395 call
+// setConnected(bool) directly. Lock that setConnected propagates to the raw
+// connected_ flag read via isConnectedRaw().
+TEST(BLEManagerBaseTest, SetConnected_PropagatesToIsConnectedRaw) {
+    SessionTestBLEManager m;
+
+    m.setConnected(true);
+    EXPECT_TRUE(m.isConnectedRaw());
+
+    m.setConnected(false);
+    EXPECT_FALSE(m.isConnectedRaw());
+}
+
+// Cluster D: BLEManagerMacOS.mm:335,357,384,411 / BLEManageriOS.mm:319,341,366,397
+// read connectedDeviceIdRaw() (returned by getConnectedDeviceId). Lock that
+// setConnectedDeviceId stores the id and that the .mm disconnect path
+// (setConnectionState(false, "")) clears it.
+TEST(BLEManagerBaseTest, ConnectedDeviceId_RoundTripsThroughRawAccessor) {
+    SessionTestBLEManager m;
+
+    m.setConnectedDeviceId("dev-x");
+    EXPECT_EQ(m.connectedDeviceIdRaw(), "dev-x");
+
+    // Mirrors the .mm disconnect: setConnectionState(false, "") clears id.
+    m.setConnectionState(false, "");
+    EXPECT_TRUE(m.connectedDeviceIdRaw().empty());
 }
 
 // --- Device-management edge cases ------------------------------------------
