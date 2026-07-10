@@ -60,6 +60,7 @@ add_executable(vehicle-sim-tests
     pipeline/SecureTcpTransport.test.cpp
     util/IClock.test.cpp
     firmware/StatusLED.test.cpp
+    firmware/AtCommandDispatcher.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests

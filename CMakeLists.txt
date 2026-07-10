@@ -113,6 +113,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     firmware/can-bridge/StatusLED.cpp
     firmware/can-bridge/HardwareStatusLEDOutput.cpp
     firmware/vanilla/StatusLEDRenderer.cpp
+    firmware/vanilla/AtCommandDispatcher.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
