@@ -547,10 +547,13 @@ static void signDiscoveryPacket(const uint8_t* packet) {
 // first connection remains usable before OTA keys are flashed.
 // IMPORTANT: Continues broadcasting during reconnects so host can always find device.
 static void broadcastDiscovery() {
-    // Always broadcast when no buddy connected - "welcome a buddy"
-    // Also broadcast during reconnects so host can always find device
+    // Discovery broadcasts continue regardless of TCP client state.
+    // A connected client does not mean the device should be hidden — new hosts
+    // (iOS app, `make discover`, `make reboot-tcp`) still need to find it.
     const bool haveClient = client && client.connected();
-    if (haveClient) return;  // Don't broadcast if we have a buddy
+    if (haveClient) {
+        return;  // Don't broadcast if we have a buddy
+    }
 
     // Broadcast in AP mode (always ready) or STA mode (if ready)
     // STA mode is ready when: connected, disconnected (was connected), or connecting
@@ -858,10 +861,6 @@ static void applyStateTransition(const StateTransition& transition, WiFiState::C
     const WiFiState::State previousState = ctx.state;
     ctx.state = transition.nextState;
 
-    // Debug: log the state transition (fires only on a real state change)
-    Serial.printf("%s[WiFi] %s -> %s%s\r\n", PURPLE,
-                  wifiStateName(previousState), wifiStateName(ctx.state), NC);
-
     // Update LED pattern based on WiFi state
     switch (transition.nextState) {
         case WiFiState::State::DISCONNECTED:
@@ -1107,13 +1106,18 @@ struct AtiCommandHandler : public AtCommandHandler {
 };
 
 // ATREBOOT - Reboot handler
+// NOTE: shouldFlushClient is false on purpose. sendPromptFn already flushed the
+// "REBOOT" response via client.printf+flush. The extra client.flush() in the
+// handleATCommand side-effect block hangs indefinitely on a dead/half-closed
+// socket (ESP32 Arduino WiFiClient::flush() has no timeout). With shouldFlush
+// set here, handleATCommand skips the hang and proceeds straight to ESP.restart().
 struct AtrebootCommandHandler : public AtCommandHandler {
     bool matches(const String& normalizedCmd) const override {
         return normalizedCmd == "ATREBOOT";
     }
 
     AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult("REBOOT", true, true);
+        return AtCommandResult("REBOOT", true, false);
     }
 };
 
@@ -1168,14 +1172,18 @@ static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)
 
         // Apply side effects
         if (result.shouldFlushClient) {
+            Serial.printf("[DEBUG] handleATCommand: flushing TCP client before reboot\r\n");
             client.flush();
             Serial.println("REBOOT");
             Serial.flush();
         }
 
         if (result.shouldReboot) {
+            Serial.printf("[DEBUG] handleATCommand: calling ESP.restart()\r\n");
             delay(Constants::TCP_REBOOT_DELAY_MS);
             ESP.restart();
+            // If we get here, restart did not complete
+            Serial.printf("[DEBUG] handleATCommand: ESP.restart() RETURNED (unexpected)\r\n");
         }
     } else {
         sendPromptFn("?");
@@ -1337,6 +1345,9 @@ void setup() {
     // Bridge Arduino WiFi events to FirmwareApp
     // NOTE: This is a temporary bridge until ArduinoWiFi.onEvent is fully implemented
     // The inline onWiFiDisconnected() below provides auth-failure logging
+    // WiFi STA disconnect event — fires when the ESP32 WiFi drops from connected.
+    // The 2-param lambda matches WiFiEventCb (WiFi.onEvent overload for WiFiEvent_t).
+    // info.wifi_sta_disconnected.reason carries the disconnect cause code.
     WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
         if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
             // Call inline handler first (for auth-failure logging)
@@ -1410,6 +1421,26 @@ void setup() {
 }
 
 void loop() {
+    // 5-second heartbeat: prints current state model snapshot so the serial
+    // monitor shows exactly what state the firmware thinks it's in.
+    static uint32_t lastHeartbeatMs = 0;
+    if (millis() - lastHeartbeatMs > 5000) {
+        lastHeartbeatMs = millis();
+        int wifiState = firmwareApp.getWiFiState();
+        const char* stateName = "?";
+        switch (static_cast<esp32_firmware::WiFiState::State>(wifiState)) {
+            case esp32_firmware::WiFiState::State::DISCONNECTED:   stateName = "DISCONNECTED";   break;
+            case esp32_firmware::WiFiState::State::CONNECTING:     stateName = "CONNECTING";     break;
+            case esp32_firmware::WiFiState::State::CONNECTED_STA:  stateName = "CONNECTED_STA";  break;
+            case esp32_firmware::WiFiState::State::CONNECTED_AP:   stateName = "CONNECTED_AP";   break;
+            case esp32_firmware::WiFiState::State::RECONNECTING:   stateName = "RECONNECTING";   break;
+        }
+        Serial.printf("[STATE] uptime=%lums wifi=%s monitor=%s\r\n",
+                      static_cast<unsigned long>(millis()),
+                      stateName,
+                      monitorActive ? "ACTIVE" : "idle");
+    }
+
     // ── Update FirmwareApp (drives WiFiManager + StatusLED) ────────────────────────
     // This replaces the inline updateWiFiStateMachine() call
     // FirmwareApp.update() calls WiFiManager.update() and statusLed.update()
@@ -1470,8 +1501,6 @@ void loop() {
                 client.stop();
                 client = WiFiClient();  // Ensure client is reset
             } else {
-                Serial.printf("%sTCP: client authenticated from %s%s\r\n",
-                                GREEN, client.remoteIP().toString().c_str(), NC);
                 client.println("OK");
                 client.flush();
                 statusLed.setPattern(StatusLED::Pattern::CLIENT_CONNECTED);
@@ -1480,13 +1509,15 @@ void loop() {
     }
 
     const bool haveClient = client && client.connected();
-
-    // Command mode: read AT commands until ATMA switches to monitor.
-    // Only relevant when a TCP client is connected.
-    if (haveClient && !monitorActive && client.available()) {
-        client.setTimeout(Constants::TCP_COMMAND_TIMEOUT_MS);
-        String cmd = client.readStringUntil('\r');
-        if (!cmd.isEmpty()) handleAT(cmd);
+    if (haveClient && !monitorActive) {
+        // Command mode: read AT commands until ATMA switches to monitor.
+        if (client.available()) {
+            client.setTimeout(Constants::TCP_COMMAND_TIMEOUT_MS);
+            String cmd = client.readStringUntil('\r');
+            if (!cmd.isEmpty()) {
+                handleAT(cmd);
+            }
+        }
     }
 
     // Check if client disconnected - cleanup resources and reset discovery backoff

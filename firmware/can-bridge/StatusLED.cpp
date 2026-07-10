@@ -221,7 +221,7 @@ void StatusLED::setPatternInternal(Pattern pattern) {
 #ifdef ARDUINO
     // Serial trace (hardware only — no-op on host builds). getPatternName is
     // host-safe (plain names), so the call compiles but only links Serial under ARDUINO.
-    Serial.printf("[DEBUG] StatusLED::setPattern: %s\r\n", getPatternName(pattern));
+    Serial.printf("[LED] setPattern -> %s\r\n", getPatternName(pattern));
 #endif
 }
 
@@ -282,7 +282,9 @@ void StatusLED::resetPattern(uint32_t currentTime) {
         setLedOn(newState);
     }
 #ifdef ARDUINO
-    Serial.printf("[DEBUG] StatusLED::resetPattern: %s\r\n", getPatternName(currentPattern_));
+    Serial.printf("[LED] resetPattern -> %s (step 0: %s)\r\n",
+                  getPatternName(currentPattern_),
+                  steps[0].state == LEDState::ON ? "ON" : "OFF");
 #endif
 }
 
