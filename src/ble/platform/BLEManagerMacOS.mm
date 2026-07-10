@@ -276,9 +276,9 @@ std::vector<BLEDeviceInfo> BLEManagerMacOS::scanForDevices(int timeout_seconds) 
     [central_manager_ stopScan];
 
     // Get devices from base class (which was populated by delegate callbacks)
-    std::cout << "[BLEManagerMacOS] Scan complete. Found " << discovered_devices_.size() << " device(s)" << std::endl;
+    std::cout << "[BLEManagerMacOS] Scan complete. Found " << discoveredDevicesRaw().size() << " device(s)" << std::endl;
 
-    return discovered_devices_;
+    return discoveredDevicesRaw();
 }
 
 bool BLEManagerMacOS::connect(std::string_view device_identifier) {
@@ -331,8 +331,8 @@ bool BLEManagerMacOS::connect(std::string_view device_identifier) {
 
     // Connection is async - report success if no immediate error
     // The delegate callbacks will confirm actual connection state
-    connected_ = true;
-    connected_device_id_ = std::string(device_identifier);
+    setConnected(true);
+    setConnectedDeviceId(std::string(device_identifier));
 
     // Update base class state
     setConnectionState(true, device_identifier);
@@ -353,8 +353,8 @@ void BLEManagerMacOS::disconnect() {
     write_characteristic_ = nullptr;
     notify_characteristic_ = nullptr;
 
-    connected_ = false;
-    connected_device_id_.clear();
+    setConnected(false);
+    setConnectedDeviceId("");
 
     // Update base class state
     setConnectionState(false, "");
@@ -377,11 +377,11 @@ void BLEManagerMacOS::send(const std::vector<uint8_t>& data) {
 }
 
 bool BLEManagerMacOS::isConnected() const {
-    return connected_;
+    return isConnectedRaw();
 }
 
 std::string BLEManagerMacOS::getConnectedDeviceId() const {
-    return connected_device_id_;
+    return connectedDeviceIdRaw();
 }
 
 int BLEManagerMacOS::getBluetoothState() const {
@@ -406,12 +406,12 @@ void BLEManagerMacOS::onDataReceived(const std::vector<uint8_t>& data) {
 }
 
 void BLEManagerMacOS::onConnectionStateChanged(bool is_connected, const std::string& device_id) {
-    connected_ = is_connected;
+    setConnected(is_connected);
     if (is_connected && !device_id.empty()) {
-        connected_device_id_ = device_id;
+        setConnectedDeviceId(device_id);
         std::cout << "[BLEManagerMacOS] Connection established: " << device_id << std::endl;
     } else {
-        connected_device_id_.clear();
+        setConnectedDeviceId("");
         std::cout << "[BLEManagerMacOS] Connection lost" << std::endl;
     }
 
@@ -447,7 +447,7 @@ void BLEManagerMacOS::onCharacteristicDiscovered(CBCharacteristic* characteristi
 
 void BLEManagerMacOS::onBluetoothStateChanged(bool isPoweredOn) {
     if (!isPoweredOn) {
-        connected_ = false;
+        setConnected(false);
         setConnectionState(false, "");
         std::cout << "[BLEManagerMacOS] Bluetooth became unavailable" << std::endl;
     }

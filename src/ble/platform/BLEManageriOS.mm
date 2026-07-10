@@ -201,7 +201,6 @@ namespace vehicle_sim {
 
 BLEManageriOS::BLEManageriOS()
     : BLEManagerBase()
-    , connected_(false)
 {
     BLEManageriOSDelegate* delegate = [[BLEManageriOSDelegate alloc] init];
     delegate.manager = this;
@@ -269,9 +268,9 @@ std::vector<BLEDeviceInfo> BLEManageriOS::scanForDevices(int timeout_seconds) {
 
     [central_manager_ stopScan];
 
-    std::cout << "[BLEManageriOS] Scan complete. Found " << discovered_devices_.size() << " device(s)" << std::endl;
+    std::cout << "[BLEManageriOS] Scan complete. Found " << discoveredDevicesRaw().size() << " device(s)" << std::endl;
 
-    return discovered_devices_;
+    return discoveredDevicesRaw();
 }
 
 bool BLEManageriOS::connect(std::string_view device_identifier) {
@@ -316,8 +315,8 @@ bool BLEManageriOS::connect(std::string_view device_identifier) {
     [central_manager_ connectPeripheral:connected_peripheral_ options:nil];
 
     // Connection is async - report success if no immediate error
-    connected_ = true;
-    connected_device_id_ = std::string(device_identifier);
+    setConnected(true);
+    setConnectedDeviceId(std::string(device_identifier));
 
     // Update base class state
     setConnectionState(true, device_identifier);
@@ -338,8 +337,8 @@ void BLEManageriOS::disconnect() {
     write_characteristic_ = nullptr;
     notify_characteristic_ = nullptr;
 
-    connected_ = false;
-    connected_device_id_.clear();
+    setConnected(false);
+    setConnectedDeviceId("");
 
     // Update base class state
     setConnectionState(false, "");
@@ -360,11 +359,11 @@ void BLEManageriOS::send(const std::vector<uint8_t>& data) {
 }
 
 bool BLEManageriOS::isConnected() const {
-    return connected_;
+    return isConnectedRaw();
 }
 
 std::string BLEManageriOS::getConnectedDeviceId() const {
-    return connected_device_id_;
+    return connectedDeviceIdRaw();
 }
 
 int BLEManageriOS::getBluetoothState() const {
@@ -393,12 +392,12 @@ void BLEManageriOS::onDataReceived(const std::vector<uint8_t>& data) {
 }
 
 void BLEManageriOS::onConnectionStateChanged(bool is_connected, const std::string& device_id) {
-    connected_ = is_connected;
+    setConnected(is_connected);
     if (is_connected && !device_id.empty()) {
-        connected_device_id_ = device_id;
+        setConnectedDeviceId(device_id);
         std::cout << "[BLEManageriOS] Connection established: " << device_id << std::endl;
     } else {
-        connected_device_id_.clear();
+        setConnectedDeviceId("");
         std::cout << "[BLEManageriOS] Connection lost" << std::endl;
     }
 
@@ -416,7 +415,7 @@ void BLEManageriOS::onCharacteristicsDiscovered() {
 
 void BLEManageriOS::onBluetoothStateChanged(bool isPoweredOn) {
     if (!isPoweredOn) {
-        connected_ = false;
+        setConnected(false);
         setConnectionState(false, "");
         std::cout << "[BLEManageriOS] Bluetooth became unavailable" << std::endl;
     }

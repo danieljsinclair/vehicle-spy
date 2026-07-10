@@ -244,42 +244,24 @@ protected:
      */
     void setClock(util::IClock* clock) { session_.setClock(clock); }
 
-    // ================================================
-    // Common State (Shared by Derived Classes)
-    // ================================================
+    // --- State accessors (replace formerly-protected direct member access).
+    //     The raw state members are now private (cpp:S3656); derived platform
+    //     classes and test fixtures reach them only through these shims.
+    void setConnected(bool c) noexcept { connected_ = c; }
+    [[nodiscard]] bool isConnectedRaw() const noexcept { return connected_; }
+    void setConnectedDeviceId(std::string id) { connected_device_id_ = std::move(id); }
+    [[nodiscard]] const std::string& connectedDeviceIdRaw() const noexcept { return connected_device_id_; }
+    std::vector<BLEDeviceInfo>& discoveredDevicesRaw() noexcept { return discovered_devices_; }
+    [[nodiscard]] const std::vector<BLEDeviceInfo>& discoveredDevicesRaw() const noexcept { return discovered_devices_; }
 
-    std::vector<BLEDeviceInfo> discovered_devices_;  // guarded by devices_mutex_ (mutex now private)
-
-    std::atomic<bool> connected_{false};
-    std::string connected_device_id_;
-
-    // Callbacks (thread-safe via mutex where needed)
-    DeviceCallback device_callback_;
-    DataCallback data_callback_;
-    ConnectionCallback connection_callback_;
-
-    // Polling timing constants (preserved for test/contract reference; the
-    // live values now live on Elm327Session).
+    // Polling / protocol / RSSI constants (kept protected for derived + test access)
     static constexpr int DEFAULT_POLLING_INTERVAL_MS = Elm327Session::DEFAULT_POLLING_INTERVAL_MS;
     static constexpr int PROMPT_TIMEOUT_MS = Elm327Session::PROMPT_TIMEOUT_MS;
     static constexpr int POST_CONNECT_SETUP_DELAY_MS = Elm327Session::POST_CONNECT_SETUP_DELAY_MS;
-
-    // OBD2 protocol constants
     static constexpr uint8_t OBD2_MODE_LIVE_DATA = 0x01;    // Mode 01: Show Current Data
-
-    // RSSI signal quality thresholds (dBm)
     static constexpr int RSSI_EXCELLENT = -50;
     static constexpr int RSSI_GOOD = -65;
     static constexpr int RSSI_FAIR = -75;
-
-    // The composed ELM327 OBD2 session (roles 4+5: protocol, polling, CAN
-    // monitor, VIN, auto-detection). Holds the obd2_protocol handler, the
-    // vehicle detector, prompt sequencing, the polling thread and can_mode.
-    Elm327Session session_;
-
-    // Raw BLE activity tracking (counts every notification before parsing).
-    // Transport-level bookkeeping; stays on the transport core, not the session.
-    std::atomic<int> ble_notification_count_{0};
 
     // ================================================
     // Protected Helper Methods for Derived Classes
@@ -369,6 +351,30 @@ private:
     mutable std::mutex devices_mutex_;   // guards discovered_devices_
     mutable std::mutex raw_mutex_;       // guards last_raw_hex_
     std::string last_raw_hex_;
+
+    // ================================================
+    // Common State (was protected; moved private per cpp:S3656).
+    // Derived classes and test fixtures reach these only via the protected
+    // accessors (setConnected / isConnectedRaw / discoveredDevicesRaw / ...).
+    // ================================================
+    std::vector<BLEDeviceInfo> discovered_devices_;  // guarded by devices_mutex_
+
+    std::atomic<bool> connected_{false};
+    std::string connected_device_id_;
+
+    // Callbacks (thread-safe via mutex where needed)
+    DeviceCallback device_callback_;
+    DataCallback data_callback_;
+    ConnectionCallback connection_callback_;
+
+    // The composed ELM327 OBD2 session (roles 4+5: protocol, polling, CAN
+    // monitor, VIN, auto-detection). Holds the obd2_protocol handler, the
+    // vehicle detector, prompt sequencing, the polling thread and can_mode.
+    Elm327Session session_;
+
+    // Raw BLE activity tracking (counts every notification before parsing).
+    // Transport-level bookkeeping; stays on the transport core, not the session.
+    std::atomic<int> ble_notification_count_{0};
 };
 
 } // namespace vehicle_sim

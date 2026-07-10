@@ -491,12 +491,13 @@ public:
 
     // The polling loop reads the base connected_ member (not the
     // isConnected() override), so tests that drive the loop must set it.
-    void setBaseConnected(bool c) { connected_ = c; }
+    // connected_ is now private (cpp:S3656); use the protected accessor shim.
+    void setBaseConnected(bool c) { setConnected(c); }
 
     // Read the base connected_ state directly (the isConnected() override is
     // deliberately shadowed in this fixture, so this is the only way to
     // observe what setConnectionState actually wrote).
-    bool baseConnected() const { return connected_; }
+    bool baseConnected() const { return isConnectedRaw(); }
 
     // Re-expose protected helpers used by the contract tests.
     using BLEManagerBase::sendASCII;
