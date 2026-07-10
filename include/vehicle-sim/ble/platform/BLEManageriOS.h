@@ -44,7 +44,7 @@ public:
     void onDataReceived(const std::vector<uint8_t>& data);
 
     // Public wrapper for base class protected method (needed by ObjC delegate)
-    void addDevice(const BLEDeviceInfo& device) { addDiscoveredDevice(device); }
+    void addDevice(const BLEDeviceInfo& device) { deviceRegistry().addDiscoveredDevice(device); }
 
     // Callback for characteristic discovery (called by ObjC delegate)
     void onCharacteristicDiscovered(CBCharacteristic* characteristic);

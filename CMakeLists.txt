@@ -50,6 +50,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/presentation/TelemetryFormatter.cpp
     src/ble/BLEManager.cpp
     src/ble/BLEManagerBase.cpp
+    src/ble/DeviceRegistry.cpp
     src/ble/Elm327Session.cpp
     src/ble/TeslaBLETransport.cpp
     src/ble/platform/BLEManagerMock.cpp

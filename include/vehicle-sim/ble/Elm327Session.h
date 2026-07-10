@@ -14,6 +14,7 @@
 #include "vehicle-sim/boundary/OBD2Protocol.h"
 #include "vehicle-sim/domain/VehicleDetector.h"
 #include "vehicle-sim/util/IClock.h"
+#include "vehicle-sim/ble/OBD2Types.h"
 
 namespace vehicle_sim {
 
@@ -112,6 +113,10 @@ public:
     /// Query the VIN (Mode 09 PID 02). Returns nullopt on prompt timeout or if
     /// the detector has no VIN when the prompt arrives.
     std::optional<std::string> queryVIN(int timeout_ms = PROMPT_TIMEOUT_MS * 2 + 1000);
+
+    /// Send an OBD2 PID query using ELM327 ASCII encoding. Returns an empty
+    /// response; the actual response arrives asynchronously via the data callback.
+    OBD2Response queryPID(uint8_t pid);
 
     // === Data path (driven by the host's notification callback) =============
     /// Handle raw bytes received from the BLE transport. Performs prompt

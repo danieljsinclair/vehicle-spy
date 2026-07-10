@@ -158,11 +158,11 @@ domain::VehicleDetector* BLEManager::vehicleDetector() {
 }
 
 int BLEManager::bleNotificationCount() const {
-    return platform_ ? platform_->bleNotificationCount() : 0;
+    return platform_ ? platform_->rawActivity().bleNotificationCount() : 0;
 }
 
 std::string BLEManager::lastRawHex() const {
-    return platform_ ? platform_->lastRawHex() : "";
+    return platform_ ? platform_->rawActivity().lastRawHex() : "";
 }
 
 } // namespace vehicle_sim

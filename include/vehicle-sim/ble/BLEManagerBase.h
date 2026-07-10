@@ -13,81 +13,35 @@
 
 #include "vehicle-sim/ble/BLEDeviceInfo.h"
 #include "vehicle-sim/ble/Elm327Session.h"
+#include "vehicle-sim/ble/CallbackHub.h"
+#include "vehicle-sim/ble/DeviceRegistry.h"
+#include "vehicle-sim/ble/ConnectionState.h"
+#include "vehicle-sim/ble/RawActivity.h"
+#include "vehicle-sim/ble/OBD2Types.h"
 #include "vehicle-sim/boundary/ELM327Transport.h"
 
 namespace vehicle_sim {
 
 /**
- * @brief Common OBD2 BLE UUIDs used by ELM327-compatible adapters.
- *
- * These UUIDs are standardized across most BLE OBD2 adapters (Vgate, OBDLink, etc.)
- */
-struct OBD2UUIDs {
-    // Nordic UART Service (NUS) - common for ELM327 BLE
-    static constexpr const char* NUS_SERVICE = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
-    static constexpr const char* NUS_TX_CHARACTERISTIC = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";  // Notify
-    static constexpr const char* NUS_RX_CHARACTERISTIC = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";  // Write
-
-    // Legacy OBD2 UART (older ELM327 clones)
-    static constexpr const char* OBD2_SERVICE = "FFE0";
-    static constexpr const char* OBD2_CHARACTERISTIC = "FFE1";
-
-    // Standard BLE services
-    static constexpr const char* BATTERY_SERVICE = "180F";
-    static constexpr const char* DEVICE_INFO_SERVICE = "180A";
-};
-
-/**
- * @brief OBD2 PID constants for standard vehicle telemetry.
- *
- * These PIDs follow the OBD-II standard (SAE J1979).
- */
-struct OBD2PIDs {
-    // Mode 01 (Live Data) PIDs
-    static constexpr uint8_t THROTTLE_POSITION = 0x11;      // 0-100%
-    static constexpr uint8_t VEHICLE_SPEED = 0x0D;          // km/h
-    static constexpr uint8_t ENGINE_RPM = 0x0C;            // RPM
-    static constexpr uint8_t COOLANT_TEMP = 0x05;           // Celsius
-    static constexpr uint8_t INTAKE_AIR_TEMP = 0x0F;        // Celsius
-    static constexpr uint8_t ENGINE_LOAD = 0x04;            // 0-100%
-    static constexpr uint8_t FUEL_LEVEL = 0x2F;             // 0-100%
-    static constexpr uint8_t BATTERY_VOLTAGE = 0x42;        // V (control module voltage)
-    static constexpr uint8_t ENGINE_RUNTIME = 0x1F;         // seconds since engine start
-    static constexpr uint8_t BRAKE_PRESSURE = 0xA4;         // Manufacturer specific
-    static constexpr uint8_t ACCELERATOR_POSITION_D = 0x5A; // Driver pedal %
-    static constexpr uint8_t ACCELERATOR_POSITION_P = 0x5C; // Passenger pedal %
-};
-
-/**
- * @brief Parsed OBD2 response containing a telemetry value.
- * @deprecated This struct is kept for backward compatibility.
- *            OBD2 parsing should use ELM327Transport and OBD2Protocol instead.
- */
-struct OBD2Response {
-    uint8_t mode = 0;
-    uint8_t pid = 0;
-    std::vector<uint8_t> data;
-    std::optional<double> value;
-    bool valid = false;
-};
-
-
-/**
  * @brief Shared BLE functionality for both macOS and iOS.
  *
  * This class contains all common BLE logic following DRY principles:
- * - OBD2 command encoding/decoding
- * - Response parsing and validation
- * - Device storage and callback management
- * - Connection state handling
+ * - OBD2 command encoding/decoding (delegated to the composed Elm327Session)
+ * - Response parsing and validation (delegated to the composed Elm327Session)
+ * - Device storage, connection state, callbacks and raw-activity bookkeeping
+ *   (each extracted into its own collaborator: DeviceRegistry, ConnectionState,
+ *    CallbackHub, RawActivity)
+ * - The ELM327 transport contract + connection-state primitives
  *
- * Platform-specific implementations (BLEManagerMacOS, BLEManageriOS)
- * should inherit from or use this base class for CoreBluetooth operations.
+ * Platform-specific implementations (BLEManagerMacOS, BLEManageriOS) inherit
+ * from this base class for CoreBluetooth operations. The god-class has been
+ * decomposed (cpp:S1448): the movable responsibility clusters now live in the
+ * private collaborators below and are reached through reference-returning
+ * accessors (e.g. deviceRegistry(), connectionState(), callbacks(),
+ * rawActivity()). The base no longer forwards to them — it delegates.
  *
  * The ELM327 OBD2 protocol, polling, CAN-monitor, VIN and auto-detection
- * responsibilities live in the composed Elm327Session (see Elm327Session.h);
- * this class is the slim BLE transport + device-discovery + connection-state
- * core, and exposes the public OBD2 API as thin forwards to that session.
+ * responsibilities live in the composed Elm327Session (see Elm327Session.h).
  */
 class BLEManagerBase : public Elm327SessionHost {
 public:
@@ -101,11 +55,9 @@ public:
     //     needs. These bridge the session to the BLE transport, connection
     //     state, and the consumer data callback.
     void sessionSendAscii(std::string_view command) override { sendASCII(command); }
-    bool sessionIsConnected() const override { return connected_.load(); }
+    bool sessionIsConnected() const override { return connectionState().isConnectedRaw(); }
     void sessionDeliverParsed(const std::vector<uint8_t>& data) override {
-        if (data_callback_) {
-            data_callback_(data);
-        }
+        callbacks().invokeDataCallback(data);
     }
 
     // ================================================
@@ -130,24 +82,6 @@ public:
      * Disconnect from the current device.
      */
     virtual void disconnect() = 0;
-
-    /**
-     * Set callback for device discovery events.
-     * @param callback Function to call when device is found
-     */
-    virtual void setDeviceFoundCallback(DeviceCallback callback);
-
-    /**
-     * Set callback for incoming BLE data.
-     * @param callback Function to call when data received
-     */
-    virtual void setDataReceivedCallback(DataCallback callback);
-
-    /**
-     * Set callback for connection state changes.
-     * @param callback Function to call when connection state changes
-     */
-    void setConnectionCallback(ConnectionCallback callback);
 
     /**
      * Send raw data to connected device.
@@ -175,8 +109,51 @@ public:
      */
     virtual std::string getConnectedDeviceId() const = 0;
 
+    /**
+     * Subscribe the consumer's device-found callback. This is the manager's
+     * public subscription boundary; storage lives in CallbackHub (reached via
+     * callbacks()).
+     */
+    virtual void setDeviceFoundCallback(DeviceCallback callback) {
+        callbacks_.setDeviceFoundCallback(std::move(callback));
+    }
+
+    /**
+     * Subscribe the consumer's raw-data callback. Public subscription boundary;
+     * storage lives in CallbackHub (reached via callbacks()).
+     */
+    virtual void setDataReceivedCallback(DataCallback callback) {
+        callbacks_.setDataReceivedCallback(std::move(callback));
+    }
+
     // ================================================
-    // OBD2 Helper Methods (Common Implementation)
+    // Collaborator accessors (cpp:S1448 decomposition)
+    //
+    // Each returned reference is to a private member object that owns the
+    // responsibility cluster previously living inline on this class. Callers
+    // (platform subclasses, facade, tests) reach the behaviour through these
+    // accessors — the base does NOT forward. This keeps BLEManagerBase a slim
+    // transport core (no god-class) while preserving every observable behaviour.
+    // ================================================
+
+    /// Callback storage + invocation (device-found / data / connection).
+    [[nodiscard]] CallbackHub& callbacks() noexcept { return callbacks_; }
+    [[nodiscard]] const CallbackHub& callbacks() const noexcept { return callbacks_; }
+
+    /// Discovered-device cache (dedup, lookup, clear).
+    [[nodiscard]] DeviceRegistry& deviceRegistry() noexcept { return device_registry_; }
+    [[nodiscard]] const DeviceRegistry& deviceRegistry() const noexcept { return device_registry_; }
+
+    /// Connection state (connected flag + connected device id) + change notify.
+    [[nodiscard]] ConnectionState& connectionState() noexcept { return connection_state_; }
+    [[nodiscard]] const ConnectionState& connectionState() const noexcept { return connection_state_; }
+
+    /// Raw BLE activity bookkeeping (notification count + last raw hex).
+    [[nodiscard]] RawActivity& rawActivity() noexcept { return raw_activity_; }
+    [[nodiscard]] const RawActivity& rawActivity() const noexcept { return raw_activity_; }
+
+    // ================================================
+    // OBD2 surface (delegated to the composed Elm327Session)
     // ================================================
 
     /**
@@ -187,45 +164,15 @@ public:
      * a slim transport core (no god-class facade) while preserving the OBD2
      * surface verbatim on Elm327Session.
      */
-    Elm327Session& elm327Session() { return session_; }
-    const Elm327Session& elm327Session() const { return session_; }
+    [[nodiscard]] Elm327Session& elm327Session() { return session_; }
+    [[nodiscard]] const Elm327Session& elm327Session() const { return session_; }
 
     /**
-     * Send an OBD2 PID query using ELM327 ASCII encoding.
-     * @param pid The PID to query
-     * @return Empty response - actual response comes via data callback
-     */
-    OBD2Response queryPID(uint8_t pid) {
-        sendASCII(boundary::ELM327Transport::buildOBD2Query(OBD2_MODE_LIVE_DATA, pid));
-        return OBD2Response{};
-    }
-
-    /**
-     * Convert RSSI to signal quality string.
-     * @param rssi Signal strength in dBm
-     * @return Human-readable quality (Excellent/Good/Fair/Poor)
-     */
-    static std::string signalQuality(int rssi);
-
-    /**
-     * Get the vehicle detector for reading detection results.
+     * Get the vehicle detector for reading detection results. Kept as a session
+     * forward because the facade (BLEManager::vehicleDetector) reaches it here.
      * @return Pointer to the active VehicleDetector (never null)
      */
     domain::VehicleDetector* vehicleDetector() { return session_.vehicleDetector(); }
-
-    /**
-     * Get count of raw BLE notifications received (before any parsing).
-     * Increments on every invokeDataCallback call.
-     */
-    [[nodiscard]] int bleNotificationCount() const noexcept { return ble_notification_count_.load(); }
-
-    /**
-     * Get hex dump of the last raw bytes received from BLE (before parsing).
-     */
-    [[nodiscard]] std::string lastRawHex() const {
-        std::scoped_lock lock(raw_mutex_);
-        return last_raw_hex_;
-    }
 
 protected:
     // ================================================
@@ -244,137 +191,49 @@ protected:
      */
     void setClock(util::IClock* clock) { session_.setClock(clock); }
 
-    // --- State accessors (replace formerly-protected direct member access).
-    //     The raw state members are now private (cpp:S3656); derived platform
-    //     classes and test fixtures reach them only through these shims.
-    void setConnected(bool c) noexcept { connected_ = c; }
-    [[nodiscard]] bool isConnectedRaw() const noexcept { return connected_; }
-    void setConnectedDeviceId(std::string id) { connected_device_id_ = std::move(id); }
-    [[nodiscard]] const std::string& connectedDeviceIdRaw() const noexcept { return connected_device_id_; }
-    std::vector<BLEDeviceInfo>& discoveredDevicesRaw() noexcept { return discovered_devices_; }
-    [[nodiscard]] const std::vector<BLEDeviceInfo>& discoveredDevicesRaw() const noexcept { return discovered_devices_; }
-
     // Polling / protocol / RSSI constants (kept protected for derived + test access)
     static constexpr int DEFAULT_POLLING_INTERVAL_MS = Elm327Session::DEFAULT_POLLING_INTERVAL_MS;
     static constexpr int PROMPT_TIMEOUT_MS = Elm327Session::PROMPT_TIMEOUT_MS;
     static constexpr int POST_CONNECT_SETUP_DELAY_MS = Elm327Session::POST_CONNECT_SETUP_DELAY_MS;
-    static constexpr uint8_t OBD2_MODE_LIVE_DATA = 0x01;    // Mode 01: Show Current Data
-    static constexpr int RSSI_EXCELLENT = -50;
-    static constexpr int RSSI_GOOD = -65;
-    static constexpr int RSSI_FAIR = -75;
 
     // ================================================
     // Protected Helper Methods for Derived Classes
     // ================================================
 
     /**
-     * Add a discovered device to the internal list.
-     * Prevents duplicates based on address.
-     */
-    void addDiscoveredDevice(const BLEDeviceInfo& device);
-
-    /**
-     * Clear the discovered devices list.
-     */
-    void clearDiscoveredDevices();
-
-    /**
-     * Invoke the device found callback (if set).
-     * Thread-safe.
-     */
-    void invokeDeviceCallback(const BLEDeviceInfo& device) const;
-
-    /**
-     * Invoke the data received callback (if set).
-     * Thread-safe.
-     */
-    void invokeDataCallback(const std::vector<uint8_t>& data);
-
-    /**
-     * Invoke the connection callback (if set).
-     * Thread-safe.
-     */
-    void invokeConnectionCallback(bool connected, std::string_view device_id) const;
-
-    /**
-     * Update connection state and invoke callback.
-     */
-    void setConnectionState(bool connected, std::string_view device_id = "");
-
-    /**
-     * Get the discovered device by address.
-     * Thread-safe.
-     */
-    std::optional<BLEDeviceInfo> findDeviceByAddress(std::string_view address) const;
-
-    /**
      * Send an ASCII command string over BLE as raw bytes.
      */
     void sendASCII(std::string_view command);
 
-    // --- Prompt / parse seams (thin forwards to the composed session).
-    //     Kept protected so fixtures that drive the prompt sequence and parse
-    //     helper keep compiling; the behaviour lives in Elm327Session.
-
-    /// @copydoc Elm327Session::waitForPrompt(int)
-    bool waitForPrompt(int timeout_ms = PROMPT_TIMEOUT_MS) { return session_.waitForPrompt(timeout_ms); }
-
-    /// @copydoc Elm327Session::parseASCIIResponseToBinary(const std::vector<uint8_t>&) const
-    std::vector<uint8_t> parseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData) const {
-        return session_.parseASCIIResponseToBinary(asciiData);
-    }
-
-    /**
-     * Signal that the ELM327 '>' prompt has been received.
-     * Thin forward to the composed session; kept protected so existing
-     * fixtures that drive the prompt sequence keep compiling.
-     */
-    void notifyPrompt() { session_.notifyPrompt(); }
-
-    /**
-     * Whether the adapter is in CAN monitor mode. Protected forward to the
-     * composed session's flag (replaces the former protected can_mode_ member).
-     */
-    [[nodiscard]] bool canMode() const noexcept { return session_.canMode(); }
-
-    /**
-     * Whether a '>' prompt has been signalled and not yet consumed by a wait.
-     * Protected forward to the composed session's prompt state (replaces the
-     * former protected prompt_ready_ member).
-     */
-    bool promptReady() const { return session_.promptReady(); }
-
 private:
     // Mutable synchronization primitives and the state they guard are private
-    // so every access is channelled through this class's own (locking) methods,
-    // enforcing proper synchronization. No derivative touches these directly.
-    mutable std::mutex devices_mutex_;   // guards discovered_devices_
-    mutable std::mutex raw_mutex_;       // guards last_raw_hex_
-    std::string last_raw_hex_;
+    // so every access is channelled through this class's collaborators, which
+    // enforce proper synchronization. No derivative touches the raw members
+    // directly — they go through the public accessors (callbacks(),
+    // deviceRegistry(), connectionState(), rawActivity()).
 
-    // ================================================
-    // Common State (was protected; moved private per cpp:S3656).
-    // Derived classes and test fixtures reach these only via the protected
-    // accessors (setConnected / isConnectedRaw / discoveredDevicesRaw / ...).
-    // ================================================
-    std::vector<BLEDeviceInfo> discovered_devices_;  // guarded by devices_mutex_
+    // Callback storage (device/data/connection). Declared first: the other
+    // collaborators hold a reference to it.
+    CallbackHub callbacks_;
 
-    std::atomic<bool> connected_{false};
-    std::string connected_device_id_;
+    // Discovered-device cache. Holds a reference to callbacks_ (fires
+    // device-found on discovery).
+    DeviceRegistry device_registry_{callbacks_};
 
-    // Callbacks (thread-safe via mutex where needed)
-    DeviceCallback device_callback_;
-    DataCallback data_callback_;
-    ConnectionCallback connection_callback_;
+    // Connection state. Holds a reference to callbacks_ (fires connection
+    // callback on change).
+    ConnectionState connection_state_{callbacks_};
 
     // The composed ELM327 OBD2 session (roles 4+5: protocol, polling, CAN
     // monitor, VIN, auto-detection). Holds the obd2_protocol handler, the
     // vehicle detector, prompt sequencing, the polling thread and can_mode.
-    Elm327Session session_;
+    // Constructed before raw_activity_ (RawActivity routes raw bytes to it).
+    Elm327Session session_{*this, nullptr};
 
     // Raw BLE activity tracking (counts every notification before parsing).
-    // Transport-level bookkeeping; stays on the transport core, not the session.
-    std::atomic<int> ble_notification_count_{0};
+    // Holds a reference to session_ (routes raw bytes into the session for
+    // parsing after bookkeeping).
+    RawActivity raw_activity_{session_};
 };
 
 } // namespace vehicle_sim
