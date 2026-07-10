@@ -112,6 +112,28 @@ constexpr std::array<uint8_t, 16> kDeviceId = {
     0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10
 };
 
+// Trivial CAN-adapter fakes. FirmwareApp's CAN path is exercised on-device, not
+// asserted by this host suite, so these only need to satisfy the injected seams.
+class FakeCanDriver : public ICanDriver {
+public:
+    int driverInstall(void*, void*, void*) override { return 0; }
+    int start() override { return 0; }
+    int receive(CanFrame*, uint32_t) override { return -1; }
+};
+
+class FakeTcpClient : public ITcpClient {
+public:
+    bool connected() const override { return false; }
+    size_t print(const char*) override { return 0; }
+    void flush() override {}
+};
+
+class FakeSerialCan : public ISerialCan {
+public:
+    size_t print(const char*) override { return 0; }
+    void flush() override {}
+};
+
 // Build a fully-wired FirmwareApp.
 struct AppHarness {
     FakeWiFi wifi;
@@ -122,10 +144,14 @@ struct AppHarness {
     FakeTime time;
     FakeSntp sntp;
     FakeTimeNtp timeNtp;
+    FakeCanDriver canDriver;
+    FakeTcpClient tcpClient;
+    FakeSerialCan serialCan;
     FirmwareApp app;
 
     AppHarness()
-        : app(wifi, prefs, led, wifiDisc, udp, time, sntp, timeNtp, kDeviceId) {}
+        : app(wifi, prefs, led, wifiDisc, udp, time, sntp, timeNtp, kDeviceId,
+              CanBridgeDeps{canDriver, tcpClient, serialCan}) {}
 };
 
 // ── Init / lifecycle ─────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@
 #include <gmock/gmock.h>
 #include <sys/time.h>
 #include "vanilla/FirmwareApp.h"
+#include "vanilla/CanBridge.h"
 #include "mocks/WiFiMock.h"
 #include "mocks/PreferencesMock.h"
 #include "mocks/ArduinoMock.h"
@@ -64,6 +65,29 @@ public:
     MOCK_METHOD(size_t, strftime, (char* s, size_t maxsize, const char* format, const struct tm* tm), (override));
 };
 
+// Trivial non-gmock stubs for the CanBridge adapters. FirmwareApp's tests do not
+// assert the CAN stream path (that is the .ino's concern), so these only need to
+// satisfy the injected interfaces without doing anything.
+class StubCanDriver : public ICanDriver {
+public:
+    int driverInstall(void*, void*, void*) override { return 0; }
+    int start() override { return 0; }
+    int receive(CanFrame*, uint32_t) override { return -1; }  // no frames
+};
+
+class StubTcpClient : public ITcpClient {
+public:
+    bool connected() const override { return false; }
+    size_t print(const char*) override { return 0; }
+    void flush() override {}
+};
+
+class StubSerialCan : public ISerialCan {
+public:
+    size_t print(const char*) override { return 0; }
+    void flush() override {}
+};
+
 class FirmwareAppTest : public ::testing::Test {
 protected:
     WiFiMock wifiMock;
@@ -73,6 +97,10 @@ protected:
     NiceMock<MockTime> timeMock;
     NiceMock<MockSntp> sntpMock;
     NiceMock<MockTimeNtp> timeNtpMock;
+    StubCanDriver canDriverStub;
+    StubTcpClient tcpClientStub;
+    StubSerialCan serialStub;
+    CanBridgeDeps canDeps{canDriverStub, tcpClientStub, serialStub};
     std::unique_ptr<FirmwareApp> firmwareApp;
 
     // Test device ID for DiscoveryManager
@@ -130,12 +158,14 @@ protected:
 
     // Helper to create FirmwareApp with all dependencies
     std::unique_ptr<FirmwareApp> createFirmwareApp(const char* bakedSsid = nullptr, const char* bakedPass = nullptr) {
+        CanBridgeDeps canDeps{canDriverStub, tcpClientStub, serialStub};
         return std::make_unique<FirmwareApp>(
             wifiMock, prefsMock, statusLedMock,
             wifiMock,  // WiFiMock implements both IWiFi and IWiFiDiscovery
             udpMock, timeMock,
             sntpMock, timeNtpMock,
             testDeviceId,
+            canDeps,
             bakedSsid, bakedPass
         );
     }
@@ -151,7 +181,7 @@ TEST_F(FirmwareAppTest, Ctor_DoesNotThrow) {
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
-                       testDeviceId);
+                       testDeviceId, canDeps);
     });
 }
 
@@ -161,7 +191,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_DoesNotThrow) {
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
-                       testDeviceId, "test-ssid", "test-pass");
+                       testDeviceId, canDeps, "test-ssid", "test-pass");
     });
 }
 
@@ -428,7 +458,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_HasStoredReturnsFalse) {
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
-                   testDeviceId, "baked-ssid", "baked-pass");
+                   testDeviceId, canDeps, "baked-ssid", "baked-pass");
     app.init();
 
     EXPECT_FALSE(app.hasStoredCredentials());
@@ -439,7 +469,7 @@ TEST_F(FirmwareAppTest, StoreCredentials_OverridesBaked_WhenStored) {
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
-                   testDeviceId, "baked-ssid", "baked-pass");
+                   testDeviceId, canDeps, "baked-ssid", "baked-pass");
     app.init();
 
     app.storeCredentials("stored-ssid", "stored-pass");
@@ -510,11 +540,11 @@ TEST_F(FirmwareAppTest, TwoInstances_SameDependencies_DoNotInterfere) {
     FirmwareApp app1(wifiMock, prefsMock, statusLedMock,
                     wifiMock, udpMock, timeMock,
                     sntpMock, timeNtpMock,
-                    testDeviceId);
+                    testDeviceId, canDeps);
     FirmwareApp app2(wifiMock, prefsMock, statusLedMock2,
                     wifiMock, udpMock2, timeMock2,
                     sntpMock, timeNtpMock,
-                    testDeviceId);
+                    testDeviceId, canDeps);
 
     app1.init();
 
@@ -746,4 +776,39 @@ TEST_F(FirmwareAppTest, NtpRouting_SyncCallbackDrivesTimeFormatting) {
     ASSERT_TRUE(capturedSyncCallback_) << "sync callback must be wired before firing";
     timeval tv{1234567890, 0};
     capturedSyncCallback_(&tv);  // simulate SNTP firing the sync-notification
+}
+
+// ============================================================================
+// CAN BRIDGE ROUTING (Stage 1: wire vanilla CanBridge through FirmwareApp)
+// ============================================================================
+
+TEST_F(FirmwareAppTest, CanBridge_SetMonitorActive_DelegatesToBridge) {
+    // CONTRACT: setMonitorActive() must drive the wired CanBridge's monitor
+    // state so the .ino no longer owns a parallel global.
+    firmwareApp->init();
+
+    EXPECT_FALSE(firmwareApp->isMonitorActive());
+
+    firmwareApp->setMonitorActive(true);
+    EXPECT_TRUE(firmwareApp->isMonitorActive());
+
+    firmwareApp->setMonitorActive(false);
+    EXPECT_FALSE(firmwareApp->isMonitorActive());
+}
+
+TEST_F(FirmwareAppTest, CanBridge_ProcessCanFrames_BeforeInit_ThrowsLogicError) {
+    // processCanFrames() must not run against an uninitialized bridge.
+    EXPECT_ANY_THROW({
+        firmwareApp->processCanFrames(0);
+    });
+}
+
+TEST_F(FirmwareAppTest, CanBridge_ProcessCanFrames_AfterInit_DoesNotThrow) {
+    // With the stub (no-op) adapters, draining the TWAI RX queue must be safe.
+    firmwareApp->init();
+
+    EXPECT_NO_THROW({
+        firmwareApp->processCanFrames(0);
+        firmwareApp->processCanFrames(5000);  // quiet-period variant
+    });
 }

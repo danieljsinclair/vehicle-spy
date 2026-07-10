@@ -18,11 +18,13 @@
 #include "WiFiManager.h"
 #include "DiscoveryManager.h"
 #include "NtpTimeSync.h"
+#include "CanBridge.h"
 
 namespace esp32_firmware {
 
 // Forward declarations (avoid circular dependencies)
 class CanBridge;
+struct CanBridgeDeps;
 class AtCommandDispatcher;
 class OtaUpdateServer;
 
@@ -61,11 +63,13 @@ public:
     // - sntp: SNTP interface for NTP time sync (ArduinoSntp or mock)
     // - timeNtp: time interface for NTP sync (ArduinoTimeNtp or mock)
     // - deviceId: 16-byte device ID for discovery packets
+    // - canBridgeDeps: adapters wiring CanBridge to hardware (CAN/TCP/Serial)
     // - bakedSsid/bakedPass: optional compile-time WiFi credentials
     FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
                 IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
                 ISntp& sntp, ITimeNtp& timeNtp,
                 const std::array<uint8_t, 16>& deviceId,
+                const CanBridgeDeps& canBridgeDeps,
                 const char* bakedSsid = nullptr, const char* bakedPass = nullptr);
 
     ~FirmwareApp();
@@ -119,6 +123,13 @@ public:
     bool clearCredentials();
     bool loadCredentials(std::string& ssid, std::string& pass) const;
 
+    // CAN bridge: the .ino routes monitor-state and the TWAI RX drain here so
+    // frame streaming (Serial always, TCP when connected+monitoring) runs through
+    // the vanilla CanBridge instead of inline logic.
+    void setMonitorActive(bool active);
+    bool isMonitorActive() const;
+    void processCanFrames(uint32_t serialQuietUntilMs);
+
 private:
     // Dependencies
     IWiFi& wifi_;
@@ -130,6 +141,7 @@ private:
     ISntp& sntp_;
     ITimeNtp& timeNtp_;
     const std::array<uint8_t, 16>& deviceId_;
+    CanBridgeDeps canBridgeDeps_;
     const char* bakedSsid_;
     const char* bakedPass_;
 

@@ -7,6 +7,9 @@ namespace esp32_firmware {
 CanBridge::CanBridge(ICanDriver& canDriver, ITcpClient& tcpClient, ISerialCan& serial)
     : canDriver_(canDriver), tcpClient_(tcpClient), serial_(serial) {}
 
+CanBridge::CanBridge(const CanBridgeDeps& deps)
+    : canDriver_(deps.canDriver), tcpClient_(deps.tcpClient), serial_(deps.serial) {}
+
 bool CanBridge::init() {
     // TWAI init — listen-only so we never transmit on the vehicle bus
     // In real implementation, this would configure gcfg, tcfg, fcfg

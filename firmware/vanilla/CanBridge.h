@@ -45,9 +45,19 @@ struct ISerialCan {
     virtual ~ISerialCan() = default;
 };
 
+// Aggregated dependency bundle for CanBridge construction.
+// Named/value-semantic (holds 3 refs) so callers can build it once and pass it
+// through an orchestrator ctor without leaking the individual adapters.
+struct CanBridgeDeps {
+    ICanDriver& canDriver;
+    ITcpClient& tcpClient;
+    ISerialCan& serial;
+};
+
 class CanBridge {
 public:
     CanBridge(ICanDriver& canDriver, ITcpClient& tcpClient, ISerialCan& serial);
+    explicit CanBridge(const CanBridgeDeps& deps);
 
     // Initialize CAN driver
     bool init();
