@@ -115,6 +115,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     firmware/vanilla/StatusLEDRenderer.cpp
     firmware/vanilla/AtCommandDispatcher.cpp
     firmware/vanilla/DiscoveryManager.cpp
+    firmware/vanilla/WiFiManager.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
