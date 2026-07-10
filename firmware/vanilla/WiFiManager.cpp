@@ -169,7 +169,7 @@ struct ConnectedApStateHandler : public IWiFiStateHandler {
 
 WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
                          const char* bakedSsid, const char* bakedPass)
-    : wifi_(wifi), prefs_(prefs), statusLed_(statusLed)
+    : wifi_(wifi), prefs_(prefs), statusLed_(statusLed), serial_(serial)
     , bakedSsid_(bakedSsid), bakedPass_(bakedPass) {
     // Initialize state handlers
     disconnectedHandler_ = std::make_unique<DisconnectedStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
@@ -236,6 +236,7 @@ void WiFiManager::onDisconnected(int reason) {
         ctx_.state = WiFiState::State::CONNECTED_AP;
         ctx_.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
         statusLed_.setPattern(4);  // AP_MODE
+        serial_.printf("[STATE] WiFi: %s -> CONNECTED_AP (auth fail reason=%d)\r\n", stateName(from), reason);
         return;
     }
 
@@ -243,6 +244,7 @@ void WiFiManager::onDisconnected(int reason) {
         ctx_.state = WiFiState::State::RECONNECTING;
         ctx_.tcpServerNeedsRestart = true;
         ctx_.lastRetryMs = 0;  // Will be set on next update
+        serial_.printf("[STATE] WiFi: %s -> RECONNECTING (reason=%d)\r\n", stateName(from), reason);
     }
 }
 
@@ -335,6 +337,8 @@ void WiFiManager::applyStateTransition(const StateTransition& transition) {
             statusLed_.setPattern(0);  // WIFI_SEARCHING
             break;
     }
+
+    serial_.printf("[STATE] WiFi: %s -> %s\r\n", stateName(from), stateName(ctx_.state));
 
     if (transition.setTcpServerRestartFlag) {
         ctx_.tcpServerNeedsRestart = true;

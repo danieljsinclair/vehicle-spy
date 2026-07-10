@@ -8,7 +8,7 @@
 
 namespace esp32_firmware {
 
-FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
+FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed, ISerial& serial,
                          IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
                          ISntp& sntp, ITimeNtp& timeNtp,
                          const std::array<uint8_t, 16>& deviceId,
@@ -16,6 +16,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     : wifi_(wifi)
     , prefs_(prefs)
     , statusLed_(statusLed)
+    , serial_(serial)
     , wifiDiscovery_(wifiDiscovery)
     , udp_(udp)
     , time_(time)
@@ -44,7 +45,7 @@ void FirmwareApp::init() {
 
 void FirmwareApp::setupManagers() {
     // Create WiFiManager (primary state machine driver)
-    wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs_, statusLed_,
+    wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs_, statusLed_, serial_,
                                                    bakedSsid_, bakedPass_);
 
     // Initialize WiFi state machine. WiFi.begin() is issued here at boot - this is
@@ -213,3 +214,5 @@ bool FirmwareApp::loadCredentials(std::string& ssid, std::string& pass) const {
 }
 
 } // namespace esp32_firmware
+
+

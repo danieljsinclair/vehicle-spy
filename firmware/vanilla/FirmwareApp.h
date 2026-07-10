@@ -124,6 +124,7 @@ private:
     IWiFi& wifi_;
     IPreferences& prefs_;
     IStatusLED& statusLed_;
+    ISerial& serial_;
     IWiFiDiscovery& wifiDiscovery_;
     IUdp& udp_;
     ITime& time_;

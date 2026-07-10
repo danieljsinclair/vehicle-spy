@@ -92,6 +92,12 @@ struct IStatusLED {
     virtual ~IStatusLED() = default;
 };
 
+// Serial output interface (DI-injected for testability)
+struct ISerial {
+    virtual void println(const char* msg) const = 0;
+    virtual ~ISerial() = default;
+};
+
 // Configuration constants
 struct WiFiConfig {
     static constexpr uint32_t WIFI_CONNECT_RETRY_INTERVAL_MS = 5000;
@@ -162,6 +168,7 @@ private:
     IWiFi& wifi_;
     IPreferences& prefs_;
     IStatusLED& statusLed_;
+    ISerial& serial_;
     const char* bakedSsid_;
     const char* bakedPass_;
 
