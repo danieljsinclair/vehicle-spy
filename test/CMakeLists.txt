@@ -61,6 +61,7 @@ add_executable(vehicle-sim-tests
     util/IClock.test.cpp
     firmware/StatusLED.test.cpp
     firmware/AtCommandDispatcher.test.cpp
+    firmware/DiscoveryManager.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests

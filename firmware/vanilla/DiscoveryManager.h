@@ -112,6 +112,10 @@ public:
                                      uint32_t tcpPort, uint16_t otaPort,
                                      uint64_t timestamp, uint32_t nonce);
 
+    // Testable predicate: whether a discovery broadcast should fire given the
+    // current WiFi mode and whether a buddy client is already connected.
+    bool shouldBroadcast(bool haveClient) const;
+
 private:
     IUdp& udp_;
     IWiFiDiscovery& wifi_;
@@ -127,7 +131,6 @@ private:
         return instance;
     }
 
-    bool shouldBroadcast(bool haveClient) const;
     void broadcast();
 };
 
