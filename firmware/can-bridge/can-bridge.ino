@@ -20,6 +20,8 @@
 #include <vector>         // Command pattern registry
 #include <array>          // Fixed-size buffers (S5945)
 #include <algorithm>      // std::copy for byte buffers
+#include <type_traits>    // static_assert noexcept-move checks (S5018)
+#include <utility>        // std::move for noexcept move ops (S5018)
 
 // DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
 
@@ -157,31 +159,14 @@ struct WiFiStateHandler {
     virtual ~WiFiStateHandler() = default;
 };
 
-// AT command execution result
-struct AtCommandResult {
-    String response;
-    bool shouldReboot;
-    bool shouldFlushClient;
-
-    explicit AtCommandResult(const char* resp = "", bool reboot = false, bool flush = false)
-        : response(resp), shouldReboot(reboot), shouldFlushClient(flush) {}
-};
-
-// AT command handler interface (Command Pattern)
-struct AtCommandHandler {
-    virtual bool matches(const String& normalizedCmd) const = 0;
-    virtual AtCommandResult execute(const String& originalCmd) const = 0;
-    virtual ~AtCommandHandler() = default;
-};
-
-// WiFi SET command parameters
-struct SetWifiParams {
-    String ssid;
-    String password;
-    bool valid = false;
-
-    SetWifiParams() = default;
-};
+// AT command handling was extracted from this .ino into the vanilla
+// AtCommandDispatcher (firmware/vanilla/AtCommandDispatcher.{h,cpp}). The .ino
+// no longer owns the command structs (AtCommandResult/SetWifiParams/
+// AtCommandHandler), handler registry, or dispatch loop — it delegates both the
+// TCP and serial command reads to a single AtCommandDispatcher owned by
+// FirmwareApp. The vanilla types are the canonical ones; the inline S5018
+// noexcept-move edits on the old inline structs are superseded by this
+// extraction (see Stage 2 notes).
 
 // ── Discovery State ────────────────────────────────────────────────────────────
 namespace DiscoveryState {
@@ -358,18 +343,105 @@ static ArduinoTimeNtp arduinoTimeNtp;  // ITimeNtp adapter for NTP sync
 static constexpr const char* BAKED_SSID = (WIFI_SSID != nullptr) ? WIFI_SSID : nullptr;
 static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASSWORD : nullptr;
 
-// FirmwareApp orchestrator - delegates WiFi/LED/NTP to vanilla managers
+// ── CAN Bridge Arduino Adapters ──────────────────────────────────────────
+// Thin adapters implementing CanBridge's vanilla interfaces over the ESP32
+// hardware. Construction/install of the TWAI driver happens once in setup()
+// (hardware-touching), so the adapter only READS frames here (safe post-boot).
+// NOTE: the connected-buddy WiFiClient must be declared before these adapters
+// because their member bodies reference it (complete-class context).
+static WiFiClient client;
+#if VEHICLE_SIM_ENABLE_TWAI
+struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
+    int driverInstall(void*, void*, void*) override { return 0; }  // done in setup()
+    int start() override { return 0; }                              // done in setup()
+    int receive(esp32_firmware::CanFrame* msg, uint32_t timeoutMs) override {
+        twai_message_t m{};
+        if (twai_receive(&m, timeoutMs) != ESP_OK) return -1;
+        msg->identifier = m.identifier;
+        msg->data_length_code = m.data_length_code;
+        std::copy(std::begin(m.data), std::end(m.data), std::begin(msg->data));
+        return 0;  // ESP_OK
+    }
+};
+#else
+struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
+    int driverInstall(void*, void*, void*) override { return -1; }
+    int start() override { return -1; }
+    int receive(esp32_firmware::CanFrame*, uint32_t) override { return -1; }
+};
+#endif
+
+// ITcpClient wrapping the global WiFiClient (the connected buddy).
+struct ArduinoTcpClient : public esp32_firmware::ITcpClient {
+    bool connected() const override { return client && client.connected(); }
+    size_t print(const char* str) override { return client.print(str); }
+    void flush() override { client.flush(); }
+};
+
+// ISerialCan wrapping Serial (USB diagnostic logging).
+struct ArduinoSerialCan : public esp32_firmware::ISerialCan {
+    size_t print(const char* str) override { return Serial.print(str); }
+    void flush() override { Serial.flush(); }
+};
+
+static ArduinoCanDriver arduinoCanDriver;
+static ArduinoTcpClient arduinoTcpClient;
+static ArduinoSerialCan arduinoSerialCan;
+static esp32_firmware::CanBridgeDeps canBridgeDeps{
+    arduinoCanDriver, arduinoTcpClient, arduinoSerialCan
+};
+
+// ── AT Command Adapters (vanilla AtCommandDispatcher boundaries) ────────────
+// Thin Arduino implementations of the vanilla AT-boundary interfaces. The .ino
+// owns the hardware objects (WiFiClient/Serial/ESP/Preferences); FirmwareApp owns
+// the AtCommandDispatcher and is handed these adapters so the device-specific
+// I/O stays in the .ino while the command logic lives in vanilla code.
+struct ArduinoAtTcpClient : public esp32_firmware::ITcpClientAt {
+    void print(const char* str) override { client.print(str); }
+    void flush() override { client.flush(); }
+};
+
+struct ArduinoAtSerial : public esp32_firmware::ISerialAt {
+    void println(const char* str) override { Serial.println(str); }
+    void flush() override { Serial.flush(); }
+};
+
+struct ArduinoAtEsp : public esp32_firmware::IEspAt {
+    void restart() override {
+        delay(Constants::TCP_REBOOT_DELAY_MS);
+        ESP.restart();
+    }
+};
+
+struct ArduinoAtWifiStore : public esp32_firmware::IWifiCredentialStore {
+    bool store(const std::string& ssid, const std::string& password) override {
+        // Bridge vanilla std::string -> Arduino String for the NVS write.
+        return storeWifiCredentials(String(ssid.c_str()), String(password.c_str()));
+    }
+};
+
+struct ArduinoAtMonitor : public esp32_firmware::IMonitorState {
+    void setMonitorActive(bool active) override { firmwareApp.setMonitorActive(active); }
+};
+
+static ArduinoAtTcpClient arduinoAtTcpClient;
+static ArduinoAtSerial arduinoAtSerial;
+static ArduinoAtEsp arduinoAtEsp;
+static ArduinoAtWifiStore arduinoAtWifiStore;
+static ArduinoAtMonitor arduinoAtMonitor;
+
+// FirmwareApp orchestrator - delegates WiFi/LED/NTP/CAN to vanilla managers
 // ArduinoWiFi implements both IWiFi and IWiFiDiscovery
 // NTP is routed through FirmwareApp (owns NtpTimeSync + ArduinoSntp/ArduinoTimeNtp)
+// CanBridge is constructed inside FirmwareApp from the adapter bundle above.
 static FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
                               arduinoWiFi, arduinoUdp, arduinoTime,
                               arduinoSntp, arduinoTimeNtp,
                               discoveryDeviceId,
+                              canBridgeDeps,
                               BAKED_SSID, BAKED_PASS);
 
 static WiFiServer tcpServer(Constants::TCP_PORT);
-static WiFiClient client;
-static bool monitorActive = false;
 static uint32_t serialQuietUntilMs = 0;
 static WiFiState::Context wifiCtx;  // TODO: Remove once fully routed to FirmwareApp
 
@@ -909,294 +981,18 @@ static void updateWiFiStateMachine() {
     applyStateTransition(transition, wifiCtx);
 }
 
-static void sendPrompt(const char* response) {
-    client.printf("%s\r\r>", response);
-    client.flush();
-}
-
-static void sendSerialPrompt(const char* response) {
-    Serial.println(response);
-    Serial.flush();
-}
-
-// Testable pure function: Normalize AT command (testable)
-static String normalizeAtCommand(const String& cmd) {
-    String normalized = cmd;
-    normalized.trim();
-    normalized.toUpperCase();
-    return normalized;
-}
-
-// Testable pure function: Build HELO response (testable)
-static String buildHeloResponse() {
-    std::array<char, 128> response{};
-    int len = snprintf(response.data(), response.size(),
-        "ACK DEVICE=%s FIRMWARE=%s DEVICEID=",
-        Constants::DEVICE_NAME, Constants::FIRMWARE_VERSION);
-    // Append device ID as hex (16 bytes -> 32 hex chars). Stop iterating once
-    // we've written every device-id byte, or once the buffer is too full to
-    // safely hold another hex pair plus the trailing "\r".
-    const int tailRoom = 3;  // reserve space for one more "%02X" + trailing "\r"
-    size_t i = 0;
-    while (i < discoveryDeviceId.size() && len < (int)response.size() - tailRoom) {
-        len += snprintf(response.data() + len, response.size() - len, "%02X", discoveryDeviceId[i]);
-        ++i;
-    }
-    snprintf(response.data() + len, response.size() - len, "\r");
-    return String(response.data());
-}
-
-// ATZ - Reset handler
-struct AtzCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATZ";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        monitorActive = false;
-        return AtCommandResult("ELM327 v2.3");
-    }
-};
-
-// ATE0/ATE1 - Echo handler
-struct AteCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATE0" || normalizedCmd == "ATE1";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult("OK");
-    }
-};
-
-// ATSP - Protocol handler
-struct AtspCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd.startsWith("ATSP");
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult("OK");
-    }
-};
-
-// ATH0/ATH1 - Headers handler
-struct AthCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATH0" || normalizedCmd == "ATH1";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult("OK");
-    }
-};
-
-// ATCSM0/ATCSM1 - Serial monitor handler
-struct AtcsmCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATCSM0" || normalizedCmd == "ATCSM1";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult("OK");
-    }
-};
-
-// ATMA - Monitor activation handler
-struct AtmaCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATMA";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        monitorActive = true;
-        return AtCommandResult("OK");
-    }
-};
-
-// ATPC - Monitor deactivation handler
-struct AtpcCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATPC";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        monitorActive = false;
-        return AtCommandResult("OK");
-    }
-};
-
-// ATHELO/HELLO - Device identification handler
-struct AtheloCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATHELO" || normalizedCmd == "HELLO";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult(buildHeloResponse().c_str());
-    }
-};
-
-// Testable pure function: Parse SETWIFI parameters (testable)
-static SetWifiParams parseSetWifiParams(const String& params) {
-    SetWifiParams result;
-
-    int commaIndex = params.indexOf(',');
-    if (commaIndex <= 0) {
-        return result;  // Invalid format
-    }
-
-    result.ssid = params.substring(0, commaIndex);
-    result.password = params.substring(commaIndex + 1);
-    result.valid = true;
-
-    return result;
-}
-
-// ATSETWIFI - WiFi credentials setter (AUTH-protected)
-struct AtsetwifiCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd.startsWith("ATSETWIFI");
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        String params = originalCmd.substring(9);  // Skip "ATSETWIFI"
-        params.trim();
-
-        SetWifiParams wifiParams = parseSetWifiParams(params);
-
-        if (!wifiParams.valid) {
-            Serial.printf("%sSET-WIFI: Invalid format from authenticated client%s\r\n", RED, NC);
-            return AtCommandResult("ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>");
-        }
-
-        // Validate SSID length
-        if (wifiParams.ssid.isEmpty() || wifiParams.ssid.length() > 32) {
-            Serial.printf("%sSET-WIFI: Invalid SSID length from authenticated client%s\r\n", RED, NC);
-            return AtCommandResult("ERROR Invalid SSID length (1-32 chars)");
-        }
-
-        // Validate password length
-        if (wifiParams.password.isEmpty() || wifiParams.password.length() > 64) {
-            Serial.printf("%sSET-WIFI: Invalid password length from authenticated client%s\r\n", RED, NC);
-            return AtCommandResult("ERROR Invalid password length (1-64 chars)");
-        }
-
-        // Store credentials to NVS
-        if (storeWifiCredentials(wifiParams.ssid, wifiParams.password)) {
-            Serial.printf("%sSET-WIFI: Stored credentials for SSID: %s%s\r\n",
-                            GREEN, wifiParams.ssid.c_str(), NC);
-            return AtCommandResult("OK WiFi credentials stored. Rebooting to connect...", true, true);
-        } else {
-            Serial.printf("%sSET-WIFI: NVS storage failed%s\r\n", RED, NC);
-            return AtCommandResult("ERROR Failed to store credentials");
-        }
-    }
-};
-
-// ATI - Device info handler
-struct AtiCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATI";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult("ESP32 CAN Bridge v0.1");
-    }
-};
-
-// ATREBOOT - Reboot handler
-// NOTE: shouldFlushClient is false on purpose. sendPromptFn already flushed the
-// "REBOOT" response via client.printf+flush. The extra client.flush() in the
-// handleATCommand side-effect block hangs indefinitely on a dead/half-closed
-// socket (ESP32 Arduino WiFiClient::flush() has no timeout). With shouldFlush
-// set here, handleATCommand skips the hang and proceeds straight to ESP.restart().
-struct AtrebootCommandHandler : public AtCommandHandler {
-    bool matches(const String& normalizedCmd) const override {
-        return normalizedCmd == "ATREBOOT";
-    }
-
-    AtCommandResult execute(const String& originalCmd) const override {
-        return AtCommandResult("REBOOT", true, false);
-    }
-};
-
-// ── AT Command Registry (Command Pattern + OpenClosed) ──────────────────────────────
-// Adding a new command = push_back a new handler (no dispatcher change needed)
-
-static std::vector<AtCommandHandler*> atCommandHandlers;
-
-static void registerAtCommandHandlers() {
-    // Only register once
-    if (!atCommandHandlers.empty()) return;
-
-    atCommandHandlers.push_back(new AtzCommandHandler());
-    atCommandHandlers.push_back(new AteCommandHandler());
-    atCommandHandlers.push_back(new AtspCommandHandler());
-    atCommandHandlers.push_back(new AthCommandHandler());
-    atCommandHandlers.push_back(new AtcsmCommandHandler());
-    atCommandHandlers.push_back(new AtmaCommandHandler());
-    atCommandHandlers.push_back(new AtpcCommandHandler());
-    atCommandHandlers.push_back(new AtheloCommandHandler());
-    atCommandHandlers.push_back(new AtsetwifiCommandHandler());
-    atCommandHandlers.push_back(new AtiCommandHandler());
-    atCommandHandlers.push_back(new AtrebootCommandHandler());
-}
-
-// ── AT Command Dispatcher (Flat loop with registry lookup) ───────────────────────────
-// Prompt sender passed as a plain `void(*)(const char*)` function pointer. Both callers
-// (handleAT, handleSerialAT) pass a free function (sendPrompt / sendSerialPrompt), so no
-// std::function erasure is needed. Note: the earlier S5205 swap to std::function was an
-// over-correction — only *template* parameters are mangled by the Arduino .ino auto-prototype
-// generator; a plain function-pointer type is fine.
-static void handleATCommand(const String& cmd, void (*sendPromptFn)(const char*)) {
-    // Initialize command registry on first call
-    registerAtCommandHandlers();
-
-    // Normalize command for matching
-    String normalizedCmd = normalizeAtCommand(cmd);
-
-    // Find matching handler (flat loop over registry)
-    const AtCommandHandler* matchingHandler = nullptr;
-    for (const AtCommandHandler* handler : atCommandHandlers) {
-        if (handler->matches(normalizedCmd)) {
-            matchingHandler = handler;
-            break;
-        }
-    }
-
-    // Execute or respond with unknown command
-    if (matchingHandler) {
-        AtCommandResult result = matchingHandler->execute(cmd);
-        sendPromptFn(result.response.c_str());
-
-        // Apply side effects
-        if (result.shouldFlushClient) {
-            Serial.printf("[DEBUG] handleATCommand: flushing TCP client before reboot\r\n");
-            client.flush();
-            Serial.println("REBOOT");
-            Serial.flush();
-        }
-
-        if (result.shouldReboot) {
-            Serial.printf("[DEBUG] handleATCommand: calling ESP.restart()\r\n");
-            delay(Constants::TCP_REBOOT_DELAY_MS);
-            ESP.restart();
-            // If we get here, restart did not complete
-            Serial.printf("[DEBUG] handleATCommand: ESP.restart() RETURNED (unexpected)\r\n");
-        }
-    } else {
-        sendPromptFn("?");
-    }
-}
-
-static void handleAT(const String& cmd) {
-    handleATCommand(cmd, sendPrompt);
-}
-
-static void handleSerialAT(const String& cmd) {
-    handleATCommand(cmd, sendSerialPrompt);
-}
+// ── AT Command Handling: delegate to vanilla AtCommandDispatcher ───────────
+// The command structs, registry, and dispatch loop that used to live here were
+// extracted into firmware/vanilla/AtCommandDispatcher (host + gmock tested). The
+// .ino is now a thin veneer: it owns the five Arduino boundary adapters (above)
+// and routes every command line to FirmwareApp, which owns the dispatcher.
+//
+// The dispatcher's sendTcpPrompt frames the reply as "<response>\r\r>" on the
+// TCP client only (required by the host's TCPTransport HELO handshake); the
+// serial path prints bare lines. The ATREBOOT flush-hang fix is preserved: the
+// vanilla AtrebootCommandHandler returns shouldFlushClient=false, so the only
+// flush is the prompt's, and ESP.restart() proceeds without hanging on a
+// dead/half-closed socket.
 
 static void drainSerialATCommands() {
     static String serialCmd;
@@ -1205,7 +1001,7 @@ static void drainSerialATCommands() {
         const auto c = static_cast<char>(Serial.read());
         if (c == '\r' || c == '\n') {
             if (!serialCmd.isEmpty()) {
-                handleSerialAT(serialCmd);
+                firmwareApp.handleSerialAtCommand(static_cast<const char*>(serialCmd.c_str()));
                 serialQuietUntilMs = millis() + Constants::SERIAL_QUIET_DURATION_MS;
                 serialCmd = "";
             }
@@ -1218,26 +1014,6 @@ static void drainSerialATCommands() {
     }
 }
 
-static void streamFrame(const twai_message_t& msg) {
-    // Always build the frame in the canonical ELM327-ish text format
-    // (3-digit zero-padded hex ID, space-separated byte hex) so both
-    // vehicle-sim's parseCANFrame and raw serial capture tools work.
-    std::array<char, Constants::CAN_FRAME_BUFFER_SIZE> buf{};
-    int n = snprintf(buf.data(), buf.size(), "%03X", msg.identifier);
-    uint8_t len = min(msg.data_length_code, (uint8_t)8);
-    for (uint8_t i = 0; i < len; i++) {
-        n += snprintf(buf.data() + n, buf.size() - n, " %02X", msg.data[i]);
-    }
-    snprintf(buf.data() + n, buf.size() - n, "\r");
-
-    // USB serial: always emit, independent of any TCP client.
-    Serial.print(buf.data());
-
-    // WiFi TCP: only when a client is connected and ATMA monitoring is active.
-    if (client.connected() && monitorActive) {
-        client.print(buf.data());
-    }
-}
 
 // ── TCP Server Lifecycle Management ───────────────────────────────────────────
 // Testable pure function: Check if TCP server restart is needed (testable unit)
@@ -1290,12 +1066,9 @@ static void onHandleOta() {
 #endif
 }
 
-// FirmwareCallbacks structure for FirmwareApp
-static esp32_firmware::FirmwareCallbacks firmwareCallbacks = {
-    .restartTcpServer = onRestartTcpServer,
-    .broadcastDiscovery = onBroadcastDiscovery,
-    .handleOta = onHandleOta
-};
+// FirmwareCallbacks structure for FirmwareApp — constructed locally in setup()
+// and copied into FirmwareApp via setCallbacks() (which stores its own copy).
+// Kept out of global scope (S5421).
 
 // Factory reset: check if GPIO0 (BOOT button) is held at boot
 static bool checkFactoryReset() {
@@ -1339,7 +1112,11 @@ void setup() {
     // ── Initialize FirmwareApp (replaces inline WiFi state machine) ───────────────
     // FirmwareApp.init() sets up WiFiManager and drives initial connection
     firmwareApp.init();
-    firmwareApp.setCallbacks(firmwareCallbacks);
+    firmwareApp.setCallbacks(esp32_firmware::FirmwareCallbacks{
+        .restartTcpServer = onRestartTcpServer,
+        .broadcastDiscovery = onBroadcastDiscovery,
+        .handleOta = onHandleOta
+    });
 
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
     // Bridge Arduino WiFi events to FirmwareApp
@@ -1397,6 +1174,14 @@ void setup() {
     discoveryDeviceId.fill(0);
     std::copy(mac.begin(), mac.end(), discoveryDeviceId.begin());
 
+    // Wire the AT command boundary adapters into FirmwareApp. The deviceId is now
+    // populated (above), so the dispatcher reads the live array when a command is
+    // first handled. This hands the five Arduino adapters (TCP client / serial /
+    // ESP restart / NVS WiFi store / monitor state) to the vanilla
+    // AtCommandDispatcher that FirmwareApp owns.
+    firmwareApp.setAtCommandAdapters(arduinoAtTcpClient, arduinoAtSerial, arduinoAtEsp,
+                                     arduinoAtWifiStore, arduinoAtMonitor, discoveryDeviceId);
+
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");
 
@@ -1438,7 +1223,7 @@ void loop() {
         Serial.printf("[STATE] uptime=%lums wifi=%s monitor=%s\r\n",
                       static_cast<unsigned long>(millis()),
                       stateName,
-                      monitorActive ? "ACTIVE" : "idle");
+                      firmwareApp.isMonitorActive() ? "ACTIVE" : "idle");
     }
 
     // ── Update FirmwareApp (drives WiFiManager + StatusLED) ────────────────────────
@@ -1482,7 +1267,7 @@ void loop() {
             }
 
             client = next;
-            monitorActive = false;
+            firmwareApp.setMonitorActive(false);
 
             // Require AUTH before any other commands.
             // Client must send "AUTH <token>" as the first line.
@@ -1509,20 +1294,23 @@ void loop() {
     }
 
     const bool haveClient = client && client.connected();
-    if (haveClient && !monitorActive) {
+    if (haveClient && !firmwareApp.isMonitorActive()) {
         // Command mode: read AT commands until ATMA switches to monitor.
         if (client.available()) {
             client.setTimeout(Constants::TCP_COMMAND_TIMEOUT_MS);
             String cmd = client.readStringUntil('\r');
             if (!cmd.isEmpty()) {
-                handleAT(cmd);
+                // Route the TCP AT command through the vanilla dispatcher owned by
+                // FirmwareApp (which frames the reply as "<resp>\r\r>" for the host
+                // HELO handshake). This replaces the old inline handleAT() loop.
+                firmwareApp.handleTcpAtCommand(static_cast<const char*>(cmd.c_str()));
             }
         }
     }
 
     // Check if client disconnected - cleanup resources and reset discovery backoff
-    if (!haveClient && monitorActive) {
-        monitorActive = false;
+    if (!haveClient && firmwareApp.isMonitorActive()) {
+        firmwareApp.setMonitorActive(false);
         resetDiscoveryBackoff();  // Reset backoff timer to welcome a new buddy
         // Revert LED pattern to WiFi state
         if (wifiCtx.state == WiFiState::State::CONNECTED_STA ||
@@ -1533,18 +1321,14 @@ void loop() {
 
     drainSerialATCommands();
 
-    // Always drain the TWAI RX queue — each frame is received once and
-    // dispatched to Serial unconditionally, and to TCP only when a client
-    // is connected AND monitorActive. This keeps serial logging live even
-    // with no WiFi client, and never double-reads a frame.
-    const bool suppressSerialFrames = millis() < serialQuietUntilMs;
+    // Always drain the TWAI RX queue through the vanilla CanBridge. CanBridge
+    // dispatches each frame to Serial unconditionally, and to TCP only when a
+    // client is connected AND monitorActive. The serial quiet-window is passed
+    // in so CanBridge suppresses serial emission during that window (keeps
+    // serial logging live otherwise, with no WiFi client). Single RX drain —
+    // never double-reads a frame.
 #if VEHICLE_SIM_ENABLE_TWAI
-    twai_message_t msg;
-    while (twai_receive(&msg, 0) == ESP_OK) {
-        if (!suppressSerialFrames) {
-            streamFrame(msg);
-        }
-    }
+    firmwareApp.processCanFrames(serialQuietUntilMs);
 #endif
 }
 

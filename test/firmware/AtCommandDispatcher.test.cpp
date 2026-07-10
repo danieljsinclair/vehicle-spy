@@ -172,17 +172,43 @@ TEST(AtCommandDispatchTest, AtiReturnsDeviceInfo) {
     EXPECT_EQ(h.serial.lastLine, "ESP32 CAN Bridge v0.1");
 }
 
+// The TCP prompt path must frame the reply as "<response>\r\r>" to the TCP
+// client ONLY — the host's TCPTransport::sendHeloAndParseAck waits for the
+// "\r\r>" terminator to complete the HELO handshake. The serial console must
+// NOT be echoed on the TCP path (that belongs to the serial command path).
+TEST(AtCommandDispatchTest, TcpPromptFramesResponseWithCrCrGtAndIsClientOnly) {
+    DispatcherHarness h;
+    h.d.handleTcpCommand("ATI");
+    EXPECT_EQ(h.tcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
+    EXPECT_EQ(h.serial.printlnCalls, 0);
+}
+
+TEST(AtCommandDispatchTest, AtheloTcpPromptCarriesTerminatorForHostHandshake) {
+    DispatcherHarness h;
+    h.d.handleTcpCommand("ATHELO");
+    // buildHeloResponse() ends in "\r"; the TCP prompt appends "\r\r>", yielding
+    // "...\r\r\r>". The host's TCPTransport::sendHeloAndParseAck scans for the
+    // "\r\r>" terminator, so the extra trailing "\r" is harmless (and matches what
+    // the original device produced via client.printf("%s\r\r>", response)).
+    EXPECT_EQ(h.tcp.lastPrinted,
+        "ACK DEVICE=ESP32-CAN-Bridge FIRMWARE=0.2.0 DEVICEID="
+        "DEADBEEF000102030405060708090A0B\r\r\r>");
+    EXPECT_EQ(h.serial.printlnCalls, 0);
+}
+
 TEST(AtCommandDispatchTest, AtrebootTriggersRestartWithoutExtraClientFlush) {
     DispatcherHarness h;
     h.d.handleTcpCommand("ATREBOOT");
-    // ATREBOOT echoes "REBOOT" via sendPrompt (1 flush) but its result sets
-    // shouldFlushClient=false, so the dispatcher's extra client.flush() side-effect
-    // block is BYPASSED. This is the fix for the flush-hang bug: the response flush
-    // is the only flush, then ESP.restart() proceeds. We assert exactly one flush
-    // (from the prompt) and exactly one restart.
+    // ATREBOOT echoes "REBOOT" via the TCP prompt (framed as "REBOOT\r\r>") with a
+    // single flush, but its result sets shouldFlushClient=false, so the dispatcher's
+    // extra client.flush() side-effect block is BYPASSED. This is the fix for the
+    // flush-hang bug: the prompt flush is the only flush, then ESP.restart() proceeds.
+    // We assert exactly one flush (from the prompt) and exactly one restart. The
+    // serial console is NOT echoed on the TCP path.
     EXPECT_EQ(h.esp.restartCalls, 1);
     EXPECT_EQ(h.tcp.flushCalls, 1);
-    EXPECT_EQ(h.tcp.lastPrinted, "REBOOT");
+    EXPECT_EQ(h.tcp.lastPrinted, "REBOOT\r\r>");
+    EXPECT_EQ(h.serial.printlnCalls, 0);
 }
 
 TEST(AtCommandDispatchTest, UnknownCommandReturnsQuestionMark) {
@@ -206,8 +232,8 @@ TEST(AtCommandSetWifiTest, StoresValidCredentialsAndRebootsWithFlush) {
     EXPECT_EQ(h.wifi.storeCalls, 1);
     EXPECT_EQ(h.wifi.lastSsid, "MyNet");
     EXPECT_EQ(h.wifi.lastPassword, "secret123");
-    // The success prompt is written to the TCP client...
-    EXPECT_EQ(h.tcp.lastPrinted, "OK WiFi credentials stored. Rebooting to connect...");
+    // The success prompt is written to the TCP client, framed as "...\r\r>"...
+    EXPECT_EQ(h.tcp.lastPrinted, "OK WiFi credentials stored. Rebooting to connect...\r\r>");
     // ...and the flush-path side-effect block then prints "REBOOT" to serial last
     // (faithful to the .ino: Serial.println("REBOOT") after the prompt).
     EXPECT_EQ(h.serial.lastLine, "REBOOT");
@@ -221,7 +247,8 @@ TEST(AtCommandSetWifiTest, RejectsMissingComma) {
     DispatcherHarness h;
     h.d.handleTcpCommand("ATSETWIFI nocomma");
     EXPECT_EQ(h.wifi.storeCalls, 0);
-    EXPECT_EQ(h.serial.lastLine, "ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>");
+    // The error goes to the TCP client (framed), not the serial console.
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>\r\r>");
     EXPECT_EQ(h.esp.restartCalls, 0);
 }
 
@@ -231,22 +258,22 @@ TEST(AtCommandSetWifiTest, RejectsEmptySsid) {
     EXPECT_EQ(h.wifi.storeCalls, 0);
     // A leading comma means commaIndex==0, which parseSetWifiParams treats as an
     // invalid *format* (not a length error) — so the format error fires first.
-    // This mirrors the .ino ordering exactly.
-    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>");
+    // This mirrors the .ino ordering exactly. The error is framed to the TCP client.
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>\r\r>");
 }
 
 TEST(AtCommandSetWifiTest, RejectsOverlongSsid) {
     DispatcherHarness h;
     h.d.handleTcpCommand("ATSETWIFI " + std::string(33, 'x') + ",pass");
     EXPECT_EQ(h.wifi.storeCalls, 0);
-    EXPECT_EQ(h.serial.lastLine, "ERROR Invalid SSID length (1-32 chars)");
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Invalid SSID length (1-32 chars)\r\r>");
 }
 
 TEST(AtCommandSetWifiTest, RejectsOverlongPassword) {
     DispatcherHarness h;
     h.d.handleTcpCommand("ATSETWIFI net," + std::string(65, 'y'));
     EXPECT_EQ(h.wifi.storeCalls, 0);
-    EXPECT_EQ(h.serial.lastLine, "ERROR Invalid password length (1-64 chars)");
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Invalid password length (1-64 chars)\r\r>");
 }
 
 TEST(AtCommandSetWifiTest, ReportsStoreFailure) {
@@ -254,7 +281,7 @@ TEST(AtCommandSetWifiTest, ReportsStoreFailure) {
     h.wifi.nextStoreResult = false;
     h.d.handleTcpCommand("ATSETWIFI net,pass");
     EXPECT_EQ(h.wifi.storeCalls, 1);
-    EXPECT_EQ(h.serial.lastLine, "ERROR Failed to store credentials");
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Failed to store credentials\r\r>");
     EXPECT_EQ(h.esp.restartCalls, 0);
 }
 

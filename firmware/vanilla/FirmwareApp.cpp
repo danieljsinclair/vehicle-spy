@@ -243,4 +243,28 @@ void FirmwareApp::processCanFrames(uint32_t serialQuietUntilMs) {
     canBridge_->processFrames(isMonitorActive(), serialQuietUntilMs);
 }
 
+void FirmwareApp::setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial,
+                                       IEspAt& esp, IWifiCredentialStore& wifiStore,
+                                       IMonitorState& monitor,
+                                       const std::array<uint8_t, 16>& deviceId) {
+    // Own a single dispatcher over the injected boundary adapters. The canonical
+    // firmware handler set is registered lazily on first handle*() call.
+    atDispatcher_ = std::make_unique<AtCommandDispatcher>(tcpClient, serial, esp,
+                                                          wifiStore, monitor, deviceId);
+}
+
+void FirmwareApp::handleTcpAtCommand(const std::string& cmd) {
+    if (!atDispatcher_) {
+        throw std::logic_error("AtCommandDispatcher not initialized in handleTcpAtCommand()");
+    }
+    atDispatcher_->handleTcpCommand(cmd);
+}
+
+void FirmwareApp::handleSerialAtCommand(const std::string& cmd) {
+    if (!atDispatcher_) {
+        throw std::logic_error("AtCommandDispatcher not initialized in handleSerialAtCommand()");
+    }
+    atDispatcher_->handleSerialCommand(cmd);
+}
+
 } // namespace esp32_firmware

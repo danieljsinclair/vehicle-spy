@@ -19,6 +19,7 @@
 #include "DiscoveryManager.h"
 #include "NtpTimeSync.h"
 #include "CanBridge.h"
+#include "AtCommandDispatcher.h"  // owns AtCommandDispatcher + the ITcpClientAt/ISerialAt/IEspAt/IWifiCredentialStore/IMonitorState AT boundaries
 
 namespace esp32_firmware {
 
@@ -129,6 +130,22 @@ public:
     void setMonitorActive(bool active);
     bool isMonitorActive() const;
     void processCanFrames(uint32_t serialQuietUntilMs);
+
+    // AT command handling: the .ino constructs the five runtime-boundary adapters
+    // over Arduino (WiFiClient/Serial/ESP/Preferences) and hands them in here. We
+    // own a single AtCommandDispatcher and route both the TCP and serial command
+    // reads through it, replacing the .ino's inline handler structs + dispatch
+    // loop (Stage 2 of the .ino → vanilla extraction).
+    //
+    // deviceId is read by REFERENCE and must already be populated (the .ino fills
+    // discoveryDeviceId from the MAC in setup() AFTER the static FirmwareApp
+    // construction). The dispatcher reads it the first time a command is handled
+    // (lazy construction), so it always sees the live, populated array.
+    void setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial, IEspAt& esp,
+                              IWifiCredentialStore& wifiStore, IMonitorState& monitor,
+                              const std::array<uint8_t, 16>& deviceId);
+    void handleTcpAtCommand(const std::string& cmd);
+    void handleSerialAtCommand(const std::string& cmd);
 
 private:
     // Dependencies

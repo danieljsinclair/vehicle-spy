@@ -812,3 +812,106 @@ TEST_F(FirmwareAppTest, CanBridge_ProcessCanFrames_AfterInit_DoesNotThrow) {
         firmwareApp->processCanFrames(5000);  // quiet-period variant
     });
 }
+
+// ── AT Command delegation (Stage 2: .ino -> vanilla AtCommandDispatcher) ────────
+// FirmwareApp owns the dispatcher and routes the .ino's TCP + serial command reads
+// through it. We pin the PUBLIC contract: setAtCommandAdapters wires the five
+// boundary adapters, and handleTcpAtCommand/handleSerialAtCommand delegate.
+
+namespace {
+
+// Minimal gmock-style spies for the five AT runtime boundaries.
+class SpyTcpClientAt : public ITcpClientAt {
+public:
+    std::string lastPrinted;
+    int flushCalls = 0;
+    void print(const char* str) override { lastPrinted = str ? str : ""; }
+    void flush() override { ++flushCalls; }
+};
+class SpySerialAt : public ISerialAt {
+public:
+    std::string lastLine;
+    int flushCalls = 0;
+    void println(const char* str) override { lastLine = str ? str : ""; }
+    void flush() override { ++flushCalls; }
+};
+class SpyEspAt : public IEspAt {
+public:
+    int restartCalls = 0;
+    void restart() override { ++restartCalls; }
+};
+class SpyWifiStore : public IWifiCredentialStore {
+public:
+    bool nextResult = true;
+    std::string lastSsid, lastPass;
+    int storeCalls = 0;
+    bool store(const std::string& ssid, const std::string& pass) override {
+        ++storeCalls; lastSsid = ssid; lastPass = pass; return nextResult;
+    }
+};
+class SpyMonitorState : public IMonitorState {
+public:
+    bool active = false;
+    void setMonitorActive(bool a) override { active = a; }
+};
+
+} // namespace
+
+TEST_F(FirmwareAppTest, AtCommand_NullAdapters_BeforeWire_Throws) {
+    // Invoking a command path before setAtCommandAdapters() is a programmer error.
+    firmwareApp->init();
+    EXPECT_ANY_THROW({ firmwareApp->handleTcpAtCommand("ATI"); });
+    EXPECT_ANY_THROW({ firmwareApp->handleSerialAtCommand("ATZ"); });
+}
+
+TEST_F(FirmwareAppTest, AtCommand_TcpCommand_RoutesToDispatcherWithCrCrGt) {
+    // ATI over TCP must reach the dispatcher and be framed as "<resp>\r\r>"
+    // (the host HELO handshake waits for the terminator); serial must NOT echo.
+    SpyTcpClientAt tcp;
+    SpySerialAt serial;
+    SpyEspAt esp;
+    SpyWifiStore wifi;
+    SpyMonitorState monitor;
+
+    firmwareApp->init();
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+
+    firmwareApp->handleTcpAtCommand("ATI");
+    EXPECT_EQ(tcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
+    EXPECT_EQ(serial.lastLine, "");  // no serial echo on TCP path
+}
+
+TEST_F(FirmwareAppTest, AtCommand_SerialCommand_AtzClearsMonitor) {
+    // ATZ over serial routes through the dispatcher and clears the monitor flag.
+    SpyTcpClientAt tcp;
+    SpySerialAt serial;
+    SpyEspAt esp;
+    SpyWifiStore wifi;
+    SpyMonitorState monitor;
+    monitor.active = true;
+
+    firmwareApp->init();
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+
+    firmwareApp->handleSerialAtCommand("ATZ");
+    EXPECT_EQ(serial.lastLine, "ELM327 v2.3");
+    EXPECT_FALSE(monitor.active);
+}
+
+TEST_F(FirmwareAppTest, AtCommand_Atreboot_NoExtraClientFlushBeforeRestart) {
+    // The flush-hang fix: ATREBOOT's shouldFlushClient=false means the only flush
+    // is the prompt's, then ESP.restart() proceeds. Exactly one flush + one restart.
+    SpyTcpClientAt tcp;
+    SpySerialAt serial;
+    SpyEspAt esp;
+    SpyWifiStore wifi;
+    SpyMonitorState monitor;
+
+    firmwareApp->init();
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+
+    firmwareApp->handleTcpAtCommand("ATREBOOT");
+    EXPECT_EQ(esp.restartCalls, 1);
+    EXPECT_EQ(tcp.flushCalls, 1);
+    EXPECT_EQ(tcp.lastPrinted, "REBOOT\r\r>");
+}

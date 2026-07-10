@@ -74,12 +74,18 @@ void AtCommandDispatcher::handleCommand(const std::string& cmd,
 }
 
 void AtCommandDispatcher::sendTcpPrompt(const char* response) {
-    // Mirror the .ino sendPrompt(): print to the client then flush so the reply
-    // reaches the socket before any reboot side-effect runs.
-    tcpClient_.print(response);
+    // Faithful to the device's historical sendPrompt(): emit the ELM327-style
+    // initiator prompt "<response>\r\r>" to the *TCP client only*, then flush so
+    // the reply reaches the socket before any reboot side-effect runs.
+    //
+    // The trailing "\r\r>" is NOT cosmetic: TCPTransport::sendHeloAndParseAck on
+    // the host waits for the "\r\r>" terminator after ATHELO (and "\r>" after
+    // ATI) to know the line is complete. Without it the host handshake stalls.
+    // We do NOT echo to Serial here — the serial command path (sendSerialPrompt)
+    // owns the serial console; mixing the two would double-print to USB.
+    std::string framed = std::string(response) + "\r\r>";
+    tcpClient_.print(framed.c_str());
     tcpClient_.flush();
-    // Also echo to serial for parity with the firmware prompt path.
-    serial_.println(response);
 }
 
 void AtCommandDispatcher::sendSerialPrompt(const char* response) {
