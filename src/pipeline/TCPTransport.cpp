@@ -200,12 +200,14 @@ int recvUntilPrompt(int fd, char* buf, std::size_t cap, std::string_view prompt)
     int total = 0;
     while (total < static_cast<int>(cap - 1)) {
         auto n = static_cast<int>(recv(fd, buf + total, cap - 1 - static_cast<std::size_t>(total), 0));
-        if (n <= 0) break;  // Timeout/error/close — caller judges severity
+        if (n <= 0) {
+            return total;  // Timeout/error/close — caller judges severity
+        }
         total += n;
         // Stop as soon as the prompt appears at the tail of the accumulated bytes.
         if (static_cast<std::size_t>(total) >= prompt.size() &&
             std::string_view(buf + total - prompt.size(), prompt.size()) == prompt) {
-            break;
+            return total;
         }
     }
     return total;
