@@ -382,6 +382,9 @@ static esp32_firmware::CanBridgeDeps canBridgeDeps{
 // owns the hardware objects (WiFiClient/Serial/ESP/Preferences); FirmwareApp owns
 // the AtCommandDispatcher and is handed these adapters so the device-specific
 // I/O stays in the .ino while the command logic lives in vanilla code.
+// Forward-declare FirmwareApp so adapter methods can reference it (static init order).
+class FirmwareApp;
+extern FirmwareApp firmwareApp;
 struct ArduinoAtTcpClient : public esp32_firmware::ITcpClientAt {
     void print(const char* str) override { client.print(str); }
     void flush() override { client.flush(); }
@@ -420,7 +423,7 @@ static ArduinoAtMonitor arduinoAtMonitor;
 // ArduinoWiFi implements both IWiFi and IWiFiDiscovery
 // NTP is routed through FirmwareApp (owns NtpTimeSync + ArduinoSntp/ArduinoTimeNtp)
 // CanBridge is constructed inside FirmwareApp from the adapter bundle above.
-static FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
+FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
                               arduinoWiFi, arduinoUdp, arduinoTime,
                               arduinoSntp, arduinoTimeNtp,
                               discoveryDeviceId,

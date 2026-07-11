@@ -27,6 +27,7 @@
 		B1000016 /* ConfigLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000016 /* ConfigLoader.cpp */; };
 		B1000017 /* VehicleSignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000017 /* VehicleSignal.cpp */; };
 		B1000018 /* TelemetrySignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000018 /* TelemetrySignal.cpp */; };
+		B1000019 /* DeviceRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000019 /* DeviceRegistry.cpp */; };
 		B1000021 /* EventDispatcher.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000021 /* EventDispatcher.cpp */; };
 		B1000022 /* BLEManageriOS.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000022 /* BLEManageriOS.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 		B1000023 /* OBD2SignalTranslator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000023 /* OBD2SignalTranslator.cpp */; };
@@ -98,6 +99,7 @@
 		B2000016 /* ConfigLoader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ConfigLoader.cpp; path = ../../src/config/ConfigLoader.cpp; sourceTree = "<group>"; };
 		B2000017 /* VehicleSignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignal.cpp; path = ../../src/domain/VehicleSignal.cpp; sourceTree = "<group>"; };
 		B2000018 /* TelemetrySignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetrySignal.cpp; path = ../../src/domain/TelemetrySignal.cpp; sourceTree = "<group>"; };
+		B2000019 /* DeviceRegistry.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DeviceRegistry.cpp; path = ../../src/ble/DeviceRegistry.cpp; sourceTree = "<group>"; };
 		B2000021 /* EventDispatcher.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = EventDispatcher.cpp; path = ../../src/domain/EventDispatcher.cpp; sourceTree = "<group>"; };
 		B2000022 /* BLEManageriOS.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = BLEManageriOS.mm; path = ../../src/ble/platform/BLEManageriOS.mm; sourceTree = "<group>"; };
 		B2000023 /* OBD2SignalTranslator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2SignalTranslator.cpp; path = ../../src/domain/OBD2SignalTranslator.cpp; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 				B2000016 /* ConfigLoader.cpp */,
 				B2000017 /* VehicleSignal.cpp */,
 				B2000018 /* TelemetrySignal.cpp */,
+				B2000019 /* DeviceRegistry.cpp */,
 				B2000021 /* EventDispatcher.cpp */,
 				B2000022 /* BLEManageriOS.mm */,
 				B2000023 /* OBD2SignalTranslator.cpp */,
@@ -426,6 +429,7 @@
 				B1000016 /* ConfigLoader.cpp in Sources */,
 				B1000017 /* VehicleSignal.cpp in Sources */,
 				B1000018 /* TelemetrySignal.cpp in Sources */,
+				B1000019 /* DeviceRegistry.cpp in Sources */,
 				B1000021 /* EventDispatcher.cpp in Sources */,
 				B1000022 /* BLEManageriOS.mm in Sources */,
 				B1000023 /* OBD2SignalTranslator.cpp in Sources */,
