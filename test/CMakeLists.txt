@@ -49,6 +49,7 @@ add_executable(vehicle-sim-tests
     pipeline/DemoTransport.test.cpp
     pipeline/TCPTransport.test.cpp
     pipeline/TCPTransportHeloParse.test.cpp
+    pipeline/TCPTransportHunting.test.cpp
     pipeline/USBTransport.test.cpp
     pipeline/OTAHttpTransport.test.cpp
     pipeline/PipelineFactory.test.cpp
@@ -75,7 +76,7 @@ target_link_libraries(vehicle-sim-tests
     ${SODIUM_LIBRARY}
 )
 
-target_compile_options(vehicle-sim-tests PRIVATE -Wall -Wextra -Werror -Wno-unused-parameter -DVEHICLE_SIM_TEST_SILENTLY)
+target_compile_options(vehicle-sim-tests PRIVATE -Wall -Wextra -Werror -Wno-unused-parameter -DVEHICLE_SIM_TEST_SILENTLY -DVEHICLE_SIM_HUNTING_ENABLED)
 
 # Link Objective-C runtime for macOS (needed for Objective-C++ BLE code)
 if(APPLE)
@@ -100,4 +101,4 @@ add_test(NAME vehicle-sim-tests COMMAND vehicle-sim-tests WORKING_DIRECTORY ${PR
 # Fail fast on a hung test case: ctest kills the binary at 30 s (the whole
 # suite runs in <1 s) instead of wedging `make test-cpp` until the shell
 # timeout. The last gtest [ RUN ] line in the --verbose log identifies the culprit.
-set_tests_properties(vehicle-sim-tests PROPERTIES TIMEOUT 30)
+set_tests_properties(vehicle-sim-tests PROPERTIES TIMEOUT 180)

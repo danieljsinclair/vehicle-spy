@@ -1,7 +1,7 @@
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/boundary/ELM327Transport.h"
 
-#if !defined(BUILD_IOS) && !defined(TARGET_OS_IPHONE)
+#if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
 // Hunt-on-disconnect: host resilience (not needed for iOS — it has its own scanning)
 #include "vehicle-sim/discovery/UDPDiscovery.h"
 #endif
@@ -354,7 +354,7 @@ bool TCPTransport::performHeloHandshake() {
     return true;
 }
 
-#if !defined(BUILD_IOS) && !defined(TARGET_OS_IPHONE)
+#if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
 // Hunt-on-disconnect: host resilience (not needed for iOS — it has its own scanning)
 
 // Exponential backoff calculation (used by hunting logic)
@@ -485,7 +485,7 @@ bool TCPTransport::enterHuntingState() {
     output_->err("[tcp] hunting: neither old IP nor discovery succeeded — giving up");
     return false;
 }
-#endif // !BUILD_IOS && !TARGET_OS_IPHONE
+#endif // !BUILD_IOS && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
 
 void TCPTransport::closeConnection() noexcept {
     if (fd_ >= 0) { close(fd_); fd_ = -1; }
@@ -609,7 +609,7 @@ std::optional<std::string> TCPTransport::nextLine() {
         }
             closeConnection();
 
-#if !defined(BUILD_IOS) && !defined(TARGET_OS_IPHONE)
+#if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
             // Hunt-on-disconnect: retry old IP + listen for UDP discovery simultaneously
             if (!enterHuntingState()) {
                 output_->err("[tcp] hunting state failed — giving up");

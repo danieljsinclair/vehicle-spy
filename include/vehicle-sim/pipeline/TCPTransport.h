@@ -129,11 +129,24 @@ private:
     bool connectAndAuth();
     void closeConnection() noexcept;
     bool performHeloHandshake();
-#if !defined(BUILD_IOS) && !defined(TARGET_OS_IPHONE)
+
+    // Under VEHICLE_SIM_HUNTING_ENABLED the spec-first test harness drives the
+    // production enterHuntingState() directly and asserts host_ switching. Expose
+    // exactly these two members publicly; the rest stay private. (The test's
+    // `#define private public` + re-include is a no-op under #pragma once, so the
+    // public exposure must live in the header itself.)
+    friend class TCPTransportHuntingTest;
+#if defined(VEHICLE_SIM_HUNTING_ENABLED)
+public:
+    bool enterHuntingState();  // Retry old IP + listen for UDP discovery simultaneously (host-only)
+    std::string host_;
+private:
+#else
+#if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
     bool enterHuntingState();  // Retry old IP + listen for UDP discovery simultaneously (host-only)
 #endif
-
     std::string host_;
+#endif
     int port_;
     std::string adapterProtocol_;
     std::shared_ptr<ITransportOutput> output_;
