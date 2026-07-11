@@ -423,8 +423,9 @@ bool TCPTransport::enterHuntingState() {
     // Main thread: retry old IP with exponential backoff
     bool reconnected = false;
     retryCount_ = 0;
+    bool loopDone = false;
 
-    while (retryCount_ < MAX_RETRIES && !discoveryFound.load() && !stop_->stopRequested()) {
+    while (!loopDone && retryCount_ < MAX_RETRIES && !discoveryFound.load() && !stop_->stopRequested()) {
         retryCount_++;
         int delayMs = calculateRetryDelayMs(retryCount_ - 1);
 
@@ -440,20 +441,24 @@ bool TCPTransport::enterHuntingState() {
 
         if (discoveryFound.load()) {
             output_->out("[tcp] hunting: discovery found new IP first, switching...");
-            break;  // Discovery won, exit retry loop
+            loopDone = true;  // Discovery won, exit retry loop
+        } else {
+            // Try connecting to old IP
+            if (connectAndAuth()) {
+                reconnected = true;
+                output_->out("[tcp] hunting: reconnected to old IP " + host_ + ":" + std::to_string(port_) +
+                           " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
+                loopDone = true;  // Old IP won
+            }
         }
-
-        // Try connecting to old IP
-        if (connectAndAuth()) {
-            reconnected = true;
-            output_->out("[tcp] hunting: reconnected to old IP " + host_ + ":" + std::to_string(port_) +
-                       " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
-            break;  // Old IP won
-        }
+        retryCount_++;
     }
 
     // Stop discovery thread
     shouldStopDiscovery.store(true);
+    if (discoveryListener.joinable()) {
+        discoveryListener.join();
+    }
     if (discoveryListener.joinable()) {
         discoveryListener.join();
     }
