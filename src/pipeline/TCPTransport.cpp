@@ -384,8 +384,7 @@ bool TCPTransport::enterHuntingState() {
         while (!shouldStopDiscovery.load() && !stop_->stopRequested()) {
             auto devices = hunter.poll(std::chrono::milliseconds(500));
 
-            // Check if we found our device (or first available if no deviceId)
-            bool shouldStopDiscovery = false;
+            bool shouldStop = false;
             for (const auto& device : devices) {
                 // Convert discovered device ID to hex for comparison
                 std::string discoveredHex;
@@ -407,12 +406,12 @@ bool TCPTransport::enterHuntingState() {
                     discoveryFound.store(true);
                     output_->out("[tcp] Discovery: found device at new IP " + device.address +
                                " (was " + host_ + ")" + " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]");
-                    shouldStopDiscovery = true;
+                    shouldStop = true;
                     break;
                 }
             }
 
-            if (discoveryFound.load() || shouldStopDiscovery) {
+            if (discoveryFound.load() || shouldStop) {
                 break;  // Found new IP, exit discovery thread
             }
         }
