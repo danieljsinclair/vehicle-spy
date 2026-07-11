@@ -48,7 +48,7 @@ namespace {
 
         if (high == 0xFF || low == 0xFF) return std::nullopt;
 
-        return std::byte{(static_cast<std::uint8_t>((high << 4) | low))};
+        return (std::byte{high} << 4) | std::byte{low};
     }
 
     // Strip the earliest informational banner (SEARCHING/BUSINIT/OK) and any
