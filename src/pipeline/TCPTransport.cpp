@@ -192,9 +192,28 @@ bool TCPTransport::connectAndAuth() {
 
 namespace {
 
+// Read from fd into buf (usable capacity = cap - 1) until the trailing bytes
+// match `prompt`, the buffer is full, or recv() returns <= 0 (timeout/error).
+// Returns the number of bytes accumulated; the caller decides whether a
+// non-positive total is fatal (ATI is optional-but-expected, ATHELO required).
+int recvUntilPrompt(int fd, char* buf, std::size_t cap, std::string_view prompt) {
+    int total = 0;
+    while (total < static_cast<int>(cap - 1)) {
+        auto n = static_cast<int>(recv(fd, buf + total, cap - 1 - static_cast<std::size_t>(total), 0));
+        if (n <= 0) break;  // Timeout/error/close — caller judges severity
+        total += n;
+        // Stop as soon as the prompt appears at the tail of the accumulated bytes.
+        if (static_cast<std::size_t>(total) >= prompt.size() &&
+            std::string_view(buf + total - prompt.size(), prompt.size()) == prompt) {
+            break;
+        }
+    }
+    return total;
+}
+
 // Parse a hex byte (two hex characters) into its uint8_t value.
 // Returns true on success, false if the input is not valid hex.
-bool parseHexByte(const std::string& s, std::size_t offset, uint8_t& out) {
+bool parseHexByte(std::string_view s, std::size_t offset, uint8_t& out) {
     if (offset + 2 > s.size()) return false;
     auto hexCharToInt = [](char c) {
         if (c >= '0' && c <= '9') return c - '0';
@@ -218,27 +237,27 @@ bool parseHexByte(const std::string& s, std::size_t offset, uint8_t& out) {
 // and leaves deviceId untouched. The FIRMWARE= token is intentionally not
 // required (it is informational in the protocol) — a valid ACK needs only the
 // two tokens above plus the well-formed device id.
-bool parseHeloAck(const std::string& ack, std::array<uint8_t, 16>& deviceId) {
-    const std::string ackPrefix = "ACK DEVICE=";
-    const std::string deviceIdToken = "DEVICEID=";
+bool parseHeloAck(std::string_view ack, std::array<uint8_t, 16>& deviceId) {
+    constexpr std::string_view ackPrefix = "ACK DEVICE=";
+    constexpr std::string_view deviceIdToken = "DEVICEID=";
 
-    if (ack.find(ackPrefix) == std::string::npos) {
+    if (ack.find(ackPrefix) == std::string_view::npos) {
         return false;
     }
 
     const std::size_t deviceIdPos = ack.find(deviceIdToken);
-    if (deviceIdPos == std::string::npos) {
+    if (deviceIdPos == std::string_view::npos) {
         return false;
     }
 
     const std::size_t hexStart = deviceIdPos + deviceIdToken.length();
-    std::string hexId = ack.substr(hexStart);
+    std::string_view hexId = ack.substr(hexStart);
 
     // Clean up any trailing whitespace/CRLF/prompt.
     while (!hexId.empty() &&
            (hexId.back() == '\r' || hexId.back() == '\n' ||
             hexId.back() == ' ' || hexId.back() == '>')) {
-        hexId.pop_back();
+        hexId.remove_suffix(1);
     }
 
     // Validate we have exactly 32 hex characters.
@@ -272,27 +291,11 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
         return false;
     }
 
-    // Read and discard ATI response (we don't parse it, just clear the buffer)
-    // Use recv loop to handle fragmented TCP responses
+    // Read and discard ATI response (we don't parse it, just clear the buffer).
+    // ATI is expected but best-effort: a zero/negative total is tolerated below
+    // only as a warning path — we still require the device to answer ATHELO.
     std::array<char, 256> atiResp{};
-    int totalAti = 0;
-    bool atiComplete = false;
-    while (totalAti < static_cast<int>(atiResp.size() - 1) && !atiComplete) {
-        auto n = static_cast<int>(recv(fd_, atiResp.data() + totalAti, atiResp.size() - 1 - static_cast<std::size_t>(totalAti), 0));
-        if (n <= 0) {
-            // Timeout or error - ATI response is optional, continue
-            break;
-        }
-        totalAti += n;
-        // Check if we received the prompt terminator ">"
-        for (int i = 0; i < totalAti - 1; i++) {
-            if (atiResp[i] == '\r' && atiResp[i + 1] == '>') {
-                atiComplete = true;
-                break;
-            }
-        }
-    }
-    if (totalAti <= 0) {
+    if (int totalAti = recvUntilPrompt(fd_, atiResp.data(), atiResp.size(), "\r>"); totalAti <= 0) {
         output_->err("[tcp] HELO pre-flight: no response to ATI");
         closeConnection();
         return false;
@@ -308,36 +311,21 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
         return false;
     }
 
-    // Read HELO ACK response with proper recv loop for fragmented TCP
+    // Read HELO ACK response with proper recv loop for fragmented TCP.
     // Expected format: ACK DEVICE=<name> FIRMWARE=<version> DEVICEID=<16-byte hex>\r\r>
     std::array<char, 256> heloResp{};
-    int totalHelo = 0;
-    bool heloComplete = false;
-    while (totalHelo < static_cast<int>(heloResp.size() - 1) && !heloComplete) {
-        auto n = static_cast<int>(recv(fd_, heloResp.data() + totalHelo, heloResp.size() - 1 - static_cast<std::size_t>(totalHelo), 0));
-        if (n <= 0) {
-            // Timeout or error
-            break;
-        }
-        totalHelo += n;
-        // Check if we received the prompt terminator "\r\r>"
-        for (int i = 0; i < totalHelo - 2; i++) {
-            if (heloResp[i] == '\r' && heloResp[i + 1] == '\r' && heloResp[i + 2] == '>') {
-                heloComplete = true;
-                break;
-            }
-        }
-    }
+    const int totalHelo = recvUntilPrompt(fd_, heloResp.data(), heloResp.size(), "\r\r>");
     if (totalHelo <= 0) {
         output_->err("[tcp] HELO pre-flight: no response to ATHELO");
         closeConnection();
         return false;
     }
-    std::string response(heloResp.data(), static_cast<std::size_t>(totalHelo));
 
     // Parse/validate the ACK string (pure, socket-free). On failure we must
     // close the authenticated connection and treat the handshake as failed.
-    if (!parseHeloAck(response, deviceId)) {
+    // C++17 init-statement keeps the response buffer scoped to the parse.
+    if (std::string response(heloResp.data(), static_cast<std::size_t>(totalHelo));
+        !parseHeloAck(response, deviceId)) {
         closeConnection();
         return false;
     }
