@@ -108,8 +108,7 @@ public:
         // instead of blocking forever. Otherwise, if the sender stops mid-drain,
         // the discovery thread never returns and callers that join it (e.g.
         // TCPTransport::enterHuntingState) deadlock.
-        int flags = ::fcntl(sockfd, F_GETFL, 0);
-        if (flags >= 0) {
+        if (int flags = ::fcntl(sockfd, F_GETFL, 0); flags >= 0) {
             ::fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
         }
 
