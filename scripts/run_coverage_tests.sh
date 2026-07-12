@@ -81,6 +81,42 @@ $LLVM_COV export -format=lcov \
     $OBJECT_ARGS \
     > "$BUILD_DIR/lcov.info" 2>/dev/null || true
 
+# SINGLE SOURCE OF TRUTH — complete the lcov file-list.
+# llvm-cov export OMITS source files whose functions no test calls (zero
+# executed regions), so lcov.info is a strict subset of sonar.sources. That
+# makes sonar's lines_to_cover denominator count files lcov has no record for,
+# and the never-called files are HIDDEN (absent, not 0%). Adding synthetic 0%
+# entries for every sonar.sources file not already present makes the file-lists
+# agree → absent==0%-not-hidden → sonar line-count == lcov line-count per
+# project (the user's non-negotiable "same count" bar), AND the coverage %
+# stays honest instead of being flattered by a too-small denominator.
+#
+# Opt-in via COVERAGE_SRC_DIRS (space-separated, relative to project root).
+# When set, run lcov_add_uninstrumented.py over those dirs; when unset, skip
+# (the bridge build/ path is unaffected). The vehicle-spy Makefile recipe sets
+# COVERAGE_SRC_DIRS="src include firmware/vanilla" to mirror its sonar.sources.
+#
+# COVERAGE_EXCLUDES (also space-separated) mirrors sonar.exclusions so the lcov
+# completion step SKIPS files sonar excludes (Phase 3 Part 2: lcov file-list ==
+# sonar.sources EFFECTIVE set, not just the raw dir walk). Without this, a
+# sonar.exclusions entry (e.g. src/main.cpp Path A) would leak into lcov as a
+# 0% entry, re-introducing drift in the opposite direction from Part 1.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$BUILD_DIR/.." && pwd)"
+if [ -n "${COVERAGE_SRC_DIRS:-}" ]; then
+    echo "=== Completing lcov file-list (adding uninstrumented sources as 0%) ==="
+    add_args=()
+    for d in $COVERAGE_SRC_DIRS; do add_args+=(--src-dir "$d"); done
+    # COVERAGE_EXCLUDES patterns may contain `**`, so word-splitting is safe
+    # (no glob chars reach the shell — they are passed verbatim to python's
+    # fnmatch via --exclude). Quote each token to preserve any inner chars.
+    for p in ${COVERAGE_EXCLUDES:-}; do add_args+=(--exclude "$p"); done
+    python3 "$SCRIPT_DIR/lcov_add_uninstrumented.py" \
+        "$BUILD_DIR/lcov.info" "$BUILD_DIR/lcov.info.completed" \
+        --root "$PROJECT_ROOT" "${add_args[@]}" \
+        && mv "$BUILD_DIR/lcov.info.completed" "$BUILD_DIR/lcov.info"
+fi
+
 echo "=== Generating SonarCloud generic coverage XML (lcov -> XML) ==="
 # lcov.info is NOT accepted by sonar-scanner; it needs generic XML per
 # sonar-generic-coverage.xsd (same format the app produces via xccov_to_sonar).
@@ -88,14 +124,13 @@ echo "=== Generating SonarCloud generic coverage XML (lcov -> XML) ==="
 # Errors are NOT suppressed: a silent converter failure or a stale build dir
 # (missing test binaries) would otherwise drop covered files from the XML and
 # the SonarCloud dashboard would show them as 0% with no warning.
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$BUILD_DIR/.." && pwd)"
+SRC_ROOT_ARGS=()
+for d in ${COVERAGE_SRC_DIRS:-src include}; do SRC_ROOT_ARGS+=(--src-root "$d"); done
 python3 "$SCRIPT_DIR/lcov_to_xml.py" \
     "$BUILD_DIR/lcov.info" \
     "$BUILD_DIR/coverage-sonar.xml" \
     --project-root "$PROJECT_ROOT" \
-    --src-root src \
-    --src-root include
+    "${SRC_ROOT_ARGS[@]}"
 
 # Guard: every src/ file that has DA line data in lcov.info MUST appear in the
 # XML, otherwise coverage is silently lost. This catches a stale build dir that
