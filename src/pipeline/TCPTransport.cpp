@@ -11,8 +11,10 @@
 #include <cerrno>
 #include <chrono>
 #include <cstring>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <thread>
@@ -35,14 +37,72 @@ constexpr std::size_t MAX_PENDING_LEN = 4096;  // Guard against runaway line buf
 constexpr int DEFAULT_PER_COMMAND_DELAY_MS = 50;  // Fallback per-command delay when none is supplied
 
 
+// Outcome of waiting for a nonblocking connect() to complete.
+enum class ConnectWaitResult {
+    Connected,   // connect() succeeded (socket is writable, SO_ERROR == 0)
+    Failed,      // timeout, poll error, or SO_ERROR set (try next address)
+    Cancelled,   // the stop token fired mid-connect (abort the whole resolution)
+};
+
+// Wait for a nonblocking connect() on `fd` to either complete within
+// CONNECT_TIMEOUT_S, fail, or be cancelled via `stop`. Polls writability in
+// 100ms slices (mirroring UDPDiscovery::poll's idiom) so the stop token is
+// re-checked each iteration — this is the property that lets requestStop()
+// interrupt an in-flight connect during hunting. `stop` is nullable.
+ConnectWaitResult waitForConnect(int fd, const StopToken* stop) {
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::seconds(CONNECT_TIMEOUT_S);
+
+    while (true) {
+        if (stop != nullptr && stop->stopRequested()) {
+            return ConnectWaitResult::Cancelled;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            return ConnectWaitResult::Failed;
+        }
+        const auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                     deadline - now).count();
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        pfd.revents = 0;
+        const int sliceMs = std::min(static_cast<int>(remainingMs), 100);
+        const int ret = ::poll(&pfd, 1, sliceMs);
+        if (ret < 0) {
+            // EINTR: a signal interrupted poll — re-loop and re-check stop/deadline.
+            // Any other error is a genuine failure for this address.
+            if (errno != EINTR) {
+                return ConnectWaitResult::Failed;
+            }
+            continue;
+        }
+        if (ret == 0) {
+            continue;  // slice elapsed: re-check stop + deadline
+        }
+        // Socket is writable (or errored): resolve SO_ERROR to decide.
+        int sockErr = 0;
+        if (socklen_t optLen = sizeof(sockErr);
+            getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockErr, &optLen) == 0 && sockErr == 0) {
+            return ConnectWaitResult::Connected;
+        }
+        return ConnectWaitResult::Failed;
+    }
+}
+
 // Resolve host:port into a connected TCP socket, or -1 on failure. Uses a
-// bounded connect() so an unreachable board can't hang the CLI.
-int connectToHost(const std::string& host, int port) {
+// nonblocking connect() polled in bounded chunks so an unreachable board fails
+// within CONNECT_TIMEOUT_S AND so a cooperating caller's StopToken can cancel
+// an in-flight connect (SO_SNDTIMEO alone does not reliably bound a blocking
+// connect() on macOS — the kernel's SYN retransmit can run for a minute+).
+// `stop` is nullable: callers without a stop token (e.g. the initial open())
+// pass nullptr and get the bounded-timeout behaviour without cancellation.
+int connectToHost(const std::string& host, int port, const StopToken* stop) {
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;      // IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM;
 
-    std::string portStr = std::to_string(port);
+    const std::string portStr = std::to_string(port);
 
     addrinfo* result = nullptr;
     if (int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result); rc != 0 || result == nullptr) {
@@ -64,16 +124,48 @@ int connectToHost(const std::string& host, int port) {
         (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, sizeof(nosig));
 #endif
 
-        // Bound connect timeout so a dead host fails fast instead of hanging.
-        struct timeval tv{};
-        tv.tv_sec = CONNECT_TIMEOUT_S;
-        tv.tv_usec = 0;
-        (void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        // Make the socket nonblocking so connect() returns immediately and we
+        // can poll for writability (and the stop flag) in bounded chunks. This
+        // mirrors UDPDiscovery::poll's chunked-poll idiom (poll in 100ms slices
+        // so the stop token is re-checked each iteration).
+        const int flags = fcntl(fd, F_GETFL, 0);
+        if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+            close(fd);
+            fd = -1;
+            continue;
+        }
 
-        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+        const int rc = connect(fd, ai->ai_addr, ai->ai_addrlen);
+        const bool immediateSuccess = (rc == 0);
+        const bool pending = (rc < 0 && errno == EINPROGRESS);
+        if (!immediateSuccess && !pending) {
+            // Immediate failure (ECONNREFUSED, ENETUNREACH, ...). Try next addr.
+            close(fd);
+            fd = -1;
+            continue;
+        }
+
+        ConnectWaitResult outcome = ConnectWaitResult::Connected;
+        if (pending) {
+            // EINPROGRESS: connect is pending. Poll for writability, checking
+            // the stop token each chunk so requestStop() can interrupt an
+            // in-flight connect (the production correctness property the
+            // hunting loop needs).
+            outcome = waitForConnect(fd, stop);
+        }
+
+        if (outcome == ConnectWaitResult::Cancelled) {
+            close(fd);
+            freeaddrinfo(result);
+            return -1;  // stop requested: bail out of the whole resolution
+        }
+        if (outcome == ConnectWaitResult::Connected) {
+            // Restore blocking mode for the subsequent send/recv hot path.
+            fcntl(fd, F_SETFL, flags);
             break;  // success
         }
 
+        // Failed: try the next resolved address.
         close(fd);
         fd = -1;
     }
@@ -87,12 +179,14 @@ int connectToHost(const std::string& host, int port) {
 TCPTransport::TCPTransport(std::string_view host, int port, std::string_view adapterProtocol,
                            std::shared_ptr<ITransportOutput> output,
                            TcpReadTiming timing,
-                           std::shared_ptr<StopToken> stop)
+                           std::shared_ptr<StopToken> stop,
+                           DiscoveryListenerFactory discoveryFactory)
     : host_(host)
     , port_(port)
     , adapterProtocol_(adapterProtocol)
     , output_(std::move(output))
     , stop_(std::move(stop))
+    , discoveryFactory_(std::move(discoveryFactory))
     , readTimeoutUs_(timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000)
     , atInitDelayMs_(timing.atInitDelayMs)
     , socketRecvTimeoutMs_(timing.socketRecvTimeoutMs > 0 ? timing.socketRecvTimeoutMs : 1000) {
@@ -163,7 +257,7 @@ bool TCPTransport::sendElm327Init(int fd) noexcept {
 
 bool TCPTransport::connectAndAuth() {
     closeConnection();
-    fd_ = connectToHost(host_, port_);
+    fd_ = connectToHost(host_, port_, stop_.get());
     if (fd_ < 0) return false;
 
     struct timeval rtv{};
@@ -364,25 +458,40 @@ constexpr int calculateRetryDelayMs(int retryCount) {
     return std::min(delay, TCPTransport::MAX_RETRY_DELAY_MS);
 }
 
+// Resolve the per-hunt discovery listener. The injected factory wins when set
+// (tests inject a no-op so the discovery-win path is unreachable and the hunt
+// is hermetic regardless of any device broadcasting on the LAN); otherwise the
+// real UDPDiscovery is constructed fresh per hunt (mirroring the original
+// stack-local, including its empty per-hunt dedup state).
+std::unique_ptr<discovery::IDiscoveryListener>
+TCPTransport::resolveDiscoveryListener() {
+    namespace discovery = vehicle_sim::discovery;
+    if (discoveryFactory_) {
+        return discoveryFactory_();
+    }
+    return std::unique_ptr<discovery::IDiscoveryListener>(
+        std::make_unique<discovery::UDPDiscovery>());
+}
+
 bool TCPTransport::enterHuntingState() {
     namespace discovery = vehicle_sim::discovery;
 
-    // Start UDP discovery listener immediately (device broadcasts every 0.5-2s)
-    discovery::UDPDiscovery hunter;
+    // Start UDP discovery listener immediately (device broadcasts every 0.5-2s).
+    auto hunter = resolveDiscoveryListener();
     std::atomic<bool> discoveryFound(false);
     std::atomic<bool> shouldStopDiscovery(false);
     std::string discoveredIp;
 
     // Background thread: listen for UDP discovery broadcasts
     std::thread discoveryListener([&]() {
-        if (!hunter.start()) {
+        if (!hunter->start()) {
             output_->err("[tcp] Failed to start UDP discovery listener");
             return;
         }
 
         // Keep polling until connection succeeds or we're told to stop
         while (!shouldStopDiscovery.load() && !stop_->stopRequested()) {
-            auto devices = hunter.poll(std::chrono::milliseconds(500));
+            auto devices = hunter->poll(std::chrono::milliseconds(500));
 
             bool shouldStop = false;
             for (const auto& device : devices) {
@@ -416,7 +525,7 @@ bool TCPTransport::enterHuntingState() {
             }
         }
 
-        hunter.stop();
+        hunter->stop();
     });
 
     // Main thread: retry old IP with exponential backoff
@@ -432,9 +541,12 @@ bool TCPTransport::enterHuntingState() {
                    " (attempt " + std::to_string(retryCount_) + "/" + std::to_string(MAX_RETRIES) +
                    " in " + std::to_string(delayMs) + "ms)" + kClientTag + "...");
 
-        // Sleep for backoff delay, but check periodically if discovery found new IP
+        // Sleep for backoff delay, but check periodically if discovery found a
+        // new IP OR the caller requested a stop (so requestStop() interrupts a
+        // started backoff within one checkInterval slice, not after the full
+        // backoff delay).
         int checkInterval = 100;  // Check every 100ms
-        for (int elapsed = 0; elapsed < delayMs && !discoveryFound.load(); elapsed += checkInterval) {
+        for (int elapsed = 0; elapsed < delayMs && !discoveryFound.load() && !stop_->stopRequested(); elapsed += checkInterval) {
             std::this_thread::sleep_for(std::chrono::milliseconds(std::min(checkInterval, delayMs - elapsed)));
         }
 

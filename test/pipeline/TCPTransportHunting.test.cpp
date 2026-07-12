@@ -52,30 +52,6 @@ using namespace vehicle_sim::pipeline;
 using namespace vehicle_sim::discovery;
 
 // ===========================================================================
-// Always-compiled contract probe: surfaces the dead-code precondition without
-// failing the suite (GTEST_SKIP keeps `make test` green).
-// ===========================================================================
-TEST(TCPTransportHuntingContract, EnterHuntingStateIsAvailableOnHostBuild) {
-#if defined(TARGET_OS_IPHONE)
-    // Precondition violated on this build: the hunt-on-disconnect feature is
-    // compiled out because TCPTransport.h/.cpp guard it with
-    // `!defined(TARGET_OS_IPHONE)`, yet Apple SDKs define TARGET_OS_IPHONE (to 0).
-    // The correct guard is `(!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)`.
-    // `nm` confirms enterHuntingState is absent from libvehicle-sim-lib.a.
-    // Skipped (not failed) to keep the suite green per task constraints; the
-    // spec-first TCPTransportHuntingTest.* cases activate once the guard is fixed
-    // and VEHICLE_SIM_HUNTING_ENABLED is defined.
-    GTEST_SKIP() << "PRECONDITION: TCPTransport::enterHuntingState() is compiled out on this "
-                    "host build (TARGET_OS_IPHONE is defined). Fix the source guard "
-                    "`!defined(TARGET_OS_IPHONE)` -> `(!defined(TARGET_OS_IPHONE) || "
-                    "TARGET_OS_IPHONE == 0)` in TCPTransport.h/.cpp to enable the hunt tests.";
-#else
-    // Guard not excluding the feature: the real tests below cover the behaviour.
-    GTEST_SKIP() << "enterHuntingState is compiled in; covered by TCPTransportHuntingTest.*";
-#endif
-}
-
-// ===========================================================================
 // Spec-first tests for enterHuntingState(). These drive the REAL production
 // function (no mocks of the transport or UDPDiscovery) and assert observable
 // outcomes. They are inert until VEHICLE_SIM_HUNTING_ENABLED is defined (which

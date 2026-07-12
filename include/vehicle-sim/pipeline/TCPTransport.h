@@ -3,7 +3,9 @@
 #include "vehicle-sim/pipeline/ITransport.h"
 #include "vehicle-sim/pipeline/ITransportOutput.h"
 #include "vehicle-sim/pipeline/StopToken.h"
+#include "vehicle-sim/discovery/IDiscoveryListener.h"
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -34,6 +36,23 @@ struct TcpReadTiming {
     int atInitDelayMs = -1;
     int socketRecvTimeoutMs = 1000;
 };
+
+/**
+ * Factory for the discovery listener used by the hunt-on-disconnect resilience
+ * path (enterHuntingState). The hunt constructs a FRESH listener per call (to
+ * mirror the original stack-local UDPDiscovery and its empty per-hunt dedup
+ * state), so the injection is a factory rather than a shared instance.
+ *
+ * An empty/default-constructed factory (the ctor default) means "use the real
+ * UDPDiscovery" — resolved lazily inside the host-only enterHuntingState(), so
+ * the production TCPTransport never references UDPDiscovery outside the
+ * host-only translation unit and the header stays iOS-portable. Tests pass a
+ * factory returning a no-op IDiscoveryListener so the discovery-win path is
+ * unreachable and the hunt is hermetic/deterministic regardless of any device
+ * on the LAN.
+ */
+using DiscoveryListenerFactory =
+    std::function<std::unique_ptr<discovery::IDiscoveryListener>()>;
 
 /**
  * Live raw TCP transport: opens a POSIX socket to a CAN-bridge (e.g. the ESP32
@@ -69,11 +88,17 @@ public:
      * @param stop            Shared cooperative stop signal (injected, owned by
      *                        the live run-context); must exist at construction
      *                        for the hot loop.
+     * @param discoveryFactory Factory for the discovery listener used by the
+     *                        host-only hunt-on-disconnect path. Default {} =
+     *                        use the real UDPDiscovery. Tests inject a no-op
+     *                        factory for hermetic/deterministic hunting. See
+     *                        DiscoveryListenerFactory.
      */
     TCPTransport(std::string_view host, int port, std::string_view adapterProtocol = "raw",
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
                  TcpReadTiming timing = TcpReadTiming{},
-                 std::shared_ptr<StopToken> stop = std::make_shared<StopToken>());
+                 std::shared_ptr<StopToken> stop = std::make_shared<StopToken>(),
+                 DiscoveryListenerFactory discoveryFactory = DiscoveryListenerFactory{});
 
     ~TCPTransport() override;
 
@@ -141,9 +166,15 @@ public:
     bool enterHuntingState();  // Retry old IP + listen for UDP discovery simultaneously (host-only)
     std::string host_;
 private:
+    // Resolve the per-hunt discovery listener from the injected factory, or a
+    // real UDPDiscovery when no factory was injected. Host-only (references
+    // UDPDiscovery in the .cpp); kept as a helper so enterHuntingState stays
+    // focused on the hunt rather than listener construction.
+    std::unique_ptr<discovery::IDiscoveryListener> resolveDiscoveryListener();
 #else
 #if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
     bool enterHuntingState();  // Retry old IP + listen for UDP discovery simultaneously (host-only)
+    std::unique_ptr<discovery::IDiscoveryListener> resolveDiscoveryListener();
 #endif
     std::string host_;
 #endif
@@ -151,6 +182,9 @@ private:
     std::string adapterProtocol_;
     std::shared_ptr<ITransportOutput> output_;
     std::shared_ptr<StopToken> stop_;
+    // Factory for the per-hunt discovery listener (empty = real UDPDiscovery).
+    // Only dereferenced inside the host-only enterHuntingState().
+    DiscoveryListenerFactory discoveryFactory_;
     int readTimeoutUs_ = 500000;
     int atInitDelayMs_ = -1;
     int socketRecvTimeoutMs_ = 1000;

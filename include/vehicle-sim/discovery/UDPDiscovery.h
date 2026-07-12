@@ -13,8 +13,9 @@
 #ifndef VEHICLE_SIM_DISCOVERY_UDP_H
 #define VEHICLE_SIM_DISCOVERY_UDP_H
 
-#include "vehicle-sim/discovery/DiscoveryPacket.h"
+#include "vehicle-sim/discovery/DiscoveredDevice.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
+#include "vehicle-sim/discovery/IDiscoveryListener.h"
 #include "vehicle-sim/pipeline/StopToken.h"
 
 #include <string>
@@ -26,21 +27,7 @@
 
 namespace vehicle_sim::discovery {
 
-// Information about a discovered ESP32.
-struct DiscoveredDevice {
-    std::array<uint8_t, DEVICE_ID_LEN> deviceId;
-    std::string address;     // IP address of the ESP32
-    uint16_t canPort;        // TCP port for CAN bridge
-    uint16_t otaPort;        // TCP port for OTA
-    uint64_t timestamp;      // Packet timestamp (Unix epoch)
-
-    // Connection string for --connect: "tcp:<address>:<port>"
-    std::string tcpConnectionString() const {
-        return "tcp:" + address + ":" + std::to_string(canPort);
-    }
-};
-
-class UDPDiscovery {
+class UDPDiscovery : public IDiscoveryListener {
 public:
     using DeviceCallback = std::function<void(const DiscoveredDevice&)>;
 
@@ -54,10 +41,10 @@ public:
 
     // Start listening for UDP broadcasts.
     // Returns true on success.
-    bool start();
+    bool start() override;
 
     // Stop listening.
-    void stop();
+    void stop() override;
 
     // Check if currently listening.
     bool isListening() const;
@@ -65,7 +52,7 @@ public:
     // Poll for discovered devices. Waits up to `timeout` for at least one
     // valid discovery packet. Returns all newly discovered devices since the
     // last poll (deduplicated by IP address).
-    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout);
+    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout) override;
 
     // Set the Ed25519 public key for signature verification.
     void setPublicKey(const std::array<uint8_t, ED25519_PUBLIC_KEY_LEN>& key);
