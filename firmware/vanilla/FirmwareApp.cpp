@@ -3,7 +3,6 @@
 #include "DiscoveryManager.h"
 #include "CanBridge.h"
 #include "AtCommandDispatcher.h"
-#include "OtaUpdateServer.h"
 #include <stdexcept>
 
 namespace esp32_firmware {

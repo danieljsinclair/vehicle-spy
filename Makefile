@@ -340,6 +340,7 @@ $(FIRMWARE_CRED_SENTINEL): $(FIRMWARE_DIR)/*.ino FORCE
 # ESP32-specific HardwareStatusLEDOutput (GPIO) is named explicitly here.
 FIRMWARE_SRCS := $(wildcard $(FIRMWARE_DIR)/*.ino) \
                  $(wildcard firmware/vanilla/*.cpp firmware/vanilla/*.h) \
+                 $(wildcard $(FIRMWARE_DIR)/*.h) \
                  $(wildcard $(FIRMWARE_DIR)/HardwareStatusLEDOutput.cpp)
 
 $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(FIRMWARE_SRCS)

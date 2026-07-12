@@ -1,354 +1,113 @@
 // ESP32 WiFi OTA update — Ed25519ph-signed firmware over HTTP.
 //
-// Uses the standard HTTPUpdateServer for the upload mechanism.
-// After the upload completes, we verify the Ed25519ph signature
-// BEFORE the HTTP response is sent. If verification fails,
-// the update is aborted and rollback is triggered.
+// THIN VENEER: this file only constructs the Arduino adapters + the vanilla
+// OtaUpdateServer and delegates otaSetup/otaLoop/otaMarkValidOnBoot to it. All
+// OTA logic — the START/WRITE/END/ABORTED upload state machine, the signature
+// verification (verifyPartition), the POST/GET HTTP handlers, the timeout guard
+// — lives in firmware/vanilla/OtaUpdateServer.{h,cpp} and is host-tested via
+// firmware/tests/OtaUpdateServer_test.cpp (219/219). The inline implementation
+// was deleted in extraction Stage 5 (#41).
+//
+// Security boundary: signature verification, partition-size guard, and the
+// signing key are all crypto-domain. The key is owned by ArduinoCrypto (from
+// OtaPublicKey.h); the vanilla carries no key material.
+//
+// Lifecycle note: can-bridge.ino calls otaMarkValidOnBoot() BEFORE otaSetup(),
+// so the adapters + server are constructed once lazily (ensureOtaServer) and
+// shared by both entry points.
 
 #include <WiFi.h>
-#include <WebServer.h>
-#include <HTTPUpdateServer.h>
-#include <Update.h>
-#include <esp_ota_ops.h>
-#include <esp_partition.h>
-#include <esp_task_wdt.h>
-#include "OtaPublicKey.h"
-#include <string_view>
-#include <array>
-extern "C" {
-#include <sodium.h>
+#include <memory>
+#include "OtaUpdateServer.h"
+#include "ArduinoHttpServer.h"
+#include "ArduinoHttpUpdateServer.h"
+#include "ArduinoUpdate.h"
+#include "ArduinoPartition.h"
+#include "ArduinoCrypto.h"
+
+#if VEHICLE_SIM_ENABLE_OTA_SERVER
+
+using esp32_firmware::OtaUpdateServer;
+using esp32_firmware::ArduinoHttpServer;
+using esp32_firmware::ArduinoHttpUpdateServer;
+using esp32_firmware::ArduinoUpdate;
+using esp32_firmware::ArduinoPartition;
+using esp32_firmware::ArduinoCrypto;
+using esp32_firmware::OtaConfig;
+
+// arduinoTime (static ArduinoTime, declared in can-bridge.ino) is in scope here:
+// arduino-cli concatenates every .ino in the sketch into one translation unit
+// (can-bridge.ino sorts before ota_update.ino), so its earlier declaration is
+// visible without an extern. Same reason RED/GREEN/NC are visible below.
+
+namespace {
+// OTA server + its 5 Arduino adapters. Constructed once (lazily) and shared by
+// otaMarkValidOnBoot() + otaSetup(). The WebServer is owned by ArduinoHttpServer;
+// ArduinoHttpUpdateServer borrows it via raw().
+std::unique_ptr<ArduinoHttpServer>        otaHttp;
+std::unique_ptr<ArduinoHttpUpdateServer>  otaUpdater;
+std::unique_ptr<ArduinoUpdate>            otaUpdateLib;
+std::unique_ptr<ArduinoPartition>         otaPartition;
+std::unique_ptr<ArduinoCrypto>            otaCrypto;
+std::unique_ptr<OtaUpdateServer>          otaServer;
+
+// Build the adapters + vanilla server once. Idempotent — safe to call from both
+// otaMarkValidOnBoot() and otaSetup().
+void ensureOtaServer() {
+    if (otaServer) {
+        return;
+    }
+    otaHttp       = std::make_unique<ArduinoHttpServer>(OtaConfig::HTTP_PORT);
+    otaUpdater    = std::make_unique<ArduinoHttpUpdateServer>(otaHttp->raw());
+    otaUpdateLib  = std::make_unique<ArduinoUpdate>();
+    otaPartition  = std::make_unique<ArduinoPartition>();
+    otaCrypto     = std::make_unique<ArduinoCrypto>();
+    otaServer = std::make_unique<OtaUpdateServer>(
+        *otaHttp, *otaUpdater, *otaUpdateLib, *otaPartition, *otaCrypto, arduinoTime);
 }
+} // namespace
 
-// ── Named Constants ────────────────────────────────────────────────────────────
-namespace OtaConstants {
-    static constexpr uint16_t HTTP_PORT = 80;
-    static constexpr uint32_t UPLOAD_TIMEOUT_MS = 300000;  // 5 minutes
-    static constexpr uint32_t VERIFY_YIELD_INTERVAL = 0x3FFF;  // WDT feed every 16KB
-    static constexpr uint32_t VERIFY_CHUNK_SIZE = 512;
-    static constexpr uint32_t REBOOT_FLUSH_COUNT = 10;
-    static constexpr uint32_t REBOOT_FLUSH_DELAY_MS = 100;
-    static constexpr uint32_t REBOOT_DELAY_MS = 100;
-
-    // HTTP response codes
-    static constexpr int HTTP_OK = 200;
-    static constexpr int HTTP_UNAUTHORIZED = 401;
-    static constexpr int HTTP_FORBIDDEN = 403;
-    static constexpr int HTTP_INSUFFICIENT_STORAGE = 507;
-    static constexpr int HTTP_BAD_REQUEST = 400;
-}
-
-static const char* OTA_SIG_HDR = "X-Firmware-Signature";
-
-static WebServer otaHttp(OtaConstants::HTTP_PORT);
-static HTTPUpdateServer otaUpdater;
-static bool sodiumReady = false;
-static uint32_t otaUploadStartTime = 0;
-
-// ── Signature verification (called after upload, before HTTP response) ──
-static std::array<uint8_t, 64> otaSig;
-static bool otaHasSig = false;
-static String otaErr;
-
-// OTA error codes for better host diagnostics
-enum class OtaError {
-    NONE,
-    SODIUM_NOT_READY,
-    BAD_SIGNATURE_HEADER,
-    NO_SIGNATURE,
-    UPDATE_BEGIN_FAILED,
-    UPDATE_WRITE_FAILED,
-    UPDATE_END_FAILED,
-    UPDATE_ERROR,
-    NO_OTA_PARTITION,
-    SIGNATURE_VERIFY_FAILED,
-    SET_BOOT_PARTITION_FAILED,
-    UPLOAD_ABORTED,
-    UPLOAD_TIMEOUT
-};
-
-// Forward declarations
-static String otaErrorMessage(OtaError err);
-static int otaHttpCode(OtaError err);
-
-// Testable pure function: Hex byte conversion (testable unit)
-static bool hexToByte(char c, uint8_t& v) {
-    if (c >= '0' && c <= '9') { v = c - '0'; return true; }
-    if (c >= 'a' && c <= 'f') { v = c - 'a' + 10; return true; }
-    if (c >= 'A' && c <= 'F') { v = c - 'A' + 10; return true; }
-    return false;
-}
-
-// Testable pure function: Parse hex signature (testable unit)
-static bool parseHexSig(const String& hex, uint8_t* out) {
-    if (hex.length() != 128) return false;
-    for (size_t i = 0; i < 64; i++) {
-        uint8_t hi = 0;
-        uint8_t lo = 0;
-        if (!hexToByte(hex[i*2], hi) || !hexToByte(hex[i*2+1], lo)) return false;
-        out[i] = static_cast<uint8_t>((hi << 4) | lo);
-    }
-    return true;
-}
-
-// Verify partition signature with WDT feeding to prevent boot-loops
-static bool verifyPartition(const esp_partition_t* part, uint32_t size, const uint8_t* sig) {
-    if (!part || size > part->size) {
-        Serial.printf("%sOTA: invalid partition or size%s\r\n", RED, NC);
-        return false;
-    }
-
-    crypto_sign_ed25519ph_state state;
-    if (crypto_sign_ed25519ph_init(&state) != 0) {
-        Serial.printf("%sOTA: signature init failed%s\r\n", RED, NC);
-        return false;
-    }
-
-    std::array<uint8_t, OtaConstants::VERIFY_CHUNK_SIZE> chunk;
-    uint32_t off = 0;
-    while (off < size) {
-        size_t n = (size - off < OtaConstants::VERIFY_CHUNK_SIZE) ?
-                   (size - off) : OtaConstants::VERIFY_CHUNK_SIZE;
-
-        if (esp_partition_read(part, off, chunk.data(), n) != ESP_OK) {
-            Serial.printf("%sOTA: partition read failed at offset %u%s\r\n", RED, off, NC);
-            return false;
-        }
-
-        if (crypto_sign_ed25519ph_update(&state, chunk.data(), n) != 0) {
-            Serial.printf("%sOTA: signature update failed%s\r\n", RED, NC);
-            return false;
-        }
-
-        off += n;
-
-        // Feed WDT periodically to prevent boot-loop after bad flash
-        if ((off & OtaConstants::VERIFY_YIELD_INTERVAL) == 0) {
-            delay(1);
-        }
-    }
-
-    const bool valid = crypto_sign_ed25519ph_final_verify(&state, sig, OTA_PUBLIC_KEY) == 0;
-    if (!valid) {
-        Serial.printf("%sOTA: signature verification failed%s\r\n", RED, NC);
-    }
-    return valid;
-}
-
-static String otaErrorMessage(OtaError err) {
-    switch (err) {
-        case OtaError::SODIUM_NOT_READY: return "sodium library not ready";
-        case OtaError::BAD_SIGNATURE_HEADER: return "invalid signature header format";
-        case OtaError::NO_SIGNATURE: return "missing signature header";
-        case OtaError::UPDATE_BEGIN_FAILED: return "failed to begin update";
-        case OtaError::UPDATE_WRITE_FAILED: return "firmware write failed";
-        case OtaError::UPDATE_END_FAILED: return "failed to end update";
-        case OtaError::UPDATE_ERROR: return "update error";
-        case OtaError::NO_OTA_PARTITION: return "no OTA partition available";
-        case OtaError::SIGNATURE_VERIFY_FAILED: return "signature verification failed";
-        case OtaError::SET_BOOT_PARTITION_FAILED: return "failed to set boot partition";
-        case OtaError::UPLOAD_ABORTED: return "upload aborted";
-        case OtaError::UPLOAD_TIMEOUT: return "upload timeout";
-        default: return "unknown error";
-    }
-}
-
-static int otaHttpCode(OtaError err) {
-    switch (err) {
-        case OtaError::NONE: return OtaConstants::HTTP_OK;
-        case OtaError::SIGNATURE_VERIFY_FAILED:
-        case OtaError::BAD_SIGNATURE_HEADER:
-            return OtaConstants::HTTP_FORBIDDEN;
-        case OtaError::UPLOAD_TIMEOUT:
-            return OtaConstants::HTTP_BAD_REQUEST;
-        case OtaError::NO_SIGNATURE:
-            return OtaConstants::HTTP_UNAUTHORIZED;
-        default:
-            return OtaConstants::HTTP_BAD_REQUEST;
-    }
+void otaMarkValidOnBoot() {
+    ensureOtaServer();
+    otaServer->markValidOnBoot();
 }
 
 void otaSetup() {
-    if (sodium_init() >= 0) {
-        sodiumReady = true;
-        Serial.println("OTA: sodium crypto library initialized");
-    } else {
-        Serial.printf("%sOTA: sodium crypto library failed to initialize%s\r\n", RED, NC);
-    }
+    ensureOtaServer();
 
-    static std::array<const char*, 1> hdrs = { OTA_SIG_HDR };
-    otaHttp.collectHeaders(hdrs.data(), hdrs.size());
-
-    // Use HTTPUpdateServer with no auth (signature is the security boundary)
-    otaUpdater.setup(&otaHttp, "/update", "", "");
-
-    // Override GET handler for the upload form
-    otaHttp.on("/update", HTTP_GET, []() {
-        otaHttp.send(OtaConstants::HTTP_OK, "text/html",
-            "<form method='POST' action='/update' enctype='multipart/form-data'>"
-            "Firmware: <input type='file' name='firmware'><br>"
-            "Signature (hex): <input name='X-Firmware-Signature'><br>"
-            "<input type='submit' value='Update'></form>");
+    // Gap 2 (reboot): on a fully-verified accept, the vanilla's handlePost has
+    // already flushed the client + sent HTTP OK + fired this callback. We then
+    // delay + restart so the client receives its response before the device
+    // resets into the new image.
+    otaServer->setSuccessCallback([]() {
+        delay(OtaConfig::REBOOT_DELAY_MS);
+        ESP.restart();
     });
 
-    // Override POST handler to add signature verification
-    otaHttp.on("/update", HTTP_POST,
-        /* post-handler: called after all uploads complete */
-        []() {
-            if (otaErr.length()) {
-                // Parse error from otaErr string
-                OtaError err = OtaError::UPDATE_ERROR;
-                String errLower = otaErr;
-                errLower.toLowerCase();
-
-                if (errLower.indexOf("signature") >= 0) {
-                    err = OtaError::SIGNATURE_VERIFY_FAILED;
-                } else if (errLower.indexOf("sodium") >= 0) {
-                    err = OtaError::SODIUM_NOT_READY;
-                }
-
-                int code = otaHttpCode(err);
-                otaHttp.send(code, "text/plain", "OTA error: " + otaErr);
-                Serial.printf("%sOTA upload failed: %s (HTTP %d)%s\r\n", RED, otaErr.c_str(), code, NC);
-            } else if (Update.hasError()) {
-                otaHttp.send(OtaConstants::HTTP_BAD_REQUEST, "text/plain", "OTA error: update failed");
-                Serial.printf("%sOTA upload failed: update error%s\r\n", RED, NC);
-            } else {
-                otaHttp.client().setNoDelay(true);
-                otaHttp.send(OtaConstants::HTTP_OK, "text/plain", "Update Success! Rebooting...");
-                Serial.printf("%sOTA: accepted firmware, rebooting%s\r\n", GREEN, NC);
-
-                for (int i = 0; i < OtaConstants::REBOOT_FLUSH_COUNT; i++) {
-                    otaHttp.client().flush();
-                    delay(OtaConstants::REBOOT_FLUSH_DELAY_MS);
-                }
-                otaHttp.client().stop();
-                delay(OtaConstants::REBOOT_DELAY_MS);
-                ESP.restart();
-            }
-        },
-        /* upload-handler: called during multipart parsing */
-        []() {
-            HTTPUpload& up = otaHttp.upload();
-
-            if (up.status == UPLOAD_FILE_START) {
-                otaErr.clear();
-                otaHasSig = false;
-                otaUploadStartTime = millis();
-
-                if (!sodiumReady) {
-                    otaErr = otaErrorMessage(OtaError::SODIUM_NOT_READY);
-                    Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-                    return;
-                }
-
-                String sig = otaHttp.header(OTA_SIG_HDR);
-                if (!parseHexSig(sig, otaSig.data())) {
-                    otaErr = otaErrorMessage(OtaError::BAD_SIGNATURE_HEADER);
-                    Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-                    return;
-                }
-                otaHasSig = true;
-
-                uint32_t maxSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
-                if (!Update.begin(maxSpace, U_FLASH)) {
-                    otaErr = otaErrorMessage(OtaError::UPDATE_BEGIN_FAILED);
-                    Serial.printf("%sOTA: %s (insufficient space: %u bytes)%s\r\n",
-                                    RED, otaErr.c_str(), maxSpace, NC);
-                    return;
-                }
-
-                Serial.printf("OTA: upload started (max size: %u bytes)\r\n", maxSpace);
-
-            } else if (up.status == UPLOAD_FILE_WRITE && otaErr.isEmpty()) {
-                // Check for upload timeout
-                if ((millis() - otaUploadStartTime) > OtaConstants::UPLOAD_TIMEOUT_MS) {
-                    otaErr = otaErrorMessage(OtaError::UPLOAD_TIMEOUT);
-                    Serial.printf("%sOTA: upload timeout after %lu ms%s\r\n",
-                                    RED, millis() - otaUploadStartTime, NC);
-                    Update.abort();
-                    return;
-                }
-
-                if (Update.write(up.buf, up.currentSize) != up.currentSize) {
-                    otaErr = otaErrorMessage(OtaError::UPDATE_WRITE_FAILED);
-                    Serial.printf("%sOTA: write failed at offset %u%s\r\n", RED, up.totalSize, NC);
-                    return;
-                }
-                delay(0);  // Feed WDT
-
-            } else if (up.status == UPLOAD_FILE_END && otaErr.isEmpty()) {
-                Serial.printf("OTA: upload completed (%u bytes)\r\n", up.totalSize);
-
-                if (!otaHasSig) {
-                    Update.abort();
-                    otaErr = otaErrorMessage(OtaError::NO_SIGNATURE);
-                    Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-                    return;
-                }
-
-                if (!Update.end(true)) {
-                    otaErr = otaErrorMessage(OtaError::UPDATE_END_FAILED);
-                    Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-                    return;
-                }
-
-                if (Update.hasError()) {
-                    otaErr = otaErrorMessage(OtaError::UPDATE_ERROR);
-                    Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-                    return;
-                }
-
-                // Verify signature before committing
-                auto* running = esp_ota_get_running_partition();
-                auto* target = esp_ota_get_next_update_partition(running);
-
-                if (!target) {
-                    otaErr = otaErrorMessage(OtaError::NO_OTA_PARTITION);
-                    Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-                    return;
-                }
-
-                if (!verifyPartition(target, up.totalSize, otaSig.data())) {
-                    otaErr = otaErrorMessage(OtaError::SIGNATURE_VERIFY_FAILED);
-                    // Abort update and trigger rollback
-                    Update.abort();
-                    Serial.printf("%sOTA: signature verification failed, update aborted%s\r\n", RED, NC);
-                    return;
-                }
-
-                if (esp_ota_set_boot_partition(target) != ESP_OK) {
-                    otaErr = otaErrorMessage(OtaError::SET_BOOT_PARTITION_FAILED);
-                    Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-                    return;
-                }
-
-                Serial.printf("%sOTA: firmware verified and accepted, will reboot%s\r\n", GREEN, NC);
-
-            } else if (up.status == UPLOAD_FILE_ABORTED) {
-                Update.abort();
-                otaErr = otaErrorMessage(OtaError::UPLOAD_ABORTED);
-                Serial.printf("%sOTA: %s%s\r\n", RED, otaErr.c_str(), NC);
-            }
-        }
-    );
-
-    otaHttp.begin();
-    Serial.printf("OTA HTTP server on port %u\r\n", OtaConstants::HTTP_PORT);
+    otaServer->setup();
+    Serial.printf("OTA HTTP server on port %u\r\n",
+                  static_cast<unsigned>(OtaConfig::HTTP_PORT));
 }
 
-void otaLoop() { otaHttp.handleClient(); }
-
-void otaMarkValidOnBoot() {
-    auto* running = esp_ota_get_running_partition();
-    if (!running) return;
-
-    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
-    if (esp_ota_get_state_partition(running, &state) == ESP_OK) {
-        if (state == ESP_OTA_IMG_PENDING_VERIFY) {
-            esp_ota_mark_app_valid_cancel_rollback();
-            Serial.printf("%sOTA: marked current firmware as valid (rollback cancelled)%s\r\n", GREEN, NC);
-        }
-    } else {
-        Serial.printf("%sOTA: unable to get partition state%s\r\n", YELLOW, NC);
+void otaLoop() {
+    if (otaServer) {
+        otaServer->loop();
     }
 }
+
+#else  // VEHICLE_SIM_ENABLE_OTA_SERVER == 0
+
+// OTA disabled (VEHICLE_SIM_ENABLE_OTA_SERVER=0) — no-op stubs so can-bridge.ino
+// links unchanged. Each body is intentionally empty: the feature is compiled
+// out, so there is nothing to set up, service, or mark valid.
+void otaSetup() {
+    // No-op: OTA server compiled out.
+}
+void otaLoop() {
+    // No-op: OTA server compiled out.
+}
+void otaMarkValidOnBoot() {
+    // No-op: OTA server compiled out.
+}
+
+#endif

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "vanilla/OtaUpdateServer.h"
+#include "vanilla/DiscoveryManager.h"  // ITime full definition for the upload-timeout seam
 #include "mocks/ArduinoMock.h"
 
 using namespace esp32_firmware;
@@ -10,6 +11,14 @@ using ::testing::_;
 using ::testing::Return;
 using ::testing::Invoke;
 using ::testing::AnyNumber;
+
+// Controllable ITime for the upload-timeout seam. millis() returns the
+// scripted value so a WRITE can be driven past UPLOAD_TIMEOUT_MS deterministically.
+class FakeTime : public ITime {
+public:
+    uint64_t getCurrentTimestamp() const override { return 0; }
+    MOCK_METHOD(uint32_t, millis, (), (const, override));
+};
 
 // Mock HTTP Server interface
 class MockHttpServer : public IHttpServer {
@@ -25,6 +34,7 @@ public:
     MOCK_METHOD(void, clientSetNoDelay, (bool nodelay), (override));
     MOCK_METHOD(void, clientFlush, (), (override));
     MOCK_METHOD(void, clientStop, (), (override));
+    MOCK_METHOD(std::unique_ptr<IHttpUpload>, upload, (), (override));
 
     std::string lastHeader;
     int lastSendCode{0};
@@ -70,14 +80,18 @@ public:
     }
 };
 
-// Mock Partition interface
+// Mock Partition interface. OtaPartitionRef is the opaque handle the vanilla
+// threads (defined only in the Arduino adapter); for host tests we treat it as
+// an opaque pointer and never dereference — the tests just thread sentinel
+// pointers through and script size()/read() returns.
 class MockPartition : public IPartition {
 public:
-    MOCK_METHOD(const void*, getRunningPartition, (), (override));
-    MOCK_METHOD(const void*, getNextUpdatePartition, (const void* running), (override));
-    MOCK_METHOD(int, read, (const void* partition, uint32_t offset, void* data, size_t size), (override));
-    MOCK_METHOD(int, getStatePartition, (const void* partition, int* state), (override));
-    MOCK_METHOD(int, setBootPartition, (const void* partition), (override));
+    MOCK_METHOD(const OtaPartitionRef*, getRunningPartition, (), (override));
+    MOCK_METHOD(const OtaPartitionRef*, getNextUpdatePartition, (const OtaPartitionRef* running), (override));
+    MOCK_METHOD(uint32_t, size, (const OtaPartitionRef* partition), (override));
+    MOCK_METHOD(int, read, (const OtaPartitionRef* partition, uint32_t offset, void* data, size_t size), (override));
+    MOCK_METHOD(int, getStatePartition, (const OtaPartitionRef* partition, int* state), (override));
+    MOCK_METHOD(int, setBootPartition, (const OtaPartitionRef* partition), (override));
     MOCK_METHOD(int, markAppValidCancelRollback, (), (override));
 
     bool runningPartitionValid{true};
@@ -95,9 +109,9 @@ public:
 class MockCrypto : public ICrypto {
 public:
     MOCK_METHOD(int, sodiumInit, (), (override));
-    MOCK_METHOD(int, signEd25519phInit, (void* state), (override));
-    MOCK_METHOD(int, signEd25519phUpdate, (void* state, const uint8_t* data, size_t len), (override));
-    MOCK_METHOD(int, signEd25519phFinalVerify, (void* state, const uint8_t* sig, const uint8_t* pubKey), (override));
+    MOCK_METHOD(int, signEd25519phInit, (), (override));
+    MOCK_METHOD(int, signEd25519phUpdate, (const uint8_t* data, size_t len), (override));
+    MOCK_METHOD(int, signEd25519phFinalVerify, (const uint8_t* sig, const uint8_t* pubKey), (override));
 
     int sodiumInitResult{0};
     bool sigValid{true};
@@ -115,6 +129,7 @@ protected:
     MockUpdate updateMock;
     MockPartition partitionMock;
     MockCrypto cryptoMock;
+    FakeTime timeMock;
     std::unique_ptr<OtaUpdateServer> otaServer;
 
     void SetUp() override {
@@ -124,6 +139,9 @@ protected:
         partitionMock.reset();
         cryptoMock.reset();
         arduino_mock::resetAllMocks();
+        // Default: the clock is stopped at t=0. Tests that exercise the
+        // upload-timeout override this with EXPECT_CALL sequences.
+        ON_CALL(timeMock, millis()).WillByDefault(Return(0));
     }
 
     void TearDown() override {
@@ -220,7 +238,7 @@ TEST_F(OtaUpdateServerTest, Setup_InitializesComponents) {
     EXPECT_CALL(httpMock, begin());
 
     otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock
+        httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock
     );
     otaServer->setup();
 }
@@ -236,7 +254,7 @@ TEST_F(OtaUpdateServerTest, Setup_SodiumInitFails_DoesNotCrash) {
     EXPECT_CALL(httpMock, begin());
 
     otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock
+        httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock
     );
     otaServer->setup();
 }
@@ -249,42 +267,42 @@ TEST_F(OtaUpdateServerTest, MarkValidOnBoot_NoRunningPartition_DoesNothing) {
     EXPECT_CALL(partitionMock, markAppValidCancelRollback()).Times(0);
 
     otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock
+        httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock
     );
     otaServer->markValidOnBoot();
 }
 
 TEST_F(OtaUpdateServerTest, MarkValidOnBoot_PendingVerify_MarksValid) {
-    // Mock partition pointer (just use a dummy address)
-    void* dummyPartition = reinterpret_cast<void*>(0x1000);
+    // Opaque sentinel handle (never dereferenced — the mock scripts the return).
+    const OtaPartitionRef* dummyPartition = reinterpret_cast<const OtaPartitionRef*>(0x1000);
 
     EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(dummyPartition));
     EXPECT_CALL(partitionMock, getStatePartition(dummyPartition, _))
-        .WillOnce([](const void*, int* state) {
+        .WillOnce([](const OtaPartitionRef*, int* state) {
             *state = 1;  // ESP_OTA_IMG_PENDING_VERIFY
             return 0;
         });
     EXPECT_CALL(partitionMock, markAppValidCancelRollback()).Times(1);
 
     otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock
+        httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock
     );
     otaServer->markValidOnBoot();
 }
 
 TEST_F(OtaUpdateServerTest, MarkValidOnBoot_NotPendingVerify_DoesNothing) {
-    void* dummyPartition = reinterpret_cast<void*>(0x1000);
+    const OtaPartitionRef* dummyPartition = reinterpret_cast<const OtaPartitionRef*>(0x1000);
 
     EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(dummyPartition));
     EXPECT_CALL(partitionMock, getStatePartition(dummyPartition, _))
-        .WillOnce([](const void*, int* state) {
+        .WillOnce([](const OtaPartitionRef*, int* state) {
             *state = 0;  // Not pending verify
             return 0;
         });
     EXPECT_CALL(partitionMock, markAppValidCancelRollback()).Times(0);
 
     otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock
+        httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock
     );
     otaServer->markValidOnBoot();
 }
@@ -367,7 +385,8 @@ IHttpUpload makeUpload(IHttpUpload::Status status, const uint8_t* data,
 // reach a known sodium state, then drives handleUpload directly.
 void primeOta(MockHttpServer& httpMock, MockHttpUpdateServer& updaterMock,
               MockUpdate& updateMock, MockPartition& partitionMock,
-              MockCrypto& cryptoMock, std::unique_ptr<OtaUpdateServer>& otaServer,
+              MockCrypto& cryptoMock, FakeTime& timeMock,
+              std::unique_ptr<OtaUpdateServer>& otaServer,
               int sodiumInitResult, ErrorCapture& sink) {
     EXPECT_CALL(cryptoMock, sodiumInit()).WillOnce(Return(sodiumInitResult));
     EXPECT_CALL(httpMock, collectHeaders(_, _)).Times(AnyNumber());
@@ -377,7 +396,7 @@ void primeOta(MockHttpServer& httpMock, MockHttpUpdateServer& updaterMock,
     EXPECT_CALL(httpMock, begin()).Times(AnyNumber());
 
     otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock);
+        httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock);
     otaServer->setErrorCallback(
         [&sink](OtaError err, const char* msg) {
             sink.fired = true;
@@ -395,7 +414,7 @@ void primeOta(MockHttpServer& httpMock, MockHttpUpdateServer& updaterMock,
 // IUpdate::begin must NOT be called (no update started on unverified crypto).
 TEST_F(OtaUpdateServerTest, HandleUpload_Start_SodiumNotReady_NoBegin) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/-1, sink);
 
     EXPECT_CALL(updateMock, begin(_, _)).Times(0);
@@ -411,7 +430,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Start_SodiumNotReady_NoBegin) {
 // and IUpdate::begin must NOT be called.
 TEST_F(OtaUpdateServerTest, HandleUpload_Start_MissingSignature_NoBegin) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
 
     // header() returns empty for the signature header => "missing".
@@ -429,7 +448,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Start_MissingSignature_NoBegin) {
 // => UPDATE_BEGIN_FAILED.
 TEST_F(OtaUpdateServerTest, HandleUpload_Start_BeginFails_UpdateBeginFailed) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
 
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string(kValidSigHex)));
@@ -447,7 +466,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Start_BeginFails_UpdateBeginFailed) {
 // WRITE/END success-path tests.
 TEST_F(OtaUpdateServerTest, HandleUpload_Start_ValidSigAndBegin_NoError) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
 
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string(kValidSigHex)));
@@ -478,7 +497,7 @@ void successfulStart(MockHttpServer& httpMock, MockUpdate& updateMock,
 // no error callback. Pins the happy write path.
 TEST_F(OtaUpdateServerTest, HandleUpload_Write_AllBytesAccepted_NoError) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
     successfulStart(httpMock, updateMock, otaServer);
 
@@ -495,7 +514,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_AllBytesAccepted_NoError) {
 // WRITE failure: IUpdate::write returns fewer than currentSize => UPDATE_WRITE_FAILED.
 TEST_F(OtaUpdateServerTest, HandleUpload_Write_PartialWrite_UpdateWriteFailed) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
     successfulStart(httpMock, updateMock, otaServer);
 
@@ -517,7 +536,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_PartialWrite_UpdateWriteFailed) {
 TEST_F(OtaUpdateServerTest, HandleUpload_Write_AfterFailedStart_NoWrite) {
     ErrorCapture sink;
     // sodiumInit < 0 => START will set otaErr_ = SODIUM_NOT_READY.
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/-1, sink);
 
     IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
@@ -531,6 +550,31 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_AfterFailedStart_NoWrite) {
     otaServer->handleUpload(wr);
 }
 
+// WRITE after the UPLOAD_TIMEOUT_MS window has elapsed => the stalled upload is
+// aborted (IUpdate::abort) and UPLOAD_TIMEOUT reported; IUpdate::write is NOT
+// called. Mirrors the inline ota_update.ino timeout guard this seam restores.
+TEST_F(OtaUpdateServerTest, HandleUpload_Write_PastUploadTimeout_AbortsAndReports) {
+    ErrorCapture sink;
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    successfulStart(httpMock, updateMock, otaServer);  // START stamps uploadStartTime_ = millis() = 0
+
+    // Advance the clock past the 5-minute upload window.
+    EXPECT_CALL(timeMock, millis())
+        .WillOnce(Return(OtaConfig::UPLOAD_TIMEOUT_MS + 1));
+
+    // The timed-out WRITE must abort and report, never call write().
+    EXPECT_CALL(updateMock, abort()).Times(1);
+    EXPECT_CALL(updateMock, write(_, _)).Times(0);
+
+    uint8_t payload[] = {0xde, 0xad};
+    IHttpUpload wr = makeUpload(IHttpUpload::UPLOAD_FILE_WRITE, payload, sizeof(payload));
+    otaServer->handleUpload(wr);
+
+    EXPECT_TRUE(sink.fired);
+    EXPECT_EQ(sink.error, OtaError::UPLOAD_TIMEOUT);
+}
+
 // ---------------------------------------------------------------------------
 // Spec §4 — UPLOAD_FILE_ABORTED
 // ---------------------------------------------------------------------------
@@ -539,7 +583,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_AfterFailedStart_NoWrite) {
 // prior state.
 TEST_F(OtaUpdateServerTest, HandleUpload_Aborted_CallsAbortAndReports) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
 
     EXPECT_CALL(updateMock, abort()).Times(1);
@@ -559,7 +603,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Aborted_CallsAbortAndReports) {
 // UPDATE_END_FAILED.
 TEST_F(OtaUpdateServerTest, HandleUpload_End_EndReturnsFalse_UpdateEndFailed) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
     successfulStart(httpMock, updateMock, otaServer);
 
@@ -575,7 +619,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_EndReturnsFalse_UpdateEndFailed) {
 // END: end(true) ok but IUpdate::hasError() true => UPDATE_ERROR.
 TEST_F(OtaUpdateServerTest, HandleUpload_End_UpdateHasError_UpdateError) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
     successfulStart(httpMock, updateMock, otaServer);
 
@@ -593,7 +637,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_UpdateHasError_UpdateError) {
 // returns null; verifyPartition never reached because part is null.)
 TEST_F(OtaUpdateServerTest, HandleUpload_End_NoNextPartition_NoOtaPartition) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
     successfulStart(httpMock, updateMock, otaServer);
 
@@ -615,20 +659,22 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_NoNextPartition_NoOtaPartition) {
 // success chain through verifyPartition (Spec §8) reached indirectly via END.
 TEST_F(OtaUpdateServerTest, HandleUpload_End_FullSuccess_NoError) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
     successfulStart(httpMock, updateMock, otaServer);
 
-    void* part = reinterpret_cast<void*>(0x2000);
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
     EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
     EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
     EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
     EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    // verifyPartition capacity guard: totalSize (0) must be <= partition size.
+    EXPECT_CALL(partitionMock, size(part)).WillOnce(Return(1024 * 1024));
     // verifyPartition happy path: crypto init/update/final-verify all succeed.
     EXPECT_CALL(cryptoMock, sodiumInit()).Times(AnyNumber()).WillRepeatedly(Return(0));
-    EXPECT_CALL(cryptoMock, signEd25519phInit(_)).WillRepeatedly(Return(0));
-    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _, _)).WillRepeatedly(Return(0));
-    EXPECT_CALL(cryptoMock, signEd25519phFinalVerify(_, _, _)).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _)).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phFinalVerify(_, _)).WillRepeatedly(Return(0));
     EXPECT_CALL(partitionMock, read(_, _, _, _)).WillRepeatedly(Return(0));
     EXPECT_CALL(partitionMock, setBootPartition(part)).WillOnce(Return(0));
 
@@ -643,24 +689,68 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_FullSuccess_NoError) {
 // (Spec §8: final_verify nonzero => verifyPartition false => abort + fail.)
 TEST_F(OtaUpdateServerTest, HandleUpload_End_SigVerifyFails_SignatureVerifyFailed) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
     successfulStart(httpMock, updateMock, otaServer);
 
-    void* part = reinterpret_cast<void*>(0x2000);
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
     EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
     EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
     EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
     EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    // verifyPartition capacity guard: totalSize (0) must be <= partition size.
+    EXPECT_CALL(partitionMock, size(part)).WillOnce(Return(1024 * 1024));
     EXPECT_CALL(cryptoMock, sodiumInit()).Times(AnyNumber()).WillRepeatedly(Return(0));
-    EXPECT_CALL(cryptoMock, signEd25519phInit(_)).WillRepeatedly(Return(0));
-    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _, _)).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _)).WillRepeatedly(Return(0));
     // Signature verification fails.
-    EXPECT_CALL(cryptoMock, signEd25519phFinalVerify(_, _, _)).WillRepeatedly(Return(-1));
+    EXPECT_CALL(cryptoMock, signEd25519phFinalVerify(_, _)).WillRepeatedly(Return(-1));
     EXPECT_CALL(partitionMock, read(_, _, _, _)).WillRepeatedly(Return(0));
     EXPECT_CALL(updateMock, abort()).Times(1);
 
     IHttpUpload end = makeUpload(IHttpUpload::UPLOAD_FILE_END, nullptr, 0);
+    otaServer->handleUpload(end);
+
+    EXPECT_TRUE(sink.fired);
+    EXPECT_EQ(sink.error, OtaError::SIGNATURE_VERIFY_FAILED);
+}
+
+// END: image larger than the OTA partition capacity => SIGNATURE_VERIFY_FAILED
+// (verifyPartition rejects it before any crypto work). Mirrors the inline
+// ota_update.ino guard `size > part->size`: a firmware image that exceeds the
+// partition's actual capacity (e.g. a 1.5MB image on a 1MB partition) must be
+// rejected. The vanilla previously hardcoded a 1MB cap, which both mis-rejected
+// legitimate larger images AND accepted over-cap ones on bigger partitions;
+// IPartition::size() restores the inline's per-partition check exactly.
+TEST_F(OtaUpdateServerTest, HandleUpload_End_ImageLargerThanPartition_SignatureVerifyFailed) {
+    ErrorCapture sink;
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    successfulStart(httpMock, updateMock, otaServer);
+
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
+    EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
+    EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
+    EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    // Partition reports 1MB; the uploaded image is 1.5MB => over-capacity.
+    constexpr uint32_t kPartitionSize = 1024u * 1024u;
+    constexpr uint32_t kImageSize = kPartitionSize + (512u * 1024u);
+    EXPECT_CALL(partitionMock, size(part)).WillOnce(Return(kPartitionSize));
+    // Over-capacity => verifyPartition returns before any crypto/partition read.
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).Times(0);
+    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _)).Times(0);
+    EXPECT_CALL(cryptoMock, signEd25519phFinalVerify(_, _)).Times(0);
+    EXPECT_CALL(partitionMock, read(_, _, _, _)).Times(0);
+    EXPECT_CALL(partitionMock, setBootPartition(_)).Times(0);
+    EXPECT_CALL(updateMock, abort()).Times(1);
+
+    // totalSize (not the chunk payload) is what verifyPartition checks; set it
+    // directly past the capacity without a WRITE payload.
+    IHttpUpload end;
+    end.status = IHttpUpload::UPLOAD_FILE_END;
+    end.totalSize = kImageSize;
+    end.currentSize = 0;
     otaServer->handleUpload(end);
 
     EXPECT_TRUE(sink.fired);
@@ -687,7 +777,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_SigVerifyFails_SignatureVerifyFaile
 // => HTTP_FORBIDDEN + SIGNATURE_VERIFY_FAILED callback.
 TEST_F(OtaUpdateServerTest, HandlePost_SignatureError_ForbiddenAndVerifyFailedCallback) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
 
     // Drive START with no signature header => otaErr_ contains "signature".
@@ -709,7 +799,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_SignatureError_ForbiddenAndVerifyFailedCa
 // message "sodium library not ready") => HTTP_FORBIDDEN + SODIUM_NOT_READY callback.
 TEST_F(OtaUpdateServerTest, HandlePost_SodiumError_ForbiddenAndSodiumCallback) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/-1, sink);
 
     IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
@@ -728,7 +818,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_SodiumError_ForbiddenAndSodiumCallback) {
 // message "failed to begin update") => HTTP_BAD_REQUEST + UPDATE_ERROR callback.
 TEST_F(OtaUpdateServerTest, HandlePost_OtherError_BadRequestAndUpdateErrorCallback) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
 
     // START with valid sig but begin fails => otaErr_ = "failed to begin update".
@@ -751,7 +841,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_OtherError_BadRequestAndUpdateErrorCallba
 TEST_F(OtaUpdateServerTest, HandlePost_NoErrorNoUpdateError_OkAndSuccessCallback) {
     ErrorCapture errSink;
     bool successFired = false;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, errSink);
     otaServer->setSuccessCallback([&successFired]() { successFired = true; });
 
@@ -786,7 +876,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_NoErrorNoUpdateError_OkAndSuccessCallback
 // contract pin; per the exception policy, assert intent not exact text).
 TEST_F(OtaUpdateServerTest, HandleGet_Responds_OkHtml) {
     ErrorCapture sink;
-    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock,
+    primeOta(httpMock, updaterMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/0, sink);
 
     EXPECT_CALL(httpMock,

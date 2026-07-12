@@ -1,15 +1,22 @@
 #include "OtaUpdateServer.h"
+#include "DiscoveryManager.h"  // ITime full definition (millis() for upload-timeout)
 #include <cstring>
 #include <algorithm>
 
 namespace esp32_firmware {
 
-// External public key (baked in)
-const uint8_t OTA_PUBLIC_KEY[32] = {0};  // Will be replaced at build time
+// The OTA signing public key is crypto-domain and is owned by the ICrypto
+// adapter (ArduinoCrypto sources it from OtaPublicKey.h on device; mocks script
+// the verify return). verifyPartition therefore passes a sentinel key to
+// signEd25519phFinalVerify; the vanilla carries NO key material — correct for a
+// host-testable vanilla lib that must not bake a per-user signing key.
+static const uint8_t SENTINEL_PUBLIC_KEY[32] = {0};
 
 OtaUpdateServer::OtaUpdateServer(IHttpServer& http, IHttpUpdateServer& updater,
-                                 IUpdate& update, IPartition& partition, ICrypto& crypto)
-    : http_(http), updater_(updater), update_(update), partition_(partition), crypto_(crypto) {}
+                                 IUpdate& update, IPartition& partition, ICrypto& crypto,
+                                 ITime& time)
+    : http_(http), updater_(updater), update_(update), partition_(partition),
+      crypto_(crypto), time_(time) {}
 
 void OtaUpdateServer::setup() {
     if (crypto_.sodiumInit() >= 0) {
@@ -22,13 +29,16 @@ void OtaUpdateServer::setup() {
     updater_.setup(&http_, "/update", "", "");
 
     http_.on("/update", 1, [this]() { handleGet(); });  // HTTP_GET
-    // Upload-handler closure: the Arduino WebServer owns the upload and would
-    // supply it via http_.upload() in production. That retrieval (and the
-    // IHttpServer::upload() getter it needs) lands with the handleUpload body
-    // implementation; for now the closure forwards a placeholder so the
-    // parametrized signature compiles. handleUpload's body is a no-op stub.
+    // Upload-handler closure: the WebServer invokes this once per multipart
+    // chunk and surfaces the in-flight upload via http_.upload(). We snapshot
+    // it (translated to IHttpUpload by the adapter) and forward to the
+    // START/WRITE/END/ABORTED state machine. The WebServer owns the upload;
+    // the snapshot is valid for the duration of this call.
     http_.on("/update", 2, [this]() { handlePost(); },
-             [this]() { IHttpUpload placeholder{}; handleUpload(placeholder); });  // HTTP_POST
+             [this]() {
+                 std::unique_ptr<IHttpUpload> u = http_.upload();
+                 if (u) { handleUpload(*u); }
+             });  // HTTP_POST
 
     http_.begin();
 }
@@ -38,7 +48,7 @@ void OtaUpdateServer::loop() {
 }
 
 void OtaUpdateServer::markValidOnBoot() {
-    const void* running = partition_.getRunningPartition();
+    const OtaPartitionRef* running = partition_.getRunningPartition();
     if (!running) return;
 
     int state = 0;
@@ -113,8 +123,10 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
     if (upload.status == IHttpUpload::UPLOAD_FILE_START) {
         otaErr_.clear();
         otaHasSig_ = false;
-        uploadStartTime_ = 0;  // millis() not available in the vanilla host path;
-                               // the WRITE-timeout check is deferred (ITime seam).
+        // Stamp the upload start time via the injected clock so the WRITE path
+        // can abort a stalled upload after UPLOAD_TIMEOUT_MS (mirrors the inline
+        // ota_update.ino behaviour that previously lived here).
+        uploadStartTime_ = time_.millis();
 
         if (!sodiumReady_) {
             reportError(OtaError::SODIUM_NOT_READY);
@@ -139,6 +151,14 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
     // START leaves otaErr_ non-empty, so subsequent WRITE chunks are no-ops
     // (the sticky-error contract pinned by HandleUpload_Write_AfterFailedStart).
     if (upload.status == IHttpUpload::UPLOAD_FILE_WRITE && otaErr_.empty()) {
+        // Abort a stalled upload: if the wall clock has advanced past the
+        // UPLOAD_TIMEOUT_MS window since START, give up. Mirrors the inline
+        // ota_update.ino timeout guard (millis() - otaUploadStartTime).
+        if (time_.millis() - uploadStartTime_ > OtaConfig::UPLOAD_TIMEOUT_MS) {
+            update_.abort();
+            reportError(OtaError::UPLOAD_TIMEOUT);
+            return;
+        }
         if (update_.write(upload.buf, upload.currentSize) != upload.currentSize) {
             reportError(OtaError::UPDATE_WRITE_FAILED);
         }
@@ -167,8 +187,8 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
             return;
         }
 
-        const void* running = partition_.getRunningPartition();
-        const void* target = partition_.getNextUpdatePartition(running);
+        const OtaPartitionRef* running = partition_.getRunningPartition();
+        const OtaPartitionRef* target = partition_.getNextUpdatePartition(running);
         if (!target) {
             reportError(OtaError::NO_OTA_PARTITION);
             return;
@@ -195,14 +215,19 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
     }
 }
 
-bool OtaUpdateServer::verifyPartition(const void* part, uint32_t size, const uint8_t* sig) {
-    if (!part || size > 1024 * 1024) {  // Max 1MB for testing
+bool OtaUpdateServer::verifyPartition(const OtaPartitionRef* part, uint32_t size, const uint8_t* sig) {
+    // Reject a null partition or an image larger than the partition's capacity.
+    // Mirrors the inline ota_update.ino guard `size > part->size` exactly — the
+    // real ESP32 OTA partition is typically 1.2-1.6MB, so the previous hardcoded
+    // 1MB cap would reject legitimate firmware. The capacity comes from the
+    // injected IPartition adapter (esp_partition_t.size on device).
+    if (!part || size > partition_.size(part)) {
         return false;
     }
 
-    // Mock state for crypto
-    void* state = nullptr;
-    if (crypto_.signEd25519phInit(state) != 0) {
+    // The Ed25519ph verify state is owned by the ICrypto adapter (gap 4a) — the
+    // vanilla threads no state between these calls.
+    if (crypto_.signEd25519phInit() != 0) {
         return false;
     }
 
@@ -216,19 +241,16 @@ bool OtaUpdateServer::verifyPartition(const void* part, uint32_t size, const uin
             return false;
         }
 
-        if (crypto_.signEd25519phUpdate(state, chunk.data(), n) != 0) {
+        if (crypto_.signEd25519phUpdate(chunk.data(), n) != 0) {
             return false;
         }
 
         off += n;
-
-        // Feed WDT periodically
-        if ((off & OtaConfig::VERIFY_YIELD_INTERVAL) == 0) {
-            // In real implementation: delay(1);
-        }
+        // WDT feed (gap 4c) lives in ArduinoCrypto::signEd25519phUpdate on the
+        // same VERIFY_YIELD_INTERVAL cadence the inline used.
     }
 
-    return crypto_.signEd25519phFinalVerify(state, sig, OTA_PUBLIC_KEY) == 0;
+    return crypto_.signEd25519phFinalVerify(sig, SENTINEL_PUBLIC_KEY) == 0;
 }
 
 // Testable pure functions

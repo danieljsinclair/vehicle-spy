@@ -27,7 +27,6 @@ namespace esp32_firmware {
 class CanBridge;
 struct CanBridgeDeps;
 class AtCommandDispatcher;
-class OtaUpdateServer;
 
 // Re-use interfaces from WiFiManager.h (IWiFi, IPreferences, IStatusLED)
 
@@ -179,7 +178,6 @@ private:
     std::unique_ptr<NtpTimeSync> ntpTimeSync_;
     std::unique_ptr<CanBridge> canBridge_;
     std::unique_ptr<AtCommandDispatcher> atDispatcher_;
-    std::unique_ptr<OtaUpdateServer> otaServer_;
 
     // Callbacks for firmware-side effects
     FirmwareCallbacks callbacks_;
