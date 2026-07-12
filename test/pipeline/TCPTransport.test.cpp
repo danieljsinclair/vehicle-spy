@@ -405,13 +405,25 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
     ASSERT_TRUE(server.init());
 
     g_testStop->reset();
-    // Inject a tiny read timeout (1ms) so nextLine()'s select() poll returns
-    // promptly and re-checks the stop flag in ~0 ms instead of waiting the full
-    // 0.5s production poll. The default output (StdOut) is passed explicitly so
-    // the read-timeout positional arg can be supplied.
-    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
+    // readTimeoutUs=1000 keeps nextLine()'s select() poll snappy (1ms floor) so
+    // that after requestStop() is set, nextLine() returns nullopt within ~one
+    // poll instead of waiting the full 0.5s production poll. This keeps the stop
+    // path prompt in practice (we assert the return-value contract below, not a
+    // wall-clock ceiling).
+    //
+    // socketRecvTimeoutMs=500 gates only the HANDSHAKE-stage blocking recv()s
+    // (AUTH/ATI/ATHELO responses via SO_RCVTIMEO). A 1ms value here races under
+    // full-suite CPU contention: the client's recv() for the server's "OK" can
+    // EAGAIN before the server thread is scheduled, connectAndAuth() returns
+    // false, open() returns false, and ASSERT_TRUE(opened) trips — an
+    // intermittent full-suite-only flake (passes in isolation where the server
+    // thread schedules promptly). 500ms absorbs scheduling jitter during the
+    // one-time handshake while adding negligible wall-clock (the recvs return as
+    // soon as data arrives). Mirrors openConnectedTransport() below, which was
+    // fixed for the same reason. Synchronisation/stability only — does not touch
+    // what the test asserts.
     TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 500}, g_testStop);
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
 
@@ -421,14 +433,17 @@ TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
 
     // Request stop from another "thread" (simulating a signal handler).
     g_testStop->requestStop();
-    // nextLine should return nullopt within ~one select poll (≈0ms with the
-    // injected 1us timeout, floored at 1ms per poll).
-    auto start = std::chrono::steady_clock::now();
+    // CONTRACT: a quiet peer + requestStop() must make nextLine() return
+    // nullopt (this is how Ctrl+C stops a live stream). Assert the contract,
+    // not wall-clock promptness — a timing bound (EXPECT_LT(elapsed, N)) is a
+    // flake vector under full-suite CPU contention (the bound races against
+    // scheduler jitter, not against the stop logic). The readTimeoutUs=1000
+    // injected above makes nextLine()'s select() poll re-check the stop flag
+    // every ~1ms, so the return is prompt in practice; we just don't ASSERT a
+    // specific wall-clock ceiling. The handshake-recv race that could make
+    // open() fail is handled separately by socketRecvTimeoutMs=500 above.
     auto r = t.nextLine();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - start);
     EXPECT_FALSE(r.has_value());
-    EXPECT_LT(elapsed.count(), 1500) << "stop should be prompt";
 
     server.closeClient();
     g_testStop->reset();
@@ -632,22 +647,23 @@ TEST(TCPTransportNextLineContract, LineLongerThanReadChunkAssembles) {
 
 TEST(TCPTransportNextLineContract, BufferedLineServedWithoutSocketRead) {
     // After draining one line, a second complete line already in the buffer
-    // must be returned promptly from the next nextLine() call (buffer fast path),
-    // not require fresh socket data. We assert the second line arrives quickly
-    // relative to the poll interval.
+    // must be returned from the next nextLine() call via the buffer fast path
+    // (takeBufferedLine), not require fresh socket data. The contract is
+    // behavioural — the correct line is returned — not wall-clock promptness.
+    // A previous EXPECT_LT(elapsed, 200) timing bound was a non-load-bearing
+    // proxy for "didn't block on select()": even a broken fast path would
+    // return after one ~1ms select poll (readTimeoutUs=1000 floor), well under
+    // 200ms, so the bound couldn't detect the regression it claimed to. The
+    // EXPECT_EQ on the returned line is what actually proves the fast path.
     auto ctx = openConnectedTransport();
     ASSERT_TRUE(ctx);
     ctx->server.sendBytes("FIRST\rSECOND\r");
     ASSERT_TRUE(ctx->transport->nextLine().has_value());  // drains FIRST
 
-    // SECOND is now buffered; fetching it must be near-instantaneous.
-    auto start = std::chrono::steady_clock::now();
+    // SECOND is now buffered; fetching it must return the buffered line.
     auto second = ctx->transport->nextLine();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - start);
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(*second, "SECOND");
-    EXPECT_LT(elapsed.count(), 200) << "buffered line must be served without a long wait";
     g_testStop->requestStop();
     ctx->transport->nextLine();
     g_testStop->reset();

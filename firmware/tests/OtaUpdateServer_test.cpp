@@ -289,40 +289,6 @@ TEST_F(OtaUpdateServerTest, MarkValidOnBoot_NotPendingVerify_DoesNothing) {
     otaServer->markValidOnBoot();
 }
 
-// Callback tests
-TEST_F(OtaUpdateServerTest, ErrorCallback_TriggeredOnError) {
-    bool callbackCalled = false;
-    OtaError capturedError = OtaError::NONE;
-    std::string capturedMessage;
-
-    otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock
-    );
-
-    otaServer->setErrorCallback([&](OtaError err, const char* msg) {
-        callbackCalled = true;
-        capturedError = err;
-        capturedMessage = msg ? msg : "";
-    });
-
-    // Trigger error through handlePost
-    // In real implementation, this would be triggered by the upload handler
-}
-
-TEST_F(OtaUpdateServerTest, SuccessCallback_TriggeredOnSuccess) {
-    bool callbackCalled = false;
-
-    otaServer = std::make_unique<OtaUpdateServer>(
-        httpMock, updaterMock, updateMock, partitionMock, cryptoMock
-    );
-
-    otaServer->setSuccessCallback([&]() {
-        callbackCalled = true;
-    });
-
-    // Trigger success through handlePost
-}
-
 // Edge case: empty signature header
 TEST_F(OtaUpdateServerTest, ParseHexSig_EmptyString) {
     std::string emptySig;

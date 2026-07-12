@@ -571,38 +571,6 @@ TEST_F(FirmwareAppTest, ClearTcpServerRestartFlag_AfterClear_ReturnsFalse) {
 }
 
 // ============================================================================
-// MULTIPLE INSTANCE TESTS
-// ============================================================================
-
-TEST_F(FirmwareAppTest, TwoInstances_SameDependencies_DoNotInterfere) {
-    // Multiple FirmwareApp instances should not interfere
-    // NOTE: This test is DISABLED because it shares wifiMock/prefsMock between
-    // both instances, which causes crashes. A proper test would use separate mocks.
-    NiceMock<MockStatusLED> statusLedMock2;
-    NiceMock<MockUdp> udpMock2;
-    NiceMock<MockTime> timeMock2;
-
-    FirmwareApp app1(wifiMock, prefsMock, statusLedMock,
-                    wifiMock, udpMock, timeMock,
-                    sntpMock, timeNtpMock,
-                    testDeviceId, canDeps);
-    FirmwareApp app2(wifiMock, prefsMock, statusLedMock2,
-                    wifiMock, udpMock2, timeMock2,
-                    sntpMock, timeNtpMock,
-                    testDeviceId, canDeps);
-
-    app1.init();
-
-    // Skip app2.init() due to shared mock state causing crash
-    // app2.init();
-
-    // Test that app1 works independently
-    EXPECT_NO_THROW({
-        app1.update(1000);
-    });
-}
-
-// ============================================================================
 // EDGE CASE TESTS
 // ============================================================================
 
@@ -627,15 +595,24 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnected_InvalidReason_DoesNotThrow) {
     });
 }
 
-TEST_F(FirmwareAppTest, StoreCredentials_VeryLongSsid_HandlesGracefully) {
-    // Very long SSID should be handled gracefully
+TEST_F(FirmwareAppTest, StoreCredentials_VeryLongSsid_StoresAndRoundTrips) {
+    // storeCredentials has NO length cap of its own (WiFiManager.h: the AT
+    // command handler enforces the 1-32 SSID limit; the storage layer stores
+    // whatever it is given via IPreferences::putString, returning true iff both
+    // putString writes succeed). A long SSID therefore stores and round-trips.
     firmwareApp->init();
 
-    std::string longSsid(100, 'A');
-    bool result = firmwareApp->storeCredentials(longSsid, "pass");
+    const std::string longSsid(100, 'A');
+    const std::string longPass = "pass";
 
-    // Should either succeed or fail gracefully, not crash
-    EXPECT_TRUE(result == true || result == false);
+    bool result = firmwareApp->storeCredentials(longSsid, longPass);
+
+    ASSERT_TRUE(result);
+
+    std::string loadedSsid, loadedPass;
+    ASSERT_TRUE(firmwareApp->loadCredentials(loadedSsid, loadedPass));
+    EXPECT_EQ(loadedSsid, longSsid);
+    EXPECT_EQ(loadedPass, longPass);
 }
 
 TEST_F(FirmwareAppTest, LoadCredentials_EmptyStrings_DoesNotCrash) {

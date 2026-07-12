@@ -232,24 +232,7 @@ TEST_F(AtCommandDispatcherTest, IsValidAuthToken_DifferentCommand) {
     EXPECT_FALSE(AtCommandDispatcher::isValidAuthToken("ABC123", "ABC123"));
 }
 
-// Handler registration tests
-TEST_F(AtCommandDispatcherTest, RegisterHandler_AddsHandler) {
-    auto handler = std::make_unique<TestCommandHandler>("AT+TEST");
-    dispatcher->registerHandler(std::move(handler));
-
-    // Handler is registered - we verify this indirectly by testing handleTcpCommand
-}
-
 // Command handling tests
-TEST_F(AtCommandDispatcherTest, HandleTcpCommand_MatchingHandler_SendsResponse) {
-    auto handler = std::make_unique<TestCommandHandler>("AT+TEST", "TEST_OK");
-    dispatcher->registerHandler(std::move(handler));
-
-    // We can't directly test TCP output in this setup, but we verify
-    // the handler is matched by checking no error is thrown
-    // In a fuller test, we'd mock sendTcpPrompt
-}
-
 TEST_F(AtCommandDispatcherTest, HandleSerialCommand_PrintsToSerial) {
     auto handler = std::make_unique<TestCommandHandler>("AT+PING", "PONG");
     dispatcher->registerHandler(std::move(handler));
@@ -283,15 +266,6 @@ TEST_F(AtCommandDispatcherTest, HandleSerialCommand_ShouldReboot_RestartsEsp) {
     EXPECT_CALL(serialMock, println(::testing::StrEq("OK")));
     EXPECT_CALL(espMock, restart());
     dispatcher->handleSerialCommand("AT+REBOOT");
-}
-
-TEST_F(AtCommandDispatcherTest, HandleTcpCommand_NormalizesCommand) {
-    // Handler expects uppercase normalized form
-    auto handler = std::make_unique<TestCommandHandler>("AT+TEST");
-    dispatcher->registerHandler(std::move(handler));
-
-    // Send lowercase with whitespace - should match
-    // We verify by ensuring no unknown command error
 }
 
 // Multiple handlers tests
