@@ -28,6 +28,8 @@
 
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/discovery/DiscoveryPacket.h"
+#include "vehicle-sim/discovery/DiscoveredDevice.h"
+#include "vehicle-sim/discovery/IDiscoveryListener.h"
 #include "vehicle-sim/pipeline/StopToken.h"
 
 #include <gtest/gtest.h>
@@ -215,6 +217,51 @@ void broadcastDiscoveryFor(const std::vector<uint8_t>& packet, int durationMs) {
     close(fd);
 }
 
+// Deterministic discovery listener that always reports ONE device at `address`,
+// regardless of timing. Used in place of the real UDPDiscovery to make a hunt
+// test hermetic: no socket bind, no broadcast scheduling, no SO_REUSEPORT fanout
+// — the same-IP (or any-IP) discovery outcome is produced synchronously on the
+// first poll(). Injected via the TCPTransport ctor's 7th arg
+// (DiscoveryListenerFactory, the #16 seam).
+//
+// `address` is captured by value so the factory outlives any caller-side string
+// temporary. deviceId is arbitrary (the hunt's isOurDevice check is match-all
+// when deviceIdHex_ is empty, i.e. when enterHuntingState() is driven directly).
+class SameIpDiscoveryListener : public IDiscoveryListener {
+public:
+    explicit SameIpDiscoveryListener(std::string address) : address_(std::move(address)) {}
+
+    bool start() override { return true; }
+
+    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds /*timeout*/) override {
+        // Yield once so the hunt's discovery thread is genuinely inside its loop
+        // before the first poll returns, then hand back the single same-IP device
+        // every call. Returning it repeatedly is harmless: the hunt's `!= host_`
+        // guard (or the switch+reconnect path) decides once and the loop exits.
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        DiscoveredDevice d{};
+        for (size_t i = 0; i < d.deviceId.size(); ++i) d.deviceId[i] = static_cast<uint8_t>(i);
+        d.address = address_;
+        d.canPort = 3333;
+        d.otaPort = 80;
+        d.timestamp = 12345;
+        return {d};
+    }
+
+    void stop() override {}
+
+private:
+    std::string address_;
+};
+
+// Factory returning a fresh same-IP listener — passed as the TCPTransport ctor's
+// 7th argument (DiscoveryListenerFactory).
+DiscoveryListenerFactory sameIpDiscoveryFactory(std::string address) {
+    return [addr = std::move(address)]() {
+        return std::unique_ptr<IDiscoveryListener>(std::make_unique<SameIpDiscoveryListener>(addr));
+    };
+}
+
 // Silent output sink (discard everything).
 class QuietOutput : public ITransportOutput {
 public:
@@ -304,6 +351,16 @@ TEST(TCPTransportHuntingTest, NoReconnectAndNoDiscovery_ReturnsFalse) {
 }
 
 // Spec 4: DISCOVERY AT SAME IP AS OLD HOST IS IGNORED (pins the `!= host_` guard)
+//
+// HERMETIC via the IDiscoveryListener seam (#16): the transport is constructed
+// with a DiscoveryListenerFactory whose listener DETERMINISTICALLY reports a
+// device at the SAME IP as host_ (127.0.0.1). No real UDP socket, no broadcast
+// scheduling — the same-IP discovery outcome is produced synchronously on poll,
+// so the test is immune to full-suite scheduling contention (the previous real-
+// UDP version flaked ~under load when the reconnect window tightened). The hunt
+// still drives the real loopback reconnect path for host_ (that path is a
+// localhost TCP handshake, reliably fast); discovery's same-IP device is ignored
+// by the `!= host_` guard, so host_ must NOT switch.
 TEST(TCPTransportHuntingTest, DiscoverySameIpAsOldHost_DoesNotSwitch) {
     HuntingServer server;  // on 127.0.0.1
     ASSERT_TRUE(server.init());
@@ -311,19 +368,10 @@ TEST(TCPTransportHuntingTest, DiscoverySameIpAsOldHost_DoesNotSwitch) {
 
     auto stop = makeStop();
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
-                           std::make_shared<QuietOutput>(), TcpReadTiming{}, stop);
+                           std::make_shared<QuietOutput>(), TcpReadTiming{}, stop,
+                           sameIpDiscoveryFactory(kLoopbackIp));
 
-    std::atomic<bool> started{false};
-    std::future<bool> fut = std::async(std::launch::async, [&]() {
-        started.store(true);
-        return transport.enterHuntingState();
-    });
-
-    while (!started.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    broadcastDiscoveryFor(makeDiscoveryPacket(), 800);
-
-    bool result = fut.get();
+    bool result = transport.enterHuntingState();
 
     EXPECT_TRUE(result) << "old-IP reconnection should still succeed";
     EXPECT_EQ(transport.host_, std::string(kLoopbackIp))
