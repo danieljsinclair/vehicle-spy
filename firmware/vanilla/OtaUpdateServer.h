@@ -20,6 +20,13 @@ struct OtaConfig {
     static constexpr uint32_t REBOOT_FLUSH_DELAY_MS = 100;
     static constexpr uint32_t REBOOT_DELAY_MS = 100;
 
+    // OTA update sizing + command. FLASH_MAX_SIZE is the sketch-space estimate
+    // passed to IUpdate::begin (the Arduino adapter's Update accepts the real
+    // ESP.getFreeSketchSpace() value; the vanilla host path uses this bound so
+    // it carries no ESP headers). CMD_FLASH mirrors the Arduino U_FLASH command.
+    static constexpr uint32_t FLASH_MAX_SIZE = 1024 * 1024;
+    static constexpr int CMD_FLASH = 0;  // U_FLASH
+
     // HTTP response codes
     static constexpr int HTTP_OK = 200;
     static constexpr int HTTP_UNAUTHORIZED = 401;
@@ -137,6 +144,14 @@ public:
     // Mark current firmware as valid on boot
     void markValidOnBoot();
 
+    // WebServer-callable HTTP handlers (public for host testability — the
+    // Arduino WebServer drives these in production; tests drive them directly
+    // with a fake IHttpUpload). handleUpload is invoked per multipart chunk
+    // (START/WRITE/END/ABORTED); the WebServer owns the upload and supplies it.
+    void handleGet();
+    void handlePost();
+    void handleUpload(IHttpUpload& upload);
+
     // Set callbacks
     void setErrorCallback(ErrorCallback cb) { errorCallback_ = std::move(cb); }
     void setSuccessCallback(SuccessCallback cb) { successCallback_ = std::move(cb); }
@@ -164,9 +179,11 @@ private:
     SuccessCallback successCallback_;
 
     void setupHandlers();
-    void handleGet();
-    void handlePost();
-    void handleUpload();
+
+    // Record an OTA error: stash the human message in otaErr_ (so the WRITE/END
+    // guards see it and skip subsequent chunks) and fire the error callback if
+    // one is registered. Centralises the START/WRITE/END/ABORTED failure shape.
+    void reportError(OtaError err);
 
     // Testable: verify partition signature
     bool verifyPartition(const void* part, uint32_t size, const uint8_t* sig);

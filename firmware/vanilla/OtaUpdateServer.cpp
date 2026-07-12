@@ -22,7 +22,13 @@ void OtaUpdateServer::setup() {
     updater_.setup(&http_, "/update", "", "");
 
     http_.on("/update", 1, [this]() { handleGet(); });  // HTTP_GET
-    http_.on("/update", 2, [this]() { handlePost(); }, [this]() { handleUpload(); });  // HTTP_POST
+    // Upload-handler closure: the Arduino WebServer owns the upload and would
+    // supply it via http_.upload() in production. That retrieval (and the
+    // IHttpServer::upload() getter it needs) lands with the handleUpload body
+    // implementation; for now the closure forwards a placeholder so the
+    // parametrized signature compiles. handleUpload's body is a no-op stub.
+    http_.on("/update", 2, [this]() { handlePost(); },
+             [this]() { IHttpUpload placeholder{}; handleUpload(placeholder); });  // HTTP_POST
 
     http_.begin();
 }
@@ -95,10 +101,98 @@ void OtaUpdateServer::handlePost() {
     }
 }
 
-void OtaUpdateServer::handleUpload() {
-    // In the real implementation, this gets the upload from http_.upload()
-    // For testing, we'll simulate the upload handling
-    // This is a simplified version - the real one uses HTTPUpload& up = http_.upload()
+void OtaUpdateServer::reportError(OtaError err) {
+    otaErr_ = errorMessage(err);
+    if (errorCallback_) {
+        errorCallback_(err, otaErr_.c_str());
+    }
+}
+
+void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
+    // START: reset per-upload state, then validate crypto + signature + begin.
+    if (upload.status == IHttpUpload::UPLOAD_FILE_START) {
+        otaErr_.clear();
+        otaHasSig_ = false;
+        uploadStartTime_ = 0;  // millis() not available in the vanilla host path;
+                               // the WRITE-timeout check is deferred (ITime seam).
+
+        if (!sodiumReady_) {
+            reportError(OtaError::SODIUM_NOT_READY);
+            return;
+        }
+
+        std::string sig = http_.header(OtaConfig::OTA_SIG_HDR);
+        if (!parseHexSig(sig, otaSig_.data())) {
+            reportError(OtaError::BAD_SIGNATURE_HEADER);
+            return;
+        }
+        otaHasSig_ = true;
+
+        if (!update_.begin(OtaConfig::FLASH_MAX_SIZE, OtaConfig::CMD_FLASH)) {
+            reportError(OtaError::UPDATE_BEGIN_FAILED);
+            return;
+        }
+        return;
+    }
+
+    // WRITE: append bytes, but only while the upload is still healthy. A failed
+    // START leaves otaErr_ non-empty, so subsequent WRITE chunks are no-ops
+    // (the sticky-error contract pinned by HandleUpload_Write_AfterFailedStart).
+    if (upload.status == IHttpUpload::UPLOAD_FILE_WRITE && otaErr_.empty()) {
+        if (update_.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            reportError(OtaError::UPDATE_WRITE_FAILED);
+        }
+        return;
+    }
+
+    // END: finalize + verify signature + select boot partition. Only reached
+    // when otaErr_ is still empty (no prior START/WRITE failure).
+    if (upload.status == IHttpUpload::UPLOAD_FILE_END && otaErr_.empty()) {
+        // Defensive: START must have parsed a signature before reaching END. By
+        // construction every START path either sets otaErr_ (so END is skipped)
+        // or sets otaHasSig_=true, making this guard unreachable — kept as a
+        // 1-line safety net (no test; see gap-3 analysis).
+        if (!otaHasSig_) {
+            update_.abort();
+            reportError(OtaError::NO_SIGNATURE);
+            return;
+        }
+
+        if (!update_.end(true)) {
+            reportError(OtaError::UPDATE_END_FAILED);
+            return;
+        }
+        if (update_.hasError()) {
+            reportError(OtaError::UPDATE_ERROR);
+            return;
+        }
+
+        const void* running = partition_.getRunningPartition();
+        const void* target = partition_.getNextUpdatePartition(running);
+        if (!target) {
+            reportError(OtaError::NO_OTA_PARTITION);
+            return;
+        }
+
+        if (!verifyPartition(target, upload.totalSize, otaSig_.data())) {
+            update_.abort();
+            reportError(OtaError::SIGNATURE_VERIFY_FAILED);
+            return;
+        }
+
+        if (partition_.setBootPartition(target) != 0) {
+            reportError(OtaError::SET_BOOT_PARTITION_FAILED);
+            return;
+        }
+        return;
+    }
+
+    // ABORTED: tear down the in-flight update regardless of prior state.
+    if (upload.status == IHttpUpload::UPLOAD_FILE_ABORTED) {
+        update_.abort();
+        reportError(OtaError::UPLOAD_ABORTED);
+        return;
+    }
 }
 
 bool OtaUpdateServer::verifyPartition(const void* part, uint32_t size, const uint8_t* sig) {
@@ -180,6 +274,7 @@ int OtaUpdateServer::httpCode(OtaError err) {
         case OtaError::NONE: return OtaConfig::HTTP_OK;
         case OtaError::SIGNATURE_VERIFY_FAILED:
         case OtaError::BAD_SIGNATURE_HEADER:
+        case OtaError::SODIUM_NOT_READY:
             return OtaConfig::HTTP_FORBIDDEN;
         case OtaError::UPLOAD_TIMEOUT:
             return OtaConfig::HTTP_BAD_REQUEST;
