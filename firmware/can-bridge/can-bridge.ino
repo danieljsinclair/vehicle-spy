@@ -110,55 +110,6 @@ namespace Constants {
     static constexpr uint32_t FACTORY_RESET_HOLD_MS = 3000;      // Hold 3 seconds to trigger
 }
 
-// ── WiFi State Machine ──────────────────────────────────────────────────────
-namespace WiFiState {
-    enum class State {
-        DISCONNECTED,
-        CONNECTING,
-        CONNECTED_STA,
-        CONNECTED_AP,
-        RECONNECTING
-    };
-
-    struct Context {
-        State state = State::DISCONNECTED;
-        uint32_t lastRetryMs = 0;
-        uint32_t connectStartTime = 0;
-        wifi_err_reason_t lastDisconnectReason = WIFI_REASON_UNSPECIFIED;
-        bool tcpServerNeedsRestart = false;
-    };
-}
-
-// ── Forward Type Declarations (must be before any function use) ────────────────
-// These type definitions must appear after WiFiState to avoid Arduino preprocessing issues
-
-// Credential source enumeration for WiFi connection strategy
-enum class CredentialSource {
-    NONE,
-    STORED_NVS,
-    BAKED_IN
-};
-
-// WiFi state transition result
-struct StateTransition {
-    WiFiState::State nextState;
-    bool setTcpServerRestartFlag;
-    bool initNtp;
-    const char* message;  // Optional diagnostic message
-
-    StateTransition() : nextState(WiFiState::State::DISCONNECTED),
-                       setTcpServerRestartFlag(false), initNtp(false), message(nullptr) {}
-
-    explicit StateTransition(WiFiState::State state, bool tcpRestart = false, bool ntp = false, const char* msg = nullptr)
-        : nextState(state), setTcpServerRestartFlag(tcpRestart), initNtp(ntp), message(msg) {}
-};
-
-// WiFi state handler interface (State Pattern)
-struct WiFiStateHandler {
-    virtual StateTransition execute(uint32_t now, WiFiState::Context& ctx) = 0;
-    virtual ~WiFiStateHandler() = default;
-};
-
 // AT command handling was extracted from this .ino into the vanilla
 // AtCommandDispatcher (firmware/vanilla/AtCommandDispatcher.{h,cpp}). The .ino
 // no longer owns the command structs (AtCommandResult/SetWifiParams/
@@ -178,6 +129,10 @@ static const char* const YELLOW  = "\033[0;33m";
 static const char* const NC     = "\033[0m";
 
 // ── NVS Storage (WiFi Credentials) ────────────────────────────────────────────
+// Only the WRITE path remains inline (used by ArduinoAtWifiStore::store, the AT
+// command NVS-write adapter). READ / has / clear paths are owned by WiFiManager
+// via the injected IPreferences (ArduinoPreferences) — FirmwareApp exposes
+// hasStoredCredentials()/loadCredentials()/clearCredentials() for them.
 static Preferences wifiCredentials;  // NVS storage for WiFi SSID/password
 
 // NVS keys for WiFi credentials storage
@@ -185,51 +140,13 @@ static constexpr const char* NVS_WIFI_NAMESPACE = "wifi";
 static constexpr const char* NVS_WIFI_SSID = "ssid";
 static constexpr const char* NVS_WIFI_PASS = "pass";
 
-// Testable pure function: Check if WiFi credentials are stored in NVS
-static bool hasStoredWifiCredentials() {
-    wifiCredentials.begin(NVS_WIFI_NAMESPACE, true);  // Read-only
-    size_t ssidLen = wifiCredentials.getBytesLength(NVS_WIFI_SSID);
-    size_t passLen = wifiCredentials.getBytesLength(NVS_WIFI_PASS);
-    wifiCredentials.end();
-    return (ssidLen > 0 && passLen > 0);
-}
-
-// Load WiFi credentials from NVS
-static bool loadWifiCredentials(String& ssid, String& pass) {
-    wifiCredentials.begin(NVS_WIFI_NAMESPACE, true);  // Read-only
-    size_t ssidLen = wifiCredentials.getBytesLength(NVS_WIFI_SSID);
-    size_t passLen = wifiCredentials.getBytesLength(NVS_WIFI_PASS);
-
-    if (ssidLen > 0 && passLen > 0) {
-        std::array<char, 33> ssidBuf{};  // Max SSID length
-        std::array<char, 65> passBuf{};  // Max password length
-        (void)wifiCredentials.getString(NVS_WIFI_SSID, ssidBuf.data(), ssidBuf.size());
-        (void)wifiCredentials.getString(NVS_WIFI_PASS, passBuf.data(), passBuf.size());
-        wifiCredentials.end();
-        ssid = String(ssidBuf.data());
-        pass = String(passBuf.data());
-        return true;
-    }
-    wifiCredentials.end();
-    return false;
-}
-
-// Store WiFi credentials to NVS
+// Store WiFi credentials to NVS (ATSETWIFI command path)
 static bool storeWifiCredentials(const String& ssid, const String& pass) {
     wifiCredentials.begin(NVS_WIFI_NAMESPACE, false);  // Read-write
     bool success = wifiCredentials.putString(NVS_WIFI_SSID, ssid) > 0;
     success = success && wifiCredentials.putString(NVS_WIFI_PASS, pass) > 0;
     wifiCredentials.end();
     return success;
-}
-
-// Clear WiFi credentials from NVS (factory reset)
-static bool clearWifiCredentials() {
-    wifiCredentials.begin(NVS_WIFI_NAMESPACE, false);  // Read-write
-    wifiCredentials.clear();
-    wifiCredentials.end();
-    Serial.printf("%sWiFi credentials cleared from NVS%s\r\n", YELLOW, NC);
-    return true;
 }
 
 // Device ID declaration - needed for message tagging
@@ -432,7 +349,6 @@ FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
 
 static WiFiServer tcpServer(Constants::TCP_PORT);
 static uint32_t serialQuietUntilMs = 0;
-static WiFiState::Context wifiCtx;  // TODO: Remove once fully routed to FirmwareApp
 
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
 // NTP time is now owned entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
@@ -450,333 +366,6 @@ static WiFiState::Context wifiCtx;  // TODO: Remove once fully routed to Firmwar
 // (2) resets the backoff timer on boot / buddy-disconnect, both via FirmwareApp.
 // See FirmwareApp::update() which drives DiscoveryManager::update(now, haveClient)
 // on every loop tick.
-
-// ── WiFi State Machine ────────────────────────────────────────────────────────
-// Testable pure function: Determine if WiFi retry is needed (testable unit)
-static bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry) {
-    if (state != WiFiState::State::DISCONNECTED &&
-        state != WiFiState::State::CONNECTING &&
-        state != WiFiState::State::RECONNECTING) {
-        return false;
-    }
-    return (now - lastRetry) >= Constants::WIFI_CONNECT_RETRY_INTERVAL_MS;
-}
-
-static const char* wifiStateName(WiFiState::State state) {
-    switch (state) {
-        case WiFiState::State::DISCONNECTED: return "DISCONNECTED";
-        case WiFiState::State::CONNECTING: return "CONNECTING";
-        case WiFiState::State::CONNECTED_STA: return "CONNECTED_STA";
-        case WiFiState::State::CONNECTED_AP: return "CONNECTED_AP";
-        case WiFiState::State::RECONNECTING: return "RECONNECTING";
-        default: return "UNKNOWN";
-    }
-}
-
-// ── Credential Management (Testable Pure Functions) ────────────────────────────
-// Testable pure function: Determine credential source priority
-static CredentialSource determineCredentialSource() {
-    if (hasStoredWifiCredentials()) {
-        return CredentialSource::STORED_NVS;
-    }
-    if (WIFI_SSID != nullptr) {
-        return CredentialSource::BAKED_IN;
-    }
-    return CredentialSource::NONE;
-}
-
-// Testable pure function: Check if AP mode fallback is needed
-// Applies to both stored NVS and baked-in credentials after timeout
-static bool shouldFallbackToApMode(CredentialSource source, uint32_t connectDurationMs) {
-    return (source == CredentialSource::STORED_NVS || source == CredentialSource::BAKED_IN) &&
-           (connectDurationMs > Constants::WIFI_CONNECT_TIMEOUT_MS);
-}
-
-// Testable pure function: Check if initial connect timeout reached
-static bool isInitialConnectTimeout(uint32_t connectDurationMs) {
-    return connectDurationMs > (Constants::WIFI_INITIAL_CONNECT_MAX_RETRIES *
-                                Constants::WIFI_CONNECT_RETRY_INTERVAL_MS);
-}
-
-// ── WiFi Interface (Abstraction for Unit Testing) ────────────────────────────────
-struct IWiFi {
-    virtual void setMode(wifi_mode_t mode) = 0;
-    virtual void begin(const char* ssid, const char* pass) = 0;
-    virtual void disconnect(bool wifiOff, bool eraseAP) = 0;
-    virtual wl_status_t status() const = 0;
-    virtual IPAddress localIP() const = 0;
-    virtual IPAddress softAPIP() const = 0;
-    virtual void softAP(const char* ssid, const char* pass) = 0;
-    virtual void setHostname(const char* name) = 0;
-    virtual ~IWiFi() = default;
-};
-
-struct RealWiFi : public IWiFi {
-    void setMode(wifi_mode_t mode) override { WiFiClass::mode(mode); }
-    void begin(const char* ssid, const char* pass) override { WiFi.begin(ssid, pass); }
-    void disconnect(bool wifiOff, bool eraseAP) override { WiFi.disconnect(wifiOff, eraseAP); }
-    wl_status_t status() const override { return WiFiClass::status(); }
-    IPAddress localIP() const override { return WiFi.localIP(); }
-    IPAddress softAPIP() const override { return WiFi.softAPIP(); }
-    void softAP(const char* ssid, const char* pass) override { WiFi.softAP(ssid, pass); }
-    void setHostname(const char* name) override { WiFiClass::setHostname(name); }
-};
-
-static RealWiFi realWifi;
-extern IWiFi& wifi;
-
-// Handler for DISCONNECTED state - determines initial connection strategy
-struct DisconnectedStateHandler : public WiFiStateHandler {
-    IWiFi& wifi_;
-    explicit DisconnectedStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
-
-    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        CredentialSource source = determineCredentialSource();
-
-        switch (source) {
-            case CredentialSource::STORED_NVS: {
-                String storedSsid;
-                String storedPass;
-                if (loadWifiCredentials(storedSsid, storedPass)) {
-                    Serial.printf("Using stored WiFi credentials: %s\r\n", storedSsid.c_str());
-                    wifi_.setMode(WIFI_STA);
-                    wifi_.setHostname("esp32-can");
-                    wifi_.begin(storedSsid.c_str(), storedPass.c_str());
-                    ctx.connectStartTime = now;
-                    ctx.lastRetryMs = now;
-                    return StateTransition(WiFiState::State::CONNECTING);
-                }
-                break;
-            }
-            case CredentialSource::BAKED_IN: {
-                wifi_.disconnect(false, true);
-                wifi_.setMode(WIFI_STA);
-                wifi_.setHostname("esp32-can");
-                wifi_.begin(WIFI_SSID, WIFI_PASSWORD);
-                ctx.connectStartTime = now;
-                ctx.lastRetryMs = now;
-                Serial.printf("Connecting to %s\r\n", WIFI_SSID);
-                return StateTransition(WiFiState::State::CONNECTING);
-            }
-            case CredentialSource::NONE:
-            default:
-                Serial.printf("No WiFi credentials available, starting AP mode\r\n");
-                wifi_.setMode(WIFI_AP);
-                wifi_.softAP(AP_SSID, AP_PASS);
-                const String ip = wifi_.softAPIP().toString();
-                Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
-                Serial.printf("%sConnect to AP and use ATSETWIFI command to configure WiFi%s\r\n", YELLOW, NC);
-                return StateTransition(WiFiState::State::CONNECTED_AP);
-        }
-
-        return StateTransition(ctx.state);  // Stay DISCONNECTED if something failed
-    }
-};
-
-// Handler for CONNECTING state - monitors connection progress
-struct ConnectingStateHandler : public WiFiStateHandler {
-    IWiFi& wifi_;
-    explicit ConnectingStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
-
-    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        const wl_status_t status = wifi_.status();
-        const uint32_t connectDuration = now - ctx.connectStartTime;
-
-        if (status == WL_CONNECTED) {
-            const String ip = wifi_.localIP().toString();
-            Serial.printf("%s\nConnected. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
-            return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
-        }
-
-        if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
-            CredentialSource source = determineCredentialSource();
-
-            if (shouldFallbackToApMode(source, connectDuration)) {
-                Serial.printf("%sStored WiFi credentials failed, falling back to AP mode%s\r\n", YELLOW, NC);
-                wifi_.setMode(WIFI_AP);
-                wifi_.softAP(AP_SSID, AP_PASS);
-                const String ip = wifi_.softAPIP().toString();
-                Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
-                Serial.printf("%sConnect to AP and reconfigure WiFi with ATSETWIFI%s\r\n", YELLOW, NC);
-                return StateTransition(WiFiState::State::CONNECTED_AP);
-            }
-
-            if (shouldRetryWiFi(WiFiState::State::CONNECTING, now, ctx.lastRetryMs)) {
-                String storedSsid;
-                String storedPass;
-                bool hasStored = (source == CredentialSource::STORED_NVS) &&
-                                loadWifiCredentials(storedSsid, storedPass);
-
-                if (hasStored) {
-                    Serial.printf("%sWiFi connect failed (status=%d), retrying with stored creds...%s\r\n",
-                                    YELLOW, static_cast<int>(status), NC);
-                } else {
-                    Serial.printf("%sWiFi connect failed (status=%d), retrying...%s\r\n",
-                                    YELLOW, static_cast<int>(status), NC);
-                }
-
-                WiFi.disconnect(false, true);
-                if (hasStored) {
-                    WiFi.begin(storedSsid.c_str(), storedPass.c_str());
-                } else {
-                    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-                }
-                ctx.lastRetryMs = now;
-            }
-        } else if (isInitialConnectTimeout(connectDuration)) {
-            CredentialSource source = determineCredentialSource();
-
-            if (source == CredentialSource::STORED_NVS) {
-                Serial.printf("%sStored WiFi credentials timeout, falling back to AP mode%s\r\n", YELLOW, NC);
-                WiFiClass::mode(WIFI_AP);
-                WiFi.softAP(AP_SSID, AP_PASS);
-                const String ip = WiFi.softAPIP().toString();
-                Serial.printf("%sAP: %s  IP: %s%s\r\n", PURPLE, AP_SSID, ip.c_str(), NC);
-                return StateTransition(WiFiState::State::CONNECTED_AP);
-            } else {
-                Serial.printf("%sInitial connect timeout, entering RECONNECTING state%s\r\n", YELLOW, NC);
-                return StateTransition(WiFiState::State::RECONNECTING);
-            }
-        } else if ((now - ctx.lastRetryMs) >= Constants::WIFI_CONNECT_RETRY_INTERVAL_MS) {
-            Serial.printf("%s.%s", GREEN, NC);
-            ctx.lastRetryMs = now;
-        }
-
-        return StateTransition(ctx.state);  // Stay in CONNECTING
-    }
-};
-
-// Handler for RECONNECTING state - retries indefinitely ("60 years")
-struct ReconnectingStateHandler : public WiFiStateHandler {
-    IWiFi& wifi_;
-    explicit ReconnectingStateHandler(IWiFi& wifiIfc) : wifi_(wifiIfc) {}
-
-    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        // Check if reconnection succeeded
-        if (wifi_.status() == WL_CONNECTED) {
-            const String ip = wifi_.localIP().toString();
-            Serial.printf("%sWiFi RECONNECTED. IP: %s\r\n%s", GREEN, ip.c_str(), NC);
-            return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
-        }
-
-        // Retry indefinitely - "60 years, no point in giving up"
-        if (shouldRetryWiFi(WiFiState::State::RECONNECTING, now, ctx.lastRetryMs)) {
-            const wl_status_t status = wifi_.status();
-            Serial.printf("%sWiFi RECONNECTING: status=%d reason=%d, retrying...%s\r\n",
-                            YELLOW, static_cast<int>(status),
-                            static_cast<int>(ctx.lastDisconnectReason), NC);
-            wifi_.disconnect(false, true);
-
-            String storedSsid;
-            String storedPass;
-            if (hasStoredWifiCredentials() && loadWifiCredentials(storedSsid, storedPass)) {
-                wifi_.begin(storedSsid.c_str(), storedPass.c_str());
-            } else {
-                wifi_.begin(WIFI_SSID, WIFI_PASSWORD);
-            }
-            ctx.lastRetryMs = now;
-        }
-
-        return StateTransition(ctx.state);  // Stay in RECONNECTING
-    }
-};
-
-// Handler for CONNECTED_STA state - monitors connection health
-struct ConnectedStaStateHandler : public WiFiStateHandler {
-    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        if (WiFiClass::status() != WL_CONNECTED) {
-            return StateTransition(WiFiState::State::RECONNECTING, true, false);
-        }
-        return StateTransition(ctx.state);  // Stay CONNECTED_STA
-    }
-};
-
-// Handler for CONNECTED_AP state - AP mode is stable
-struct ConnectedApStateHandler : public WiFiStateHandler {
-    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        // AP mode stays connected unless explicitly changed - no transitions
-        return StateTransition(ctx.state);
-    }
-};
-
-// ── State Handler Registry (Dispatch Table) ───────────────────────────────────────
-static DisconnectedStateHandler disconnectedHandler(wifi);
-static ConnectingStateHandler connectingHandler(wifi);
-static ReconnectingStateHandler reconnectingHandler(wifi);
-static ConnectedStaStateHandler connectedStaHandler;
-static ConnectedApStateHandler connectedApHandler;
-
-static WiFiStateHandler* getStateHandler(WiFiState::State state) {
-    switch (state) {
-        case WiFiState::State::DISCONNECTED: return &disconnectedHandler;
-        case WiFiState::State::CONNECTING: return &connectingHandler;
-        case WiFiState::State::RECONNECTING: return &reconnectingHandler;
-        case WiFiState::State::CONNECTED_STA: return &connectedStaHandler;
-        case WiFiState::State::CONNECTED_AP: return &connectedApHandler;
-        default: return &disconnectedHandler;  // Fallback
-    }
-}
-
-#ifdef ARDUINO
-IWiFi& wifi = realWifi;
-#endif
-// ── State Transition Application ───────────────────────────────────────────────────
-static void applyStateTransition(const StateTransition& transition, WiFiState::Context& ctx) {
-    // Treat "stay in current state" as idempotent no-op (regardless of which state)
-    if (transition.nextState == ctx.state) {
-        return;  // No transition - stay sentinel
-    }
-
-    const WiFiState::State previousState = ctx.state;
-    ctx.state = transition.nextState;
-
-    // Update LED pattern based on WiFi state
-    switch (transition.nextState) {
-        case WiFiState::State::DISCONNECTED:
-            statusLed.setPattern(StatusLED::Pattern::WIFI_SEARCHING);
-            break;
-        case WiFiState::State::CONNECTING:
-            statusLed.setPattern(StatusLED::Pattern::WIFI_SEARCHING);
-            break;
-        case WiFiState::State::CONNECTED_STA:
-            statusLed.setPattern(StatusLED::Pattern::WIFI_CONNECTED);
-            break;
-        case WiFiState::State::CONNECTED_AP:
-            statusLed.setPattern(StatusLED::Pattern::AP_MODE);
-            break;
-        case WiFiState::State::RECONNECTING:
-            statusLed.setPattern(StatusLED::Pattern::WIFI_SEARCHING);
-            break;
-    }
-
-    if (transition.setTcpServerRestartFlag) {
-        ctx.tcpServerNeedsRestart = true;
-    }
-
-    // NOTE: transition.initNtp is no longer acted on here. NTP is driven by
-    // FirmwareApp (owns NtpTimeSync), started from the WiFi-connected event
-    // inside WiFiManager — not from this legacy inline state machine, which is
-    // superseded by WiFiManager and not invoked in loop().
-}
-
-static void onWiFiDisconnected(const WiFiEvent_t&, const WiFiEventInfo_t& info) {
-    // WiFiManager (via FirmwareApp) owns the WiFi state machine.
-    // This handler is now a thin veneer - all state transitions are handled by WiFiManager.
-    firmwareApp.onWiFiDisconnected(info.wifi_sta_disconnected.reason);
-}
-
-static void updateWiFiStateMachine() {
-    const uint32_t now = millis();
-
-    // Get handler for current state (dispatch table lookup)
-    WiFiStateHandler* handler = getStateHandler(wifiCtx.state);
-
-    // Execute state handler and get transition
-    StateTransition transition = handler->execute(now, wifiCtx);
-
-    // Apply transition if any
-    applyStateTransition(transition, wifiCtx);
-}
 
 // ── AT Command Handling: delegate to vanilla AtCommandDispatcher ───────────
 // The command structs, registry, and dispatch loop that used to live here were
@@ -813,17 +402,15 @@ static void drainSerialATCommands() {
 
 
 // ── TCP Server Lifecycle Management ───────────────────────────────────────────
-// Testable pure function: Check if TCP server restart is needed (testable unit)
-static bool shouldRestartTcpServer(const WiFiState::Context& ctx) {
-    return ctx.tcpServerNeedsRestart;
-}
-
+// FirmwareApp (via WiFiManager) owns the tcpServerNeedsRestart flag; the .ino
+// only reads/clears it through the FirmwareApp seam and performs the actual
+// WiFiServer end/begin + client cleanup (hardware-side effects stay in the .ino).
 static void restartTcpServerIfNeeded() {
-    if (shouldRestartTcpServer(wifiCtx)) {
+    if (firmwareApp.shouldRestartTcpServer()) {
         Serial.printf("%sRestarting TCP server on IP change%s\r\n", YELLOW, NC);
         tcpServer.end();
         tcpServer.begin();
-        wifiCtx.tcpServerNeedsRestart = false;
+        firmwareApp.clearTcpServerRestartFlag();
 
         // Disconnect any existing client since IP changed
         if (client.connected()) {
@@ -842,13 +429,14 @@ static bool isValidAuthToken(const String& received) {
 }
 
 // ── FirmwareApp Callback Handlers ──────────────────────────────────────────────────
-// Bridge FirmwareApp signals to inline logic (TCP/NTP/Discovery/OTA)
-// These will be routed into FirmwareApp in Task #2
+// Bridge FirmwareApp signals to .ino-side hardware effects (TCP/Discovery/OTA).
+// The TCP-restart flag itself is owned by WiFiManager (set on the CONNECTED_STA /
+// RECONNECTING transition); this callback is a post-transition firmware-effect
+// hook. The actual WiFiServer end/begin runs in loop() via
+// restartTcpServerIfNeeded(), which reads firmwareApp.shouldRestartTcpServer().
 static void onRestartTcpServer() {
-    // Flag TCP server for restart (happens when WiFi reconnects with new IP)
-    // Actual restart happens in loop() via restartTcpServerIfNeeded()
-    // For now, set the flag directly on wifiCtx (TODO: remove once fully routed)
-    wifiCtx.tcpServerNeedsRestart = true;
+    // No-op: WiFiManager already set its own tcpServerNeedsRestart flag on the
+    // transition. restartTcpServerIfNeeded() picks it up next loop tick.
 }
 
 static void onBroadcastDiscovery() {
@@ -892,7 +480,7 @@ static bool checkFactoryReset() {
         // Button held for full duration - clear WiFi credentials
         Serial.printf("%sFactory reset: clearing WiFi credentials and booting to AP mode%s\r\n",
                         RED, NC);
-        clearWifiCredentials();
+        firmwareApp.clearCredentials();
         return true;
     }
     return false;
@@ -918,17 +506,13 @@ void setup() {
     });
 
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
-    // Bridge Arduino WiFi events to FirmwareApp
-    // NOTE: This is a temporary bridge until ArduinoWiFi.onEvent is fully implemented
-    // The inline onWiFiDisconnected() below provides auth-failure logging
-    // WiFi STA disconnect event — fires when the ESP32 WiFi drops from connected.
-    // The 2-param lambda matches WiFiEventCb (WiFi.onEvent overload for WiFiEvent_t).
-    // info.wifi_sta_disconnected.reason carries the disconnect cause code.
+    // Bridge Arduino WiFi STA-disconnect events straight to FirmwareApp, which owns
+    // the WiFi state machine (WiFiManager::onDisconnected handles auth-failure → AP
+    // fallback and non-auth → RECONNECTING). The 2-param lambda matches WiFiEventCb
+    // (WiFi.onEvent overload for WiFiEvent_t); info.wifi_sta_disconnected.reason
+    // carries the disconnect cause code.
     WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
         if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-            // Call inline handler first (for auth-failure logging)
-            onWiFiDisconnected(event, info);
-            // Then notify FirmwareApp (which handles state transitions)
             firmwareApp.onWiFiDisconnected(info.wifi_sta_disconnected.reason);
         }
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
@@ -952,9 +536,8 @@ void setup() {
     Serial.println("TWAI disabled via VEHICLE_SIM_ENABLE_TWAI=0");
 #endif
 
-    // NOTE: WiFi state machine is now driven by FirmwareApp
-    // FirmwareApp.init() already called updateWiFiStateMachine() internally
-    // No need to manually initialize wifiCtx.state or call updateWiFiStateMachine()
+    // NOTE: WiFi state machine is driven by FirmwareApp (WiFiManager). init() ran
+    // the first state-machine tick; loop() drives subsequent ticks via update().
 
     // Initialize discovery: hand FirmwareApp the build-time enable flag, then reset
     // the vanilla DiscoveryManager's backoff timer (replaces the inline
@@ -1026,10 +609,9 @@ void loop() {
     }
 
     // ── Update FirmwareApp (drives WiFiManager + StatusLED + Discovery) ────────────
-    // This replaces the inline updateWiFiStateMachine() call. Tell FirmwareApp the
-    // live TCP-client state so DiscoveryManager can suppress broadcasts while a
-    // buddy is connected (replaces the inline haveClient gate). FirmwareApp.update()
-    // calls WiFiManager.update(), statusLed.update(), and DiscoveryManager.update().
+    // Tell FirmwareApp the live TCP-client state so DiscoveryManager can suppress
+    // broadcasts while a buddy is connected. FirmwareApp.update() calls
+    // WiFiManager.update(), statusLed.update(), and DiscoveryManager.update().
     firmwareApp.setClientConnected(client && client.connected());
     firmwareApp.update(millis());
 
@@ -1106,8 +688,9 @@ void loop() {
         firmwareApp.setMonitorActive(false);
         firmwareApp.resetDiscoveryBackoff();  // Reset backoff timer to welcome a new buddy
         // Revert LED pattern to WiFi state
-        if (wifiCtx.state == WiFiState::State::CONNECTED_STA ||
-            wifiCtx.state == WiFiState::State::CONNECTED_AP) {
+        const int wifiState = firmwareApp.getWiFiState();
+        if (wifiState == static_cast<int>(esp32_firmware::WiFiState::State::CONNECTED_STA) ||
+            wifiState == static_cast<int>(esp32_firmware::WiFiState::State::CONNECTED_AP)) {
             statusLed.setPattern(StatusLED::Pattern::WIFI_CONNECTED);
         }
     }

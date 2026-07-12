@@ -111,8 +111,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/discovery/UDPDiscovery.cpp
     src/pipeline/SecureTcpTransport.cpp
     src/pipeline/ITransportOutput.cpp
-    firmware/can-bridge/StatusLED.cpp
     firmware/can-bridge/HardwareStatusLEDOutput.cpp
+    firmware/vanilla/StatusLED.cpp
     firmware/vanilla/StatusLEDRenderer.cpp
     firmware/vanilla/AtCommandDispatcher.cpp
     firmware/vanilla/DiscoveryManager.cpp

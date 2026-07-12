@@ -50,6 +50,7 @@ add_executable(vehicle-sim-tests
     pipeline/TCPTransport.test.cpp
     pipeline/TCPTransportHeloParse.test.cpp
     pipeline/TCPTransportHunting.test.cpp
+    pipeline/TCPTransportHuntingCancel.test.cpp
     pipeline/USBTransport.test.cpp
     pipeline/OTAHttpTransport.test.cpp
     pipeline/PipelineFactory.test.cpp
@@ -65,6 +66,8 @@ add_executable(vehicle-sim-tests
     firmware/AtCommandDispatcher.test.cpp
     firmware/DiscoveryManager.test.cpp
     firmware/WiFiManager.test.cpp
+    firmware/WiFiManagerBehavior.test.cpp
+    firmware/WiFiManagerWiring.test.cpp
     firmware/FirmwareApp.test.cpp
 )
 
@@ -98,7 +101,14 @@ target_include_directories(vehicle-sim-tests
 
 add_test(NAME vehicle-sim-tests COMMAND vehicle-sim-tests WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 
-# Fail fast on a hung test case: ctest kills the binary at 30 s (the whole
-# suite runs in <1 s) instead of wedging `make test-cpp` until the shell
-# timeout. The last gtest [ RUN ] line in the --verbose log identifies the culprit.
-set_tests_properties(vehicle-sim-tests PROPERTIES TIMEOUT 180)
+# Fail fast on a hung test case: ctest kills the binary at the TIMEOUT instead
+# of wedging `make test` until the shell timeout. The last gtest [ RUN ] line
+# in the --verbose log identifies the culprit.
+#
+# 600 s headroom: the suite is ~86 s (2026-07) but the TCPTransportHunting
+# tests do real socket I/O (2-5 s each) and the suite grows as stages land.
+# The prior 180 s (set when the suite was <1 s) left shrinking margin — a
+# timeout kill truncates the run with NO final PASSED/FAILED summary, which
+# combined with the old tee masking could false-green the commit gate. 600 s
+# keeps the hang-detection intent without risking a spurious mid-suite kill.
+set_tests_properties(vehicle-sim-tests PROPERTIES TIMEOUT 600)
