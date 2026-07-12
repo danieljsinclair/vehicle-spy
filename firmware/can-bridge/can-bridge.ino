@@ -40,6 +40,14 @@
 #include "ArduinoTimeNtp.h"
 #include "FirmwareApp.h"
 
+// ── TcpServerManager (Stage 6 extraction) ────────────────────────────────────────────
+// Vanilla accept/auth/dispatch state machine (host-tested, 14 tests). The .ino
+// supplies the WiFiServer/WiFiClient adapters + a narrow ITcpHostCallbacks impl
+// backed by firmwareApp. Inline TCP loop deleted (was loop() L634-696).
+#include "ITcpServer.h"
+#include "TcpServerManager.h"
+#include "ArduinoTcpServer.h"
+
 // Use firmware namespace for components
 using firmware::StatusLED;
 using firmware::HardwareStatusLEDOutput;
@@ -50,6 +58,9 @@ using esp32_firmware::ArduinoTime;
 using esp32_firmware::ArduinoSntp;
 using esp32_firmware::ArduinoTimeNtp;
 using esp32_firmware::FirmwareApp;
+using esp32_firmware::TcpServerManager;
+using esp32_firmware::ArduinoTcpServer;
+using esp32_firmware::ITcpHostCallbacks;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -350,6 +361,32 @@ FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
 static WiFiServer tcpServer(Constants::TCP_PORT);
 static uint32_t serialQuietUntilMs = 0;
 
+// ── TCP Server Manager wiring (Stage 6) ──────────────────────────────────────────────
+// ArduinoTcpServer adapts the global tcpServer + client (the single connection
+// truth source); TcpServerManager drives the accept/auth/dispatch lifecycle.
+// The ITcpHostCallbacks impl below delegates the 4 out-of-SRP behaviours to
+// firmwareApp (command dispatch, monitor flag, discovery backoff, WiFi state).
+namespace {
+struct FirmwareAppTcpHostCallbacks : public ITcpHostCallbacks {
+    FirmwareApp& app;
+    explicit FirmwareAppTcpHostCallbacks(FirmwareApp& a) : app(a) {}
+    void handleTcpAtCommand(const std::string& cmd) override {
+        app.handleTcpAtCommand(cmd);
+    }
+    void setMonitorActive(bool active) override { app.setMonitorActive(active); }
+    void resetDiscoveryBackoff() override { app.resetDiscoveryBackoff(); }
+    int getWiFiState() const override { return app.getWiFiState(); }
+};
+} // namespace
+
+static ArduinoTcpServer arduinoTcpServer(tcpServer, client);
+static FirmwareAppTcpHostCallbacks tcpHostCallbacks(firmwareApp);
+// authToken is the bare token; the vanilla prepends "AUTH " when comparing
+// (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
+static TcpServerManager tcpManager(arduinoTcpServer, statusLed,
+                                   std::string(TCP_AUTH_TOKEN),
+                                   tcpHostCallbacks);
+
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
 // NTP time is now owned entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
 // ArduinoTimeNtp adapters). The inline initNtpSync()/ntpSyncCallback() were
@@ -418,14 +455,6 @@ static void restartTcpServerIfNeeded() {
             Serial.println("TCP: disconnected client due to IP change");
         }
     }
-}
-
-// ── TCP Authentication ───────────────────────────────────────────────────────
-// Testable pure function: Compare AUTH token (testable unit)
-static bool isValidAuthToken(const String& received) {
-    // Expected format: "AUTH <token>"
-    const String expected = String("AUTH ") + TCP_AUTH_TOKEN;
-    return received.equals(expected);
 }
 
 // ── FirmwareApp Callback Handlers ──────────────────────────────────────────────────
@@ -631,69 +660,14 @@ void loop() {
     // (which calls DiscoveryManager::update on the cadence). No inline broadcast
     // logic remains in the .ino.
 
-    // Accept new TCP connections - with proper error handling and cleanup
-    if (!client || !client.connected()) {
-        WiFiClient next = tcpServer.accept();
-        if (next) {
-            // Clean up any existing client
-            if (client.connected()) {
-                client.stop();
-                Serial.println("TCP: replaced existing client");
-            }
-
-            client = next;
-            firmwareApp.setMonitorActive(false);
-
-            // Require AUTH before any other commands.
-            // Client must send "AUTH <token>" as the first line.
-            // This prevents unauthorized reboots and captures on the local network.
-            client.setTimeout(Constants::TCP_AUTH_TIMEOUT_MS);
-
-            // Read AUTH line with timeout guard
-            String firstLine = client.readStringUntil('\r');
-            firstLine.trim();
-
-            if (!isValidAuthToken(firstLine)) {
-                Serial.printf("%sTCP: rejected unauthenticated connection (received: %s)%s\r\n",
-                                RED, firstLine.c_str(), NC);
-                client.println("ERROR unauthorized");
-                client.flush();
-                client.stop();
-                client = WiFiClient();  // Ensure client is reset
-            } else {
-                client.println("OK");
-                client.flush();
-                statusLed.setPattern(StatusLED::Pattern::CLIENT_CONNECTED);
-            }
-        }
-    }
-
-    const bool haveClient = client && client.connected();
-    if (haveClient && !firmwareApp.isMonitorActive()) {
-        // Command mode: read AT commands until ATMA switches to monitor.
-        if (client.available()) {
-            client.setTimeout(Constants::TCP_COMMAND_TIMEOUT_MS);
-            String cmd = client.readStringUntil('\r');
-            if (!cmd.isEmpty()) {
-                // Route the TCP AT command through the vanilla dispatcher owned by
-                // FirmwareApp (which frames the reply as "<resp>\r\r>" for the host
-                // HELO handshake). This replaces the old inline handleAT() loop.
-                firmwareApp.handleTcpAtCommand(static_cast<const char*>(cmd.c_str()));
-            }
-        }
-    }
-
-    // Check if client disconnected - cleanup resources and reset discovery backoff
-    if (!haveClient && firmwareApp.isMonitorActive()) {
-        firmwareApp.setMonitorActive(false);
-        firmwareApp.resetDiscoveryBackoff();  // Reset backoff timer to welcome a new buddy
-        // Revert LED pattern to WiFi state
-        const int wifiState = firmwareApp.getWiFiState();
-        if (wifiState == static_cast<int>(esp32_firmware::WiFiState::State::CONNECTED_STA) ||
-            wifiState == static_cast<int>(esp32_firmware::WiFiState::State::CONNECTED_AP)) {
-            statusLed.setPattern(StatusLED::Pattern::WIFI_CONNECTED);
-        }
-    }
+    // ── TCP accept/auth/dispatch (Stage 6: delegated to vanilla TcpServerManager) ────
+    // One tick of the client-facing TCP lifecycle (accept → AUTH → command-dispatch →
+    // disconnect cleanup + LED revert). The inline loop was deleted; the manager
+    // drives it through ArduinoTcpServer/ArduinoTcpServerClient + the
+    // FirmwareAppTcpHostCallbacks seam. The global `client` stays the single
+    // connection truth source (ArduinoTcpServer::accept assigns into it), so
+    // setClientConnected / ArduinoTcpClient above remain in sync.
+    tcpManager.cycle(static_cast<uint32_t>(millis()));
 
     drainSerialATCommands();
 
