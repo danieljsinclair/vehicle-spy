@@ -57,6 +57,12 @@ struct IWiFiStateHandler {
     virtual ~IWiFiStateHandler() = default;
 };
 
+// Opaque WiFi event-info payload (models the platform's WiFiEventInfo_t, e.g.
+// ESP-IDF arduino_event_info_t, without pulling the Arduino header into this
+// host-compilable interface). Implementations (ArduinoWiFi) and mocks supply
+// the concrete struct; the interface only names the pointer meaningfully.
+struct WifiEventInfo;
+
 // WiFi interface (abstraction for unit testing)
 struct IWiFi {
     virtual void setMode(int mode) = 0;
@@ -70,7 +76,7 @@ struct IWiFi {
     virtual int getMode() const = 0;
     virtual std::string SSID() const = 0;
     virtual const char* disconnectReasonName(int reason) const = 0;
-    virtual void onEvent(std::function<void(int, void*)> cb, int event) = 0;
+    virtual void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) = 0;
     virtual ~IWiFi() = default;
 };
 

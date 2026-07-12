@@ -57,19 +57,18 @@ set(VANILLA_SOURCES
     vanilla/StatusLEDRenderer.cpp
     vanilla/FirmwareApp.cpp
     vanilla/ArduinoWiFi.cpp
-    vanilla/ArduinoPreferences.cpp
+    vanilla/StatusLED.cpp
 )
 
-# StatusLED already exists and is vanilla C++
-set(STATUS_LED_SOURCES
-    can-bridge/StatusLED.cpp
+# ESP32-specific hardware veneer (GPIO LED driver) — stays in can-bridge/
+set(CANBRIDGE_SOURCES
     can-bridge/HardwareStatusLEDOutput.cpp
 )
 
 # Build vanilla library
 add_library(esp32-firmware-lib
     ${VANILLA_SOURCES}
-    ${STATUS_LED_SOURCES}
+    ${CANBRIDGE_SOURCES}
 )
 
 # Include directories
