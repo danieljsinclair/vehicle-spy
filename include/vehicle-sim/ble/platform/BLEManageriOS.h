@@ -10,10 +10,13 @@
 #ifdef __APPLE__
     #ifdef __OBJC__
         #import <CoreBluetooth/CoreBluetooth.h>
+        #import <dispatch/dispatch.h>
     #else
         typedef struct objc_object CBCentralManager;
         typedef struct objc_object CBPeripheral;
         typedef struct objc_object CBCharacteristic;
+        // Opaque dispatch-queue handle (matches dispatch_queue_t in <dispatch/dispatch.h>).
+        typedef struct dispatch_queue_s* dispatch_queue_t;
     #endif
 #endif
 
@@ -54,6 +57,7 @@ public:
 private:
 #ifdef __APPLE__
     CBCentralManager* central_manager_ = nullptr;
+    dispatch_queue_t ble_queue_ = nullptr;
     CBPeripheral* connected_peripheral_ = nullptr;
     CBCharacteristic* write_characteristic_ = nullptr;
     CBCharacteristic* notify_characteristic_ = nullptr;

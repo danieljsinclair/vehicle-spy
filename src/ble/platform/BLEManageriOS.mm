@@ -209,11 +209,13 @@ BLEManageriOS::BLEManageriOS()
     delegate_ = (void*)CFBridgingRetain(delegate);
     [delegate release];
 
-    // Create dispatch queue for BLE operations
-    dispatch_queue_t bleQueue = dispatch_queue_create("com.vehicle-sim.ble.ios", DISPATCH_QUEUE_SERIAL);
+    // Create dispatch queue for BLE operations. Own it (+1 from create); the
+    // central manager borrows it (initWithDelegate:queue: does not retain), so
+    // ble_queue_ is released in the dtor to balance.
+    ble_queue_ = dispatch_queue_create("com.vehicle-sim.ble.ios", DISPATCH_QUEUE_SERIAL);
 
     // Initialize central manager with delegate
-    central_manager_ = [[CBCentralManager alloc] initWithDelegate:delegate queue:bleQueue options:nil];
+    central_manager_ = [[CBCentralManager alloc] initWithDelegate:delegate queue:ble_queue_ options:nil];
 }
 
 BLEManageriOS::~BLEManageriOS() {
@@ -227,6 +229,13 @@ BLEManageriOS::~BLEManageriOS() {
         [central_manager_ stopScan];
         [central_manager_ release];
         central_manager_ = nullptr;
+    }
+
+    // Release the dispatch queue (balances dispatch_queue_create in the ctor;
+    // the central manager only borrowed it, so release after the manager).
+    if (ble_queue_) {
+        dispatch_release(ble_queue_);
+        ble_queue_ = nullptr;
     }
 
     // Release delegate
@@ -299,6 +308,7 @@ bool BLEManageriOS::connect(std::string_view device_identifier) {
             if (peripherals.count > 0) {
                 target_peripheral = peripherals.firstObject;
             }
+            [uuid release];
         }
 
         if (!target_peripheral) {
@@ -426,11 +436,13 @@ void BLEManageriOS::onBluetoothStateChanged(bool isPoweredOn) {
 bool BLEManageriOS::waitForBluetoothReady(int timeout_ms) {
     if (!central_manager_) return false;
 
-    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-
+    // Already powered on — no wait needed (and no semaphore to leak).
     if (central_manager_.state == CBManagerStatePoweredOn) {
         return true;
     }
+
+    // Own sem (+1 from create); release it on the single exit below to balance.
+    dispatch_semaphore_t sem = dispatch_semaphore_create(0);
 
     dispatch_async(dispatch_get_main_queue(), ^{
         usleep(100 * 1000);
@@ -445,11 +457,12 @@ bool BLEManageriOS::waitForBluetoothReady(int timeout_ms) {
 
     dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout_ms * NSEC_PER_MSEC)));
 
-    if (central_manager_.state != CBManagerStatePoweredOn) {
+    bool ready = (central_manager_.state == CBManagerStatePoweredOn);
+    if (!ready) {
         std::cerr << "[BLEManageriOS] Bluetooth not ready. State: " << central_manager_.state << std::endl;
-        return false;
     }
-    return true;
+    dispatch_release(sem);
+    return ready;
 }
 
 CBPeripheral* BLEManageriOS::findPeripheralByAddress(const std::string& address) {

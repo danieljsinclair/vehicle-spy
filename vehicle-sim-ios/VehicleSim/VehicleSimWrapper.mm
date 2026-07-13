@@ -596,7 +596,7 @@ private:
     }
 
     if (result.hasSuggestion()) {
-        const char* conf = "";
+        const char* conf;
         switch (result.confidence) {
             case domain::DetectionConfidence::High: conf = "high"; break;
             case domain::DetectionConfidence::Medium: conf = "medium"; break;
