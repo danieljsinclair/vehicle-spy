@@ -20,7 +20,6 @@
 #include <memory>
 #include "OtaUpdateServer.h"
 #include "ArduinoHttpServer.h"
-#include "ArduinoHttpUpdateServer.h"
 #include "ArduinoUpdate.h"
 #include "ArduinoPartition.h"
 #include "ArduinoCrypto.h"
@@ -29,7 +28,6 @@
 
 using esp32_firmware::OtaUpdateServer;
 using esp32_firmware::ArduinoHttpServer;
-using esp32_firmware::ArduinoHttpUpdateServer;
 using esp32_firmware::ArduinoUpdate;
 using esp32_firmware::ArduinoPartition;
 using esp32_firmware::ArduinoCrypto;
@@ -41,11 +39,11 @@ using esp32_firmware::OtaConfig;
 // visible without an extern. Same reason RED/GREEN/NC are visible below.
 
 namespace {
-// OTA server + its 5 Arduino adapters. Constructed once (lazily) and shared by
-// otaMarkValidOnBoot() + otaSetup(). The WebServer is owned by ArduinoHttpServer;
-// ArduinoHttpUpdateServer borrows it via raw().
+// OTA server + its 4 Arduino adapters. Constructed once (lazily) and shared by
+// otaMarkValidOnBoot() + otaSetup(). The WebServer is owned by ArduinoHttpServer.
+// HTTPUpdateServer is deliberately NOT used — the vanilla OtaUpdateServer owns
+// the /update route exclusively (see OtaUpdateServer::setup comment).
 std::unique_ptr<ArduinoHttpServer>        otaHttp;
-std::unique_ptr<ArduinoHttpUpdateServer>  otaUpdater;
 std::unique_ptr<ArduinoUpdate>            otaUpdateLib;
 std::unique_ptr<ArduinoPartition>         otaPartition;
 std::unique_ptr<ArduinoCrypto>            otaCrypto;
@@ -58,12 +56,11 @@ void ensureOtaServer() {
         return;
     }
     otaHttp       = std::make_unique<ArduinoHttpServer>(OtaConfig::HTTP_PORT);
-    otaUpdater    = std::make_unique<ArduinoHttpUpdateServer>(otaHttp->raw());
     otaUpdateLib  = std::make_unique<ArduinoUpdate>();
     otaPartition  = std::make_unique<ArduinoPartition>();
     otaCrypto     = std::make_unique<ArduinoCrypto>();
     otaServer = std::make_unique<OtaUpdateServer>(
-        *otaHttp, *otaUpdater, *otaUpdateLib, *otaPartition, *otaCrypto, arduinoTime);
+        *otaHttp, *otaUpdateLib, *otaPartition, *otaCrypto, arduinoTime);
 }
 } // namespace
 

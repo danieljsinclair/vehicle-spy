@@ -12,10 +12,10 @@ namespace esp32_firmware {
 // host-testable vanilla lib that must not bake a per-user signing key.
 static const uint8_t SENTINEL_PUBLIC_KEY[32] = {0};
 
-OtaUpdateServer::OtaUpdateServer(IHttpServer& http, IHttpUpdateServer& updater,
+OtaUpdateServer::OtaUpdateServer(IHttpServer& http,
                                  IUpdate& update, IPartition& partition, ICrypto& crypto,
                                  ITime& time)
-    : http_(http), updater_(updater), update_(update), partition_(partition),
+    : http_(http), update_(update), partition_(partition),
       crypto_(crypto), time_(time) {}
 
 void OtaUpdateServer::setup() {
@@ -26,8 +26,19 @@ void OtaUpdateServer::setup() {
     static const char* hdrs[1] = { OtaConfig::OTA_SIG_HDR };
     http_.collectHeaders(hdrs, 1);
 
-    updater_.setup(&http_, "/update", "", "");
-
+    // The vanilla owns the /update route EXCLUSIVELY. We deliberately do NOT
+    // call HTTPUpdateServer::setup() here: that library registers its OWN
+    // /update POST handler (with its own upload handler that calls Update.write
+    // directly — NO signature verification), and the Arduino WebServer
+    // dispatches the FIRST-registered handler for a URI+method (on() appends,
+    // it does not replace). Registering HTTPUpdateServer first made this
+    // vanilla's sig-verifying handleUpload UNREACHABLE — a security hole
+    // (unsigned images accepted) and the source of the NVS corruption
+    // (HTTPUpdateServer's direct Update.write bypassed the
+    // ArduinoPartition::getNextUpdatePartition NVS-overlap guard). The vanilla
+    // provides the full /update surface: handleGet (form), handlePost
+    // (response + reboot), handleUpload (per-chunk sig-verify + partition
+    // check). See [[esp32-webserver-first-handler-wins]].
     http_.on("/update", 1, [this]() { handleGet(); });  // HTTP_GET
     // Upload-handler closure: the WebServer invokes this once per multipart
     // chunk and surfaces the in-flight upload via http_.upload(). We snapshot
@@ -41,6 +52,8 @@ void OtaUpdateServer::setup() {
              });  // HTTP_POST
 
     http_.begin();
+    // With HTTPUpdateServer no longer registered, the vanilla's upload closure
+    // is the sole /update POST handler — its sig-verify path is now reachable.
 }
 
 void OtaUpdateServer::loop() {

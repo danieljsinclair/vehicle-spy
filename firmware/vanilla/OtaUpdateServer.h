@@ -102,12 +102,6 @@ struct IHttpUpload {
     size_t totalSize = 0;
 };
 
-// HTTP update server interface
-struct IHttpUpdateServer {
-    virtual void setup(IHttpServer* server, const char* path, const char* username, const char* password) = 0;
-    virtual ~IHttpUpdateServer() = default;
-};
-
 // Update interface (firmware update)
 struct IUpdate {
     virtual bool begin(size_t size, int command) = 0;
@@ -161,7 +155,7 @@ public:
     using ErrorCallback = std::function<void(OtaError error, const char* message)>;
     using SuccessCallback = std::function<void()>;
 
-    OtaUpdateServer(IHttpServer& http, IHttpUpdateServer& updater,
+    OtaUpdateServer(IHttpServer& http,
                     IUpdate& update, IPartition& partition, ICrypto& crypto,
                     ITime& time);
 
@@ -194,7 +188,6 @@ public:
 
 private:
     IHttpServer& http_;
-    IHttpUpdateServer& updater_;
     IUpdate& update_;
     IPartition& partition_;
     ICrypto& crypto_;

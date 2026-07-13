@@ -31,7 +31,8 @@ public:
     // computed from ESP.getFreeSketchSpace() (gap 3 — matches inline L252).
     bool begin(size_t /*size*/, int command) override {
         const uint32_t maxSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
-        return Update.begin(maxSpace, command);
+        const bool ok = Update.begin(maxSpace, command);
+        return ok;
     }
 
     size_t write(const uint8_t* data, size_t len) override {
@@ -48,11 +49,13 @@ public:
             len = CHUNK_CAP;  // defensive: never overrun the stack buffer
         }
         memcpy(buf, data, len);
-        return Update.write(buf, len);
+        const size_t written = Update.write(buf, len);
+        return written;
     }
 
     bool end(bool evenIfError) override {
-        return Update.end(evenIfError);
+        const bool ok = Update.end(evenIfError);
+        return ok;
     }
 
     bool hasError() const override {
