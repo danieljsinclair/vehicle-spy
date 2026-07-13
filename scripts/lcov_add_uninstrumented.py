@@ -136,6 +136,13 @@ def find_source_files(src_dirs: List[str], excludes: List[str] = None) -> Dict[s
                 # Include .cpp, .h, .ino files
                 if file.endswith(('.cpp', '.h', '.ino')):
                     filepath = os.path.join(root, file)
+                    # Symlinks are path aliases, not canonical source. The esp32
+                    # firmware/can-bridge/ tree has 26 symlinks -> ../vanilla/;
+                    # walking both would add a synthetic entry for each alias
+                    # AND its canonical target, double-counting every line.
+                    # Skip the symlink so only the canonical vanilla path counts.
+                    if os.path.islink(filepath):
+                        continue
                     # Apply sonar-style exclusions (Phase 3 Part 2: keep lcov
                     # completion == sonar.sources effective set).
                     rel = os.path.relpath(filepath).replace(os.sep, '/')

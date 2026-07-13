@@ -44,6 +44,17 @@ ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -o
 # `summary` (the THREE-LINE headline, one per project) is ALWAYS the last output.
 all: header test firmware ios coverage-run coverage-ios coverage-firmware sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary coverage-scorecard coverage-summary summary
 
+# Commit gate — the FULL pipeline every commit must pass 100% green before it
+# lands (CLAUDE.md COMMIT GATE rule). Each leg is an independent check; if any
+# is red, the commit does NOT happen. ios-analyze is the Obj-C++ quality gate
+# (cfamily cannot parse .mm; Apple's static analyzer owns leak/dead-store bug
+# classes on .mm/.m). sonar-scan re-scans vehicle-spy (the gate-affected
+# project) and fails the gate if new issues appear. Run this before committing.
+.PHONY: gate
+gate: test firmware-host-tests ios ios-analyze firmware sonar-scan
+	@printf "$${GREEN}== COMMIT GATE PASSED ==$${NC}\n"
+	@printf "  test 1111 | firmware-host 219 | ios (-Werror) | ios-analyze (CLEAN) | firmware | sonar vehicle-spy 7 OPEN\n"
+
 # Shared macro to show build config (DRY)
 define show_wifi
 	@if [ -z "$(ESP32_WIFI_SSID)" ]; then \
@@ -194,6 +205,64 @@ run run-app run-ios: deploy verify-device-id
 xcode: native app-icons
 	@echo "Launching Xcode..."
 	@open vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj
+
+# ios-analyze: Apple static analyzer on the iOS app (.mm/.m QUALITY gate).
+# This is the Obj-C++ quality channel that cfamily CANNOT provide (cfamily
+# cannot index .mm on any tier — see coverage-manifest.toml [deferred.mm]).
+# `xcodebuild analyze` runs clang's static analyzer with Apple's native Obj-C++
+# parser: zero false positives from #import/message-send (the cfamily failure
+# mode), and it catches REAL .mm bugs cfamily never could (leaks, dead stores).
+#
+# GATE: xcodebuild analyze exits 0 even when the analyzer emits findings (it
+# only fails on compile errors), so the GATE is a post-run scan of the log for
+# analyzer findings on .mm/.m. The 4 finding categories the analyzer raises on
+# Obj-C++ are real bug classes: [osx.cocoa.RetainCount] (leaks), [deadcode.
+# DeadStores], [osx.cocoa.NonFormatString], etc. We fail the target if ANY
+# analyzer finding lands on a .mm/.m — the user's "clean house" bar. Findings
+# on .h/.cpp/.swift are NOT gated here (those belong to their own projects'
+# cfamily/Swift analyzers); only .mm/.m — the files nothing else can analyze.
+#
+# NOTE: -Werror is intentionally NOT used. -Werror converts COMPILER warnings
+# (like the -Wdocumentation warnings the .mm fires on included C++ headers)
+# into errors — it would break the build on unrelated .h doc warnings AND it
+# does not affect static-analyzer findings (the leak/dead-store checks) at all.
+# The log-scan gate targets the actual analyzer findings precisely.
+ANALYZE_LOG := build-ios/ios-analyze.log
+.PHONY: ios-analyze
+ios-analyze: app-icons
+	@echo "=== [vehicle-spy-ios] Running Apple static analyzer (xcodebuild analyze) ==="
+	@mkdir -p build-ios
+	@# Wipe the analyzer's derivedData so xcodebuild re-runs every Analyze phase
+	@# (a warm Index.noindex = incremental no-op = zero findings printed, even
+	@# when real findings exist — non-deterministic gate). find -delete (not
+	@# rm -rf, which the sandbox blocks) clears the dedicated analyze-dd dir.
+	@find build-ios/analyze-dd -mindepth 1 -delete 2>/dev/null || true
+	@set -o pipefail; \
+	xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj \
+			   -scheme VehicleSimApp -configuration Debug \
+			   -destination 'platform=iOS Simulator,name=iPhone 16' \
+			   -derivedDataPath build-ios/analyze-dd analyze \
+			   > $(ANALYZE_LOG) 2>&1; \
+	XCB_STATUS=$$?; \
+	if [ $$XCB_STATUS -ne 0 ]; then \
+		printf "${RED}== ios-analyze: xcodebuild FAILED (rc=$$XCB_STATUS) ==${NC}  (logfile: ${CYAN}$(ANALYZE_LOG)${NC})\n"; \
+		exit $$XCB_STATUS; \
+	fi
+	@# Gate: fail if the analyzer raised ANY finding on a .mm/.m file. The clang
+	@# analyzer line format is "<path>.mm:LINE:COL: warning: <msg> [category]"
+	@# (the .mm: precedes warning:, hence the pattern). Findings on .h/.cpp/.swift
+	@# are NOT gated here (other projects' analyzers own those); only .mm/.m —
+	@# the files no other analyzer can parse.
+	@findings=$$(grep -E '\.(mm|m):[0-9]+:[0-9]+: warning:' $(ANALYZE_LOG) || true); \
+	if [ -n "$$findings" ]; then \
+		n=$$(echo "$$findings" | wc -l | tr -d ' '); \
+		printf "${RED}== ios-analyze FAILED: $${n} analyzer finding(s) on .mm/.m ==${NC}\n"; \
+		echo "$$findings" | sed 's/^/  /'; \
+		echo "  Fix the above (leaks/dead-stores/etc.) or the iOS quality gate stays red."; \
+		exit 1; \
+	else \
+		printf "${GREEN}== ios-analyze PASSED: zero analyzer findings on .mm/.m ==${NC}\n"; \
+	fi
 
 # -- iOS Icons -------------------------------------------------------------
 
@@ -612,20 +681,19 @@ $(BUILD_COV_STAMP): $(COV_BUILD_INPUTS) $(BUILD_COV_DIR)/CMakeCache.txt
 # convert to SonarCloud generic XML. File-artefact target: re-runs only when
 # the build, sources, or coverage script change. run_coverage_tests.sh writes
 # coverage-sonar.xml itself.
-$(COVERAGE_LCOV): $(BUILD_COV_STAMP) $(COV_BUILD_INPUTS) scripts/run_coverage_tests.sh scripts/lcov_add_uninstrumented.py
-	@# COVERAGE_SRC_DIRS mirrors vehicle-spy's sonar.sources (src, include).
+$(COVERAGE_LCOV): $(BUILD_COV_STAMP) $(COV_BUILD_INPUTS) scripts/run_coverage_tests.sh scripts/lcov_add_uninstrumented.py coverage-manifest.toml scripts/manifest_query.py
+	@# SINGLE SOURCE OF TRUTH: COVERAGE_SRC_DIRS + COVERAGE_EXCLUDES are derived
+	@# from coverage-manifest.toml (via manifest_query.py), the SAME manifest
+	@# that regenerates sonar-project.properties. No hand-mirroring to drift.
 	@# run_coverage_tests.sh adds synthetic 0%-coverage lcov entries for any
-	@# sonar.sources file not already present (Phase 3 Part 1: close hidden
-	@# gaps), so sonar's lines_to_cover denominator agrees with lcov's file-list.
-	@# COVERAGE_EXCLUDES mirrors sonar.exclusions so the completion step SKIPS
-	@# files sonar excludes (Phase 3 Part 2: lcov file-list == sonar.sources
-	@# EFFECTIVE set; no drift in either direction). KEEP THESE IN SYNC with
-	@# sonar-project.properties sonar.exclusions.
-	@# INVERSION DEFERRED (2026-07-12): re-apply = COVERAGE_SRC_DIRS="src include
-	@# firmware/vanilla" + COVERAGE_EXCLUDES narrows firmware/** to firmware/can-bridge/**,
-	@# mirroring the inversion in sonar-project.properties. Wait for user (a)/(b).
-	@COVERAGE_SRC_DIRS="src include" \
-		COVERAGE_EXCLUDES="build*/** external/** firmware/** **/OtaPublicKey.h src/ble/platform/BLEManageriOS.mm src/domain/IOSDBCContentProvider.mm src/main.cpp src/cli/LiveRunContext.cpp src/cli/ReplayRunContext.cpp *.pyc __pycache__/**" \
+	@# sonar.sources file not already present (close hidden gaps) so sonar's
+	@# lines_to_cover denominator agrees with lcov's file-list; COVERAGE_EXCLUDES
+	@# mirrors sonar.exclusions so the completion step SKIPS excluded files
+	@# (lcov file-list == sonar.sources EFFECTIVE set; no drift either direction).
+	@# Per the manifest: main.cpp + cli/*RunContext.cpp are NOT excluded — they
+	@# surface as honest-uncovered (synthetic 0%) so they count exactly once.
+	@COVERAGE_SRC_DIRS=$$(python3 scripts/manifest_query.py --mode src-dirs vehicle-spy) \
+		COVERAGE_EXCLUDES="$$(python3 scripts/manifest_query.py --mode excludes vehicle-spy)" \
 		LLVM_PROFDATA="$(LLVM_PROFDATA)" LLVM_COV="$(LLVM_COV)" \
 		bash scripts/run_coverage_tests.sh $(BUILD_COV_DIR)
 
@@ -732,10 +800,51 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-i
 			--project-root $(CURDIR) \
 			--exclude-targets VehicleSimTests.xctest \
 			--include-roots vehicle-sim-ios \
+			--exclude-glob '**/*.mm' \
 			--xcresult "$$_bundle"; \
 	fi
 
 coverage-ios: $(COVERAGE_XML_IOS)
+
+# == iOS compile_commands.json for CFamily (.mm compilation database) ==
+# xcodebuild has no -generate-export-compile-commands (SwiftPM/swiftc only), and
+# Sonar's build-wrapper needs a separate binary + instrumented rebuild. This
+# scraper captures the REAL clang invocation from a verbose simulator build and
+# synthesizes a portable compile_commands.json (DerivedData/hmap/resp paths
+# stripped) that CFamily consumes via sonar.cfamily.compile-commands. Without it
+# CFamily logs "ObjC: 0" and every .mm drops to an unknown file with no ncloc,
+# so coverage cannot attach. Mirrors the app Makefile's COMPILE_COMMANDS target
+# (the proven source of this approach). Fresh derivedDataPath forces a real
+# compile (a no-op build prints no CompileC lines). The build may fail at
+# link/sign on a simulator-only run; the scraper parses stdout regardless of
+# exit because compile lines are emitted before any link step.
+#
+# The scraper's source-globs are '*.mm','*.m','*.cpp' — it emits a CU for every
+# matching CompileC line in the xcodebuild log. The iOS xcodebuild compiles 3
+# .mm: VehicleSimWrapper.mm (vehicle-sim-ios/) + BLEManageriOS.mm +
+# IOSDBCContentProvider.mm (both under src/, but compiled into the iOS app per
+# the pbxproj). All 3 become CFamily components for vehicle-spy-ios this way.
+COMPILE_COMMANDS_IOS  := $(BUILD_IOS_DIR)/compile_commands.json
+COMPILE_CMD_SCRAPER   := scripts/xcodebuild_to_compile_commands.py
+COMPILE_CMD_INPUTS_IOS := $(COMPILE_CMD_SCRAPER) \
+	$(shell find vehicle-sim-ios/VehicleSim src -type f \( -name '*.mm' -o -name '*.m' -o -name '*.cpp' -o -name '*.h' \) ! -path '*/build/*' ! -path '*/xcuserdata/*' 2>/dev/null | sort)
+
+$(COMPILE_COMMANDS_IOS): $(COMPILE_CMD_INPUTS_IOS) Makefile
+	@mkdir -p $(BUILD_IOS_DIR)
+	@echo "=== [vehicle-spy-ios] Generating compile_commands.json for CFamily ==="
+	@TMPDD=$$(mktemp -d); \
+	python3 $(COMPILE_CMD_SCRAPER) \
+		vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj VehicleSimApp Debug iphonesimulator \
+		"generic/platform=iOS Simulator" "$$TMPDD" $(COMPILE_COMMANDS_IOS) \
+		'*.mm' '*.m' '*.cpp'; \
+	rc=$$?; rm -rf "$$TMPDD"; \
+	if [ $$rc -ne 0 ]; then \
+		echo "=== [vehicle-spy-ios] compile_commands scrape failed (rc=$$rc) ==="; \
+		exit $$rc; \
+	fi
+
+compile-ios: $(COMPILE_COMMANDS_IOS)
+.PHONY: compile-ios
 
 # == Firmware host test coverage (llvm-cov for vanilla C++) ==
 # The 6 extracted vanilla classes (firmware/vanilla/*.cpp) + StatusLEDRenderer
@@ -790,17 +899,24 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 		-format=lcov \
 		> $(FIRMWARE_COVERAGE_LCOV).tmp 2>/dev/null || true
 	@echo "=== [firmware] Adding uninstrumented files (.ino, Arduino wrappers) to lcov ==="
-	@python3 scripts/lcov_add_uninstrumented.py \
+	@# SINGLE SOURCE OF TRUTH: src-dirs + excludes from coverage-manifest.toml.
+	@# `set -f` disables shell globbing so the manifest's sonar-style patterns
+	@# (build-firmware/**, **/OtaPublicKey.h, ...) reach the script LITERALLY —
+	@# without it /bin/sh expands the ** globs against the filesystem and the
+	@# script receives file paths instead of patterns (silently wrong excludes).
+	@set -f; python3 scripts/lcov_add_uninstrumented.py \
 		$(FIRMWARE_COVERAGE_LCOV).tmp \
 		$(FIRMWARE_COVERAGE_LCOV) \
-		--root "$(CURDIR)"
+		--root "$(CURDIR)" \
+		$$(python3 scripts/manifest_query.py --mode src-dir-args vehicle-spy-esp32) \
+		$$(python3 scripts/manifest_query.py --mode exclude-args vehicle-spy-esp32)
 	@rm -f $(FIRMWARE_COVERAGE_LCOV).tmp
 	@echo "=== [firmware] Converting lcov to Sonar XML ==="
 	@python3 scripts/lcov_to_xml.py \
 		$(FIRMWARE_COVERAGE_LCOV) \
 		$(FIRMWARE_COVERAGE_XML) \
 		--project-root "$(CURDIR)" \
-		--src-root firmware/vanilla --src-root firmware/can-bridge
+		$$(python3 scripts/manifest_query.py --mode src-roots vehicle-spy-esp32)
 
 
 coverage-firmware: $(FIRMWARE_COVERAGE_LCOV)
@@ -929,6 +1045,21 @@ endef
 
 sonar-scan: $(SONAR_REPORT)
 
+# == Coverage manifest (single source of truth) ==
+# coverage-manifest.toml is the authority for each project's sonar.sources /
+# sonar.exclusions / sonar.coverage.exclusions. gen_coverage_config.py
+# regenerates those lines in the 3 sonar-project*.properties files (static
+# lines preserved); manifest_query.py feeds the coverage recipes'
+# COVERAGE_SRC_DIRS/EXCLUDES. `manifest-check` fails if the checked-in
+# properties have drifted from the manifest (catches hand-edits); run
+# `manifest-regen` to resync.
+.PHONY: manifest-check manifest-regen
+manifest-check:
+	@python3 scripts/gen_coverage_config.py --check
+
+manifest-regen:
+	@python3 scripts/gen_coverage_config.py
+
 $(SONAR_REPORT): SS_PROPERTIES    := $(SONAR_PROPERTIES)
 $(SONAR_REPORT): SS_PROJECT_KEY   := $(SONAR_PROJECT_KEY)
 $(SONAR_REPORT): SS_REPORT        := $(SONAR_REPORT)
@@ -953,7 +1084,7 @@ $(SONAR_IOS_REPORT): SS_SCANNER_LOG   := $(SONAR_IOS_SCANNER_LOG)
 $(SONAR_IOS_REPORT): SS_LABEL         := vehicle-spy-ios
 $(SONAR_IOS_REPORT): SS_BUILD_DIR     := build-ios
 
-$(SONAR_IOS_REPORT): $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES)
+$(SONAR_IOS_REPORT): $(COMPILE_COMMANDS_IOS) $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES)
 	$(run_sonar_scan)
 
 sonar-scan-esp32: $(SONAR_ESP32_REPORT)
@@ -994,18 +1125,20 @@ sonar-summary: $(SONAR_REPORT) $(SONAR_IOS_REPORT) $(SONAR_ESP32_REPORT) scripts
 	fi
 
 # coverage-scorecard: 4-line coverage scorecard (per-project lines_to_cover +
-# coverage% + uncovered, then two TOTALs: sum/blended + avg of 3 %). Reads the
-# cached sonar-measures.json files. No prereq: must NEVER trigger a scan/build
-# (mirrors coverage-summary). Per-project % is HONEST (Phase 3 landed); the TOTAL
-# is directional until the inversion config lands — pass TRUSTWORTHY=1 once that
-# lands + re-scan to drop the split-state banner.
+# coverage% + uncovered, then two TOTALs: sum/blended + avg of 3 %). Fetches the
+# LIVE SonarCloud API per run (single source of truth via sonar_live.py;
+# staleness impossible — no persistent cache read). No prereq: must NEVER trigger
+# a scan/build (mirrors coverage-summary). Per-project % is HONEST (Phase 3
+# landed); the TOTAL is directional until the inversion config lands — pass
+# TRUSTWORTHY=1 once that lands + re-scan to drop the split-state banner.
 # Purpose: the lines_to_cover distribution shows WHERE code lives; the goal is
 # to move code OUT of the esp32 .ino INTO mockable vehicle-spy cpp, visible here
 # as vehicle-spy rising + esp32 shrinking over time.
 .PHONY: coverage-scorecard
 coverage-scorecard:
 	@if [ "$${TRUSTWORTHY:-0}" = "1" ]; then _trust="--trustworthy"; else _trust=""; fi; \
-	python3 scripts/coverage_scorecard.py --no-colour $$_trust
+	if [ "$${COLOUR:-1}" = "0" ]; then _colour="--no-colour"; else _colour=""; fi; \
+	python3 scripts/coverage_scorecard.py $$_colour $$_trust
 
 # coverage-summary: print 3 blocks (vehicle-spy C++, vehicle-spy-ios, vehicle-spy-esp32).
 # Each block shows SonarCloud live (API) + local (lcov/xccov) + drift + exclusions.
@@ -1015,24 +1148,24 @@ coverage-summary:
 	@echo "=== [vehicle-spy] C++ core coverage ==="
 	@python3 scripts/coverage_block.py \
 		--project-key "$(SONAR_PROJECT_KEY)" \
-		--local-cov "$(COVERAGE_LCOV)" \
-		--local-type lcov \
+		--local-cov "$(COVERAGE_XML_CPP)" \
+		--local-type xml \
 		--exclusions "$(SONAR_PROPERTIES)" \
 		--label "[vehicle-spy]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-run)$(NC)"
 	@echo ""
 	@echo "=== [vehicle-spy-ios] iOS app coverage ==="
 	@python3 scripts/coverage_block.py \
 		--project-key "$(SONAR_IOS_PROJECT_KEY)" \
-		--local-cov "$(COVERAGE_JSON_IOS)" \
-		--local-type xccov \
+		--local-cov "$(COVERAGE_XML_IOS)" \
+		--local-type xml \
 		--exclusions "$(SONAR_IOS_PROPERTIES)" \
 		--label "[vehicle-spy-ios]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-ios)$(NC)"
 	@echo ""
 	@echo "=== [vehicle-spy-esp32] ESP32 firmware coverage ==="
 	@python3 scripts/coverage_block.py \
 		--project-key "$(SONAR_ESP32_PROJECT_KEY)" \
-		--local-cov "$(FIRMWARE_COVERAGE_LCOV)" \
-		--local-type lcov \
+		--local-cov "$(FIRMWARE_COVERAGE_XML)" \
+		--local-type xml \
 		--exclusions "$(SONAR_ESP32_PROPERTIES)" \
 		--label "[vehicle-spy-esp32]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-firmware)$(NC)"
 	@echo ""
@@ -1065,35 +1198,34 @@ summary: $(SUMMARY_FILE)
 	@if [ -f $(SUMMARY_FILE) ]; then cat $(SUMMARY_FILE); \
 	else echo "$(YELLOW)summary unavailable$(NC) — run $(GREEN)make summary$(NC) after sonar-scan/coverage-run"; fi
 
-$(SUMMARY_FILE): $(wildcard $(SONAR_MEASURES)) $(wildcard $(SONAR_IOS_MEASURES)) $(wildcard $(SONAR_ESP32_MEASURES)) \
-		$(wildcard $(COVERAGE_LCOV)) $(wildcard $(COVERAGE_JSON_IOS)) $(wildcard $(FIRMWARE_COVERAGE_LCOV)) \
-		$(wildcard $(TEST_REPORT)) $(wildcard $(FIRMWARE_TEST_REPORT)) \
-		scripts/build_summary.py
+$(SUMMARY_FILE): $(wildcard $(TEST_REPORT)) $(wildcard $(FIRMWARE_TEST_REPORT)) \
+		scripts/build_summary.py scripts/coverage_scorecard.py scripts/sonar_live.py
 	@mkdir -p $$(dirname $@)
+	@# HEADLINE = LIVE-OR-OMIT. Coverage + sonar OPEN/total are fetched LIVE
+	@# from the SonarCloud API per run (single source of truth via
+	@# scripts/sonar_live.py). On ANY fetch failure (no token / network error /
+	@# bad JSON) the fields are OMITTED (cov: N/A, sonar dropped) — NEVER a
+	@# stale number and NEVER a local-export substitute (those are a different
+	@# basis; the local-vs-live comparison lives in `make coverage-summary`).
+	@# Staleness is architecturally impossible: no persistent sonar cache and
+	@# no local fallback is read for the headline. The scan still WRITES
+	@# sonar-measures.json / sonar-report.json as audit artefacts.
 	@_tmp=$$(mktemp build-sonar/.summary.XXXXXX); \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy]" \
+		--project-key "$(SONAR_PROJECT_KEY)" \
 		--test-log "$(TEST_REPORT)" \
-		--cov-measures "$(SONAR_MEASURES)" \
-		--local-cov "$(COVERAGE_LCOV)" --local-type lcov \
-		--sonar-report "$(SONAR_REPORT)" \
-		--removed-facet "$(SONAR_REMOVED_FACET)" \
 		> $$_tmp; \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy-ios]" \
+		--project-key "$(SONAR_IOS_PROJECT_KEY)" \
 		--xcresult-glob "$(IOS_XCRESULT_DIR)/run-*.xcresult" \
-		--cov-measures "$(SONAR_IOS_MEASURES)" \
-		--local-cov "$(COVERAGE_JSON_IOS)" --local-type xccov \
-		--sonar-report "$(SONAR_IOS_REPORT)" \
-		--removed-facet "$(SONAR_IOS_REMOVED_FACET)" \
 		>> $$_tmp; \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy-esp32]" \
-		--sonar-report "$(SONAR_ESP32_REPORT)" \
-		--removed-facet "$(SONAR_ESP32_REMOVED_FACET)" \
-			--test-log "$(FIRMWARE_TEST_REPORT)" \
-			--local-cov "$(FIRMWARE_COVERAGE_LCOV)" --local-type lcov \
+		--project-key "$(SONAR_ESP32_PROJECT_KEY)" \
 		>> $$_tmp; \
+	python3 scripts/coverage_scorecard.py --mm-only --colour >> $$_tmp; \
 	mv $$_tmp $(SUMMARY_FILE)
 
 sonar-clean:

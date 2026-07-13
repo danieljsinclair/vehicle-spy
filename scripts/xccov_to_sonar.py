@@ -57,6 +57,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import os
 import subprocess
@@ -107,19 +108,44 @@ def _under_any_root(rel_path: str, include_roots: Iterable[str]) -> bool:
     )
 
 
+def _matches_any_glob(rel_path: str, globs: Iterable[str]) -> bool:
+    """True if ``rel_path`` matches any fnmatch glob (e.g. ``**/*.mm``).
+
+    SonarCloud-style ``**/`` is normalized to also match at the repo root and
+    by basename (fnmatch treats ``*`` as one segment, so ``**/*.mm`` would not
+    otherwise match a top-level ``foo.mm`` or a basename check).
+    """
+    for pat in globs:
+        if not pat:
+            continue
+        if fnmatch.fnmatch(rel_path, pat):
+            return True
+        if pat.startswith("**/"):
+            tail = pat[3:]
+            if fnmatch.fnmatch(rel_path, tail):
+                return True
+            if fnmatch.fnmatch(os.path.basename(rel_path), tail):
+                return True
+    return False
+
+
 def iter_file_coverage(
     report: dict,
     exclude_targets: Iterable[str],
     project_root: str,
     include_roots: Iterable[str],
+    exclude_globs: Iterable[str] = (),
 ) -> Iterable[FileCoverage]:
     """Yield :class:`FileCoverage` for each file in each non-excluded target.
 
     Files whose relativised path is not under one of ``include_roots`` are
-    dropped (the shared inclusion truth — see module docstring).
+    dropped (the shared inclusion truth — see module docstring). Files matching
+    any ``exclude_globs`` pattern are dropped (the two-sided .mm headline
+    exclusion — mirrors sonar.coverage.exclusions so sonar==lcov matches).
     """
     excluded = {name for name in exclude_targets if name}
     roots = list(include_roots)
+    globs = list(exclude_globs or [])
     for target in report.get("targets", []):
         if target.get("name") in excluded:
             continue
@@ -129,6 +155,8 @@ def iter_file_coverage(
                 continue
             rel = _relative_path(path, project_root)
             if not _under_any_root(rel, roots):
+                continue
+            if globs and _matches_any_glob(rel, globs):
                 continue
             yield FileCoverage(path=path, functions=tuple(entry.get("functions", [])))
 
@@ -168,6 +196,7 @@ def fetch_per_line_coverage(file_path: str, xcresult: str) -> Optional[list]:
 def build_coverage_xml(
     report: dict, project_root: str, exclude_targets: Iterable[str],
     include_roots: Iterable[str], xcresult: Optional[str] = None,
+    exclude_globs: Iterable[str] = (),
 ) -> ET.Element:
     """Build the ``<coverage>`` XML element from an xccov report dict.
 
@@ -183,7 +212,7 @@ def build_coverage_xml(
     """
     root = ET.Element("coverage", {"version": "1"})
     for file_cov in iter_file_coverage(
-        report, exclude_targets, project_root, include_roots
+        report, exclude_targets, project_root, include_roots, exclude_globs
     ):
         rel = _relative_path(file_cov.path, project_root)
         file_el = ET.SubElement(root, "file", {"path": rel})
@@ -276,12 +305,27 @@ def _parse_args(argv: Optional[list] = None) -> argparse.Namespace:
             "lcov path. Without it, fall back to function-level coverage."
         ),
     )
+    parser.add_argument(
+        "--exclude-glob",
+        action="append",
+        default=[],
+        dest="exclude_globs",
+        help=(
+            "fnmatch glob(s) of files to drop from the HEADLINE XML "
+            "(repeatable). The two-sided .mm headline exclusion: pass "
+            "`--exclude-glob '**/*.mm'` so sonar==lcov matches (cfamily "
+            "cannot index .mm, so a headline <file> entry for a .mm is dead "
+            "weight). Mirrors sonar.coverage.exclusions on the SonarCloud "
+            "side. The raw xccov report still carries them for inspection."
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Optional[list] = None) -> int:
     args = _parse_args(argv)
     exclude_targets = [s.strip() for s in args.exclude_targets.split(",")]
+    exclude_globs = list(args.exclude_globs or [])
 
     try:
         with open(args.input, "r", encoding="utf-8") as handle:
@@ -292,7 +336,7 @@ def main(argv: Optional[list] = None) -> int:
 
     root = build_coverage_xml(
         report, args.project_root, exclude_targets, args.include_roots,
-        args.xcresult,
+        args.xcresult, exclude_globs,
     )
     payload = serialize(root)
 

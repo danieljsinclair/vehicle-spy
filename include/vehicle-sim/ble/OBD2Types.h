@@ -49,8 +49,9 @@ struct OBD2PIDs {
 
 /**
  * @brief Parsed OBD2 response containing a telemetry value.
- * @deprecated This struct is kept for backward compatibility.
- *            OBD2 parsing should use ELM327Transport and OBD2Protocol instead.
+ *
+ * Kept as the return type of Elm327Session::queryPID. New OBD2 parsing
+ * should prefer ELM327Transport::parseOBD2Response + OBD2Protocol.
  */
 struct OBD2Response {
     uint8_t mode = 0;

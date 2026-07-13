@@ -95,7 +95,7 @@ public:
      * @param timeout_ms Maximum time to wait in milliseconds
      * @return true if both characteristics discovered
      */
-    virtual bool waitForCharacteristics(int /*timeout_ms*/ = 10000) { return true; }
+    virtual bool waitForCharacteristics(int timeout_ms = 10000) { (void)timeout_ms; return true; }
 
     /**
      * Check if currently connected.

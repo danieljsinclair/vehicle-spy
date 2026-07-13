@@ -126,20 +126,33 @@ echo "=== Generating SonarCloud generic coverage XML (lcov -> XML) ==="
 # the SonarCloud dashboard would show them as 0% with no warning.
 SRC_ROOT_ARGS=()
 for d in ${COVERAGE_SRC_DIRS:-src include}; do SRC_ROOT_ARGS+=(--src-root "$d"); done
+# Two-sided .mm headline exclusion (pure-fallback policy 2026-07-13): drop .mm
+# from the sonar-bound XML so sonar==lcov matches (cfamily cannot index .mm, so
+# a headline <file> entry for a .mm is dead weight). The raw lcov.info still
+# carries .mm per-file for inspection. The glob '**/*.mm' auto-catches any .mm;
+# mirrors sonar.coverage.exclusions on the SonarCloud side. Both sides must drop
+# .mm for the headline counts to agree. (BLEManagerMacOS.mm is host-compiled so
+# it IS in lcov.info — this filter scopes it out of the HEADLINE only.)
 python3 "$SCRIPT_DIR/lcov_to_xml.py" \
     "$BUILD_DIR/lcov.info" \
     "$BUILD_DIR/coverage-sonar.xml" \
     --project-root "$PROJECT_ROOT" \
-    "${SRC_ROOT_ARGS[@]}"
+    "${SRC_ROOT_ARGS[@]}" \
+    --exclude-glob '**/*.mm'
 
 # Guard: every src/ file that has DA line data in lcov.info MUST appear in the
 # XML, otherwise coverage is silently lost. This catches a stale build dir that
 # was not rebuilt after new source/test targets were added (the lcov then lacks
 # the new test binaries' coverage, so files the scanner should see are absent).
+# The two-sided .mm headline exclusion intentionally drops .mm from the XML, so
+# subtract those from the lcov count first (a .mm drop is policy, not a gap).
 LCOV_SRC_FILES=$(grep -E "^SF:" "$BUILD_DIR/lcov.info" \
     | grep -c "${PROJECT_ROOT}/src/")
+LCOV_SRC_MM_FILES=$(grep -E "^SF:" "$BUILD_DIR/lcov.info" \
+    | grep -c "${PROJECT_ROOT}/src/.*\.mm$" || true)
+LCOV_SRC_FILES=$((LCOV_SRC_FILES - LCOV_SRC_MM_FILES))
 XML_SRC_FILES=$(grep -c '<file path="src/' "$BUILD_DIR/coverage-sonar.xml" || true)
-echo "  lcov src/ file records: ${LCOV_SRC_FILES}"
+echo "  lcov src/ file records: ${LCOV_SRC_FILES} (+${LCOV_SRC_MM_FILES} .mm excluded from headline)"
 echo "  coverage-sonar.xml src/ files: ${XML_SRC_FILES}"
 if [ "${XML_SRC_FILES}" -lt "${LCOV_SRC_FILES}" ]; then
     echo "  WARNING: coverage-sonar.xml has fewer src/ files (${XML_SRC_FILES})" \
