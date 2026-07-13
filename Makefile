@@ -1219,7 +1219,19 @@ reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 	fi
 	@$(MAKE) native
 	@echo "Rebooting $(ESP32_HOST):3333..."
-	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATZ\rATE0\rATREBOOT\r' | nc -w 5 "$(ESP32_HOST)" 3333 2>/dev/null; \
+	@# Stagger AUTH and ATREBOOT and hold the socket open between them.
+	@# TcpServerManager::cycle() reads ONE readLine('\r') per loop tick, so
+	@# the two commands cannot be sent in a single burst — nc would close
+	@# before the second tick reads ATREBOOT. ATZ/ATE0 are intentionally
+	@# omitted: when sent in the same buffer as ATREBOOT they prevent the
+	@# ATREBOOT line from being dispatched (the device acks ATZ then stops
+	@# reading the remainder). The minimal reboot sequence is AUTH then
+	@# ATREBOOT. The trailing sleep holds the socket open long enough for
+	@# the device's tick loop to dispatch ATREBOOT and call esp_.restart()
+	@# (which reboots and drops the connection).
+	@{ printf 'AUTH $(ESP32_TCP_TOKEN)\r'; sleep 1; \
+	   printf 'ATREBOOT\r'; sleep 4; } \
+	   | nc -w 8 "$(ESP32_HOST)" 3333 2>/dev/null; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
 			echo "${YELLOW}WARN: no response (device may have already rebooted)${NC}"; \
