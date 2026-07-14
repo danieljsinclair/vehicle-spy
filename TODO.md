@@ -99,28 +99,110 @@ Report the verifier's findings alongside your own. **Trust but verify** — the 
 
 ---
 
-## PROGRESS (lead-tracked, 2026-07-14)
+## PROGRESS (lead-tracked — DONE 2026-07-14)
 
 > Lead delegate-only model: the lead (Claude) does NOT write source code — it
-> analyses, briefs a builder subagent (single-writer on `TCPTransport.*` + its
-> tests), verifies independently, and runs a separate verifier subagent for the
-> self-check protocol. No push, ever.
+> analyses, briefs builder subagents (single-writer on `TCPTransport.*` + its
+> tests), verifies independently (runs the gate + live Sonar API itself), and
+> ran a separate verifier subagent for the self-check protocol. No push, ever
+> (user is the go-between).
 
-- [x] **vehicle-spy S107 ctor fix** (`TODO_vspy_s107.md`) — **VERIFIED NOT NEEDED.**
-  Checked live SonarCloud API 2026-07-14: `cpp:S107` is **OPEN = 0** on
-  vehicle-spy (total OPEN = 0). The TODO.md CURRENT STATE claim ("cpp:S107 is
-  now OPEN") is stale. The ctor is exactly 7 params — sits AT the S107
-  threshold (fires at >7), so correctly not flagged. Per the S107
-  prescription's Step-0 guard ("if S107 is NOT open… stop + report — don't fix
-  the wrong thing"), NO `TransportEndpoint` grouping is done as an S107 "fix"
-  (that would be churn + a forbidden parameter-object band-aid). The endpoint
-  grouping is instead folded into the fast-tests ctor reshape below, where it is
-  REQUIRED to keep the ctor ≤7 after injecting `ISocket` + `IClock`.
+### ✅ vehicle-spy S107 ctor fix (`TODO_vspy_s107.md`) — VERIFIED NOT NEEDED
+Checked live SonarCloud API 2026-07-14: `cpp:S107` is **OPEN = 0** on
+vehicle-spy (total OPEN = 0). The `TODO.md` CURRENT STATE claim ("cpp:S107 is
+now OPEN") was stale. The ctor was exactly 7 params — sits AT the S107
+threshold (fires at >7), so correctly not flagged. Per the S107 prescription's
+Step-0 guard ("if S107 is NOT open… stop + report — don't fix the wrong
+thing"), NO `TransportEndpoint` grouping was done as an S107 "fix" (that would
+be churn + a forbidden parameter-object band-aid). The endpoint grouping was
+instead folded into the fast-tests ctor reshape below, where it is REQUIRED to
+keep the ctor ≤7 after injecting `ISocket` + `IClock`.
 
-- [ ] **vehicle-spy fast mock-based tests** (`TODO_vspy_fast_tests.md`) — **IN PROGRESS (delegated to builder subagent).**
-  - [ ] Phase 1 — `ISocket` seam (mock network I/O): `include/vehicle-sim/pipeline/ISocket.h`, `PosixSocket` (verbatim port of today's direct POSIX), `FakeSocket` (scriptable), inject into `TCPTransport`, route all fd ops through it.
-  - [ ] Phase 2 — extend `IClock`, remove `IBackoffSleeper`/`RealBackoffSleeper`/`InstantBackoffSleeper` + `HuntResilienceConfig::sleeper`; fold 50ms ATI→ATHELO wait + ELM pacing + hunt backoff through `IClock`. Keep ctor ≤7 via `TransportEndpoint`.
-  - [ ] Phase 3 — rewrite `TCPTransport*.test.cpp` to `FakeSocket`+`FakeClock`; remove `LoopbackServer`/`HuntingServer` real loopback; assertions UNCHANGED.
-  - [ ] Phase 4 — `make gate` green + live vehicle-spy OPEN=0; `IBackoffSleeper*` gone (grep 0); per-test <100ms; no real I/O in tests.
-  - Production callers to update for ctor change: `src/pipeline/PipelineFactory.cpp:128`, `vehicle-sim-ios/VehicleSim/VehicleSimWrapper.mm:405`.
-  - Single-writer: only the builder subagent edits `TCPTransport.*` + the 4 test files.
+### ✅ vehicle-spy fast mock-based tests (`TODO_vspy_fast_tests.md`) — DONE
+All 4 phases delivered, committed, gate-green.
+
+**Commits (local only, NOT pushed):**
+- `29540f7` — `refactor: inject ISocket seam, extend IClock, remove IBackoffSleeper, fasten TCPTransport tests` (18 files: source + 4 new files + tests).
+- `c0392e3` — `docs: add vehicle-sim bootstrap TODO + S107/fast-tests/coverage prescriptions` (the TODO/prescription inputs).
+
+**Phase 1 — ISocket seam (mock network I/O):** new `include/vehicle-sim/pipeline/ISocket.h`
+(connect/recv/selectReadable/close/setRecvTimeout/sendAll). `PosixSocket` is a
+verbatim port of the old `connectToHost`/`waitForConnect` + send/recv/select
+logic — production reconnect cadence preserved byte-for-byte. `FakeSocket`
+(`test/vehicle-sim/pipeline/FakeSocket.h`) is host-keyed + scriptable; no real
+socket/loopback. All `fd_`-based ops in `TCPTransport` routed through the
+injected `ISocket`.
+
+**Phase 2 — extend IClock, remove IBackoffSleeper:** added `IClock::sleepFor(ms)`
+(`SystemClock` → real `sleep_for`; `FakeClock` → advances virtual time, no OS
+park). Removed `IBackoffSleeper`/`RealBackoffSleeper`/`InstantBackoffSleeper`
+and `HuntResilienceConfig::sleeper` entirely (DRY — one fake-time framework).
+Hunt backoff + handshake/ELM pacing now route through `clock_->sleepFor`.
+
+**Phase 3 — rewrite tests to FakeSocket+FakeClock:** removed the real-loopback
+`LoopbackServer`/`HuntingServer` helpers from the 4 `TCPTransport*.test.cpp`
+files. Tests inject `FakeSocket` (scripted handshake bytes) + `FakeClock`
+(instant time). **All assertions UNCHANGED** (G1/G2/G3/G5/G6G7/G8/G11/N1/N5,
+nextLine framing, cancellability bounds).
+
+**Ctor reshape:** grouped `host`+`port`+`protocol` into `TransportEndpoint`
+(real domain object) so the ctor stays at 7 params after injecting `ISocket` +
+`IClock`. Both `TransportEndpoint` and `TCPTransport` ctors marked `explicit`
+(fixes `cpp:S1709`). `FakeClock::sleepFor` null-guards `consumerMutex` (fixes
+`cpp:S2259`), mirroring `advance()`'s proven-safe pattern. Production callers
+`PipelineFactory.cpp:128` + `VehicleSimWrapper.mm:405` updated. iOS:
+`src/pipeline/PosixSocket.cpp` added to `project.pbxproj` (the ctor
+default-constructs `PosixSocket`; the iOS app compiles a curated source subset,
+not the native lib).
+
+**Evidence (lead-verified, not rubber-stamped):**
+- `make gate` → **GATE_EXIT=0, COMMIT GATE PASSED** (clean run, no competing
+  build; `test` + `firmware-host-tests` + `ios` BUILD SUCCEEDED + `ios-analyze`
+  zero findings + `firmware` + `sonar-scan` CE task SUCCESS).
+- Live SonarCloud (API, authoritative): **vehicle-spy OPEN = 0**; `cpp:S107`
+  not open (ctor = 7 params). esp32 = 48 OPEN (unchanged, not in scope); ios = 0.
+- `make test` → exit 0, **1120 tests pass, 0 failures**; 44/44 targeted
+  TCPTransport tests pass.
+- No real I/O in the 4 test files (grep: zero `socket`/`bind`/`listen`/`accept`/
+  `connect`/LoopbackServer/HuntingServer; remaining `sleep_for`s are ≤300ms
+  host-side coordination only).
+- `IBackoffSleeper*` = 0 code references (2 comment-only mentions).
+- `IClock` is the sole fake-time path; `FakeClock::sleepFor` does not park on
+  the OS; no NOSONAR; no GTEST_SKIP in project sources.
+- Suite runtime: ~39s → **<2s** total. Per-test: mostly <10ms; 3 tests
+  (G2=360ms, G8=214ms, G6G7=119ms) exceed the <100ms ideal but are within the
+  spec's permitted ≤300ms host-side coordination sleeps (NOT real I/O) — flagged
+  as a soft deviation, not a blocker.
+
+**Refactor-introduced Sonar issues (found by the lead via live API, then fixed
+by a delegated builder — no suppression):**
+- `cpp:S1709` (TransportEndpoint/TCPTransport ctors → `explicit`) — fixed.
+- `cpp:S2259` (FakeClock::sleepFor null deref of `consumerMutex`) — fixed with
+  the real null-guard from `advance()`. Re-scan confirmed live OPEN = 0.
+
+**Process notes / honest caveats:**
+- The first builder returned **corrupt JSON**; its working tree was real and
+  mostly complete but Phase 3 was internally inconsistent (missing
+  `failConnect()`, 1-arg `enqueue`). A repair builder + an ios-fix builder +
+  a sonar-fix builder completed the work. The lead never wrote source itself.
+- Per-phase COMMIT was not possible: the ctor signature change (TransportEndpoint
+  first param + injected ISocket/IClock) couples source and tests — neither
+  compiles against the other alone, so a per-phase commit would break the commit
+  gate. The four phases were developed/verified separately but committed as one
+  gate-green change (flagged in the commit message). The "one commit per
+  violation" discipline applies cleanly to the next workstreams (S104/S1188/
+  S3776), where each violation is an independent, compilable change.
+- The external verifier's report missed the two newly-introduced Sonar issues
+  (its brief covered IBackoffSleeper/NOSONAR/no-real-I/O but not new Sonar
+  regressions). The lead caught them by running `make gate` + the live Sonar API
+  directly — that is the definitive check, not the verifier's summary.
+- iOS *sonar-scanner* leg intermittently fails with a Java "Failed to create
+  temp file" (rc=3) — environmental (sandbox `/tmp`), unrelated to C++ source;
+  the vehicle-spy **C++** scan succeeds. Flagged, not forced past.
+- Remaining untracked (intentionally NOT committed): `claude-teams-bridge/`
+  (not part of this workstream).
+
+**Next (per ROADMAP):** vehicle-spy-esp32 sonar-zero (48 OPEN) — same shape as
+vehicle-spy; the S3776/god-class ones need blind-TDD gating. `.mm → .cpp`
+migration. WiFi provisioning #87. Each as its own prescription + per-violation
+commits.
