@@ -262,12 +262,54 @@ DiscoveryListenerFactory sameIpDiscoveryFactory(std::string address) {
     };
 }
 
+// No-op discovery listener: never reports a device; poll() returns promptly
+// (short slice) instead of the real UDPDiscovery's 500 ms poll. Injected via
+// the ctor factory so the hunt's discovery-win path is unreachable AND the
+// post-loop join doesn't block on a 500 ms real-UDP poll. Used by old-IP-wins
+// tests where discovery is irrelevant (mirrors the Gap/Cancel hermeticity seam).
+class NoOpDiscoveryListener : public IDiscoveryListener {
+public:
+    bool start() override { return true; }
+    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds /*timeout*/) override {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return {};
+    }
+    void stop() override {}
+};
+
+DiscoveryListenerFactory noOpDiscoveryFactory() {
+    return []() { return std::make_unique<NoOpDiscoveryListener>(); };
+}
+
 // Silent output sink (discard everything).
 class QuietOutput : public ITransportOutput {
 public:
     void out(const std::string& /*msg*/) override {}
     void err(const std::string& /*msg*/) override {}
 };
+
+// Instant backoff sleeper: advances the hunt backoff in ~0 ms (no real sleep),
+// so tests where the backoff is pure wait (old-IP wins on attempt 1, or an
+// instant-fail connect + give-up) run in ms instead of ~2.5 s. Only the SLEEP
+// is faked; real loopback TCP handshakes (select/recv on a real fd) stay real
+// (sub-ms on localhost). NOT used for discovery-must-win tests: the backoff
+// window is where discovery wins, so faking it there breaks the race (those
+// tests stay on the real clock).
+class InstantBackoffSleeper final : public IBackoffSleeper {
+public:
+    void sleepSliced(int /*totalMs*/, int /*sliceMs*/,
+                     const std::function<bool()>& shouldStop) override {
+        // Yield once so a concurrent discovery thread gets a scheduling slot,
+        // then return without sleeping (the whole point). The loop guard still
+        // re-checks discovery/stop after this returns.
+        std::this_thread::yield();
+        (void)shouldStop;
+    }
+};
+
+std::shared_ptr<IBackoffSleeper> instantSleeper() {
+    return std::make_shared<InstantBackoffSleeper>();
+}
 
 std::shared_ptr<StopToken> makeStop() { return std::make_shared<StopToken>(); }
 
@@ -280,8 +322,14 @@ TEST(TCPTransportHuntingTest, OldIpReachable_ReconnectsAndReturnsTrue) {
     server.start();
 
     auto stop = makeStop();
+    // instantSleeper: old-IP wins on attempt 1; the 1000 ms backoff before it
+    // is pure wait (was the dominant cost, ~2.5 s). Faking it is safe — no
+    // discovery race here. noOpDiscoveryFactory: discovery is irrelevant (old-IP
+    // wins) and a no-op listener's poll returns in 10 ms, so the post-loop join
+    // doesn't block on the real UDPDiscovery's 500 ms poll.
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
-                           std::make_shared<QuietOutput>(), TcpReadTiming{}, stop);
+                           std::make_shared<QuietOutput>(), TcpReadTiming{}, stop,
+                           HuntResilienceConfig{noOpDiscoveryFactory(), instantSleeper()});
 
     bool result = transport.enterHuntingState();
 
@@ -367,9 +415,12 @@ TEST(TCPTransportHuntingTest, DiscoverySameIpAsOldHost_DoesNotSwitch) {
     server.start();
 
     auto stop = makeStop();
+    // instantSleeper: old-IP (127.0.0.1) wins on attempt 1; the same-IP
+    // discovery device is ignored by the `!= host_` guard regardless of timing.
+    // The 1000 ms backoff is pure wait — safe to fake.
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
                            std::make_shared<QuietOutput>(), TcpReadTiming{}, stop,
-                           sameIpDiscoveryFactory(kLoopbackIp));
+                           HuntResilienceConfig{sameIpDiscoveryFactory(kLoopbackIp), instantSleeper()});
 
     bool result = transport.enterHuntingState();
 

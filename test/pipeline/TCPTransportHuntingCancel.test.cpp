@@ -214,7 +214,7 @@ TEST(TCPTransportHuntingCancelTest, RequestStopInterruptsAndIsLoadBearing) {
     auto stop = makeStop();
     TCPTransport transport(kUnreachableIp, kDiscardPort, "raw",
                            quietOutput(), TcpReadTiming{}, stop,
-                           noOpDiscoveryFactory());
+                           HuntResilienceConfig{noOpDiscoveryFactory()});
 
     // Capture the hunt's TRUE start time inside the async task (the first
     // statement before enterHuntingState) so totalDuration is measured from the
@@ -272,7 +272,7 @@ TEST(TCPTransportHuntingCancelTest, ConnectToUnreachableReturnsFalseCleanly) {
     auto stop = makeStop();
     TCPTransport transport(kUnreachableIp, kDiscardPort, "raw",
                            quietOutput(), TcpReadTiming{}, stop,
-                           noOpDiscoveryFactory());
+                           HuntResilienceConfig{noOpDiscoveryFactory()});
 
     std::atomic<bool> started{false};
     std::future<bool> fut = std::async(std::launch::async, [&]() {

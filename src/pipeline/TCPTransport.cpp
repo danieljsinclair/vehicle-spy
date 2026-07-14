@@ -195,13 +195,13 @@ TCPTransport::TCPTransport(std::string_view host, int port, std::string_view ada
                            std::shared_ptr<ITransportOutput> output,
                            TcpReadTiming timing,
                            std::shared_ptr<StopToken> stop,
-                           DiscoveryListenerFactory discoveryFactory)
+                           HuntResilienceConfig hunt)
     : host_(host)
     , port_(port)
     , adapterProtocol_(adapterProtocol)
     , output_(std::move(output))
     , stop_(std::move(stop))
-    , discoveryFactory_(std::move(discoveryFactory))
+    , hunt_(std::move(hunt))
     , readTimeoutUs_(timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000)
     , atInitDelayMs_(timing.atInitDelayMs)
     , socketRecvTimeoutMs_(timing.socketRecvTimeoutMs > 0 ? timing.socketRecvTimeoutMs : 1000) {
@@ -210,6 +210,21 @@ TCPTransport::TCPTransport(std::string_view host, int port, std::string_view ada
 TCPTransport::~TCPTransport() {
     if (fd_ >= 0) {
         close(fd_);
+    }
+}
+
+// Production backoff sleeper: real std::this_thread::sleep_for per slice.
+// Verbatim port of the original backoffThenAttemptReconnect sleep loop, so the
+// real reconnect cadence is byte-for-byte unchanged (the 100ms-sliced interrupt
+// property is load-bearing for requestStop/discovery responsiveness).
+void RealBackoffSleeper::sleepSliced(int totalMs, int sliceMs,
+                                     const std::function<bool()>& shouldStop) {
+    for (int elapsed = 0; elapsed < totalMs; elapsed += sliceMs) {
+        if (shouldStop && shouldStop()) {
+            return;  // discovery win or requestStop: abort remaining sleep.
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(std::min(sliceMs, totalMs - elapsed)));
     }
 }
 
@@ -475,8 +490,8 @@ constexpr int calculateRetryDelayMs(int retryCount) {
 std::unique_ptr<discovery::IDiscoveryListener>
 TCPTransport::resolveDiscoveryListener() {
     namespace discovery = vehicle_sim::discovery;
-    if (discoveryFactory_) {
-        return discoveryFactory_();
+    if (hunt_.discoveryFactory) {
+        return hunt_.discoveryFactory();
     }
     return std::unique_ptr<discovery::IDiscoveryListener>(
         std::make_unique<discovery::UDPDiscovery>());
@@ -544,10 +559,16 @@ bool TCPTransport::backoffThenAttemptReconnect(int delayMs,
                                                const std::atomic<bool>& discoveryFound,
                                                bool& reconnected) {
     constexpr int checkInterval = 100;  // re-check discovery/stop every 100ms
-    for (int elapsed = 0; elapsed < delayMs && !discoveryFound.load() && !stop_->stopRequested();
-         elapsed += checkInterval) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(std::min(checkInterval, delayMs - elapsed)));
-    }
+    // Delegate the sliced sleep to the injected sleeper: production parks on
+    // real std::this_thread::sleep_for (timing-identical to the pre-seam code);
+    // an injected fake advances instantly so the hunting tests run in ms. The
+    // stop predicate mirrors the original loop guard exactly (discovery win OR
+    // requestStop), preserving the within-one-slice interruption contract.
+    hunt_.backoffSleeper->sleepSliced(
+        delayMs, checkInterval,
+        [this, &discoveryFound]() {
+            return discoveryFound.load() || stop_->stopRequested();
+        });
 
     if (discoveryFound.load()) {
         output_->out("[tcp] hunting: discovery found new IP first, switching...");

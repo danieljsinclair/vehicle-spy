@@ -6,6 +6,7 @@
 #include "vehicle-sim/discovery/IDiscoveryListener.h"
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -56,6 +57,70 @@ using DiscoveryListenerFactory =
     std::function<std::unique_ptr<discovery::IDiscoveryListener>()>;
 
 /**
+ * Sleep abstraction for the hunt backoff loop. The ONE place TCPTransport parks
+ * between reconnect attempts: backoffThenAttemptReconnect() sleeps a
+ * delayMs-long backoff, sliced into checkIntervalMs chunks so a discovery win
+ * or a requestStop() is observed within one slice (not after the full delay).
+ *
+ * Production uses RealBackoffSleeper, which forwards to
+ * std::this_thread::sleep_for per slice — byte-for-byte identical timing to the
+ * pre-seam code (the load-bearing reconnect cadence is unchanged on the real
+ * path). Tests inject an instant sleeper so the backoff advances in ~0 ms,
+ * making the hunting suites deterministic and fast (was ~49 s wall-clock).
+ *
+ * The sleeper sees ONLY the sleep; discovery/connect/socket I/O stay real
+ * (loopback TCP is already sub-ms). SRP: this seam exists because the
+ * established util::IClock::waitFor() requires a std::condition_variable to
+ * park on, while the backoff loop checks atomics (discoveryFound/stop_) — a
+ * cv-free sliced sleep is the minimal, behaviour-preserving seam.
+ */
+class IBackoffSleeper {
+public:
+    virtual ~IBackoffSleeper() = default;
+
+    /**
+     * Sleep for up to totalMs, checking shouldStop() every sliceMs and returning
+     * early when it becomes true. Mirrors the original loop's contract: the
+     * caller observes stop/discovery within one slice, not after the full delay.
+     *
+     * @param totalMs      Total backoff duration in milliseconds.
+     * @param sliceMs      Re-check interval in milliseconds.
+     * @param shouldStop   Predicate; true aborts the remaining sleep promptly.
+     */
+    virtual void sleepSliced(int totalMs, int sliceMs,
+                             const std::function<bool()>& shouldStop) = 0;
+};
+
+/**
+ * Production sleeper: real std::this_thread::sleep_for per slice. Timing-
+ * identical to the pre-seam backoff (the reconnect cadence is load-bearing).
+ */
+class RealBackoffSleeper final : public IBackoffSleeper {
+public:
+    void sleepSliced(int totalMs, int sliceMs,
+                     const std::function<bool()>& shouldStop) override;
+};
+
+/**
+ * Cohesive config for the host-only hunt-on-disconnect resilience path. Groups
+ * the two DI seams that govern HOW a hunt proceeds (not WHETHER it runs):
+ *   - discoveryFactory: the per-hunt discovery listener (empty = real
+ *     UDPDiscovery; tests inject a no-op/fixed listener for hermeticity).
+ *   - backoffSleeper: the backoff sleep strategy (RealBackoffSleeper by
+ *     default; tests inject an instant sleeper for fast, deterministic hunts).
+ *
+ * Bundled into one struct so the TCPTransport ctor stays at 7 params (cpp:S107
+ * threshold) — both fields are hunt-resilience concerns, always co-passed, and
+ * default-constructible to the production-real path (zero behavior change).
+ */
+struct HuntResilienceConfig {
+    /** Factory for the per-hunt discovery listener (empty = real UDPDiscovery). */
+    DiscoveryListenerFactory discoveryFactory;
+    /** Sleep strategy for the hunt backoff (default = RealBackoffSleeper). */
+    std::shared_ptr<IBackoffSleeper> backoffSleeper = std::make_shared<RealBackoffSleeper>();
+};
+
+/**
  * Live raw TCP transport: opens a POSIX socket to a CAN-bridge (e.g. the ESP32
  * firmware's TCP server), reads the stream line by line, and delivers each
  * line to the normaliser. This is a PURE TRANSPORT — it knows nothing about
@@ -89,17 +154,19 @@ public:
      * @param stop            Shared cooperative stop signal (injected, owned by
      *                        the live run-context); must exist at construction
      *                        for the hot loop.
-     * @param discoveryFactory Factory for the discovery listener used by the
-     *                        host-only hunt-on-disconnect path. Default {} =
-     *                        use the real UDPDiscovery. Tests inject a no-op
-     *                        factory for hermetic/deterministic hunting. See
-     *                        DiscoveryListenerFactory.
+     * @param hunt           Hunt-on-disconnect resilience config (see
+     *                       HuntResilienceConfig): the per-hunt discovery
+     *                       listener factory + the backoff sleep strategy.
+     *                       Defaults to the real UDPDiscovery +
+     *                       RealBackoffSleeper (production timing). Tests inject
+     *                       a no-op factory + instant sleeper for hermetic,
+     *                       fast hunting (backoffs advance in ~0 ms).
      */
     TCPTransport(std::string_view host, int port, std::string_view adapterProtocol = "raw",
                  std::shared_ptr<ITransportOutput> output = std::make_shared<StdOut>(),
                  TcpReadTiming timing = TcpReadTiming{},
                  std::shared_ptr<StopToken> stop = std::make_shared<StopToken>(),
-                 DiscoveryListenerFactory discoveryFactory = DiscoveryListenerFactory{});
+                 HuntResilienceConfig hunt = HuntResilienceConfig{});
 
     ~TCPTransport() override;
 
@@ -217,9 +284,10 @@ private:
     std::string adapterProtocol_;
     std::shared_ptr<ITransportOutput> output_;
     std::shared_ptr<StopToken> stop_;
-    // Factory for the per-hunt discovery listener (empty = real UDPDiscovery).
-    // Only dereferenced inside the host-only enterHuntingState().
-    DiscoveryListenerFactory discoveryFactory_;
+    // Hunt-on-disconnect resilience config: the per-hunt discovery listener
+    // factory (empty = real UDPDiscovery) + the backoff sleep strategy. Only
+    // dereferenced inside the host-only enterHuntingState().
+    HuntResilienceConfig hunt_;
     int readTimeoutUs_ = 500000;
     int atInitDelayMs_ = -1;
     int socketRecvTimeoutMs_ = 1000;

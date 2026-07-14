@@ -85,6 +85,26 @@ std::shared_ptr<ITransportOutput> silentOutput() {
     return std::make_shared<SilentOutput>();
 }
 
+// Instant backoff sleeper: advances the hunt backoff in ~0 ms (yields once so a
+// concurrent discovery thread gets a scheduling slot, then returns without
+// sleeping). Used ONLY where the backoff is pure wait (old-IP wins on attempt 1,
+// or an instant-fail connect + give-up). NOT used for discovery-must-win tests:
+// the backoff window is where discovery wins over a hanging old-IP connect, so
+// faking it there breaks the race (those stay on the real clock). Only the SLEEP
+// is faked; real loopback TCP handshakes (select/recv on a real fd) stay real.
+class InstantBackoffSleeper final : public IBackoffSleeper {
+public:
+    void sleepSliced(int /*totalMs*/, int /*sliceMs*/,
+                     const std::function<bool()>& shouldStop) override {
+        std::this_thread::yield();
+        (void)shouldStop;
+    }
+};
+
+std::shared_ptr<IBackoffSleeper> instantSleeper() {
+    return std::make_shared<InstantBackoffSleeper>();
+}
+
 // Capturing output sink: stores every out()/err() string for later assertion.
 // Used by G6/G7 to pin the backoff schedule + outcome message formats.
 class CapturingOutput : public ITransportOutput {
@@ -435,7 +455,7 @@ TEST(TCPTransportHuntingGapTest, G1_EmptyDeviceIdHex_AcceptsFirstDeviceAtNewIp) 
     // deviceIdHex_ is empty: we did NOT call open(). host_ = unreachable.
     TCPTransport transport(kUnreachableIp, server.port(), "raw",
                            silentOutput(), TcpReadTiming{}, stop,
-                           fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp));
+                           HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp)});
 
     bool result = transport.enterHuntingState();
 
@@ -474,7 +494,7 @@ TEST(TCPTransportHuntingGapTest, G2_DeviceIdSet_ExactMatchWins_NonMatchIgnored) 
         // reassign host_ to unreachable AFTER open() sets deviceIdHex_.
         TCPTransport transport(kLoopbackIp, server.port(), "raw",
                                silentOutput(), TcpReadTiming{}, stop,
-                               fixedDiscoveryFactory(nonMatchDeviceIdBytes(), kLoopbackIp));
+                               HuntResilienceConfig{fixedDiscoveryFactory(nonMatchDeviceIdBytes(), kLoopbackIp)});
         openForDeviceIdThenReassignHost(transport, server, kUnreachableIp);
 
         // deviceIdHex_ is now SET (to the HELO id). The discovery listener
@@ -510,7 +530,7 @@ TEST(TCPTransportHuntingGapTest, G2_DeviceIdSet_ExactMatchWins_NonMatchIgnored) 
         auto stop = makeStop();
         TCPTransport transport(kLoopbackIp, server.port(), "raw",
                                silentOutput(), TcpReadTiming{}, stop,
-                               fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp));
+                               HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp)});
         openForDeviceIdThenReassignHost(transport, server, kUnreachableIp);
 
         // deviceIdHex_ == HELO id. Discovery returns a device with the SAME id
@@ -541,7 +561,7 @@ TEST(TCPTransportHuntingGapTest, G3_DeviceIdSet_EightCharPrefixMatchWins) {
     auto stop = makeStop();
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
                            silentOutput(), TcpReadTiming{}, stop,
-                           fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp));
+                           HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp)});
     openForDeviceIdThenReassignHost(transport, server, kUnreachableIp);
 
     // deviceIdHex_ = "0123456789ABCDEF0123456789ABCDEF" (first 8 hex "01234567").
@@ -581,7 +601,8 @@ TEST(TCPTransportHuntingGapTest, G5_RetryCountResetOnSuccess_SecondHuntSucceeds)
 
     auto stop = makeStop();
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
-                           silentOutput(), TcpReadTiming{}, stop);
+                           silentOutput(), TcpReadTiming{}, stop,
+                           HuntResilienceConfig{noOpDiscoveryFactory(), instantSleeper()});
 
     // First hunt: old IP reachable → reconnect wins, retryCount_ reset to 0.
     auto t0 = std::chrono::steady_clock::now();
@@ -652,9 +673,13 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
     // within ~100ms.)
     {
         auto stop = makeStop();
+        // instantSleeper: 127.0.0.1:9 connect fails instantly (ECONNREFUSED),
+        // so the backoff is the dominant cost. Faking it lets all 60 attempts
+        // fire in ms; the captured messages still carry the backoff schedule
+        // (1000ms/2000ms/...) + give-up outcome for the assertions.
         TCPTransport transport(kLoopbackIp, kDiscardPort, "raw",
                                cap, TcpReadTiming{}, stop,
-                               noOpDiscoveryFactory());
+                               HuntResilienceConfig{noOpDiscoveryFactory(), instantSleeper()});
 
         std::atomic<bool> started{false};
         std::future<bool> fut = std::async(std::launch::async, [&]() {
@@ -662,13 +687,17 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
             return transport.enterHuntingState();
         });
         awaitHuntStarted(started);
-        // With instant-fail connects: attempt 1 at ~0ms, backoff 1000ms,
-        // attempt 2 at ~1000ms, backoff 2000ms, attempt 3 at ~3000ms. 3500ms
-        // captures attempts 1-3.
-        std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+        // With instantSleeper + instant-fail connects (127.0.0.1:9), the hunt
+        // self-exhausts all 60 retries in ms (each: instant backoff + instant
+        // ECONNREFUSED) and returns false via finalizeHunt. The OLD code slept
+        // 3500 ms of real wall-clock to let attempts 1-3 fire under the real
+        // backoff; with the fake clock the full schedule fires promptly, so we
+        // just wait for the hunt to finish on its own (no fixed real-time sleep).
+        // requestStop is belt-and-braces (a no-op on an already-finished hunt).
+        ASSERT_EQ(fut.wait_for(std::chrono::milliseconds(5000)),
+                  std::future_status::ready)
+            << "hunt should self-exhaust under the instant backoff";
         transport.requestStop();
-        ASSERT_EQ(fut.wait_for(std::chrono::milliseconds(3000)),
-                  std::future_status::ready);
         fut.get();
 
         std::string msgs = cap->allBlob();
@@ -712,8 +741,12 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
         server.start();
 
         auto stop = makeStop();
+        // instantSleeper + noOpDiscoveryFactory: old-IP (127.0.0.1, reachable)
+        // wins on attempt 1; backoff is pure wait, and a no-op listener keeps
+        // the post-loop join off the real 500 ms UDP poll.
         TCPTransport transport(kLoopbackIp, server.port(), "raw",
-                               capOld, TcpReadTiming{}, stop);
+                               capOld, TcpReadTiming{}, stop,
+                               HuntResilienceConfig{noOpDiscoveryFactory(), instantSleeper()});
         bool result = transport.enterHuntingState();
         EXPECT_TRUE(result);
         std::string msgs = capOld->allBlob();
@@ -733,7 +766,7 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
         auto stop = makeStop();
         TCPTransport transport(kLoopbackIp, server.port(), "raw",
                                capDisc, TcpReadTiming{}, stop,
-                               fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp));
+                               HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp)});
         openForDeviceIdThenReassignHost(transport, server, kUnreachableIp);
 
         bool result = transport.enterHuntingState();
@@ -764,7 +797,7 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
         auto stop = makeStop();
         TCPTransport transport(kLoopbackIp, openServer.port(), "raw",
                                capFail, TcpReadTiming{}, stop,
-                               fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2));
+                               HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2)});
         openForDeviceIdThenReassignHost(transport, openServer, kUnreachableIp);
 
         std::atomic<bool> started{false};
@@ -802,7 +835,7 @@ TEST(TCPTransportHuntingGapTest, G8_StopDuringBackoffInterruptsWithinOneSlice) {
     auto stop = makeStop();
     TCPTransport transport(kUnreachableIp, kDiscardPort, "raw",
                            silentOutput(), TcpReadTiming{}, stop,
-                           noOpDiscoveryFactory());
+                           HuntResilienceConfig{noOpDiscoveryFactory()});
 
     std::atomic<bool> started{false};
     std::future<bool> fut = std::async(std::launch::async, [&]() {
@@ -853,7 +886,7 @@ TEST(TCPTransportHuntingGapTest, G11_DiscoveryWinButNewIpConnectFails_HostSwitch
     // after deviceIdHex_ is set. Discovery points to 127.0.0.3 (unreachable).
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
                            silentOutput(), TcpReadTiming{}, stop,
-                           fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2));
+                           HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2)});
     openForDeviceIdThenReassignHost(transport, server, kUnreachableIp);
 
     // old host_ = 127.0.0.2 (unreachable). Discovery finds 127.0.0.3 (prefix-
@@ -905,9 +938,11 @@ TEST(TCPTransportHuntingGapTest, N1_PeerCloseTriggersHuntReconnectAndContinuesRe
     // A shorter 500ms was flaky under load (the reconnect handshake's recv()
     // could EAGAIN before the server thread was scheduled, causing the hunt to
     // reconnect repeatedly instead of continuing to read).
+    // instantSleeper: the hunt's old-IP reconnect wins on attempt 1 (host_ =
+    // 127.0.0.1, the server's IP); the backoff before it is pure wait.
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
                            silentOutput(), TcpReadTiming{1000, -1, 1000}, stop,
-                           noOpDiscoveryFactory());
+                           HuntResilienceConfig{noOpDiscoveryFactory(), instantSleeper()});
     ASSERT_TRUE(openAgainstServer(transport, server))
         << "open() must succeed (sets deviceIdHex_ + connects)";
 
@@ -994,9 +1029,11 @@ TEST(TCPTransportHuntingGapTest, N5_ExhaustedIsSticky_SubsequentNextLineIsImmedi
 
     auto stop = makeStop();
     // First phase uses short readTimeoutUs for a fast open + first read.
+    // instantSleeper: the hunt's old-IP reconnect (host_ = 127.0.0.1) wins on
+    // attempt 1; backoff is pure wait.
     TCPTransport transport(kLoopbackIp, server.port(), "raw",
                            silentOutput(), TcpReadTiming{1000, -1, 500}, stop,
-                           noOpDiscoveryFactory());
+                           HuntResilienceConfig{noOpDiscoveryFactory(), instantSleeper()});
     ASSERT_TRUE(openAgainstServer(transport, server));
     server.sendToHeld("ONLY_LINE\r");
     auto first = transport.nextLine();
