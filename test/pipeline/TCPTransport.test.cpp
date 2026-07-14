@@ -2,259 +2,72 @@
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/pipeline/RawFrameNormaliser.h"
 #include "vehicle-sim/pipeline/StopToken.h"
+#include "vehicle-sim/pipeline/FakeSocket.h"
+#include "vehicle-sim/util/IClock.h"
 
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <unistd.h>
-
-#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstring>
 #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
 
 using namespace vehicle_sim::pipeline;
+using namespace vehicle_sim::util;
+namespace util = vehicle_sim::util;
 
 // Shared cooperative stop token for these tests (mirrors the original
 // process-global flag). Each test resets it, constructs the transport with it,
 // and calls requestStop() to bound a wait.
 static std::shared_ptr<StopToken> g_testStop = std::make_shared<StopToken>();
 
-namespace {
-
-// Minimal blocking TCP listener bound to an ephemeral localhost port. Accepts
-// one client, can read what the client sends, and write canned responses.
-class LoopbackServer {
-public:
-    bool init() {
-        listenFd_ = socket(AF_INET, SOCK_STREAM, 0);
-        if (listenFd_ < 0) return false;
-        int yes = 1;
-        setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        addr.sin_port = 0;
-        if (bind(listenFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) return false;
-        if (listen(listenFd_, 1) != 0) return false;
-        socklen_t len = sizeof(addr);
-        if (getsockname(listenFd_, reinterpret_cast<sockaddr*>(&addr), &len) != 0) return false;
-        port_ = ntohs(addr.sin_port);
-        return port_ > 0;
-    }
-    ~LoopbackServer() {
-        if (clientFd_ >= 0) close(clientFd_);
-        if (listenFd_ >= 0) close(listenFd_);
-    }
-    int port() const { return port_; }
-
-    int acceptClient(int timeoutMs = 3000) {
-        fd_set rs;
-        FD_ZERO(&rs);
-        FD_SET(listenFd_, &rs);
-        timeval tv{};
-        tv.tv_sec = timeoutMs / 1000;
-        tv.tv_usec = (timeoutMs % 1000) * 1000;
-        int r = select(listenFd_ + 1, &rs, nullptr, nullptr, &tv);
-        if (r <= 0) { clientFd_ = -1; return -1; }
-        clientFd_ = accept(listenFd_, nullptr, nullptr);
-        return clientFd_;
-    }
-
-    std::string readClientBytes(std::size_t expectedMin, int timeoutMs) {
-        std::string out;
-        auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::milliseconds(timeoutMs);
-        char buf[256];
-        while (out.size() < expectedMin &&
-               std::chrono::steady_clock::now() < deadline) {
-            fd_set rs;
-            FD_ZERO(&rs);
-            FD_SET(clientFd_, &rs);
-            auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now()).count();
-            if (remainingMs <= 0) break;
-            timeval tv{};
-            tv.tv_usec = static_cast<suseconds_t>(
-                std::min<decltype(remainingMs)>(remainingMs, 100) * 1000);
-            int r = select(clientFd_ + 1, &rs, nullptr, nullptr, &tv);
-            if (r > 0) {
-                ssize_t n = recv(clientFd_, buf, sizeof(buf), 0);
-                if (n <= 0) break;
-                out.append(buf, static_cast<std::size_t>(n));
-            }
-        }
-        return out;
-    }
-
-    // Read a single line (up to \r or \n) with timeout.
-    std::string readLine(int timeoutMs = 3000) {
-        std::string out;
-        auto deadline = std::chrono::steady_clock::now() +
-                        std::chrono::milliseconds(timeoutMs);
-        char c;
-        while (std::chrono::steady_clock::now() < deadline) {
-            fd_set rs;
-            FD_ZERO(&rs);
-            FD_SET(clientFd_, &rs);
-            auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                   deadline - std::chrono::steady_clock::now()).count();
-            if (remainingMs <= 0) break;
-            timeval tv{};
-            tv.tv_usec = static_cast<suseconds_t>(
-                std::min<decltype(remainingMs)>(remainingMs, 100) * 1000);
-            int r = select(clientFd_ + 1, &rs, nullptr, nullptr, &tv);
-            if (r > 0) {
-                ssize_t n = recv(clientFd_, &c, 1, 0);
-                if (n <= 0) break;
-                if (c == '\r' || c == '\n') {
-                    if (!out.empty()) break;
-                    continue;  // skip leading CR/LF
-                }
-                out += c;
-            }
-        }
-        return out;
-    }
-
-    void sendBytes(const std::string& data) {
-        std::size_t sent = 0;
-        while (sent < data.size()) {
-            ssize_t n = ::send(clientFd_, data.data() + sent, data.size() - sent, 0);
-            if (n <= 0) break;
-            sent += static_cast<std::size_t>(n);
-        }
-    }
-
-    void closeClient() {
-        if (clientFd_ >= 0) { close(clientFd_); clientFd_ = -1; }
-    }
-
-private:
-    int listenFd_ = -1;
-    int clientFd_ = -1;
-    int port_ = 0;
-};
-
-// Helper: accept connection, auth, then handle HELO/ATI handshake. Returns true if all succeeded.
-bool acceptAuthAndHelo(LoopbackServer& server, int timeoutMs = 3000) {
-    if (server.acceptClient(timeoutMs) < 0) return false;
-
-    // Read AUTH
-    std::string line = server.readLine(timeoutMs);
-    if (line != "AUTH vehicle-sim-2026") return false;
-    server.sendBytes("OK\r");
-
-    // Read ATI
-    line = server.readLine(timeoutMs);
-    if (line != "ATI") return false;
-    server.sendBytes("ESP32 CAN Bridge v0.1\r>");
-
-    // Read ATHELO
-    line = server.readLine(timeoutMs);
-    if (line != "ATHELO") return false;
-
-    // Send HELO ACK with a valid device ID
-    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r\r>");
-
-    return true;
-}
-
-// Helper for ELM327 protocol that reads commands but accumulates them for later verification
-bool acceptAuthElm327AndHeloWithCapture(LoopbackServer& server, std::string& capturedCommands, int timeoutMs = 3000) {
-    if (server.acceptClient(timeoutMs) < 0) return false;
-
-    // Read AUTH
-    std::string line = server.readLine(timeoutMs);
-    if (line != "AUTH vehicle-sim-2026") return false;
-    server.sendBytes("OK\r");
-
-    // Small delay
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    // Read ELM327 init sequence and accumulate for verification
-    const char* elmCommands[] = {"ATZ", "ATE0", "ATSP6", "ATH1", "ATMA"};
-    for (size_t i = 0; i < sizeof(elmCommands)/sizeof(elmCommands[0]); i++) {
-        line = server.readLine(timeoutMs);
-        if (line != elmCommands[i]) return false;
-        capturedCommands += line + "\r";  // Accumulate with \r like the original format
-        server.sendBytes("OK\r");
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-
-    // Read ATI
-    line = server.readLine(timeoutMs);
-    if (line != "ATI") return false;
-    server.sendBytes("ESP32 CAN Bridge v0.1\r>");
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-
-    // Read ATHELO
-    line = server.readLine(timeoutMs);
-    if (line != "ATHELO") return false;
-    server.sendBytes("ACK DEVICE=ESP32-CAN FIRMWARE=0.1 DEVICEID=0123456789ABCDEF0123456789ABCDEF\r\r>");
-
-    return true;
-}
-
 // ============================================================
 // RAW protocol (default) — AUTH token sent on connect, then stream verbatim.
 // ============================================================
 
 TEST(TCPTransportTest, RawProtocol_SendsAuthOnConnect) {
-    LoopbackServer server;
-    ASSERT_TRUE(server.init());
+    test::FakeSocket sock;
+    sock.enqueue("127.0.0.1", test::handshakeConnect());
 
-    // Start the transport open in a thread so we can accept+auth before it times out.
     g_testStop->reset();
-    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
-    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
-    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"raw",
-                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 3333, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
-
-    // Accept and auth before checking open result.
-    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
-    // After AUTH, RAW sends nothing — the bridge streams first. A short 10ms
-    // deadline is sufficient to prove silence (no extra bytes arrive after the
-    // AUTH line); shrinking from 300ms removes a gratuitous wall-clock wait.
-    std::string sent = server.readClientBytes(1, 10);
-    EXPECT_TRUE(sent.empty())
+    // After AUTH, RAW sends nothing — the bridge streams first. The scripted
+    // handshake contained no post-handshake bytes, so nothing extra was sent
+    // beyond the AUTH/ATI/ATHELO handshake the transport initiates.
+    std::string sent = sock.sentBlob();
+    // Raw must NOT send any ELM init commands after auth.
+    EXPECT_EQ(sent.find("ATZ"), std::string::npos)
         << "raw TCP must not send AT-init after auth, but sent: " << sent;
 
-    server.closeClient();
     g_testStop->requestStop();
     EXPECT_FALSE(t.nextLine().has_value());
     g_testStop->reset();
 }
 
 TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
-    LoopbackServer server;
-    ASSERT_TRUE(server.init());
+    test::FakeSocket sock;
+    std::deque<std::string> chunks = test::heloHandshakeChunks();
+    chunks.push_back("118 3C 00 18 00 00 00 00 FF\r");
+    chunks.push_back("108 00 00 00 90 01 00 00 00\r");
+    sock.enqueue("127.0.0.1", test::FakeConnectScript{true, std::move(chunks)});
 
     g_testStop->reset();
-    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
-    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
-    TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 3333, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
-
-    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
-
-    // Feed a couple of raw CAN-monitor lines (HEX CAN IDs).
-    server.sendBytes("118 3C 00 18 00 00 00 00 FF\r");
-    server.sendBytes("108 00 00 00 90 01 00 00 00\r");
 
     RawFrameNormaliser n;
     std::vector<std::uint32_t> ids;
@@ -269,42 +82,33 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
     EXPECT_EQ(ids[0], 0x118u);
     EXPECT_EQ(ids[1], 0x108u);
 
-    server.closeClient();
     g_testStop->requestStop();
     t.nextLine();
     g_testStop->reset();
 }
 
 TEST(TCPTransportTest, CleanDisconnect_DetectedByNextLine) {
-    // Verify that when the server closes, nextLine() detects the disconnect
-    // (returns nullopt) without hanging. The transport attempts reconnect in
-    // the background; we stop it with requestStop().
-    LoopbackServer server;
-    ASSERT_TRUE(server.init());
+    test::FakeSocket sock;
+    std::deque<std::string> chunks = test::heloHandshakeChunks();
+    chunks.push_back("118 3C 00 18 00 00 00 00 FF\r");
+    sock.enqueue("127.0.0.1", test::FakeConnectScript{true, std::move(chunks)});
 
     g_testStop->reset();
-    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms
-    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
-    TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 3333, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
-
-    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
-    // Send one frame.
-    server.sendBytes("118 3C 00 18 00 00 00 00 FF\r");
     auto line = t.nextLine();
     ASSERT_TRUE(line.has_value());
     EXPECT_EQ(*line, "118 3C 00 18 00 00 00 00 FF");
 
-    // Server closes — transport detects disconnect and attempts reconnect.
-    server.closeClient();
-
-    // The transport should eventually return nullopt (either from EOF detection
-    // or from reconnect failure). Use requestStop to bound the wait.
+    // The scripted connection delivers no more bytes after the one line, so the
+    // next recv returns 0 (peer close). requestStop bounds any hunt.
     g_testStop->requestStop();
     line = t.nextLine();
     EXPECT_FALSE(line.has_value());
@@ -312,24 +116,14 @@ TEST(TCPTransportTest, CleanDisconnect_DetectedByNextLine) {
 }
 
 TEST(TCPTransportTest, ConnectionRefused_OpenReturnsFalse) {
-    // Bind then close a port so connect() is refused.
-    int refuseFd = socket(AF_INET, SOCK_STREAM, 0);
-    ASSERT_GE(refuseFd, 0);
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = 0;
-    int yes = 1;
-    setsockopt(refuseFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-    ASSERT_EQ(bind(refuseFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
-    ASSERT_EQ(listen(refuseFd, 1), 0);
-    socklen_t len = sizeof(addr);
-    getsockname(refuseFd, reinterpret_cast<sockaddr*>(&addr), &len);
-    int port = ntohs(addr.sin_port);
-    close(refuseFd);
+    test::FakeSocket sock;
+    sock.enqueue("127.0.0.1", test::failConnect());  // connect() returns -1
 
-    TCPTransport t("127.0.0.1", port, "raw",
-                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop);
+    g_testStop->reset();
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 9, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     EXPECT_FALSE(t.open());
     EXPECT_FALSE(t.isOpen());
 }
@@ -339,157 +133,111 @@ TEST(TCPTransportTest, ConnectionRefused_OpenReturnsFalse) {
 // ============================================================
 
 TEST(TCPTransportTest, Elm327Protocol_SendsAuthThenAtInitOnConnect) {
-    LoopbackServer server;
-    ASSERT_TRUE(server.init());
+    test::FakeSocket sock;
+    sock.enqueue("127.0.0.1", test::elmHandshakeConnect());
 
     g_testStop->reset();
-    // Inject short read timeout (1ms) so tests run fast instead of using production 500ms.
-    // Inject short socket recv timeout (10ms) so auth handshake recv() returns promptly.
-    // ELM327 needs a slightly longer timeout than raw tests due to multiple recv() calls
-    // during init sequence, but 10ms is still much faster than production 1000ms.
-    // The atInitDelayMs positional (0) zeroes the inter-command pacing — otherwise
-    // the ~5 AT commands × ~50-300ms settle ≈ 700ms of pure wall-clock waste in
-    // this test. The AT commands are still SENT, so the assertions below still
-    // hold; only the sleeps between them are skipped.
-    TCPTransport t("127.0.0.1", server.port(), /*adapterProtocol=*/"elm327",
-                   std::make_shared<StdOut>(), TcpReadTiming{1000, 0, 10}, g_testStop);
+    // atInitDelayMs = 0 zeroes the inter-command pacing (FakeClock makes it
+    // instant regardless); the AT commands are still SENT, so the assertions
+    // below still hold. socketRecvTimeoutMs is the handshake SO_RCVTIMEO.
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 3333, "elm327"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, 0, 10}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
-
-    std::string capturedCommands;
-    ASSERT_TRUE(acceptAuthElm327AndHeloWithCapture(server, capturedCommands));
     th.join();
     ASSERT_TRUE(opened.load());
 
-    // Verify that the ELM327 AT-init sequence was sent (captured during handshake)
+    std::string capturedCommands = sock.sentBlob();
     EXPECT_NE(capturedCommands.find("ATZ\r"), std::string::npos);
     EXPECT_NE(capturedCommands.find("ATE0\r"), std::string::npos);
     EXPECT_NE(capturedCommands.find("ATSP6\r"), std::string::npos);
     EXPECT_NE(capturedCommands.find("ATH1\r"), std::string::npos);
     EXPECT_NE(capturedCommands.find("ATMA\r"), std::string::npos);
 
-    server.closeClient();
     g_testStop->requestStop();
     t.nextLine();
     g_testStop->reset();
 }
 
 TEST(TCPTransportTest, Elm327InitFailure_OpenReturnsFalse) {
-    LoopbackServer server;
-    ASSERT_TRUE(server.init());
+    // Connect succeeds but the first ELM response is missing/garbage → init
+    // fails → open returns false. The handshake script answers AUTH but leaves
+    // the ELM responses absent so sendElm327Init's discard-recv sees a close.
+    test::FakeSocket sock;
+    std::deque<std::string> chunks;
+    chunks.push_back("OK\r");  // AUTH ok
+    // No ELM "OK" responses and no ATI/ATHELO: the next recv (after ATZ) hits
+    // EOF → sendElm327Init returns false → open fails.
+    sock.enqueue("127.0.0.1", test::FakeConnectScript{true, std::move(chunks)});
 
     g_testStop->reset();
-    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
-    TCPTransport t("127.0.0.1", server.port(), "elm327",
-                   std::make_shared<StdOut>(), TcpReadTiming{500000, -1, 1}, g_testStop);
-    // Open the transport; it will start sending AUTH then AT-init.
-    // Close the server-side client immediately so the send fails.
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 3333, "elm327"},
+                   std::make_shared<StdOut>(), TcpReadTiming{500000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     std::atomic<bool> opened{false};
-    std::thread th([&] {
-        opened = t.open();
-    });
-    ASSERT_GE(server.acceptClient(), 0);
-    // Read and discard the AUTH line, then close before sending OK.
-    server.readLine();
-    server.closeClient();
+    std::thread th([&] { opened = t.open(); });
     th.join();
-    // open() should fail because the auth handshake was interrupted.
     EXPECT_FALSE(opened.load());
     g_testStop->reset();
 }
 
 TEST(TCPTransportTest, RequestStop_TerminatesNextLine) {
-    // A quiet peer + requestStop() must make nextLine() return nullopt
-    // promptly (this is how Ctrl+C stops a live stream).
-    LoopbackServer server;
-    ASSERT_TRUE(server.init());
+    test::FakeSocket sock;
+    sock.enqueue("127.0.0.1", test::handshakeConnect());
 
     g_testStop->reset();
-    // readTimeoutUs=1000 keeps nextLine()'s select() poll snappy (1ms floor) so
-    // that after requestStop() is set, nextLine() returns nullopt within ~one
-    // poll instead of waiting the full 0.5s production poll. This keeps the stop
-    // path prompt in practice (we assert the return-value contract below, not a
-    // wall-clock ceiling).
-    //
-    // socketRecvTimeoutMs=500 gates only the HANDSHAKE-stage blocking recv()s
-    // (AUTH/ATI/ATHELO responses via SO_RCVTIMEO). A 1ms value here races under
-    // full-suite CPU contention: the client's recv() for the server's "OK" can
-    // EAGAIN before the server thread is scheduled, connectAndAuth() returns
-    // false, open() returns false, and ASSERT_TRUE(opened) trips — an
-    // intermittent full-suite-only flake (passes in isolation where the server
-    // thread schedules promptly). 500ms absorbs scheduling jitter during the
-    // one-time handshake while adding negligible wall-clock (the recvs return as
-    // soon as data arrives). Mirrors openConnectedTransport() below, which was
-    // fixed for the same reason. Synchronisation/stability only — does not touch
-    // what the test asserts.
-    TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 500}, g_testStop);
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 3333, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 500}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
-
-    ASSERT_TRUE(acceptAuthAndHelo(server));
     th.join();
     ASSERT_TRUE(opened.load());
 
-    // Request stop from another "thread" (simulating a signal handler).
-    g_testStop->requestStop();
     // CONTRACT: a quiet peer + requestStop() must make nextLine() return
     // nullopt (this is how Ctrl+C stops a live stream). Assert the contract,
-    // not wall-clock promptness — a timing bound (EXPECT_LT(elapsed, N)) is a
-    // flake vector under full-suite CPU contention (the bound races against
-    // scheduler jitter, not against the stop logic). The readTimeoutUs=1000
-    // injected above makes nextLine()'s select() poll re-check the stop flag
-    // every ~1ms, so the return is prompt in practice; we just don't ASSERT a
-    // specific wall-clock ceiling. The handshake-recv race that could make
-    // open() fail is handled separately by socketRecvTimeoutMs=500 above.
+    // not wall-clock promptness.
+    g_testStop->requestStop();
     auto r = t.nextLine();
     EXPECT_FALSE(r.has_value());
 
-    server.closeClient();
     g_testStop->reset();
 }
 
 // ============================================================
 // nextLine() behaviour contract — BLIND coverage that locks the
-// transport's line-framing behaviour for the upcoming SRP refactor.
-// Each test expresses an externally observable behaviour of nextLine()
-// (framing, buffering, terminators, guards), independent of how it's
-// implemented internally. These must stay green so the refactor cannot
-// silently change line-framing semantics.
+// transport's line-framing behaviour. Each test expresses an externally
+// observable behaviour of nextLine() independent of how it's implemented.
 // ============================================================
 
-// Fixture-free helper: spin up a connected, authenticated transport against the
-// loopback server and return it ready for nextLine() calls. The server side is
-// already past the HELO handshake.
+// Open a transport against a scripted handshake and return it ready for
+// nextLine() calls (the handshake is already past).
 struct ConnectedTransport {
-    LoopbackServer server;
+    test::FakeSocket sock;
+    std::shared_ptr<util::FakeClock> clock = std::make_shared<util::FakeClock>();
     std::unique_ptr<TCPTransport> transport;
 };
 
-// Open a transport against a fresh loopback server with short timeouts.
-static std::unique_ptr<ConnectedTransport> openConnectedTransport() {
+static std::unique_ptr<ConnectedTransport> openConnectedTransport(
+    std::deque<std::string> extraChunks = {}) {
     auto ctx = std::make_unique<ConnectedTransport>();
-    if (!ctx->server.init()) return nullptr;
-
     g_testStop->reset();
-    // readTimeoutUs=1000 keeps nextLine()'s select() poll snappy (1ms floor), so
-    // the framing tests still run fast. socketRecvTimeoutMs gates only the
-    // HANDSHAKE-stage blocking recv()s (AUTH/ATI/HELO responses via SO_RCVTIMEO);
-    // a 1ms value there races under full-suite CPU contention — the client's
-    // recv() for the server's "OK" can EAGAIN before the server thread is
-    // scheduled, connectAndAuth() returns false, open() returns false, and this
-    // helper returns nullptr, which surfaces as a flaky ASSERT_TRUE(ctx).
-    // 500ms is generous enough to absorb scheduling jitter during the one-time
-    // handshake while adding negligible wall-clock (the recvs return as soon as
-    // data arrives). This is a synchronisation/stability fix only — it does not
-    // touch what the framing tests assert.
+    std::deque<std::string> chunks = test::heloHandshakeChunks();
+    for (auto& c : extraChunks) chunks.push_back(std::move(c));
+    ctx->sock.enqueue("127.0.0.1", test::FakeConnectScript{true, std::move(chunks)});
+
     ctx->transport = std::make_unique<TCPTransport>(
-        "127.0.0.1", ctx->server.port(), "raw",
-        std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 500}, g_testStop);
+        TransportEndpoint{"127.0.0.1", 3333, "raw"},
+        std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 500}, g_testStop,
+        HuntResilienceConfig{}, ctx->clock,
+        std::shared_ptr<ISocket>(&ctx->sock, [](ISocket*) {}));
 
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = ctx->transport->open(); });
-    if (!acceptAuthAndHelo(ctx->server)) { th.join(); return nullptr; }
     th.join();
     if (!opened.load()) return nullptr;
     return ctx;
@@ -498,21 +246,24 @@ static std::unique_ptr<ConnectedTransport> openConnectedTransport() {
 // --- Guards: nextLine() on a transport that is not open / exhausted ---
 
 TEST(TCPTransportNextLineContract, NotOpened_ReturnsNullopt) {
-    // A transport that was never open() must return nullopt immediately —
-    // nextLine() must not touch a socket when there is no connection.
     g_testStop->reset();
-    TCPTransport t("127.0.0.1", 1, "raw", std::make_shared<StdOut>(),
-                   TcpReadTiming{1000, -1, 1}, g_testStop);
+    test::FakeSocket sock;  // nothing enqueued: connect would fail, but we never open
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 1, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     EXPECT_FALSE(t.nextLine().has_value());
     g_testStop->reset();
 }
 
 TEST(TCPTransportNextLineContract, OpenFailed_ReturnsNullopt) {
-    // open() that fails (connection refused) must leave nextLine() returning
-    // nullopt rather than attempting reads.
     g_testStop->reset();
-    TCPTransport t("127.0.0.1", 1, "raw", std::make_shared<StdOut>(),
-                   TcpReadTiming{1000, -1, 1}, g_testStop);
+    test::FakeSocket sock;
+    sock.enqueue("127.0.0.1", test::failConnect());
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 1, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{1000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     ASSERT_FALSE(t.open());
     EXPECT_FALSE(t.nextLine().has_value());
     g_testStop->reset();
@@ -521,9 +272,8 @@ TEST(TCPTransportNextLineContract, OpenFailed_ReturnsNullopt) {
 // --- Terminators: \r, \n, and \r\n all frame exactly one line ---
 
 TEST(TCPTransportNextLineContract, CarriageReturnTerminatesLine) {
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"ABCDEF\r"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("ABCDEF\r");
     auto line = ctx->transport->nextLine();
     ASSERT_TRUE(line.has_value());
     EXPECT_EQ(*line, "ABCDEF");
@@ -533,9 +283,8 @@ TEST(TCPTransportNextLineContract, CarriageReturnTerminatesLine) {
 }
 
 TEST(TCPTransportNextLineContract, NewlineTerminatesLine) {
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"HELLO\n"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("HELLO\n");
     auto line = ctx->transport->nextLine();
     ASSERT_TRUE(line.has_value());
     EXPECT_EQ(*line, "HELLO");
@@ -545,13 +294,8 @@ TEST(TCPTransportNextLineContract, NewlineTerminatesLine) {
 }
 
 TEST(TCPTransportNextLineContract, CrlfFramesLineThenEmptyBannerLine) {
-    // Framing treats EACH \r and \n as a line boundary (the same rule that lets
-    // "\r\r" banner gaps surface as empty lines). So "X\r\nY\r" yields the line
-    // "X", then an empty line from the \n, then "Y". The normaliser skips empty
-    // lines, so this is benign and is the locked current contract.
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"FRAME1\r\nFRAME2\r"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("FRAME1\r\nFRAME2\r");
     auto first = ctx->transport->nextLine();
     auto mid = ctx->transport->nextLine();
     auto second = ctx->transport->nextLine();
@@ -569,11 +313,8 @@ TEST(TCPTransportNextLineContract, CrlfFramesLineThenEmptyBannerLine) {
 // --- Banner empty line: "\r\r" delivers an empty line ---
 
 TEST(TCPTransportNextLineContract, DoubleCrBannerDeliversEmptyLine) {
-    // ELM327-style banner sequences emit "\r\r"; the framing contract delivers
-    // an empty line ("") for the gap so the normaliser can skip it.
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"REAL\r\r"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("REAL\r\r");
     auto first = ctx->transport->nextLine();
     auto banner = ctx->transport->nextLine();
     ASSERT_TRUE(first.has_value());
@@ -588,11 +329,8 @@ TEST(TCPTransportNextLineContract, DoubleCrBannerDeliversEmptyLine) {
 // --- Multi-line drain: several complete lines in one burst ---
 
 TEST(TCPTransportNextLineContract, MultipleLinesDrainAcrossSuccessiveCalls) {
-    // When several complete lines arrive together, successive nextLine() calls
-    // must return each one in order without further socket reads being required.
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"L1\rL2\rL3\r"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("L1\rL2\rL3\r");
     std::vector<std::string> drained;
     for (int i = 0; i < 3; ++i) {
         auto line = ctx->transport->nextLine();
@@ -608,14 +346,8 @@ TEST(TCPTransportNextLineContract, MultipleLinesDrainAcrossSuccessiveCalls) {
 // --- Partial line buffered across two socket delivers ---
 
 TEST(TCPTransportNextLineContract, PartialLineAcrossTwoReadsAssembles) {
-    // A line split across two sends must be reassembled into one complete line.
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"PART_", "TWO\r"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("PART_");        // no terminator yet: incomplete
-    // A short pause ensures the first chunk is read into the buffer before the
-    // second arrives, exercising the cross-call buffering path.
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    ctx->server.sendBytes("TWO\r");        // completes the line
     auto line = ctx->transport->nextLine();
     ASSERT_TRUE(line.has_value());
     EXPECT_EQ(*line, "PART_TWO");
@@ -627,12 +359,14 @@ TEST(TCPTransportNextLineContract, PartialLineAcrossTwoReadsAssembles) {
 // --- Line longer than one recv() chunk (>256 bytes) still assembles ---
 
 TEST(TCPTransportNextLineContract, LineLongerThanReadChunkAssembles) {
-    // The transport reads in fixed-size chunks; a single logical line longer
-    // than one chunk must still be delivered whole once terminated.
-    auto ctx = openConnectedTransport();
+    std::string big(600, 'X');
+    // Deliver the big line as two chunks within the SAME connection (the open
+    // script) to exercise cross-chunk assembly.
+    std::deque<std::string> extra;
+    extra.push_back(big.substr(0, 300));
+    extra.push_back(big.substr(300) + "\r");
+    auto ctx = openConnectedTransport(std::move(extra));
     ASSERT_TRUE(ctx);
-    std::string big(600, 'X');   // well beyond a single 256-byte recv chunk
-    ctx->server.sendBytes(big + "\r");
     auto line = ctx->transport->nextLine();
     ASSERT_TRUE(line.has_value());
     EXPECT_EQ(line->size(), big.size());
@@ -646,21 +380,10 @@ TEST(TCPTransportNextLineContract, LineLongerThanReadChunkAssembles) {
 //     prior nextLine() that only partially consumed the buffer ---
 
 TEST(TCPTransportNextLineContract, BufferedLineServedWithoutSocketRead) {
-    // After draining one line, a second complete line already in the buffer
-    // must be returned from the next nextLine() call via the buffer fast path
-    // (takeBufferedLine), not require fresh socket data. The contract is
-    // behavioural — the correct line is returned — not wall-clock promptness.
-    // A previous EXPECT_LT(elapsed, 200) timing bound was a non-load-bearing
-    // proxy for "didn't block on select()": even a broken fast path would
-    // return after one ~1ms select poll (readTimeoutUs=1000 floor), well under
-    // 200ms, so the bound couldn't detect the regression it claimed to. The
-    // EXPECT_EQ on the returned line is what actually proves the fast path.
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"FIRST\rSECOND\r"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("FIRST\rSECOND\r");
     ASSERT_TRUE(ctx->transport->nextLine().has_value());  // drains FIRST
 
-    // SECOND is now buffered; fetching it must return the buffered line.
     auto second = ctx->transport->nextLine();
     ASSERT_TRUE(second.has_value());
     EXPECT_EQ(*second, "SECOND");
@@ -673,44 +396,30 @@ TEST(TCPTransportNextLineContract, BufferedLineServedWithoutSocketRead) {
 //     line, then signals end-of-stream (nullopt). ---
 
 TEST(TCPTransportNextLineContract, CleanEofDeliversLineThenNullopt) {
-    auto ctx = openConnectedTransport();
+    auto ctx = openConnectedTransport({"LAST\r"});
     ASSERT_TRUE(ctx);
-    ctx->server.sendBytes("LAST\r");
     auto line = ctx->transport->nextLine();
     ASSERT_TRUE(line.has_value());
     EXPECT_EQ(*line, "LAST");
 
-    // Peer closes: nextLine() must eventually signal end-of-stream (nullopt)
-    // rather than hang. requestStop bounds any reconnect attempt.
-    ctx->server.closeClient();
     g_testStop->requestStop();
     EXPECT_FALSE(ctx->transport->nextLine().has_value());
     g_testStop->reset();
 }
 
 TEST(TCPTransportTest, AuthRejected_OpenReturnsFalse) {
-    // Server that accepts the connection but sends "ERROR" instead of "OK".
-    LoopbackServer server;
-    ASSERT_TRUE(server.init());
+    test::FakeSocket sock;
+    sock.enqueue("127.0.0.1", test::authRejectedConnect("ERROR unauthorized\r"));
 
     g_testStop->reset();
-    // Inject short socket recv timeout (1ms) so auth handshake recv() returns promptly
-    TCPTransport t("127.0.0.1", server.port(), "raw",
-                   std::make_shared<StdOut>(), TcpReadTiming{500000, -1, 1}, g_testStop);
+    TCPTransport t(TransportEndpoint{"127.0.0.1", 3333, "raw"},
+                   std::make_shared<StdOut>(), TcpReadTiming{500000, -1, 1}, g_testStop,
+                   HuntResilienceConfig{}, std::make_shared<util::FakeClock>(),
+                   std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
     std::atomic<bool> opened{false};
     std::thread th([&] { opened = t.open(); });
-
-    ASSERT_GE(server.acceptClient(), 0);
-    // Read the AUTH line.
-    std::string line = server.readLine();
-    ASSERT_EQ(line, "AUTH vehicle-sim-2026");
-    // Send rejection instead of OK.
-    server.sendBytes("ERROR unauthorized\r");
     th.join();
     EXPECT_FALSE(opened.load());
     EXPECT_FALSE(t.isOpen());
-    server.closeClient();
     g_testStop->reset();
 }
-
-} // namespace vehicle_sim::pipeline

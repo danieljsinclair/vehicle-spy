@@ -85,6 +85,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/CaptureNormaliser.cpp
     src/pipeline/DemoTransport.cpp
     src/pipeline/TCPTransport.cpp
+    src/pipeline/PosixSocket.cpp
     src/pipeline/USBTransport.cpp
     src/pipeline/OTAHttpTransport.cpp
     src/pipeline/PipelineFactory.cpp

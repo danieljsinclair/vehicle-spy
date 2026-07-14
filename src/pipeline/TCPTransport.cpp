@@ -1,5 +1,6 @@
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/boundary/ELM327Transport.h"
+#include "vehicle-sim/pipeline/PosixSocket.h"
 
 #if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
 // Hunt-on-disconnect: host resilience (not needed for iOS — it has its own scanning)
@@ -13,27 +14,14 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
-#include <netdb.h>
 #include <netinet/in.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 #include <thread>
-#include <unistd.h>
 
 namespace vehicle_sim::pipeline {
 
 namespace {
 
-// select() read timeout floor — the production default (0.5s) keeps nextLine()
-// responsive to EOF/disconnect and a vanished peer, matching the capture tool's
-// robustness target. The actual per-instance timeout is injectable via the
-// constructor (readTimeoutUs_) so tests can pass a sub-millisecond value.
-// Kept as a constant for documentation / comparison only.
-constexpr int READ_TIMEOUT_US_FLOOR = 1000;  // 1ms poll floor so sub-ms injects still wake promptly
-
 // Connection/reconnect constants
-constexpr int CONNECT_TIMEOUT_S = 5;          // How long connect() may block before failing
 constexpr std::size_t MAX_PENDING_LEN = 4096;  // Guard against runaway line buffering
 constexpr int DEFAULT_PER_COMMAND_DELAY_MS = 50;  // Fallback per-command delay when none is supplied
 
@@ -52,278 +40,15 @@ std::string deviceIdToHex(const std::array<uint8_t, 16>& deviceId) {
     return hex;
 }
 
-// Outcome of waiting for a nonblocking connect() to complete.
-enum class ConnectWaitResult {
-    Connected,   // connect() succeeded (socket is writable, SO_ERROR == 0)
-    Failed,      // timeout, poll error, or SO_ERROR set (try next address)
-    Cancelled,   // the stop token fired mid-connect (abort the whole resolution)
-};
-
-// Wait for a nonblocking connect() on `fd` to either complete within
-// CONNECT_TIMEOUT_S, fail, or be cancelled via `stop`. Polls writability in
-// 100ms slices (mirroring UDPDiscovery::poll's idiom) so the stop token is
-// re-checked each iteration — this is the property that lets requestStop()
-// interrupt an in-flight connect during hunting. `stop` is nullable.
-ConnectWaitResult waitForConnect(int fd, const StopToken* stop) {
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::seconds(CONNECT_TIMEOUT_S);
-
-    while (true) {
-        if (stop != nullptr && stop->stopRequested()) {
-            return ConnectWaitResult::Cancelled;
-        }
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= deadline) {
-            return ConnectWaitResult::Failed;
-        }
-        const auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                     deadline - now).count();
-        struct pollfd pfd;
-        pfd.fd = fd;
-        pfd.events = POLLOUT;
-        pfd.revents = 0;
-        const int sliceMs = std::min(static_cast<int>(remainingMs), 100);
-        const int ret = ::poll(&pfd, 1, sliceMs);
-        if (ret < 0) {
-            // EINTR: a signal interrupted poll — re-loop and re-check stop/deadline.
-            // Any other error is a genuine failure for this address.
-            if (errno != EINTR) {
-                return ConnectWaitResult::Failed;
-            }
-            continue;
-        }
-        if (ret == 0) {
-            continue;  // slice elapsed: re-check stop + deadline
-        }
-        // Socket is writable (or errored): resolve SO_ERROR to decide.
-        int sockErr = 0;
-        if (socklen_t optLen = sizeof(sockErr);
-            getsockopt(fd, SOL_SOCKET, SO_ERROR, &sockErr, &optLen) == 0 && sockErr == 0) {
-            return ConnectWaitResult::Connected;
-        }
-        return ConnectWaitResult::Failed;
-    }
-}
-
-// Resolve host:port into a connected TCP socket, or -1 on failure. Uses a
-// nonblocking connect() polled in bounded chunks so an unreachable board fails
-// within CONNECT_TIMEOUT_S AND so a cooperating caller's StopToken can cancel
-// an in-flight connect (SO_SNDTIMEO alone does not reliably bound a blocking
-// connect() on macOS — the kernel's SYN retransmit can run for a minute+).
-// `stop` is nullable: callers without a stop token (e.g. the initial open())
-// pass nullptr and get the bounded-timeout behaviour without cancellation.
-int connectToHost(const std::string& host, int port, const StopToken* stop) {
-    addrinfo hints{};
-    hints.ai_family = AF_UNSPEC;      // IPv4 or IPv6
-    hints.ai_socktype = SOCK_STREAM;
-
-    const std::string portStr = std::to_string(port);
-
-    addrinfo* result = nullptr;
-    if (int rc = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result); rc != 0 || result == nullptr) {
-        if (result != nullptr) freeaddrinfo(result);
-        return -1;
-    }
-
-    int fd = -1;
-    for (addrinfo* ai = result; ai != nullptr; ai = ai->ai_next) {
-        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd < 0) {
-            continue;
-        }
-
-        // Suppress SIGPIPE: writing to a closed socket must return an error,
-        // not kill the CLI. macOS lacks MSG_NOSIGNAL, so set SO_NOSIGPIPE.
-#ifdef SO_NOSIGPIPE
-        int nosig = 1;
-        (void)setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, sizeof(nosig));
-#endif
-
-        // Make the socket nonblocking so connect() returns immediately and we
-        // can poll for writability (and the stop flag) in bounded chunks. This
-        // mirrors UDPDiscovery::poll's chunked-poll idiom (poll in 100ms slices
-        // so the stop token is re-checked each iteration).
-        const int flags = fcntl(fd, F_GETFL, 0);
-        if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-            close(fd);
-            fd = -1;
-            continue;
-        }
-
-        const int rc = connect(fd, ai->ai_addr, ai->ai_addrlen);
-        const bool immediateSuccess = (rc == 0);
-        const bool pending = (rc < 0 && errno == EINPROGRESS);
-        if (!immediateSuccess && !pending) {
-            // Immediate failure (ECONNREFUSED, ENETUNREACH, ...). Try next addr.
-            close(fd);
-            fd = -1;
-            continue;
-        }
-
-        ConnectWaitResult outcome = ConnectWaitResult::Connected;
-        if (pending) {
-            // EINPROGRESS: connect is pending. Poll for writability, checking
-            // the stop token each chunk so requestStop() can interrupt an
-            // in-flight connect (the production correctness property the
-            // hunting loop needs).
-            outcome = waitForConnect(fd, stop);
-        }
-
-        if (outcome == ConnectWaitResult::Cancelled) {
-            close(fd);
-            freeaddrinfo(result);
-            return -1;  // stop requested: bail out of the whole resolution
-        }
-        if (outcome == ConnectWaitResult::Connected) {
-            // Restore blocking mode for the subsequent send/recv hot path.
-            fcntl(fd, F_SETFL, flags);
-            break;  // success
-        }
-
-        // Failed: try the next resolved address.
-        close(fd);
-        fd = -1;
-    }
-
-    freeaddrinfo(result);
-    return fd;
-}
-
-} // namespace
-
-TCPTransport::TCPTransport(std::string_view host, int port, std::string_view adapterProtocol,
-                           std::shared_ptr<ITransportOutput> output,
-                           TcpReadTiming timing,
-                           std::shared_ptr<StopToken> stop,
-                           HuntResilienceConfig hunt)
-    : host_(host)
-    , port_(port)
-    , adapterProtocol_(adapterProtocol)
-    , output_(std::move(output))
-    , stop_(std::move(stop))
-    , hunt_(std::move(hunt))
-    , readTimeoutUs_(timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000)
-    , atInitDelayMs_(timing.atInitDelayMs)
-    , socketRecvTimeoutMs_(timing.socketRecvTimeoutMs > 0 ? timing.socketRecvTimeoutMs : 1000) {
-}
-
-TCPTransport::~TCPTransport() {
-    if (fd_ >= 0) {
-        close(fd_);
-    }
-}
-
-// Production backoff sleeper: real std::this_thread::sleep_for per slice.
-// Verbatim port of the original backoffThenAttemptReconnect sleep loop, so the
-// real reconnect cadence is byte-for-byte unchanged (the 100ms-sliced interrupt
-// property is load-bearing for requestStop/discovery responsiveness).
-void RealBackoffSleeper::sleepSliced(int totalMs, int sliceMs,
-                                     const std::function<bool()>& shouldStop) {
-    for (int elapsed = 0; elapsed < totalMs; elapsed += sliceMs) {
-        if (shouldStop && shouldStop()) {
-            return;  // discovery win or requestStop: abort remaining sleep.
-        }
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(std::min(sliceMs, totalMs - elapsed)));
-    }
-}
-
-// ELM327 init pacing: honours the overridable atInitDelayMs_ while never
-// regressing to hard-coded defaults that tests can't control.
-// Single call site (sendElm327Init) — kept as a named method to document the override point, not for reuse.
-int TCPTransport::perCommandDelayMs(int cmdDelayMs) const {
-    if (atInitDelayMs_ >= 0) {
-        return atInitDelayMs_;  // tests / callers override every command
-    }
-    return cmdDelayMs > 0 ? cmdDelayMs : DEFAULT_PER_COMMAND_DELAY_MS;
-}
-
-bool TCPTransport::sendAll(int fd, std::string_view data) const noexcept {
-    std::size_t sent = 0;
-    while (sent < data.size()) {
-        ssize_t n = send(fd, data.data() + sent, data.size() - sent, 0);
-        if (n <= 0) {
-            return false;
-        }
-        sent += static_cast<std::size_t>(n);
-    }
-    return true;
-}
-
-bool TCPTransport::sendElm327Init(int fd) noexcept {
-    // Reuse the shared ELM327 CAN-monitor init sequence (ATZ/ATE0/ATSP6/ATH1/
-    // ATMA). The ELM327 *normaliser* (prompt/status parsing) is a later task
-    // (#18); today elm327 only changes the connect handshake so a real adapter
-    // enters monitor mode before we read its raw frame lines.
-    const auto initSeq = boundary::ELM327Transport::buildCANMonitorInitSequence();
-    for (const auto& cmd : initSeq) {
-        if (!sendAll(fd, cmd.command)) {
-            output_->err("[tcp] Failed to send AT command: " + cmd.command);
-            return false;
-        }
-        // Read and discard the response to keep the buffer clean for HELO
-        // Use a short timeout - responses should arrive promptly
-        fd_set readSet;
-        FD_ZERO(&readSet);
-        FD_SET(fd, &readSet);
-        struct timeval tv{};
-        tv.tv_sec = 0;
-        tv.tv_usec = 100000;  // 100ms timeout for response
-        if (int ready = select(fd + 1, &readSet, nullptr, nullptr, &tv); ready > 0) {
-            std::array<char, 256> resp{};
-            auto n = static_cast<int>(recv(fd, resp.data(), resp.size() - 1, 0));
-            if (n <= 0) {
-                output_->err("[tcp] ELM327 init: no response to AT command (peer closed or error)");
-                return false;
-            }
-        }
-        // If no response within timeout, continue anyway - device may be slow
-
-        // Pace each AT command so the adapter can process it before the next one.
-        std::this_thread::sleep_for(std::chrono::milliseconds(perCommandDelayMs(cmd.delayMs)));
-    }
-    return true;
-}
-
-bool TCPTransport::connectAndAuth() {
-    closeConnection();
-    fd_ = connectToHost(host_, port_, stop_.get());
-    if (fd_ < 0) return false;
-
-    struct timeval rtv{};
-    rtv.tv_sec = socketRecvTimeoutMs_ / 1000;
-    rtv.tv_usec = (socketRecvTimeoutMs_ % 1000) * 1000;
-    (void)setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &rtv, sizeof(rtv));
-
-    // Authenticate: send token, expect "OK" back
-    if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(fd_, authCmd)) { closeConnection(); return false; }
-    std::array<char, 64> authResp{};
-    if (auto n = static_cast<int>(recv(fd_, authResp.data(), authResp.size() - 1, 0));
-        n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
-        closeConnection(); return false;
-    }
-
-    if (adapterProtocol_ == "elm327" && !sendElm327Init(fd_)) { closeConnection(); return false; }
-
-    // Perform HELO handshake to validate device and capture deviceId
-    if (!performHeloHandshake()) {
-        closeConnection();
-        return false;
-    }
-
-    return true;
-}
-
-namespace {
-
-// Read from fd into buf (usable capacity = cap - 1) until the trailing bytes
-// match `prompt`, the buffer is full, or recv() returns <= 0 (timeout/error).
-// Returns the number of bytes accumulated; the caller decides whether a
-// non-positive total is fatal (ATI is optional-but-expected, ATHELO required).
-int recvUntilPrompt(int fd, char* buf, std::size_t cap, std::string_view prompt) {
+// Read from a socket into buf (usable capacity = cap - 1) until the trailing
+// bytes match `prompt`, the buffer is full, or recv() returns <= 0
+// (timeout/error). Returns the number of bytes accumulated; the caller decides
+// whether a non-positive total is fatal (ATI is optional-but-expected, ATHELO
+// required).
+int recvUntilPrompt(ISocket& sock, char* buf, std::size_t cap, std::string_view prompt) {
     int total = 0;
     while (total < static_cast<int>(cap - 1)) {
-        auto n = static_cast<int>(recv(fd, buf + total, cap - 1 - static_cast<std::size_t>(total), 0));
+        auto n = static_cast<int>(sock.recv(buf + total, cap - 1 - static_cast<std::size_t>(total)));
         if (n <= 0) {
             return total;  // Timeout/error/close — caller judges severity
         }
@@ -403,44 +128,136 @@ bool parseHeloAck(std::string_view ack, std::array<uint8_t, 16>& deviceId) {
 
 } // namespace
 
+TCPTransport::TCPTransport(TransportEndpoint endpoint,
+                           std::shared_ptr<ITransportOutput> output,
+                           TcpReadTiming timing,
+                           std::shared_ptr<StopToken> stop,
+                           HuntResilienceConfig hunt,
+                           std::shared_ptr<util::IClock> clock,
+                           std::shared_ptr<ISocket> socket)
+    : host_(std::move(endpoint.host))
+    , port_(endpoint.port)
+    , adapterProtocol_(std::move(endpoint.protocol))
+    , output_(std::move(output))
+    , stop_(std::move(stop))
+    , hunt_(std::move(hunt))
+    , clock_(std::move(clock))
+    , socket_(std::move(socket))
+    , readTimeoutUs_(timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000)
+    , atInitDelayMs_(timing.atInitDelayMs)
+    , socketRecvTimeoutMs_(timing.socketRecvTimeoutMs > 0 ? timing.socketRecvTimeoutMs : 1000) {
+}
+
+TCPTransport::~TCPTransport() {
+    closeConnection();
+}
+
+// ELM327 init pacing: honours the overridable atInitDelayMs_ while never
+// regressing to hard-coded defaults that tests can't control.
+// Single call site (sendElm327Init) — kept as a named method to document the override point, not for reuse.
+int TCPTransport::perCommandDelayMs(int cmdDelayMs) const {
+    if (atInitDelayMs_ >= 0) {
+        return atInitDelayMs_;  // tests / callers override every command
+    }
+    return cmdDelayMs > 0 ? cmdDelayMs : DEFAULT_PER_COMMAND_DELAY_MS;
+}
+
+bool TCPTransport::sendAll(std::string_view data) const noexcept {
+    return socket_->sendAll(data);
+}
+
+bool TCPTransport::sendElm327Init() noexcept {
+    // Reuse the shared ELM327 CAN-monitor init sequence (ATZ/ATE0/ATSP6/ATH1/
+    // ATMA). The ELM327 *normaliser* (prompt/status parsing) is a later task
+    // (#18); today elm327 only changes the connect handshake so a real adapter
+    // enters monitor mode before we read its raw frame lines.
+    const auto initSeq = boundary::ELM327Transport::buildCANMonitorInitSequence();
+    for (const auto& cmd : initSeq) {
+        if (!sendAll(cmd.command)) {
+            output_->err("[tcp] Failed to send AT command: " + cmd.command);
+            return false;
+        }
+        // Read and discard the response to keep the buffer clean for HELO
+        // Use a short timeout - responses should arrive promptly
+        if (int ready = socket_->selectReadable(100000); ready > 0) {
+            std::array<char, 256> resp{};
+            auto n = static_cast<int>(socket_->recv(resp.data(), resp.size() - 1));
+            if (n <= 0) {
+                output_->err("[tcp] ELM327 init: no response to AT command (peer closed or error)");
+                return false;
+            }
+        }
+        // If no response within timeout, continue anyway - device may be slow
+
+        // Pace each AT command so the adapter can process it before the next one.
+        // Routes through IClock so tests inject a FakeClock and the pacing is
+        // instant (production uses the real SystemClock wall-clock sleep).
+        clock_->sleepFor(std::chrono::milliseconds(perCommandDelayMs(cmd.delayMs)));
+    }
+    return true;
+}
+
+bool TCPTransport::connectAndAuth() {
+    closeConnection();
+    if (socket_->connect(host_, port_, stop_.get()) < 0) return false;
+    connected_ = true;
+    if (!socket_->setRecvTimeout(socketRecvTimeoutMs_)) return false;
+
+    // Authenticate: send token, expect "OK" back
+    if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(authCmd)) { closeConnection(); return false; }
+    std::array<char, 64> authResp{};
+    if (auto n = static_cast<int>(socket_->recv(authResp.data(), authResp.size() - 1));
+        n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
+        closeConnection(); return false;
+    }
+
+    if (adapterProtocol_ == "elm327" && !sendElm327Init()) { closeConnection(); return false; }
+
+    // Perform HELO handshake to validate device and capture deviceId
+    if (!performHeloHandshake()) {
+        closeConnection();
+        return false;
+    }
+
+    return true;
+}
+
 bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     // First ensure we have an authenticated connection.
-    if (fd_ < 0 && !connectAndAuth()) {
+    if (!connected_ && !connectAndAuth()) {
         output_->err("[tcp] HELO pre-flight: connection failed");
         return false;
     }
 
     // Send ATI (device info query)
-    if (const std::string atiCmd = "ATI\r"; !sendAll(fd_, atiCmd)) {
+    if (const std::string atiCmd = "ATI\r"; !sendAll(atiCmd)) {
         output_->err("[tcp] HELO pre-flight: failed to send ATI");
         closeConnection();
         return false;
     }
 
     // Read and discard ATI response (we don't parse it, just clear the buffer).
-    // ATI is expected but best-effort: a zero/negative total is tolerated below
-    // only as a warning path — we still require the device to answer ATHELO.
     std::array<char, 256> atiResp{};
-    if (int totalAti = recvUntilPrompt(fd_, atiResp.data(), atiResp.size(), "\r>"); totalAti <= 0) {
+    if (int totalAti = recvUntilPrompt(*socket_, atiResp.data(), atiResp.size(), "\r>"); totalAti <= 0) {
         output_->err("[tcp] HELO pre-flight: no response to ATI");
         closeConnection();
         return false;
     }
 
-    // Small delay to let the device process
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // Small delay to let the device process — routed through IClock so a fake
+    // clock keeps the test instant (production parks on real wall-clock).
+    clock_->sleepFor(std::chrono::milliseconds(50));
 
     // Send ATHELO command
-    if (const std::string heloCmd = "ATHELO\r"; !sendAll(fd_, heloCmd)) {
+    if (const std::string heloCmd = "ATHELO\r"; !sendAll(heloCmd)) {
         output_->err("[tcp] HELO pre-flight: failed to send ATHELO");
         closeConnection();
         return false;
     }
 
     // Read HELO ACK response with proper recv loop for fragmented TCP.
-    // Expected format: ACK DEVICE=<name> FIRMWARE=<version> DEVICEID=<16-byte hex>\r\r>
     std::array<char, 256> heloResp{};
-    const int totalHelo = recvUntilPrompt(fd_, heloResp.data(), heloResp.size(), "\r\r>");
+    const int totalHelo = recvUntilPrompt(*socket_, heloResp.data(), heloResp.size(), "\r\r>");
     if (totalHelo <= 0) {
         output_->err("[tcp] HELO pre-flight: no response to ATHELO");
         closeConnection();
@@ -449,7 +266,6 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
 
     // Parse/validate the ACK string (pure, socket-free). On failure we must
     // close the authenticated connection and treat the handshake as failed.
-    // C++17 init-statement keeps the response buffer scoped to the parse.
     if (std::string response(heloResp.data(), static_cast<std::size_t>(totalHelo));
         !parseHeloAck(response, deviceId)) {
         closeConnection();
@@ -516,9 +332,6 @@ void TCPTransport::runDiscovery(discovery::IDiscoveryListener& hunter,
                                 std::atomic<bool>& discoveryFound,
                                 std::string& discoveredIp) {
     // Background discovery loop (extracted verbatim from the old [&]-lambda).
-    // All mutable state is passed by reference; members (output_/stop_/
-    // deviceIdHex_/host_) are accessed directly, so there are NO captures.
-    // shouldStopDiscovery is read-only here (load()) -> const ref (S995).
     if (!hunter.start()) {
         output_->err("[tcp] Failed to start UDP discovery listener");
         return;
@@ -531,7 +344,6 @@ void TCPTransport::runDiscovery(discovery::IDiscoveryListener& hunter,
         bool shouldStop = false;
         for (const auto& device : devices) {
             if (isTargetDevice(device, deviceIdToHex(device.deviceId))) {
-                // Found device at a different IP.
                 discoveredIp = device.address;
                 discoveryFound.store(true);
                 output_->out("[tcp] Discovery: found device at new IP " + device.address +
@@ -555,20 +367,22 @@ void TCPTransport::runDiscovery(discovery::IDiscoveryListener& hunter,
 // delay; then, if discovery didn't win, attempt one old-IP reconnect. Returns
 // true (loopDone) once discovery wins or old-IP reconnect succeeds; sets
 // reconnected=true on an old-IP win.
+//
+// The 100ms-sliced loop is preserved exactly (this is the load-bearing
+// interrupt property from G8) — but the inner sleep is now clock_->sleepFor
+// (FakeClock = instant in tests, SystemClock = real sleep in production) rather
+// than the removed IBackoffSleeper seam. The stop predicate mirrors the
+// original loop guard exactly (discovery win OR requestStop).
 bool TCPTransport::backoffThenAttemptReconnect(int delayMs,
                                                const std::atomic<bool>& discoveryFound,
                                                bool& reconnected) {
     constexpr int checkInterval = 100;  // re-check discovery/stop every 100ms
-    // Delegate the sliced sleep to the injected sleeper: production parks on
-    // real std::this_thread::sleep_for (timing-identical to the pre-seam code);
-    // an injected fake advances instantly so the hunting tests run in ms. The
-    // stop predicate mirrors the original loop guard exactly (discovery win OR
-    // requestStop), preserving the within-one-slice interruption contract.
-    hunt_.backoffSleeper->sleepSliced(
-        delayMs, checkInterval,
-        [this, &discoveryFound]() {
-            return discoveryFound.load() || stop_->stopRequested();
-        });
+    for (int elapsed = 0; elapsed < delayMs; elapsed += checkInterval) {
+        if (discoveryFound.load() || stop_->stopRequested()) {
+            return true;  // discovery win or requestStop: abort remaining sleep.
+        }
+        clock_->sleepFor(std::chrono::milliseconds(std::min(checkInterval, delayMs - elapsed)));
+    }
 
     if (discoveryFound.load()) {
         output_->out("[tcp] hunting: discovery found new IP first, switching...");
@@ -625,10 +439,7 @@ bool TCPTransport::enterHuntingState() {
     std::atomic shouldStopDiscovery(false);
     std::string discoveredIp;
 
-    // Background thread: listen for UDP discovery broadcasts. runDiscovery owns
-    // the whole poll loop + device-match decision; captures are explicit (no
-    // default [&] — clears S3608/S5019): this for the member call, plus the
-    // per-hunt mutable state by reference.
+    // Background thread: listen for UDP discovery broadcasts.
     std::thread discoveryListener([this, &hunter, &shouldStopDiscovery,
                                    &discoveryFound, &discoveredIp]() {
         runDiscovery(*hunter, shouldStopDiscovery, discoveryFound, discoveredIp);
@@ -651,8 +462,7 @@ bool TCPTransport::enterHuntingState() {
         retryCount_++;
     }
 
-    // Stop + join the discovery thread (exactly once — the old code had a
-    // duplicate joinable()/join() block, dead after the first join).
+    // Stop + join the discovery thread (exactly once).
     shouldStopDiscovery.store(true);
     if (discoveryListener.joinable()) {
         discoveryListener.join();
@@ -663,11 +473,12 @@ bool TCPTransport::enterHuntingState() {
 #endif // !BUILD_IOS && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
 
 void TCPTransport::closeConnection() noexcept {
-    if (fd_ >= 0) { close(fd_); fd_ = -1; }
+    socket_->close();
+    connected_ = false;
 }
 
 bool TCPTransport::open() {
-    if (opened_) return fd_ >= 0 && !exhausted_;
+    if (opened_) return !exhausted_;
     opened_ = true;
     retryCount_ = 0;
     if (!connectAndAuth()) {
@@ -684,7 +495,7 @@ bool TCPTransport::open() {
 }
 
 bool TCPTransport::isOpen() const noexcept {
-    return opened_ && fd_ >= 0 && !exhausted_;
+    return opened_ && connected_ && !exhausted_;
 }
 
 std::optional<std::string> TCPTransport::takeBufferedLine() {
@@ -701,26 +512,18 @@ std::optional<std::string> TCPTransport::takeBufferedLine() {
 }
 
 int TCPTransport::selectReady() const {
-    fd_set readSet;
-    FD_ZERO(&readSet);
-    FD_SET(fd_, &readSet);
-
     // Honour the injected read timeout, but cap each select() poll at a
     // 1ms floor so the loop still wakes promptly on stop/disconnect even
     // when a test injects a sub-millisecond value. Production default
     // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
     // and the stop flag is re-checked every poll, same as before.
-    const int pollUs = std::min(readTimeoutUs_, READ_TIMEOUT_US_FLOOR);
-    struct timeval tv{};
-    tv.tv_sec = 0;
-    tv.tv_usec = pollUs;
-
-    return select(fd_ + 1, &readSet, nullptr, nullptr, &tv);
+    const int pollUs = std::min(readTimeoutUs_, 1000);
+    return socket_->selectReadable(pollUs);
 }
 
 ssize_t TCPTransport::readSocketIntoPending() {
     std::array<char, 256> buffer;
-    ssize_t n = recv(fd_, buffer.data(), buffer.size(), 0);
+    ssize_t n = socket_->recv(buffer.data(), buffer.size());
     if (n > 0) {
         pending_.append(buffer.data(), static_cast<std::size_t>(n));
 
@@ -753,12 +556,8 @@ std::string TCPTransport::formatDisconnectMessage() const {
 // Handle a peer-close/error read (recv <= 0): if stopped, give up immediately;
 // otherwise emit the disconnect message, close the socket, and (host build)
 // enter the hunting state for reconnect-or-discovery, or (iOS build) give up.
-// Sets exhausted_ on every GiveUp path. nextLine() maps Resume -> continue and
-// GiveUp -> return nullopt, matching the original inline control flow.
+// Sets exhausted_ on every GiveUp path.
 TCPTransport::ReadRecovery TCPTransport::handleReadFailure() {
-    // Stop requested (test cleanup / Ctrl+C): bail out before the expensive
-    // hunting logic so a stop terminates promptly instead of waiting for the
-    // exponential backoff.
     if (shouldStop()) {
         exhausted_ = true;
         return ReadRecovery::GiveUp;
@@ -800,10 +599,6 @@ std::optional<std::string> TCPTransport::nextLine() {
             exhausted_ = true;             // genuine error → treat as EOF
             return std::nullopt;
         } else if (ready == 0) {
-            // Timeout with no data. A live transport keeps waiting (a quiet
-            // bus is normal) — UNLESS a stop was requested (Ctrl+C from the
-            // live run context's signal handler), in which case we return
-            // nullopt so runReplay() terminates cleanly.
             if (shouldStop()) {
                 exhausted_ = true;
                 return std::nullopt;
@@ -812,15 +607,12 @@ std::optional<std::string> TCPTransport::nextLine() {
         }
 
         if (ssize_t n = readSocketIntoPending(); n <= 0) {
-            // Peer closed (0) or error (<0): delegate reconnect/give-up to the
-            // focused recovery helper (keeps this loop a simple dispatcher).
             if (handleReadFailure() == ReadRecovery::GiveUp) {
                 return std::nullopt;
             }
             continue;  // reconnected — resume reading
         }
 
-        // Try to extract a complete line from the newly buffered bytes.
         if (const std::size_t end = pending_.find_first_of("\r\n");
             end == std::string::npos) {
             continue;  // still no complete line — read more

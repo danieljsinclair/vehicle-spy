@@ -56,6 +56,7 @@
 		B1A00019 /* BLESignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00019 /* BLESignalSource.cpp */; };
 		B1A0001A /* IOSDBCContentProvider.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001A /* IOSDBCContentProvider.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
 		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
+		B1P00021 /* PosixSocket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00021 /* PosixSocket.cpp */; };
 		B1A0001B /* Elm327Session.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001B /* Elm327Session.cpp */; };
 		B1A0001C /* Elm327Session.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001C /* Elm327Session.h */; };
 		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };
@@ -133,6 +134,7 @@
 		B2D00001 /* Model3CAN.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = Model3CAN.dbc; path = ../../resources/dbc/Model3CAN.dbc; sourceTree = "<group>"; };
 		B2D00002 /* vw_mlb.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = vw_mlb.dbc; path = ../../resources/dbc/vw_mlb.dbc; sourceTree = "<group>"; };
 		B2P00001 /* TCPTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TCPTransport.cpp; path = ../../src/pipeline/TCPTransport.cpp; sourceTree = "<group>"; };
+		B2P00021 /* PosixSocket.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PosixSocket.cpp; path = ../../src/pipeline/PosixSocket.cpp; sourceTree = "<group>"; };
 		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
 		B2P00016 /* SystemClock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SystemClock.cpp; path = ../../src/util/SystemClock.cpp; sourceTree = "<group>"; };
 		B2P00017 /* IClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IClock.h; path = ../../include/vehicle-sim/util/IClock.h; sourceTree = "<group>"; };
@@ -272,6 +274,7 @@
 				B2A0001B /* Elm327Session.cpp */,
 				B2A0001C /* Elm327Session.h */,
 				B2P00001 /* TCPTransport.cpp */,
+				B2P00021 /* PosixSocket.cpp */,
 				B2P00002 /* RawFrameNormaliser.cpp */,
 				B2P00003 /* PipelineReplay.cpp */,
 				B2P00004 /* PipelineFactory.cpp */,
@@ -456,6 +459,7 @@
 				B1A00019 /* BLESignalSource.cpp in Sources */,
 				B1A0001A /* IOSDBCContentProvider.mm in Sources */,
 				B1P00001 /* TCPTransport.cpp in Sources */,
+				B1P00021 /* PosixSocket.cpp in Sources */,
 				B1P00002 /* RawFrameNormaliser.cpp in Sources */,
 				B1P00003 /* PipelineReplay.cpp in Sources */,
 				B1P00004 /* PipelineFactory.cpp in Sources */,

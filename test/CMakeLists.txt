@@ -93,6 +93,7 @@ endif()
 # firmware paths: kept PRIVATE on vehicle-sim-lib (not propagated), so test target adds them explicitly.
 target_include_directories(vehicle-sim-tests
     PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/..
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../firmware
