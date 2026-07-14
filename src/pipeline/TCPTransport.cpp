@@ -478,8 +478,8 @@ bool TCPTransport::enterHuntingState() {
 
     // Start UDP discovery listener immediately (device broadcasts every 0.5-2s).
     auto hunter = resolveDiscoveryListener();
-    std::atomic<bool> discoveryFound(false);
-    std::atomic<bool> shouldStopDiscovery(false);
+    std::atomic discoveryFound(false);
+    std::atomic shouldStopDiscovery(false);
     std::string discoveredIp;
 
     // Background thread: listen for UDP discovery broadcasts
