@@ -51,6 +51,7 @@ add_executable(vehicle-sim-tests
     pipeline/TCPTransportHeloParse.test.cpp
     pipeline/TCPTransportHunting.test.cpp
     pipeline/TCPTransportHuntingCancel.test.cpp
+    pipeline/TCPTransportHuntingGap.test.cpp
     pipeline/USBTransport.test.cpp
     pipeline/OTAHttpTransport.test.cpp
     pipeline/PipelineFactory.test.cpp
