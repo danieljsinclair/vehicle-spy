@@ -649,6 +649,26 @@ SONAR_ESP32_REMOVED_FACET := build-firmware/sonar-removed-facet.json
 SONAR_ESP32_MEASURES     := build-firmware/sonar-measures.json
 SONAR_ESP32_SCANNER_LOG  := build-firmware/sonar-scanner.log
 
+# -- Per-project Sonar source-file prerequisites (stale-scan fix) --
+# Each sonar REPORT file target (below) lists its project's source files as
+# prerequisites so the scan INVALIDATES when source changes. Without this, a
+# fresh-but-stale report.json would make `make sonar-scan` / `make gate` SKIP
+# the rescan and print "green" against an old OPEN count.
+#
+# The source DIRS come from coverage-manifest.toml (the SAME single source of
+# truth that drives sonar.sources via gen_coverage_config.py), queried through
+# scripts/manifest_query.py. We expand those dirs to their source files here so
+# Make's mtime check has real leaves to compare. This is DRY — no second
+# hand-maintained enumeration that can drift from the manifest.
+SONAR_SRC_DIRS    := $(shell python3 scripts/manifest_query.py --mode src-dirs vehicle-spy)
+SONAR_SRC_INPUTS  := $(shell find $(SONAR_SRC_DIRS) -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.mm' \) 2>/dev/null | sort)
+
+SONAR_IOS_SRC_DIRS   := $(shell python3 scripts/manifest_query.py --mode src-dirs vehicle-spy-ios)
+SONAR_IOS_SRC_INPUTS := $(shell find $(SONAR_IOS_SRC_DIRS) -type f \( -name '*.swift' -o -name '*.mm' -o -name '*.m' -o -name '*.h' \) 2>/dev/null | sort)
+
+SONAR_ESP32_SRC_DIRS   := $(shell python3 scripts/manifest_query.py --mode src-dirs vehicle-spy-esp32)
+SONAR_ESP32_SRC_INPUTS := $(shell find $(SONAR_ESP32_SRC_DIRS) -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.ino' \) 2>/dev/null | sort)
+
 # == LLVM coverage tooling (xcrun with Homebrew fallback) ==
 LLVM_COV      := $(shell xcrun --find llvm-cov 2>/dev/null || which llvm-cov 2>/dev/null)
 LLVM_PROFDATA := $(shell xcrun --find llvm-profdata 2>/dev/null || which llvm-profdata 2>/dev/null)
@@ -1070,7 +1090,7 @@ $(SONAR_REPORT): SS_LABEL         := vehicle-spy
 $(SONAR_REPORT): SS_COMPILE_DB    := $(BUILD_COV_DIR)/compile_commands.json
 $(SONAR_REPORT): SS_BUILD_DIR     := build-sonar
 
-$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_XML_CPP) $(SONAR_PROPERTIES)
+$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_XML_CPP) $(SONAR_PROPERTIES) $(SONAR_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 sonar-scan-ios: $(SONAR_IOS_REPORT)
@@ -1084,7 +1104,7 @@ $(SONAR_IOS_REPORT): SS_SCANNER_LOG   := $(SONAR_IOS_SCANNER_LOG)
 $(SONAR_IOS_REPORT): SS_LABEL         := vehicle-spy-ios
 $(SONAR_IOS_REPORT): SS_BUILD_DIR     := build-ios
 
-$(SONAR_IOS_REPORT): $(COMPILE_COMMANDS_IOS) $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES)
+$(SONAR_IOS_REPORT): $(COMPILE_COMMANDS_IOS) $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES) $(SONAR_IOS_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 sonar-scan-esp32: $(SONAR_ESP32_REPORT)
@@ -1099,7 +1119,7 @@ $(SONAR_ESP32_REPORT): SS_LABEL         := vehicle-spy-esp32
 $(SONAR_ESP32_REPORT): SS_COMPILE_DB    := $(SONAR_COMPILE_DB_FW)
 $(SONAR_ESP32_REPORT): SS_BUILD_DIR     := build-firmware
 
-$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_XML) $(SONAR_ESP32_PROPERTIES)
+$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_XML) $(SONAR_ESP32_PROPERTIES) $(SONAR_ESP32_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 # sonar-summary: regenerate only when a report file or the summary script
