@@ -5,6 +5,7 @@
 #include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/discovery/IDiscoveryListener.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -171,10 +172,44 @@ private:
     // UDPDiscovery in the .cpp); kept as a helper so enterHuntingState stays
     // focused on the hunt rather than listener construction.
     std::unique_ptr<discovery::IDiscoveryListener> resolveDiscoveryListener();
+    // Background discovery loop extracted from enterHuntingState: start the
+    // listener, poll for UDP broadcasts, and on the first target device at a
+    // new IP record its address + flip discoveryFound. Host-only. Takes its
+    // mutable state by reference so it owns NO captures (clears S1188/S3608/
+    // S5019 that the old [&]-lambda tripped) and enterHuntingState stays a
+    // small orchestrator.
+    void runDiscovery(discovery::IDiscoveryListener& hunter,
+                      const std::atomic<bool>& shouldStopDiscovery,
+                      std::atomic<bool>& discoveryFound,
+                      std::string& discoveredIp);
+    // True iff a discovered device is the one we want: deviceIdHex_ empty
+    // (match-all), OR the discovered hex exactly matches, OR the first 8 hex
+    // chars match (4-byte prefix), AND the device is NOT at the current host_.
+    // Pure predicate; preserves the G3-pinned 8-char-prefix branch verbatim.
+    bool isTargetDevice(const discovery::DiscoveredDevice& device,
+                        std::string_view discoveredHex) const;
+    // One backoff sleep (100ms-sliced, G8) + one old-IP reconnect attempt.
+    // Returns loopDone; sets reconnected=true on an old-IP win.
+    bool backoffThenAttemptReconnect(int delayMs, const std::atomic<bool>& discoveryFound,
+                                     bool& reconnected);
+    // Post-loop outcome: old-IP win, discovery-win (switch host_ then connect,
+    // G11-pinned), or give-up. Resets retryCount_ on success.
+    bool finalizeHunt(const std::atomic<bool>& discoveryFound,
+                      std::string_view discoveredIp, bool reconnected);
 #else
 #if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
     bool enterHuntingState();  // Retry old IP + listen for UDP discovery simultaneously (host-only)
     std::unique_ptr<discovery::IDiscoveryListener> resolveDiscoveryListener();
+    void runDiscovery(discovery::IDiscoveryListener& hunter,
+                      const std::atomic<bool>& shouldStopDiscovery,
+                      std::atomic<bool>& discoveryFound,
+                      std::string& discoveredIp);
+    bool isTargetDevice(const discovery::DiscoveredDevice& device,
+                        std::string_view discoveredHex) const;
+    bool backoffThenAttemptReconnect(int delayMs, const std::atomic<bool>& discoveryFound,
+                                     bool& reconnected);
+    bool finalizeHunt(const std::atomic<bool>& discoveryFound,
+                      std::string_view discoveredIp, bool reconnected);
 #endif
     std::string host_;
 #endif

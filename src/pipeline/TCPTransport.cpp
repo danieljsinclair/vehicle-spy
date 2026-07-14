@@ -10,6 +10,7 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <netdb.h>
@@ -36,6 +37,20 @@ constexpr int CONNECT_TIMEOUT_S = 5;          // How long connect() may block be
 constexpr std::size_t MAX_PENDING_LEN = 4096;  // Guard against runaway line buffering
 constexpr int DEFAULT_PER_COMMAND_DELAY_MS = 50;  // Fallback per-command delay when none is supplied
 
+// Hex-encode a 16-byte device id as 32 uppercase chars ("%02X" per byte).
+// Shared by performHeloHandshake() (local id) and runDiscovery() (discovered id)
+// so the two encodings can never drift — both sides of the device-match
+// comparison (exact + 8-char prefix) are produced by this one function.
+std::string deviceIdToHex(const std::array<uint8_t, 16>& deviceId) {
+    std::string hex;
+    hex.reserve(32);
+    for (uint8_t byte : deviceId) {
+        std::array<char, 3> buf{};
+        snprintf(buf.data(), buf.size(), "%02X", byte);
+        hex.append(buf.data());
+    }
+    return hex;
+}
 
 // Outcome of waiting for a nonblocking connect() to complete.
 enum class ConnectWaitResult {
@@ -438,13 +453,7 @@ bool TCPTransport::performHeloHandshake() {
     }
 
     // Convert deviceId bytes to hex string for message tagging
-    deviceIdHex_.clear();
-    deviceIdHex_.reserve(32);
-    for (uint8_t byte : deviceIdBytes) {
-        std::array<char, 3> hex{};
-        snprintf(hex.data(), hex.size(), "%02X", byte);
-        deviceIdHex_.append(hex.data());
-    }
+    deviceIdHex_ = deviceIdToHex(deviceIdBytes);
     return true;
 }
 
@@ -473,135 +482,162 @@ TCPTransport::resolveDiscoveryListener() {
         std::make_unique<discovery::UDPDiscovery>());
 }
 
-bool TCPTransport::enterHuntingState() {
-    namespace discovery = vehicle_sim::discovery;
+bool TCPTransport::isTargetDevice(const discovery::DiscoveredDevice& device,
+                                  std::string_view discoveredHex) const {
+    // Match rule (G1/G2/G3): deviceIdHex_ empty = match-all; otherwise the
+    // discovered hex must match exactly OR by the first 8 hex chars (4-byte
+    // prefix). The device must also NOT be at the current host_. Compare the
+    // 8-char prefix via string_view::substr on both sides (S6231: a
+    // std::string::substr would create a needless temporary).
+    const std::string_view knownId(deviceIdHex_);
+    const bool idMatches = knownId.empty() ||
+                           discoveredHex == knownId ||
+                           discoveredHex.substr(0, 8) == knownId.substr(0, 8);
+    return idMatches && device.address != host_;
+}
 
+void TCPTransport::runDiscovery(discovery::IDiscoveryListener& hunter,
+                                const std::atomic<bool>& shouldStopDiscovery,
+                                std::atomic<bool>& discoveryFound,
+                                std::string& discoveredIp) {
+    // Background discovery loop (extracted verbatim from the old [&]-lambda).
+    // All mutable state is passed by reference; members (output_/stop_/
+    // deviceIdHex_/host_) are accessed directly, so there are NO captures.
+    // shouldStopDiscovery is read-only here (load()) -> const ref (S995).
+    if (!hunter.start()) {
+        output_->err("[tcp] Failed to start UDP discovery listener");
+        return;
+    }
+
+    // Keep polling until connection succeeds or we're told to stop.
+    while (!shouldStopDiscovery.load() && !stop_->stopRequested()) {
+        auto devices = hunter.poll(std::chrono::milliseconds(500));
+
+        bool shouldStop = false;
+        for (const auto& device : devices) {
+            if (isTargetDevice(device, deviceIdToHex(device.deviceId))) {
+                // Found device at a different IP.
+                discoveredIp = device.address;
+                discoveryFound.store(true);
+                output_->out("[tcp] Discovery: found device at new IP " + device.address +
+                             " (was " + host_ + ")" + " [" + kEsp32TagPrefix + ":" +
+                             deviceIdHex_.substr(0, 8) + "]");
+                shouldStop = true;
+                break;
+            }
+        }
+
+        if (discoveryFound.load() || shouldStop) {
+            break;  // Found new IP, exit discovery loop.
+        }
+    }
+
+    hunter.stop();
+}
+
+// Sleep for one backoff delay, sliced into 100ms chunks so a discovery win or
+// a requestStop() interrupts within one slice (G8) rather than after the full
+// delay; then, if discovery didn't win, attempt one old-IP reconnect. Returns
+// true (loopDone) once discovery wins or old-IP reconnect succeeds; sets
+// reconnected=true on an old-IP win.
+bool TCPTransport::backoffThenAttemptReconnect(int delayMs,
+                                               const std::atomic<bool>& discoveryFound,
+                                               bool& reconnected) {
+    constexpr int checkInterval = 100;  // re-check discovery/stop every 100ms
+    for (int elapsed = 0; elapsed < delayMs && !discoveryFound.load() && !stop_->stopRequested();
+         elapsed += checkInterval) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(std::min(checkInterval, delayMs - elapsed)));
+    }
+
+    if (discoveryFound.load()) {
+        output_->out("[tcp] hunting: discovery found new IP first, switching...");
+        return true;  // Discovery won, exit retry loop.
+    }
+
+    // Try connecting to old IP.
+    if (connectAndAuth()) {
+        reconnected = true;
+        output_->out("[tcp] hunting: reconnected to old IP " + host_ + ":" + std::to_string(port_) +
+                     " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
+        return true;  // Old IP won.
+    }
+    return false;  // keep retrying
+}
+
+// Decide the hunt outcome after the retry loop + discovery have settled.
+// Single exit: returns the hunt result and resets retryCount_ on success.
+bool TCPTransport::finalizeHunt(const std::atomic<bool>& discoveryFound,
+                                std::string_view discoveredIp,
+                                bool reconnected) {
+    if (reconnected) {
+        retryCount_ = 0;  // Old IP reconnected - we're done.
+        return true;
+    }
+
+    if (discoveryFound.load() && !discoveredIp.empty()) {
+        // Discovery found a new IP first: switch host_ BEFORE the connect
+        // attempt so a failed new-IP connect leaves host_ switched (G11).
+        const std::string oldHost = host_;
+        host_ = discoveredIp;
+        output_->out("[tcp] hunting: switching to discovered IP " + host_ +
+                     " (was " + oldHost + ")" + kClientTag);
+
+        if (connectAndAuth()) {
+            output_->out("[tcp] hunting: connected to new IP " + host_ + ":" + std::to_string(port_) +
+                         " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
+            retryCount_ = 0;
+            return true;
+        }
+        output_->err("[tcp] hunting: failed to connect to new IP " + host_ + " — giving up");
+        return false;
+    }
+
+    // Neither old IP reconnected nor discovery found a new IP.
+    output_->err("[tcp] hunting: neither old IP nor discovery succeeded — giving up");
+    return false;
+}
+
+bool TCPTransport::enterHuntingState() {
     // Start UDP discovery listener immediately (device broadcasts every 0.5-2s).
     auto hunter = resolveDiscoveryListener();
     std::atomic discoveryFound(false);
     std::atomic shouldStopDiscovery(false);
     std::string discoveredIp;
 
-    // Background thread: listen for UDP discovery broadcasts
-    std::thread discoveryListener([&]() {
-        if (!hunter->start()) {
-            output_->err("[tcp] Failed to start UDP discovery listener");
-            return;
-        }
-
-        // Keep polling until connection succeeds or we're told to stop
-        while (!shouldStopDiscovery.load() && !stop_->stopRequested()) {
-            auto devices = hunter->poll(std::chrono::milliseconds(500));
-
-            bool shouldStop = false;
-            for (const auto& device : devices) {
-                // Convert discovered device ID to hex for comparison
-                std::string discoveredHex;
-                discoveredHex.reserve(32);
-                for (uint8_t byte : device.deviceId) {
-                    std::array<char, 3> hex{};
-                    snprintf(hex.data(), hex.size(), "%02X", byte);
-                    discoveredHex.append(hex.data());
-                }
-
-                // Check if this is our device (by deviceId) or first available
-                bool isOurDevice = deviceIdHex_.empty() ||
-                                   discoveredHex == deviceIdHex_ ||
-                                   discoveredHex.substr(0, 8) == deviceIdHex_.substr(0, 8);
-
-                if (isOurDevice && device.address != host_) {
-                    // Found device at different IP!
-                    discoveredIp = device.address;
-                    discoveryFound.store(true);
-                    output_->out("[tcp] Discovery: found device at new IP " + device.address +
-                               " (was " + host_ + ")" + " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]");
-                    shouldStop = true;
-                    break;
-                }
-            }
-
-            if (discoveryFound.load() || shouldStop) {
-                break;  // Found new IP, exit discovery thread
-            }
-        }
-
-        hunter->stop();
+    // Background thread: listen for UDP discovery broadcasts. runDiscovery owns
+    // the whole poll loop + device-match decision; captures are explicit (no
+    // default [&] — clears S3608/S5019): this for the member call, plus the
+    // per-hunt mutable state by reference.
+    std::thread discoveryListener([this, &hunter, &shouldStopDiscovery,
+                                   &discoveryFound, &discoveredIp]() {
+        runDiscovery(*hunter, shouldStopDiscovery, discoveryFound, discoveredIp);
     });
 
-    // Main thread: retry old IP with exponential backoff
+    // Main thread: retry old IP with exponential backoff.
     bool reconnected = false;
     retryCount_ = 0;
     bool loopDone = false;
 
     while (!loopDone && retryCount_ < MAX_RETRIES && !discoveryFound.load() && !stop_->stopRequested()) {
         retryCount_++;
-        int delayMs = calculateRetryDelayMs(retryCount_ - 1);
+        const int delayMs = calculateRetryDelayMs(retryCount_ - 1);
 
         output_->err("[tcp] hunting: retrying old IP " + host_ + ":" + std::to_string(port_) +
-                   " (attempt " + std::to_string(retryCount_) + "/" + std::to_string(MAX_RETRIES) +
-                   " in " + std::to_string(delayMs) + "ms)" + kClientTag + "...");
+                     " (attempt " + std::to_string(retryCount_) + "/" + std::to_string(MAX_RETRIES) +
+                     " in " + std::to_string(delayMs) + "ms)" + kClientTag + "...");
 
-        // Sleep for backoff delay, but check periodically if discovery found a
-        // new IP OR the caller requested a stop (so requestStop() interrupts a
-        // started backoff within one checkInterval slice, not after the full
-        // backoff delay).
-        int checkInterval = 100;  // Check every 100ms
-        for (int elapsed = 0; elapsed < delayMs && !discoveryFound.load() && !stop_->stopRequested(); elapsed += checkInterval) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(std::min(checkInterval, delayMs - elapsed)));
-        }
-
-        if (discoveryFound.load()) {
-            output_->out("[tcp] hunting: discovery found new IP first, switching...");
-            loopDone = true;  // Discovery won, exit retry loop
-        } else {
-            // Try connecting to old IP
-            if (connectAndAuth()) {
-                reconnected = true;
-                output_->out("[tcp] hunting: reconnected to old IP " + host_ + ":" + std::to_string(port_) +
-                           " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
-                loopDone = true;  // Old IP won
-            }
-        }
+        loopDone = backoffThenAttemptReconnect(delayMs, discoveryFound, reconnected);
         retryCount_++;
     }
 
-    // Stop discovery thread
+    // Stop + join the discovery thread (exactly once — the old code had a
+    // duplicate joinable()/join() block, dead after the first join).
     shouldStopDiscovery.store(true);
     if (discoveryListener.joinable()) {
         discoveryListener.join();
     }
-    if (discoveryListener.joinable()) {
-        discoveryListener.join();
-    }
 
-    // Now decide what to do based on who won
-    if (reconnected) {
-        // Old IP reconnected - we're done
-        retryCount_ = 0;
-        return true;
-    }
-
-    if (discoveryFound.load() && !discoveredIp.empty()) {
-        // Discovery found new IP first - switch and reconnect
-        std::string oldHost = host_;
-        host_ = discoveredIp;
-        output_->out("[tcp] hunting: switching to discovered IP " + host_ + " (was " + oldHost + ")" + kClientTag);
-
-        // Attempt connection to new IP immediately
-        if (connectAndAuth()) {
-            output_->out("[tcp] hunting: connected to new IP " + host_ + ":" + std::to_string(port_) +
-                       " [" + kEsp32TagPrefix + ":" + deviceIdHex_.substr(0, 8) + "]" + kClientTag);
-            retryCount_ = 0;
-            return true;
-        } else {
-            output_->err("[tcp] hunting: failed to connect to new IP " + host_ + " — giving up");
-            return false;
-        }
-    }
-
-    // Neither old IP reconnected nor discovery found new IP
-    output_->err("[tcp] hunting: neither old IP nor discovery succeeded — giving up");
-    return false;
+    return finalizeHunt(discoveryFound, discoveredIp, reconnected);
 }
 #endif // !BUILD_IOS && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
 
