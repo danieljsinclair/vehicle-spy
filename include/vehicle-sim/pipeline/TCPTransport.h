@@ -257,6 +257,21 @@ private:
     // stop_ is the injected cooperative stop signal (shared with the live
     // run-context); re-load it per call rather than caching across the read loop.
     bool shouldStop() const;
+
+    // Outcome of recovering from a peer-close/error read inside nextLine().
+    // Resume = reconnected, nextLine() continues its read loop; GiveUp = hunt
+    // failed / iOS build / stop requested, nextLine() returns nullopt.
+    enum class ReadRecovery { Resume, GiveUp };
+
+    // Format the "disconnected ... reconnecting" message (deviceIdHex_-set
+    // variant tags the ESP32 id; the empty variant omits it).
+    std::string formatDisconnectMessage() const;
+
+    // Handle a recv() <= 0: if stopped give up immediately; otherwise emit the
+    // disconnect message, closeConnection(), and (host build) enterHuntingState
+    // for reconnect-or-discovery, or (iOS build) give up. Sets exhausted_ on
+    // every GiveUp path. nextLine() maps Resume -> continue, GiveUp -> nullopt.
+    ReadRecovery handleReadFailure();
 };
 
 } // namespace vehicle_sim::pipeline

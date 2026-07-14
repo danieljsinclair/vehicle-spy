@@ -716,6 +716,52 @@ bool TCPTransport::shouldStop() const {
     return stop_->stopRequested();
 }
 
+// Format the "disconnected ... reconnecting" message. The deviceIdHex_-set
+// variant tags the ESP32 id (when a HELO handshake completed); the empty
+// variant omits the tag (pre-HELO disconnect).
+std::string TCPTransport::formatDisconnectMessage() const {
+    const std::string base = "[tcp] disconnected from " + host_ + ":" +
+                             std::to_string(port_);
+    if (deviceIdHex_.empty()) {
+        return base + " — reconnecting" + kClientTag + "...";
+    }
+    return base + " [" + kEsp32TagPrefix + ":" + deviceIdHex_ +
+           "] — reconnecting" + kClientTag + "...";
+}
+
+// Handle a peer-close/error read (recv <= 0): if stopped, give up immediately;
+// otherwise emit the disconnect message, close the socket, and (host build)
+// enter the hunting state for reconnect-or-discovery, or (iOS build) give up.
+// Sets exhausted_ on every GiveUp path. nextLine() maps Resume -> continue and
+// GiveUp -> return nullopt, matching the original inline control flow.
+TCPTransport::ReadRecovery TCPTransport::handleReadFailure() {
+    // Stop requested (test cleanup / Ctrl+C): bail out before the expensive
+    // hunting logic so a stop terminates promptly instead of waiting for the
+    // exponential backoff.
+    if (shouldStop()) {
+        exhausted_ = true;
+        return ReadRecovery::GiveUp;
+    }
+
+    output_->err(formatDisconnectMessage());
+    closeConnection();
+
+#if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
+    // Hunt-on-disconnect: retry old IP + listen for UDP discovery simultaneously.
+    if (!enterHuntingState()) {
+        output_->err("[tcp] hunting state failed — giving up");
+        exhausted_ = true;
+        return ReadRecovery::GiveUp;
+    }
+    return ReadRecovery::Resume;  // reconnected — resume reading
+#else
+    // iOS: simple retry without hunt (iOS has its own scanning logic).
+    output_->err("[tcp] iOS build: hunt disabled — using simple retry");
+    exhausted_ = true;
+    return ReadRecovery::GiveUp;
+#endif
+}
+
 std::optional<std::string> TCPTransport::nextLine() {
     if (!canRead()) {
         return std::nullopt;
@@ -728,13 +774,11 @@ std::optional<std::string> TCPTransport::nextLine() {
 
     // Read more bytes from the socket with a bounded select() so we never hang.
     while (true) {
-        int ready = selectReady();
-        if (ready < 0) {
+        if (const int ready = selectReady(); ready < 0) {
             if (errno == EINTR) continue;  // signal — retry
             exhausted_ = true;             // genuine error → treat as EOF
             return std::nullopt;
-        }
-        if (ready == 0) {
+        } else if (ready == 0) {
             // Timeout with no data. A live transport keeps waiting (a quiet
             // bus is normal) — UNLESS a stop was requested (Ctrl+C from the
             // live run context's signal handler), in which case we return
@@ -747,46 +791,23 @@ std::optional<std::string> TCPTransport::nextLine() {
         }
 
         if (ssize_t n = readSocketIntoPending(); n <= 0) {
-            // Peer closed (0) or error (<0): attempt reconnection, unless stop
-            // was requested (e.g. test cleanup or Ctrl+C). The stop flag is
-            // checked before entering expensive hunting logic so tests that call
-            // requestStop() before nextLine() terminate promptly instead of
-            // waiting for exponential backoff.
-            if (shouldStop()) {
-                exhausted_ = true;
-                return std::nullopt;
-            }
-            if (!deviceIdHex_.empty()) {
-            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " [" + kEsp32TagPrefix + ":" + deviceIdHex_ + "] — reconnecting" + kClientTag + "...");
-        } else {
-            output_->err("[tcp] disconnected from " + host_ + ":" + std::to_string(port_) + " — reconnecting" + kClientTag + "...");
-        }
-            closeConnection();
-
-#if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
-            // Hunt-on-disconnect: retry old IP + listen for UDP discovery simultaneously
-            if (!enterHuntingState()) {
-                output_->err("[tcp] hunting state failed — giving up");
-                exhausted_ = true;
+            // Peer closed (0) or error (<0): delegate reconnect/give-up to the
+            // focused recovery helper (keeps this loop a simple dispatcher).
+            if (handleReadFailure() == ReadRecovery::GiveUp) {
                 return std::nullopt;
             }
             continue;  // reconnected — resume reading
-#else
-            // iOS: simple retry without hunt (iOS has its own scanning logic)
-            output_->err("[tcp] iOS build: hunt disabled — using simple retry");
-            exhausted_ = true;
-            return std::nullopt;
-#endif
         }
 
         // Try to extract a complete line from the newly buffered bytes.
-        std::size_t end = pending_.find_first_of("\r\n");
-        if (end == std::string::npos) {
+        if (const std::size_t end = pending_.find_first_of("\r\n");
+            end == std::string::npos) {
             continue;  // still no complete line — read more
+        } else {
+            std::string line(pending_, 0, end);
+            pending_.erase(0, end + 1);
+            return line;
         }
-        std::string line(pending_, 0, end);
-        pending_.erase(0, end + 1);
-        return line;
     }
 }
 
