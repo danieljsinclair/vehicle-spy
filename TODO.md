@@ -135,11 +135,28 @@ Report the verifier's findings alongside your own. **Trust but verify** — the 
 4. **Delegation:** per §Delegation Model — delegate code to builder subagents,
    verify via a SEPARATE verifier; reserve lead context for orchestration.
 
-> Status: delegated to a builder (single-writer on the 4 test files +
-> `TCPTransport.cpp` hunting path); verifier to follow with the corrected
-> (Sonar-delta) brief. **IN PROGRESS.**
+> Status: **✅ RESOLVED** — builder `vehicle-sim-speedfixer` committed the fix; verifier `vehicle-sim-verify-speedfix` confirmed zero-tolerance gate.
 
-### ✅ vehicle-spy S107 ctor fix (`TODO_vspy_s107.md`) — VERIFIED NOT NEEDED
+### 🔧 vehicle-spy 3-test speed gap fix (`da0d311`) — DONE (close the gap for real)
+**Commit:** `da0d311` — `refactor: fix 3-test speed gap via notify-on-alive hook (G2/G8/G6G7 360/214/119ms → 0ms)`
+
+**What was fixed:** The three tests G2 (360ms), G8 (214ms), G6G7 (119ms) exceeded the <100ms bar because `awaitHuntStarted()` busy-waited + fixed coordination sleeps (60/50/150/300ms). **Replaced with thread synchronisation:**
+- Added `std::function<void()> onHuntStarted` to `HuntResilienceConfig` (no ctor change, still 7 params).
+- `TCPTransport::enterHuntingState()` fires the hook once at the TOP of the retry loop (production default = no-op, zero behavior change).
+- Tests inject `std::promise<void>`/`std::future<void>` via the hook; `awaitHuntStarted()` becomes `future.wait()` — zero polling, zero fixed sleeps, deterministic.
+
+**Evidence (lead-verified):**
+- `make gate` → **GATE_EXIT=0, COMMIT GATE PASSED** (clean run).
+- Live Sonar delta: **0 → 0** (no new issues).
+- `make test` → exit 0, **1120 tests pass**; hunting tests **0-1ms** (was 119-360ms); total 4ms for 15 tests.
+- **Zero `sleep_for`** in the 4 test files (grep confirms; the only match is an assertion message string).
+- Production hook wired: `TCPTransport.cpp:457-458` fires `onHuntStarted` at loop top; default empty = no-op.
+- **Sync primitive:** `std::promise`/`std::future` (notify-on-alive), folded into production too.
+- No test assertion weakened; no NOSONAR; no skipped tests; zero warnings/analyze.
+
+**Process note:** The primitive is `std::promise`/`std::future` (not `std::latch` — C++20 latch not required here); the gate banner's hardcoded "7 OPEN" is stale text contradicted by the live API. Flagged, not forced.
+
+**Next:** Decide next workstream per ROADMAP (esp32 sonar-zero / .mm→cpp / WiFi #87 / coverage-hygiene), each as its own prescription + per-violation commits.
 Checked live SonarCloud API 2026-07-14: `cpp:S107` is **OPEN = 0** on
 vehicle-spy (total OPEN = 0). The `TODO.md` CURRENT STATE claim ("cpp:S107 is
 now OPEN") was stale. The ctor was exactly 7 params — sits AT the S107
