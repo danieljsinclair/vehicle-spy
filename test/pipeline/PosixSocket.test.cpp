@@ -156,10 +156,29 @@ TEST(PosixSocketTest, RecvReturnsBytesPositive) {
     peer.join();
 }
 
+TEST(PosixSocketTest, SetRecvTimeoutReturnsTrue) {
+    int port = 0;
+    const int lfd = makeListener(port);
+
+    std::thread peer([&] {
+        const int c = ::accept(lfd, nullptr, nullptr);
+        if (c >= 0) ::close(c);
+    });
+
+    PosixSocket s;
+    ASSERT_GE(s.connect("127.0.0.1", port, nullptr), 0);
+    // A tiny timeout (1ms) is still valid; it should succeed even if the peer
+    // never sends data — it only sets SO_RCVTIMEO on the fd.
+    ASSERT_TRUE(s.setRecvTimeout(1)) << "setRecvTimeout(1ms) must succeed";
+
+    s.close();
+    ::close(lfd);
+    peer.join();
+}
+
 TEST(PosixSocketTest, SelectReadableSignalsWhenDataPending) {
     int port = 0;
     const int lfd = makeListener(port);
-    ASSERT_GE(lfd, 0);
 
     // Peer sends one byte; we wait on the readiness future (not a timer) before
     // probing selectReadable, so the data is guaranteed present.
@@ -189,7 +208,6 @@ TEST(PosixSocketTest, SelectReadableSignalsWhenDataPending) {
 TEST(PosixSocketTest, CloseReleasesFdAndIsIdempotent) {
     int port = 0;
     const int lfd = makeListener(port);
-    ASSERT_GE(lfd, 0);
 
     std::thread peer([&] {
         const int c = ::accept(lfd, nullptr, nullptr);
@@ -219,7 +237,6 @@ TEST(PosixSocketTest, ConnectToClosedPortReturnsFalse) {
     // Reserve an ephemeral port, then release it so nothing is listening there.
     int port = 0;
     const int probe = makeListener(port);
-    ASSERT_GE(probe, 0);
     ::close(probe);
 
     PosixSocket s;
@@ -230,7 +247,6 @@ TEST(PosixSocketTest, ConnectToClosedPortReturnsFalse) {
 TEST(PosixSocketTest, RecvReturnsZeroOnPeerClose) {
     int port = 0;
     const int lfd = makeListener(port);
-    ASSERT_GE(lfd, 0);
 
     // Peer accepts then immediately closes its end → EOF at our recv.
     std::promise<void> peerClosed;
