@@ -255,3 +255,33 @@ by a delegated builder — no suppression):**
 vehicle-spy; the S3776/god-class ones need blind-TDD gating. `.mm → .cpp`
 migration. WiFi provisioning #87. Each as its own prescription + per-violation
 commits.
+
+---
+
+### ✅ vehicle-spy 3-test speed gap fix (`TODO_vspy_fast_tests.md` + CORRECTIVE) — RESOLVED
+
+**Commit:** `da0d311` — `refactor: fix 3-test speed gap via notify-on-alive hook (G2/G8/G6G7 360/214/119ms → 0ms)` (5 files).
+
+**Problem:** 3 hunting tests exceeded the <100ms hard bar (G2=360ms, G8=214ms, G6G7=119ms) due to fixed coordination `sleep_for`s (50/60/150/300ms) in `awaitHuntStarted()`.
+
+**Fix (real, no exemptions):**
+- Added `std::function<void()> onHuntStarted` to `HuntResilienceConfig` (no ctor change, still 7 params). Default empty = no-op.
+- `TCPTransport::enterHuntingState()` fires the hook **once at the TOP of the retry loop** (src/pipeline/TCPTransport.cpp:457-458).
+- Tests inject `std::promise<void>`/`std::future<void>` via the hook; `awaitHuntStarted()` becomes `future.wait()` — zero polling, zero fixed sleeps, deterministic.
+- All fixed coordination `sleep_for`s removed (grep confirms zero in the 4 test files).
+- **Production hook is genuinely wired**: fires at retry-loop entry; default no-op preserves production behavior exactly.
+
+**Evidence (lead-verified + independent verifier):**
+- `make gate` → **GATE_EXIT=0, COMMIT GATE PASSED** (clean run, no competing build).
+- Live SonarCloud delta: **0 OPEN → 0 OPEN** (0 new issues).
+- `make test` → exit 0, **1120 tests pass**, **470ms total**.
+- 15 hunting tests: **0-1ms each** (G2/G8/G6G7 now 0ms, was 360/214/119ms); total hunting suite 2-4ms.
+- Sync primitive: **`std::promise`/`std::future`** (notify-on-alive, zero poll). Note: brief said `std::latch`; actual is `promise/future` — functionally identical (zero sleep, zero poll), recorded honestly.
+- Zero `sleep_for`/`usleep`/`nanosleep` in hunting tests (1 string-literal match only).
+- Zero NOSONAR, zero GTEST_SKIP, zero skipped tests, zero compiler warnings (`-Werror` clean), zero xcode-analyze findings.
+- Gate banner hardcodes "7 OPEN" but live API = 0 OPEN (stale text, not a blocker).
+
+**Process notes:**
+- Builder single-writer on the 5 files; verifier independent (different context), ran full `make gate` + live Sonar delta + per-test timing + no-sleep grep + production-hook check.
+- The verifier brief was corrected to mandate live Sonar API delta (this caught the earlier S1709/S2259 regression — now fixed).
+- Absolute zero-tolerance gate: 100% green, zero skipped/warnings/errors/linter/analyze/Sonar. No soft deviations.
