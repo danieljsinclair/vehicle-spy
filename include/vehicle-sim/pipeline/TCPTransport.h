@@ -98,6 +98,18 @@ using DiscoveryListenerFactory =
 struct HuntResilienceConfig {
     /** Factory for the per-hunt discovery listener (empty = real UDPDiscovery). */
     DiscoveryListenerFactory discoveryFactory;
+
+    /**
+     * Optional observer fired EXACTLY ONCE at the top of enterHuntingState()'s
+     * retry loop — the instant the hunt becomes "live" (before the first
+     * backoff/reconnect attempt). Default empty (no-op), so production behavior
+     * is unchanged. Callers/tests can await hunt-start on this signal
+     * (std::promise/std::future, std::latch, or a condition_variable) instead of
+     * polling or sleeping, making "wait until the hunt is running" deterministic
+     * and instant. Kept in the config struct (not a ctor param) so the
+     * TCPTransport ctor stays at 7 params (cpp:S107).
+     */
+    std::function<void()> onHuntStarted;
 };
 
 /**

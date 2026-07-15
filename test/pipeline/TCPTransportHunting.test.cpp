@@ -118,7 +118,7 @@ TEST(TCPTransportHuntingTest, OldIpReachable_ReconnectsAndReturnsTrue) {
     // post-loop join doesn't block on a real UDP poll. FakeClock makes the
     // ~1000 ms backoff instant.
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop,
-                                   HuntResilienceConfig{noOpDiscoveryFactory()});
+                                   HuntResilienceConfig{noOpDiscoveryFactory(), {}});
 
     bool result = transport->enterHuntingState();
 
@@ -142,7 +142,7 @@ TEST(TCPTransportHuntingTest, DiscoveryFindsNewIp_SwitchesHostAndReturnsTrue) {
     // Discovery deterministically reports a device at 127.0.0.1 (hermetic —
     // no real UDP broadcast).
     auto transport = makeTransport(sock, kUnreachableIp, 3333, stop,
-                                   HuntResilienceConfig{sameIpDiscoveryFactory(kLoopbackIp)});
+                                   HuntResilienceConfig{sameIpDiscoveryFactory(kLoopbackIp), {}});
 
     bool result = transport->enterHuntingState();
 
@@ -159,17 +159,20 @@ TEST(TCPTransportHuntingTest, NoReconnectAndNoDiscovery_ReturnsFalse) {
     sock.enqueue(kUnreachableIp, test::failConnect());  // old IP unreachable, connect always fails
 
     auto stop = makeStop();
-    auto transport = makeTransport(sock, kUnreachableIp, 9, stop,
-                                   HuntResilienceConfig{noOpDiscoveryFactory()});
 
-    std::atomic<bool> started{false};
+    // Signal the instant the hunt loop goes live (onHuntStarted fires once at
+    // the loop top) — await it with zero polling/sleep.
+    auto huntStartedProm = std::make_shared<std::promise<void>>();
+    std::future<void> huntStartedFut = huntStartedProm->get_future();
+    HuntResilienceConfig hunt{noOpDiscoveryFactory(), {}};
+    hunt.onHuntStarted = [huntStartedProm]() { huntStartedProm->set_value(); };
+    auto transport = makeTransport(sock, kUnreachableIp, 9, stop, std::move(hunt));
+
     std::future<bool> fut = std::async(std::launch::async, [&]() {
-        started.store(true);
         return transport->enterHuntingState();
     });
 
-    while (!started.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    huntStartedFut.wait();  // returns the instant the hunt is inside its loop
     transport->requestStop();
 
     bool result = fut.get();
@@ -186,7 +189,7 @@ TEST(TCPTransportHuntingTest, DiscoverySameIpAsOldHost_DoesNotSwitch) {
 
     auto stop = makeStop();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop,
-                                   HuntResilienceConfig{sameIpDiscoveryFactory(kLoopbackIp)});
+                                   HuntResilienceConfig{sameIpDiscoveryFactory(kLoopbackIp), {}});
 
     bool result = transport->enterHuntingState();
 

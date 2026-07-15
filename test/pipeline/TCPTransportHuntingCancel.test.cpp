@@ -16,7 +16,6 @@
 
 #include <gtest/gtest.h>
 
-#include <atomic>
 #include <chrono>
 #include <functional>
 #include <future>
@@ -65,25 +64,32 @@ DiscoveryListenerFactory noOpDiscoveryFactory() {
 
 // Build a transport wired to a scripted FakeSocket + instant FakeClock + the
 // no-op discovery factory. The socket always fails connect (unreachable host).
-std::unique_ptr<TCPTransport> makeTransport(test::FakeSocket& sock,
-                                            const std::string& host, int port,
-                                            std::shared_ptr<StopToken> stop) {
+// `huntStartedProm` is shared with the test so it can await hunt-start on the
+// onHuntStarted signal (zero sleep). May be null when the test doesn't need it.
+std::unique_ptr<TCPTransport> makeTransport(
+    test::FakeSocket& sock, const std::string& host, int port,
+    std::shared_ptr<StopToken> stop,
+    std::shared_ptr<std::promise<void>> huntStartedProm = nullptr) {
     auto clock = std::make_shared<util::FakeClock>();
+    HuntResilienceConfig hunt{noOpDiscoveryFactory(), {}};
+    if (huntStartedProm) {
+        hunt.onHuntStarted = [huntStartedProm]() { huntStartedProm->set_value(); };
+    }
     return std::make_unique<TCPTransport>(
         TransportEndpoint{host, port, "raw"},
         quietOutput(), TcpReadTiming{}, std::move(stop),
-        HuntResilienceConfig{noOpDiscoveryFactory()}, std::move(clock),
+        std::move(hunt), std::move(clock),
         std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
 }
 
 constexpr int kPromptStopMs = 2000;
 constexpr int kExhaustionImpossibleBelowMs = TCPTransport::BASE_RETRY_DELAY_MS;
 
-void awaitHuntStarted(std::atomic<bool>& started) {
-    while (!started.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+// Await the hunt going live on the onHuntStarted signal (zero polling/sleep):
+// the production enterHuntingState() fires the hook once at its retry-loop top,
+// and the future resolves the instant that happens.
+void awaitHuntStarted(std::future<void>& huntStartedFut) {
+    huntStartedFut.wait();
 }
 
 long elapsedMs(std::chrono::steady_clock::time_point from,
@@ -101,17 +107,17 @@ TEST(TCPTransportHuntingCancelTest, RequestStopInterruptsAndIsLoadBearing) {
     sock.enqueue(kUnreachableIp, test::failConnect());  // old IP unreachable, connect always fails
 
     auto stop = makeStop();
-    auto transport = makeTransport(sock, kUnreachableIp, kDiscardPort, stop);
+    auto huntStartedProm = std::make_shared<std::promise<void>>();
+    std::future<void> huntStartedFut = huntStartedProm->get_future();
+    auto transport = makeTransport(sock, kUnreachableIp, kDiscardPort, stop, huntStartedProm);
 
     auto huntStartedAt = std::chrono::steady_clock::time_point{};
-    std::atomic<bool> started{false};
     std::future<bool> fut = std::async(std::launch::async, [&]() {
         huntStartedAt = std::chrono::steady_clock::now();
-        started.store(true);
         return transport->enterHuntingState();
     });
 
-    awaitHuntStarted(started);
+    awaitHuntStarted(huntStartedFut);
 
     auto stopAt = std::chrono::steady_clock::now();
     transport->requestStop();
@@ -150,15 +156,15 @@ TEST(TCPTransportHuntingCancelTest, ConnectToUnreachableReturnsFalseCleanly) {
     sock.enqueue(kUnreachableIp, test::failConnect());
 
     auto stop = makeStop();
-    auto transport = makeTransport(sock, kUnreachableIp, kDiscardPort, stop);
+    auto huntStartedProm = std::make_shared<std::promise<void>>();
+    std::future<void> huntStartedFut = huntStartedProm->get_future();
+    auto transport = makeTransport(sock, kUnreachableIp, kDiscardPort, stop, huntStartedProm);
 
-    std::atomic<bool> started{false};
     std::future<bool> fut = std::async(std::launch::async, [&]() {
-        started.store(true);
         return transport->enterHuntingState();
     });
 
-    awaitHuntStarted(started);
+    awaitHuntStarted(huntStartedFut);
     transport->requestStop();
 
     ASSERT_EQ(fut.wait_for(std::chrono::milliseconds(kPromptStopMs + 1000)),

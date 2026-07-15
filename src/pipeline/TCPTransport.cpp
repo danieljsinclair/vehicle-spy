@@ -450,6 +450,14 @@ bool TCPTransport::enterHuntingState() {
     retryCount_ = 0;
     bool loopDone = false;
 
+    // Signal "the hunt loop is now live" exactly once, the instant before the
+    // first retry/backoff attempt — so an observer can await hunt-start on this
+    // signal (latch/future/cv) instead of polling or sleeping. Default (empty)
+    // is a no-op, so production behavior is unchanged.
+    if (hunt_.onHuntStarted) {
+        hunt_.onHuntStarted();
+    }
+
     while (!loopDone && retryCount_ < MAX_RETRIES && !discoveryFound.load() && !stop_->stopRequested()) {
         retryCount_++;
         const int delayMs = calculateRetryDelayMs(retryCount_ - 1);

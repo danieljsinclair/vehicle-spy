@@ -133,11 +133,17 @@ DiscoveryListenerFactory noOpDiscoveryFactory() {
 }
 
 // Build a transport wired to a scripted FakeSocket (non-owning) + instant
-// FakeClock + the given discovery factory.
+// FakeClock + the given discovery factory. `huntStartedProm` (optional) is
+// shared with the test so it can await hunt-start on the onHuntStarted signal
+// (zero sleep); onHuntStarted is added to `hunt` when provided.
 std::unique_ptr<TCPTransport> makeTransport(
     test::FakeSocket& sock, const std::string& host, int port,
     std::shared_ptr<StopToken> stop, std::shared_ptr<ITransportOutput> out,
-    HuntResilienceConfig hunt = HuntResilienceConfig{}) {
+    HuntResilienceConfig hunt = HuntResilienceConfig{},
+    std::shared_ptr<std::promise<void>> huntStartedProm = nullptr) {
+    if (huntStartedProm) {
+        hunt.onHuntStarted = [huntStartedProm]() { huntStartedProm->set_value(); };
+    }
     auto clock = std::make_shared<util::FakeClock>();
     return std::make_unique<TCPTransport>(
         TransportEndpoint{host, port, "raw"},
@@ -160,11 +166,10 @@ std::array<uint8_t, 16> nonMatchDeviceIdBytes() {
     return a;
 }
 
-void awaitHuntStarted(std::atomic<bool>& started) {
-    while (!started.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+// Await the hunt going live on the onHuntStarted signal (zero polling/sleep):
+// the production enterHuntingState() fires the hook once at its retry-loop top.
+void awaitHuntStarted(std::future<void>& huntStartedFut) {
+    huntStartedFut.wait();
 }
 
 long elapsedMs(std::chrono::steady_clock::time_point from,
@@ -206,7 +211,7 @@ TEST(TCPTransportHuntingGapTest, G1_EmptyDeviceIdHex_AcceptsFirstDeviceAtNewIp) 
 
     auto stop = makeStop();
     auto transport = makeTransport(sock, kUnreachableIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp)});
+                                   HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp), {}});
 
     bool result = transport->enterHuntingState();
 
@@ -228,17 +233,17 @@ TEST(TCPTransportHuntingGapTest, G2_DeviceIdSet_ExactMatchWins_NonMatchIgnored) 
         sock.enqueue(kUnreachableIp, test::failConnect());        // hunt: old IP unreachable, fails
 
         auto stop = makeStop();
+        auto huntStartedProm = std::make_shared<std::promise<void>>();
+        std::future<void> huntStartedFut = huntStartedProm->get_future();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                       HuntResilienceConfig{fixedDiscoveryFactory(nonMatchDeviceIdBytes(), kLoopbackIp)});
+                                       HuntResilienceConfig{fixedDiscoveryFactory(nonMatchDeviceIdBytes(), kLoopbackIp), {}},
+                                       huntStartedProm);
         openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
-        std::atomic<bool> started{false};
         std::future<bool> fut = std::async(std::launch::async, [&]() {
-            started.store(true);
             return transport->enterHuntingState();
         });
-        awaitHuntStarted(started);
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        awaitHuntStarted(huntStartedFut);
         transport->requestStop();
         ASSERT_EQ(fut.wait_for(std::chrono::milliseconds(3000)), std::future_status::ready);
         bool result = fut.get();
@@ -257,7 +262,7 @@ TEST(TCPTransportHuntingGapTest, G2_DeviceIdSet_ExactMatchWins_NonMatchIgnored) 
 
         auto stop = makeStop();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                       HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp)});
+                                       HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp), {}});
         openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
         bool result = transport->enterHuntingState();
@@ -279,7 +284,7 @@ TEST(TCPTransportHuntingGapTest, G3_DeviceIdSet_EightCharPrefixMatchWins) {
 
     auto stop = makeStop();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp)});
+                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp), {}});
     openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
     bool result = transport->enterHuntingState();
@@ -300,7 +305,7 @@ TEST(TCPTransportHuntingGapTest, G5_RetryCountResetOnSuccess_SecondHuntSucceeds)
 
     auto stop = makeStop();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{noOpDiscoveryFactory()});
+                                   HuntResilienceConfig{noOpDiscoveryFactory(), {}});
 
     auto t0 = std::chrono::steady_clock::now();
     bool first = transport->enterHuntingState();
@@ -335,15 +340,16 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
         sock.enqueue(kLoopbackIp, test::failConnect());  // 127.0.0.1:9 connect fails instantly
 
         auto stop = makeStop();
+        auto huntStartedProm = std::make_shared<std::promise<void>>();
+        std::future<void> huntStartedFut = huntStartedProm->get_future();
         auto transport = makeTransport(sock, kLoopbackIp, kDiscardPort, stop, cap,
-                                       HuntResilienceConfig{noOpDiscoveryFactory()});
+                                       HuntResilienceConfig{noOpDiscoveryFactory(), {}},
+                                       huntStartedProm);
 
-        std::atomic<bool> started{false};
         std::future<bool> fut = std::async(std::launch::async, [&]() {
-            started.store(true);
             return transport->enterHuntingState();
         });
-        awaitHuntStarted(started);
+        awaitHuntStarted(huntStartedFut);
         // With FakeClock the backoff is instant, so the hunt self-exhausts all
         // 60 retries in ms and returns false via finalizeHunt.
         ASSERT_EQ(fut.wait_for(std::chrono::milliseconds(5000)), std::future_status::ready)
@@ -380,7 +386,7 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
 
         auto stop = makeStop();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, capOld,
-                                       HuntResilienceConfig{noOpDiscoveryFactory()});
+                                       HuntResilienceConfig{noOpDiscoveryFactory(), {}});
         bool result = transport->enterHuntingState();
         EXPECT_TRUE(result);
         std::string msgs = capOld->allBlob();
@@ -398,7 +404,7 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
 
         auto stop = makeStop();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, capDisc,
-                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp)});
+                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp), {}});
         openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
         bool result = transport->enterHuntingState();
@@ -421,16 +427,17 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
         sock.enqueue(kUnreachableIp2, test::failConnect());        // discovered new IP (127.0.0.3) connect fails
 
         auto stop = makeStop();
+        auto huntStartedProm = std::make_shared<std::promise<void>>();
+        std::future<void> huntStartedFut = huntStartedProm->get_future();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, capFail,
-                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2)});
+                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2), {}},
+                                       huntStartedProm);
         openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
-        std::atomic<bool> started{false};
         std::future<bool> fut = std::async(std::launch::async, [&]() {
-            started.store(true);
             return transport->enterHuntingState();
         });
-        awaitHuntStarted(started);
+        awaitHuntStarted(huntStartedFut);
         ASSERT_EQ(fut.wait_for(std::chrono::milliseconds(8000)), std::future_status::ready);
         bool result = fut.get();
         EXPECT_FALSE(result)
@@ -452,16 +459,16 @@ TEST(TCPTransportHuntingGapTest, G8_StopDuringBackoffInterruptsWithinOneSlice) {
     sock.enqueue(kUnreachableIp, test::failConnect());  // old IP unreachable, connect always fails
 
     auto stop = makeStop();
+    auto huntStartedProm = std::make_shared<std::promise<void>>();
+    std::future<void> huntStartedFut = huntStartedProm->get_future();
     auto transport = makeTransport(sock, kUnreachableIp, kDiscardPort, stop, silentOutput(),
-                                   HuntResilienceConfig{noOpDiscoveryFactory()});
+                                   HuntResilienceConfig{noOpDiscoveryFactory(), {}},
+                                   huntStartedProm);
 
-    std::atomic<bool> started{false};
     std::future<bool> fut = std::async(std::launch::async, [&]() {
-        started.store(true);
         return transport->enterHuntingState();
     });
-    awaitHuntStarted(started);
-    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    awaitHuntStarted(huntStartedFut);
     auto stopAt = std::chrono::steady_clock::now();
     transport->requestStop();
 
@@ -489,16 +496,17 @@ TEST(TCPTransportHuntingGapTest, G11_DiscoveryWinButNewIpConnectFails_HostSwitch
     sock.enqueue(kUnreachableIp2, test::failConnect());        // discovered new IP (127.0.0.3) connect fails
 
     auto stop = makeStop();
+    auto huntStartedProm = std::make_shared<std::promise<void>>();
+    std::future<void> huntStartedFut = huntStartedProm->get_future();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2)});
+                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2), {}},
+                                   huntStartedProm);
     openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
-    std::atomic<bool> started{false};
     std::future<bool> fut = std::async(std::launch::async, [&]() {
-        started.store(true);
         return transport->enterHuntingState();
     });
-    awaitHuntStarted(started);
+    awaitHuntStarted(huntStartedFut);
     ASSERT_EQ(fut.wait_for(std::chrono::milliseconds(8000)), std::future_status::ready)
         << "hunt should return after the new-IP connect fails";
     bool result = fut.get();
@@ -528,7 +536,7 @@ TEST(TCPTransportHuntingGapTest, N1_PeerCloseTriggersHuntReconnectAndContinuesRe
 
     auto stop = makeStop();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{noOpDiscoveryFactory()});
+                                   HuntResilienceConfig{noOpDiscoveryFactory(), {}});
     ASSERT_TRUE(openAgainstSocket(*transport, sock))
         << "open() must succeed (sets deviceIdHex_ + connects)";
 
@@ -577,7 +585,7 @@ TEST(TCPTransportHuntingGapTest, N5_ExhaustedIsSticky_SubsequentNextLineIsImmedi
 
     auto stop = makeStop();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{noOpDiscoveryFactory()});
+                                   HuntResilienceConfig{noOpDiscoveryFactory(), {}});
     ASSERT_TRUE(openAgainstSocket(*transport, sock));
     auto first = transport->nextLine();
     ASSERT_TRUE(first.has_value());
