@@ -4,6 +4,8 @@
 > The **user is the go-between** — copies prescriptions to external AI teams outside Claude Code.
 > External teams build + self-check (team roles); the lead verifies via "PA" sub-agents only as a last resort.
 > Token budget is constrained — the lead's tokens are the most expensive, so delegate everything possible.
+>
+> **🔴 LIVE STATUS (2026-07-14):** Kilo (external team) landed the fast-tests refactor (`29540f7`–`26b44ef`; `pre-Kilo` tag = `92365cd`). **One gap open:** 3 async tests (G2/G8/G6G7) exceed the <100ms/<10ms bar — Kilo dispatched to fix via **FakeClock + real thread + thread-sync (latch/cv/notify-alive), no sleeps**. Lead's **PA will verify independently** on Kilo's return (not Kilo's self-check alone). vehicle-spy + vehicle-spy-ios both **Sonar OPEN = 0**; esp32 48 OPEN. **Next workstream = lead's pick after the gap closes** (coverage-hygiene `TODO_vspy_coverage_hygiene.md` / esp32 sonar-zero / .mm→cpp) + decide new-session vs continue-Kilo. Absolute bar everywhere: 100% green, zero skips/warnings/errors/linter/analyze/sonar.
 
 ---
 
@@ -79,12 +81,17 @@ If you are a **solo builder** (no subagents available), execute the prescription
 ## SELF-CHECK PROTOCOL (every prescription ends with this)
 
 Before reporting "done", spawn a **verifier teammate** (fresh agent, different context) that independently:
-1. Re-runs `make gate` from a clean state; confirms green.
-2. Re-checks the **live SonarCloud API** for the project (OPEN = 0, or the expected delta).
-3. For test work: re-runs the affected tests, reports per-test **runtime** + confirms **no real I/O** (grep).
-4. For refactors: confirms the characterization tests are still GREEN (behavior preserved).
-5. Greps for DRY violations (no parallel fake-clock/seam implementations; no NOSONAR; no skipped tests).
-Report the verifier's findings alongside your own. **Trust but verify** — the lead will independently re-check.
+
+**ZERO-TOLERANCE GATE (whole suite, every component):** 100% green, ZERO skipped tests, ZERO warnings, ZERO errors, ZERO linter findings, ZERO xcode-analyze findings, ZERO Sonar OPEN. Any non-zero on any axis is a BLOCKER, not a soft deviation.
+
+The verifier MUST:
+1. Re-run `make gate` from a clean state; confirm green.
+2. **Run the live SonarCloud API DELTA (before → after), and flag ANY newly-introduced issue** — not just the specific items the brief listed. A verifier that only ticks the brief's checkboxes will miss new regressions (this happened: S1709/S2259 slipped through because the brief covered IBackoffSleeper/NOSONAR/no-real-I/O but not new Sonar issues). Concretely: capture `total` + every `rule`/`component`/`line` BEFORE and AFTER, diff them, and report any new `key` that did not exist before. Even a single new issue = BLOCKER.
+3. For test work: re-run the affected tests, report per-test **runtime** (every test, with the sync primitive used) + confirm **no real I/O** (grep) + confirm **no `sleep_for`/`usleep`/`nanosleep`** in the unit tests (coordination must use latch/cv/atomic-ready + notify, not polling sleeps).
+4. For refactors: confirm the characterization tests are still GREEN (behavior preserved) AND that any production-path change the builder claims as "good practice" (e.g. notify-on-alive) is actually wired into the production code, not just the test.
+5. Grep for DRY violations (no parallel fake-clock/seam implementations; no NOSONAR; no skipped tests — `GTEST_SKIP` anywhere in project sources = BLOCKER).
+6. Confirm **zero compiler warnings** under `-Wall -Wextra -Werror` (the build fails on warnings, so a green build already implies this — but the verifier must state it checked) and **zero xcode-analyze findings** (the `ios-analyze` leg prints "PASSED: zero analyzer findings").
+Report the verifier's findings alongside your own. **Trust but verify** — the lead will independently re-check. A verifier that only confirms the brief's bullet points and ignores the live Sonar delta is a FAILURE of self-check, not a pass.
 
 ---
 
@@ -106,6 +113,31 @@ Report the verifier's findings alongside your own. **Trust but verify** — the 
 > tests), verifies independently (runs the gate + live Sonar API itself), and
 > ran a separate verifier subagent for the self-check protocol. No push, ever
 > (user is the go-between).
+
+### 🔥 CORRECTIVE 2026-07-14 (from the lead — close the 3-test gap + 2 process fixes)
+
+1. **3-test speed gap — fix for real, no exemptions.** G2=360ms, G8=214ms,
+   G6G7=119ms must each be <100ms, ideally <10ms, with **no real sleeps**. Fix:
+   keep FakeClock + a real thread, but replace the coordination `sleep_for`s in
+   the tests with thread synchronisation — `std::latch` / `std::condition_variable`
+   / atomic-ready-flag + notify: the hunting thread signals "alive" once it enters
+   the loop, so the test proceeds the instant it's ready. Deterministic, <10ms,
+   no polling. **That notify-on-alive is good production practice — fold it into
+   the production hunting path too** where it fits, not just the test. Do NOT keep
+   the sleeps; do NOT claim an exemption.
+2. **Absolute zero-tolerance bar (whole suite):** 100% green, ZERO skipped
+   tests, ZERO warnings, ZERO errors, ZERO linter, ZERO xcode-analyze, ZERO
+   Sonar OPEN. No soft deviations.
+3. **Verifier-brief fix:** the verifier MUST run the **live Sonar API delta
+   (before→after)** and flag ANY newly-introduced issue, not just the brief's
+   checkboxes. §Self-check updated to say so. (This is what let S1709/S2259 slip
+   last time.) A verifier that only ticks the brief = failed self-check.
+4. **Delegation:** per §Delegation Model — delegate code to builder subagents,
+   verify via a SEPARATE verifier; reserve lead context for orchestration.
+
+> Status: delegated to a builder (single-writer on the 4 test files +
+> `TCPTransport.cpp` hunting path); verifier to follow with the corrected
+> (Sonar-delta) brief. **IN PROGRESS.**
 
 ### ✅ vehicle-spy S107 ctor fix (`TODO_vspy_s107.md`) — VERIFIED NOT NEEDED
 Checked live SonarCloud API 2026-07-14: `cpp:S107` is **OPEN = 0** on
