@@ -1,16 +1,7 @@
 {
-  "sonarlint.connectedMode.projects": {
-    "vehicle-sim": {
-      "connectionId": "danieljsinclair",
-      "projectKey": "danieljsinclair_vehicle-spy"
-    },
-    "vehicle-sim-ios": {
-      "connectionId": "danieljsinclair",
-      "projectKey": "danieljsinclair_vehicle-spy-ios"
-    },
-    "firmware": {
-      "connectionId": "danieljsinclair",
-      "projectKey": "danieljsinclair_vehicle-spy-esp32"
-    }
-  }
+  "sonarlint.connectedMode.project": {
+    "connectionId": "danieljsinclair",
+    "projectKey": "danieljsinclair_vehicle-spy"
+  },
+  "sonarlint.pathToCompileCommands": "build-cov/compile_commands.json"
 }
