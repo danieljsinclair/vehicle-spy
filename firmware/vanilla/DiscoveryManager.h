@@ -99,6 +99,11 @@ public:
     // Get current context (for testing)
     const DiscoveryContext& getContext() const { return ctx_; }
 
+    // Instrumentation: count broadcast() and resetBackoff() invocations.
+    // Used to diagnose paired-broadcast anomalies observed in tcpdump.
+    uint32_t broadcastCount() const noexcept { return broadcastCount_; }
+    uint32_t resetCount() const noexcept { return resetCount_; }
+
     // Set broadcast callback (for testing/inspection)
     void setBroadcastCallback(BroadcastCallback cb) {
         broadcastCallback_ = std::move(cb);
@@ -112,6 +117,10 @@ public:
                                      uint32_t tcpPort, uint16_t otaPort,
                                      uint64_t timestamp, uint32_t nonce);
 
+    // Testable predicate: whether a discovery broadcast should fire given the
+    // current WiFi mode and whether a buddy client is already connected.
+    bool shouldBroadcast(bool haveClient) const;
+
 private:
     IUdp& udp_;
     IWiFiDiscovery& wifi_;
@@ -122,12 +131,14 @@ private:
     DiscoveryContext ctx_;
     BroadcastCallback broadcastCallback_;
 
+    uint32_t broadcastCount_ = 0;
+    uint32_t resetCount_ = 0;
+
     static NullDiscoverySigner& getNullSigner() {
         static NullDiscoverySigner instance;
         return instance;
     }
 
-    bool shouldBroadcast(bool haveClient) const;
     void broadcast();
 };
 

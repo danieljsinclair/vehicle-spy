@@ -2,6 +2,7 @@
 #include <gmock/gmock.h>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/ble/BLEManagerBase.h"
+#include "vehicle-sim/ble/SignalQuality.h"
 #include "vehicle-sim/util/IClock.h"
 
 #include <thread>
@@ -210,7 +211,7 @@ TEST(BLEManagerBaseTest, ParsesASCIIResponseToBinary)
 
         // Expose private method for testing
         std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData) {
-            return parseASCIIResponseToBinary(asciiData);
+            return elm327Session().parseASCIIResponseToBinary(asciiData);
         }
     };
 
@@ -240,7 +241,7 @@ TEST(BLEManagerBaseTest, SkipsPromptAndEcho)
         std::string getConnectedDeviceId() const override { return {}; }
 
         std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& asciiData) {
-            return parseASCIIResponseToBinary(asciiData);
+            return elm327Session().parseASCIIResponseToBinary(asciiData);
         }
     };
 
@@ -277,7 +278,7 @@ TEST(BLEManagerBaseTest, BuildsAndSendsOBD2QueryWithELM327Encoding)
     TestBLEManager manager;
 
     // Query PID 0x0C (Engine RPM)
-    manager.queryPID(0x0C);
+    manager.elm327Session().queryPID(0x0C);
 
     // Should send ASCII "01 0C\r" as bytes
     std::string expected = "01 0C\r";
@@ -291,13 +292,13 @@ TEST(BLEManagerBaseTest, BuildsAndSendsOBD2QueryWithELM327Encoding)
 TEST(BLEManagerBaseTest, SignalQualityConversion)
 {
     // Test various RSSI values
-    EXPECT_EQ(BLEManagerBase::signalQuality(-45), "Excellent");
-    EXPECT_EQ(BLEManagerBase::signalQuality(-50), "Excellent");
-    EXPECT_EQ(BLEManagerBase::signalQuality(-55), "Good");
-    EXPECT_EQ(BLEManagerBase::signalQuality(-65), "Good");
-    EXPECT_EQ(BLEManagerBase::signalQuality(-70), "Fair");
-    EXPECT_EQ(BLEManagerBase::signalQuality(-75), "Fair");
-    EXPECT_EQ(BLEManagerBase::signalQuality(-90), "Poor");
+    EXPECT_EQ(signalQuality(-45), "Excellent");
+    EXPECT_EQ(signalQuality(-50), "Excellent");
+    EXPECT_EQ(signalQuality(-55), "Good");
+    EXPECT_EQ(signalQuality(-65), "Good");
+    EXPECT_EQ(signalQuality(-70), "Fair");
+    EXPECT_EQ(signalQuality(-75), "Fair");
+    EXPECT_EQ(signalQuality(-90), "Poor");
 }
 
 // ================================================
@@ -330,11 +331,11 @@ public:
     bool isConnected() const override { return fakeConnected.load(); }
     std::string getConnectedDeviceId() const override { return "test-device"; }
 
-    // Expose protected methods
-    using BLEManagerBase::waitForPrompt;
-    using BLEManagerBase::notifyPrompt;
-    using BLEManagerBase::invokeDataCallback;
-    using BLEManagerBase::promptReady;
+    // Re-expose the prompt seams through the composed Elm327Session accessor.
+    bool waitForPrompt(int t) { return elm327Session().waitForPrompt(t); }
+    void notifyPrompt() { elm327Session().notifyPrompt(); }
+    bool promptReady() const { return elm327Session().promptReady(); }
+    void invokeDataCallback(const std::vector<uint8_t>& data) { rawActivity().notify(data); }
     using BLEManagerBase::setClock;
 };
 
@@ -489,27 +490,33 @@ public:
     // would otherwise fail to compile).
     static constexpr int kPostConnectSetupDelayMs = POST_CONNECT_SETUP_DELAY_MS;
 
-    // The polling loop reads the base connected_ member (not the
-    // isConnected() override), so tests that drive the loop must set it.
-    // connected_ is now private (cpp:S3656); use the protected accessor shim.
-    void setBaseConnected(bool c) { setConnected(c); }
+    // The polling loop reads the connection state (not the isConnected()
+    // override), so tests that drive the loop must set it.
+    void setBaseConnected(bool c) { connectionState().setConnected(c); }
 
     // Read the base connected_ state directly (the isConnected() override is
     // deliberately shadowed in this fixture, so this is the only way to
     // observe what setConnectionState actually wrote).
-    bool baseConnected() const { return isConnectedRaw(); }
+    bool baseConnected() const { return connectionState().isConnectedRaw(); }
 
-    // Re-expose protected helpers used by the contract tests.
+    // Re-expose the prompt seams through the composed Elm327Session.
+    void notifyPrompt() { elm327Session().notifyPrompt(); }
+    bool canMode() const { return elm327Session().canMode(); }
+    void invokeDataCallback(const std::vector<uint8_t>& data) { rawActivity().notify(data); }
+
+    // Re-expose the collaborator-backed helpers used by the contract tests.
     using BLEManagerBase::sendASCII;
-    using BLEManagerBase::invokeDataCallback;
-    using BLEManagerBase::notifyPrompt;
-    using BLEManagerBase::addDiscoveredDevice;
-    using BLEManagerBase::clearDiscoveredDevices;
-    using BLEManagerBase::findDeviceByAddress;
-    using BLEManagerBase::invokeDeviceCallback;
-    using BLEManagerBase::invokeConnectionCallback;
-    using BLEManagerBase::setConnectionState;
-    using BLEManagerBase::canMode;
+
+    // Raw state accessors re-exposed for the S1448 characterisation tests.
+    // These mirror the exact methods the .mm platform subclasses read/write
+    // directly; the refactor moved them into collaborators and deleted the
+    // base forwarding shims, so we lock their current contract here.
+    std::vector<BLEDeviceInfo>& discoveredDevicesRaw() { return deviceRegistry().devices(); }
+    const std::vector<BLEDeviceInfo>& discoveredDevicesRaw() const { return deviceRegistry().devices(); }
+    bool isConnectedRaw() const { return connectionState().isConnectedRaw(); }
+    void setConnected(bool c) { connectionState().setConnected(c); }
+    void setConnectedDeviceId(std::string id) { connectionState().setConnectedDeviceId(std::move(id)); }
+    const std::string& connectedDeviceIdRaw() const { return connectionState().connectedDeviceIdRaw(); }
 
     // Expose setClock for test injection
     using BLEManagerBase::setClock;
@@ -798,7 +805,7 @@ TEST(BLEManagerBaseSessionContract, InvokeDataCallback_InCanModeDropsNonFrameNot
     m.invokeDataCallback(std::vector<uint8_t>{'>', ' ', ' '});
     EXPECT_FALSE(callbackFired);
     // The raw-notification count still increments even when no frame is parsed.
-    EXPECT_EQ(m.bleNotificationCount(), 1);
+    EXPECT_EQ(m.rawActivity().bleNotificationCount(), 1);
 }
 
 TEST(BLEManagerBaseSessionContract, InvokeDataCallback_InObd2ModeDeliversParsedBinary) {
@@ -818,16 +825,16 @@ TEST(BLEManagerBaseSessionContract, InvokeDataCallback_TracksRawHexAndNotificati
     m.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
     std::vector<uint8_t> data = {0xAA, 0x55, 0x01, 0x02, 0x03};
     m.invokeDataCallback(data);
-    EXPECT_EQ(m.bleNotificationCount(), 1);
-    EXPECT_NE(m.lastRawHex().find("aa"), std::string::npos);
-    EXPECT_NE(m.lastRawHex().find("55"), std::string::npos);
+    EXPECT_EQ(m.rawActivity().bleNotificationCount(), 1);
+    EXPECT_NE(m.rawActivity().lastRawHex().find("aa"), std::string::npos);
+    EXPECT_NE(m.rawActivity().lastRawHex().find("55"), std::string::npos);
 }
 
 TEST(BLEManagerBaseSessionContract, InvokeDataCallback_DropsDataWhenCallbackUnset) {
     SessionTestBLEManager m;
     // No data callback set: must not crash; count still increments.
     m.invokeDataCallback({0x41, 0x0D, 0xFF});
-    EXPECT_EQ(m.bleNotificationCount(), 1);
+    EXPECT_EQ(m.rawActivity().bleNotificationCount(), 1);
 }
 
 // --- Device management contracts ------------------------------------------
@@ -835,22 +842,22 @@ TEST(BLEManagerBaseSessionContract, InvokeDataCallback_DropsDataWhenCallbackUnse
 TEST(BLEManagerBaseSessionContract, AddDiscoveredDevice_DeduplicatesByAddress) {
     SessionTestBLEManager m;
     BLEDeviceInfo d{"AA:BB", "Dev", false, -50};
-    m.addDiscoveredDevice(d);
-    m.addDiscoveredDevice(d);  // duplicate address — ignored
-    EXPECT_EQ(m.findDeviceByAddress("AA:BB").has_value(), true);
+    m.deviceRegistry().addDiscoveredDevice(d);
+    m.deviceRegistry().addDiscoveredDevice(d);  // duplicate address — ignored
+    EXPECT_EQ(m.deviceRegistry().findDeviceByAddress("AA:BB").has_value(), true);
     // No entry for an address never added.
-    EXPECT_FALSE(m.findDeviceByAddress("ZZ:ZZ").has_value());
-    m.clearDiscoveredDevices();
-    EXPECT_FALSE(m.findDeviceByAddress("AA:BB").has_value());
+    EXPECT_FALSE(m.deviceRegistry().findDeviceByAddress("ZZ:ZZ").has_value());
+    m.deviceRegistry().clearDiscoveredDevices();
+    EXPECT_FALSE(m.deviceRegistry().findDeviceByAddress("AA:BB").has_value());
 }
 
 TEST(BLEManagerBaseSessionContract, AddDiscoveredDevice_InvokesDeviceCallbackForEachUnique) {
     SessionTestBLEManager m;
     int calls = 0;
     m.setDeviceFoundCallback([&](const BLEDeviceInfo&) { ++calls; });
-    m.addDiscoveredDevice({"A", "A", false, -50});
-    m.addDiscoveredDevice({"B", "B", false, -60});
-    m.addDiscoveredDevice({"A", "A again", false, -50});  // dup address, not delivered
+    m.deviceRegistry().addDiscoveredDevice({"A", "A", false, -50});
+    m.deviceRegistry().addDiscoveredDevice({"B", "B", false, -60});
+    m.deviceRegistry().addDiscoveredDevice({"A", "A again", false, -50});  // dup address, not delivered
     EXPECT_EQ(calls, 2);
 }
 
@@ -860,21 +867,21 @@ TEST(BLEManagerBaseSessionContract, SetConnectionState_UpdatesStateAndFiresCallb
     SessionTestBLEManager m;
     bool connected = false;
     std::string seenId;
-    m.setConnectionCallback([&](bool c, const std::string& id) {
+    m.callbacks().setConnectionCallback([&](bool c, const std::string& id) {
         connected = c; seenId = id;
     });
-    m.setConnectionState(true, "dev-7");
+    m.connectionState().setConnectionState(true, "dev-7");
     EXPECT_TRUE(connected);
     EXPECT_EQ(seenId, "dev-7");
     EXPECT_TRUE(m.baseConnected());   // base connected_ flipped true
-    m.setConnectionState(false, "dev-7");
+    m.connectionState().setConnectionState(false, "dev-7");
     EXPECT_FALSE(connected);
     EXPECT_FALSE(m.baseConnected());
 }
 
 TEST(BLEManagerBaseSessionContract, SetConnectionState_NoCallbackDoesNotCrash) {
     SessionTestBLEManager m;
-    EXPECT_NO_FATAL_FAILURE(m.setConnectionState(true, "dev"));
+    EXPECT_NO_FATAL_FAILURE(m.connectionState().setConnectionState(true, "dev"));
     EXPECT_TRUE(m.baseConnected());
 }
 
@@ -912,7 +919,7 @@ TEST(BLEManagerBaseTest, QueryPID_ReturnsEmptyResponse) {
     };
 
     TestBLEManager manager;
-    auto response = manager.queryPID(0x0C);
+    auto response = manager.elm327Session().queryPID(0x0C);
 
     // The contract: return value is always empty; real response is
     // delivered asynchronously via the data callback.
@@ -949,14 +956,14 @@ TEST(BLEManagerBaseTest, VehicleDetector_ReturnsNonNull) {
 
 TEST(BLEManagerBaseTest, BleNotificationCount_StartsAtZero) {
     SessionTestBLEManager m;
-    EXPECT_EQ(m.bleNotificationCount(), 0);
+    EXPECT_EQ(m.rawActivity().bleNotificationCount(), 0);
 }
 
 // lastRawHex starts empty before any data arrives.
 
 TEST(BLEManagerBaseTest, LastRawHex_StartsEmpty) {
     SessionTestBLEManager m;
-    EXPECT_TRUE(m.lastRawHex().empty());
+    EXPECT_TRUE(m.rawActivity().lastRawHex().empty());
 }
 
 // waitForCharacteristics default returns true (base-class no-op).
@@ -985,7 +992,7 @@ TEST(BLEManagerBaseTest, InvokeDataCallback_EmptyDataIncrementsCount) {
     SessionTestBLEManager m;
     m.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
     m.invokeDataCallback({});
-    EXPECT_EQ(m.bleNotificationCount(), 1);
+    EXPECT_EQ(m.rawActivity().bleNotificationCount(), 1);
 }
 
 // Data longer than 16 bytes must truncate the hex dump to 16 bytes
@@ -996,8 +1003,8 @@ TEST(BLEManagerBaseTest, InvokeDataCallback_LongDataTruncatesHexDump) {
     m.setDataReceivedCallback([](const std::vector<uint8_t>&) {});
     std::vector<uint8_t> longData(20, 0xAB);
     m.invokeDataCallback(longData);
-    EXPECT_EQ(m.bleNotificationCount(), 1);
-    std::string hex = m.lastRawHex();
+    EXPECT_EQ(m.rawActivity().bleNotificationCount(), 1);
+    std::string hex = m.rawActivity().lastRawHex();
     // 16 bytes × 2 hex chars + 15 spaces = 47 chars, then "..."
     EXPECT_NE(hex.find("ab"), std::string::npos);
     EXPECT_NE(hex.find("..."), std::string::npos);
@@ -1035,7 +1042,7 @@ TEST(BLEManagerBaseTest, SetDeviceFoundCallback_Replacement_NewCallbackOnlyFires
     m.setDeviceFoundCallback([&oldFired](const BLEDeviceInfo&) { oldFired = true; });
     m.setDeviceFoundCallback([&newFired](const BLEDeviceInfo&) { newFired = true; });
 
-    m.invokeDeviceCallback({"addr", "Dev", false, -50});
+    m.callbacks().invokeDeviceCallback({"addr", "Dev", false, -50});
     EXPECT_FALSE(oldFired);
     EXPECT_TRUE(newFired);
 }
@@ -1047,10 +1054,10 @@ TEST(BLEManagerBaseTest, SetConnectionCallback_Replacement_NewCallbackOnlyFires)
 
     bool oldFired = false;
     bool newFired = false;
-    m.setConnectionCallback([&oldFired](bool, const std::string&) { oldFired = true; });
-    m.setConnectionCallback([&newFired](bool, const std::string&) { newFired = true; });
+    m.callbacks().setConnectionCallback([&oldFired](bool, const std::string&) { oldFired = true; });
+    m.callbacks().setConnectionCallback([&newFired](bool, const std::string&) { newFired = true; });
 
-    m.invokeConnectionCallback(true, "dev");
+    m.callbacks().invokeConnectionCallback(true, "dev");
     EXPECT_FALSE(oldFired);
     EXPECT_TRUE(newFired);
 }
@@ -1063,9 +1070,9 @@ TEST(BLEManagerBaseTest, SetConnectionCallback_Replacement_NewCallbackOnlyFires)
 TEST(BLEManagerBaseTest, SetConnectionState_EmptyDeviceId_FiresCallbackWithEmptyId) {
     SessionTestBLEManager m;
     std::string seenId;
-    m.setConnectionCallback([&seenId](bool, const std::string& id) { seenId = id; });
+    m.callbacks().setConnectionCallback([&seenId](bool, const std::string& id) { seenId = id; });
 
-    m.setConnectionState(true);  // default device_id = ""
+    m.connectionState().setConnectionState(true);  // default device_id = ""
     EXPECT_EQ(seenId, "");
 }
 
@@ -1079,17 +1086,75 @@ TEST(BLEManagerBaseTest, SetConnectionState_Disconnect_ClearsConnectedState) {
     SessionTestBLEManager m;
     bool seenConnected = true;
     std::string seenId;
-    m.setConnectionCallback([&](bool c, const std::string& id) {
+    m.callbacks().setConnectionCallback([&](bool c, const std::string& id) {
         seenConnected = c; seenId = id;
     });
 
-    m.setConnectionState(true, "dev-1");
+    m.connectionState().setConnectionState(true, "dev-1");
     EXPECT_TRUE(m.baseConnected());
 
-    m.setConnectionState(false);
+    m.connectionState().setConnectionState(false);
     EXPECT_FALSE(m.baseConnected());
     EXPECT_FALSE(seenConnected);
     EXPECT_EQ(seenId, "");
+}
+
+// --- S1448 raw-accessor characterisation (Clusters B & D) ------------------
+//
+// These three tests LOCK the contract of the raw state accessors the .mm
+// platform subclasses read/write directly (BLEManagerMacOS.mm / BLEManageriOS.mm).
+// The S1448 Option A refactor extracts DeviceRegistry + ConnectionState
+// collaborators, deletes the base's forwarding shims, and re-points ~80 callers.
+// They must not break these observable behaviours. Each test owns its own
+// SessionTestBLEManager instance (independent, no cross-test coupling).
+
+// Cluster B: BLEManagerMacOS.mm:279-281 / BLEManageriOS.mm:271-273 read
+// discoveredDevicesRaw().size() then copy the returned vector out. Lock that
+// the vector is populated by addDiscoveredDevice and cleared by
+// clearDiscoveredDevices.
+TEST(BLEManagerBaseTest, DiscoveredDevicesRaw_ReturnsPopulatedVectorAndReflectsClear) {
+    SessionTestBLEManager m;
+
+    m.deviceRegistry().addDiscoveredDevice({"addr-1", "Dev One", false, -50});
+    m.deviceRegistry().addDiscoveredDevice({"addr-2", "Dev Two", false, -60});
+
+    const std::vector<BLEDeviceInfo>& devices = m.discoveredDevicesRaw();
+    ASSERT_EQ(devices.size(), 2u);
+    // Lock that both addresses are present in the reference-returned vector the
+    // .mm subclasses copy out (order is insertion order: addr-1 then addr-2).
+    EXPECT_EQ(devices[0].address, "addr-1");
+    EXPECT_EQ(devices[1].address, "addr-2");
+
+    m.deviceRegistry().clearDiscoveredDevices();
+    EXPECT_TRUE(m.discoveredDevicesRaw().empty());
+}
+
+// Cluster D: BLEManagerMacOS.mm:334,356,409 / BLEManageriOS.mm:318,340,395 call
+// setConnected(bool) directly. Lock that setConnected propagates to the raw
+// connected_ flag read via isConnectedRaw().
+TEST(BLEManagerBaseTest, SetConnected_PropagatesToIsConnectedRaw) {
+    SessionTestBLEManager m;
+
+    m.setConnected(true);
+    EXPECT_TRUE(m.isConnectedRaw());
+
+    m.setConnected(false);
+    EXPECT_FALSE(m.isConnectedRaw());
+}
+
+// Cluster D: BLEManagerMacOS.mm:335,357,384,411 / BLEManageriOS.mm:319,341,366,397
+// read connectedDeviceIdRaw() (returned by getConnectedDeviceId). Lock that
+// setConnectedDeviceId stores the id and that the .mm disconnect path
+// (setConnectionState(false, "")) clears it.
+TEST(BLEManagerBaseTest, ConnectedDeviceId_RoundTripsThroughRawAccessor) {
+    SessionTestBLEManager m;
+
+    m.setConnectedDeviceId("dev-x");
+    EXPECT_EQ(m.connectedDeviceIdRaw(), "dev-x");
+
+    // Mirrors the .mm disconnect: setConnectionState(false, "") clears id.
+    m.connectionState().setConnectionState(false, "");
+    EXPECT_TRUE(m.connectedDeviceIdRaw().empty());
 }
 
 // --- Device-management edge cases ------------------------------------------
@@ -1110,7 +1175,7 @@ TEST(BLEManagerBaseTest, AddDiscoveredDevice_ConcurrentThreads_SafeAndDeduplicat
                 try {
                     // Each thread uses its own address prefix so duplicates
                     // are only within-thread; cross-thread addresses are unique.
-                    m.addDiscoveredDevice(
+                    m.deviceRegistry().addDiscoveredDevice(
                         BLEDeviceInfo{"addr-" + std::to_string(t), "Dev" + std::to_string(t),
                                       false, -50});
                 } catch (...) {
@@ -1124,8 +1189,8 @@ TEST(BLEManagerBaseTest, AddDiscoveredDevice_ConcurrentThreads_SafeAndDeduplicat
     EXPECT_EQ(crashes, 0);
     // kThreads unique addresses × kPerThread deduped to 1 each = kThreads total.
     // findDeviceByAddress for any known address must succeed.
-    EXPECT_TRUE(m.findDeviceByAddress("addr-0").has_value());
-    EXPECT_TRUE(m.findDeviceByAddress("addr-7").has_value());
+    EXPECT_TRUE(m.deviceRegistry().findDeviceByAddress("addr-0").has_value());
+    EXPECT_TRUE(m.deviceRegistry().findDeviceByAddress("addr-7").has_value());
 }
 
 // findDeviceByAddress with an empty string must return nullopt unless
@@ -1133,8 +1198,8 @@ TEST(BLEManagerBaseTest, AddDiscoveredDevice_ConcurrentThreads_SafeAndDeduplicat
 
 TEST(BLEManagerBaseTest, FindDeviceByAddress_EmptyString_ReturnsNullopt) {
     SessionTestBLEManager m;
-    m.addDiscoveredDevice({"AA:BB", "Dev", false, -50});
-    EXPECT_FALSE(m.findDeviceByAddress("").has_value());
+    m.deviceRegistry().addDiscoveredDevice({"AA:BB", "Dev", false, -50});
+    EXPECT_FALSE(m.deviceRegistry().findDeviceByAddress("").has_value());
 }
 
 // --- sendASCII edge cases -------------------------------------------------
@@ -1163,7 +1228,7 @@ TEST(BLEManagerBaseTest, ParseASCIIResponseToBinary_EmptyInput_ReturnsEmpty) {
         bool isConnected() const override { return false; }
         std::string getConnectedDeviceId() const override { return {}; }
         std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& d) {
-            return parseASCIIResponseToBinary(d);
+            return elm327Session().parseASCIIResponseToBinary(d);
         }
     };
 
@@ -1185,7 +1250,7 @@ TEST(BLEManagerBaseTest, ParseASCIIResponseToBinary_MalformedHex_ReturnsEmpty) {
         bool isConnected() const override { return false; }
         std::string getConnectedDeviceId() const override { return {}; }
         std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& d) {
-            return parseASCIIResponseToBinary(d);
+            return elm327Session().parseASCIIResponseToBinary(d);
         }
     };
 
@@ -1210,7 +1275,7 @@ TEST(BLEManagerBaseTest, ParseASCIIResponseToBinary_OddLength_ReturnsEmpty) {
         bool isConnected() const override { return false; }
         std::string getConnectedDeviceId() const override { return {}; }
         std::vector<uint8_t> testParseASCIIResponseToBinary(const std::vector<uint8_t>& d) {
-            return parseASCIIResponseToBinary(d);
+            return elm327Session().parseASCIIResponseToBinary(d);
         }
     };
 
@@ -1228,15 +1293,15 @@ TEST(BLEManagerBaseTest, ParseASCIIResponseToBinary_OddLength_ReturnsEmpty) {
 // >= -75 → Fair, else Poor. Lock the exact boundary values.
 
 TEST(BLEManagerBaseTest, SignalQuality_ExactBoundary_Minus50_IsExcellent) {
-    EXPECT_EQ(BLEManagerBase::signalQuality(-50), "Excellent");
+    EXPECT_EQ(signalQuality(-50), "Excellent");
 }
 
 TEST(BLEManagerBaseTest, SignalQuality_ExactBoundary_Minus65_IsGood) {
-    EXPECT_EQ(BLEManagerBase::signalQuality(-65), "Good");
+    EXPECT_EQ(signalQuality(-65), "Good");
 }
 
 TEST(BLEManagerBaseTest, SignalQuality_ExactBoundary_Minus75_IsFair) {
-    EXPECT_EQ(BLEManagerBase::signalQuality(-75), "Fair");
+    EXPECT_EQ(signalQuality(-75), "Fair");
 }
 
 // ============================================================

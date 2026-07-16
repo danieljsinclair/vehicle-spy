@@ -165,7 +165,7 @@ std::uint64_t DBCSignalMapper::extractRawBits(
             const std::size_t bitIdx = bitPos % 8;
 
             if (byteIdx < frame.size() &&
-                (static_cast<unsigned char>(frame[byteIdx]) & (1ULL << bitIdx))) {
+                ((frame[byteIdx] & (std::byte{1} << bitIdx)) != std::byte{0})) {
                 result |= (1ULL << i);
             }
         }
@@ -191,7 +191,7 @@ std::uint64_t DBCSignalMapper::extractRawBits(
             const std::size_t resultBit = definition.bitLength - 1 - i;
 
             if (byteIdx < frame.size() &&
-                (static_cast<unsigned char>(frame[byteIdx]) & (1ULL << bitInByte))) {
+                ((frame[byteIdx] & (std::byte{1} << bitInByte)) != std::byte{0})) {
                 result |= (1ULL << resultBit);
             }
 

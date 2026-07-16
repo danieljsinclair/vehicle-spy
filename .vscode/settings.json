@@ -1,0 +1,7 @@
+{
+  "sonarlint.connectedMode.project": {
+    "connectionId": "danieljsinclair",
+    "projectKey": "danieljsinclair_vehicle-spy"
+  },
+  "sonarlint.pathToCompileCommands": "build-cov/compile_commands.json"
+}

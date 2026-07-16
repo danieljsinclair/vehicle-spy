@@ -5,6 +5,7 @@
 #include <gmock/gmock.h>
 #include <sys/time.h>
 #include "vanilla/FirmwareApp.h"
+#include "vanilla/CanBridge.h"
 #include "mocks/WiFiMock.h"
 #include "mocks/PreferencesMock.h"
 #include "mocks/ArduinoMock.h"
@@ -64,6 +65,29 @@ public:
     MOCK_METHOD(size_t, strftime, (char* s, size_t maxsize, const char* format, const struct tm* tm), (override));
 };
 
+// Trivial non-gmock stubs for the CanBridge adapters. FirmwareApp's tests do not
+// assert the CAN stream path (that is the .ino's concern), so these only need to
+// satisfy the injected interfaces without doing anything.
+class StubCanDriver : public ICanDriver {
+public:
+    int driverInstall(void*, void*, void*) override { return 0; }
+    int start() override { return 0; }
+    int receive(CanFrame*, uint32_t) override { return -1; }  // no frames
+};
+
+class StubTcpClient : public ITcpClient {
+public:
+    bool connected() const override { return false; }
+    size_t print(const char*) override { return 0; }
+    void flush() override {}
+};
+
+class StubSerialCan : public ISerialCan {
+public:
+    size_t print(const char*) override { return 0; }
+    void flush() override {}
+};
+
 class FirmwareAppTest : public ::testing::Test {
 protected:
     WiFiMock wifiMock;
@@ -73,6 +97,10 @@ protected:
     NiceMock<MockTime> timeMock;
     NiceMock<MockSntp> sntpMock;
     NiceMock<MockTimeNtp> timeNtpMock;
+    StubCanDriver canDriverStub;
+    StubTcpClient tcpClientStub;
+    StubSerialCan serialStub;
+    CanBridgeDeps canDeps{canDriverStub, tcpClientStub, serialStub};
     std::unique_ptr<FirmwareApp> firmwareApp;
 
     // Test device ID for DiscoveryManager
@@ -130,12 +158,14 @@ protected:
 
     // Helper to create FirmwareApp with all dependencies
     std::unique_ptr<FirmwareApp> createFirmwareApp(const char* bakedSsid = nullptr, const char* bakedPass = nullptr) {
+        CanBridgeDeps canDeps{canDriverStub, tcpClientStub, serialStub};
         return std::make_unique<FirmwareApp>(
             wifiMock, prefsMock, statusLedMock,
             wifiMock,  // WiFiMock implements both IWiFi and IWiFiDiscovery
             udpMock, timeMock,
             sntpMock, timeNtpMock,
             testDeviceId,
+            canDeps,
             bakedSsid, bakedPass
         );
     }
@@ -151,7 +181,7 @@ TEST_F(FirmwareAppTest, Ctor_DoesNotThrow) {
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
-                       testDeviceId);
+                       testDeviceId, canDeps);
     });
 }
 
@@ -161,7 +191,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_DoesNotThrow) {
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
-                       testDeviceId, "test-ssid", "test-pass");
+                       testDeviceId, canDeps, "test-ssid", "test-pass");
     });
 }
 
@@ -320,6 +350,51 @@ TEST_F(FirmwareAppTest, Update_DoesNotFireDiscoveryBeforeCadence_CallbackNotFire
     EXPECT_FALSE(broadcastDiscoveryCalled);
 }
 
+TEST_F(FirmwareAppTest, Update_DiscoveryDisabled_NoUdpOpenOrBroadcast) {
+    // Stage 3: the .ino injects the build-time VEHICLE_SIM_ENABLE_DISCOVERY toggle
+    // via FirmwareApp::setDiscoveryEnabled(). When disabled, the vanilla
+    // DiscoveryManager must never open the UDP socket nor broadcast — this mirrors
+    // the removed inline `#if VEHICLE_SIM_ENABLE_DISCOVERY` guard.
+    firmwareApp->setCallbacks(callbackSpies);
+    firmwareApp->init();
+    firmwareApp->setDiscoveryEnabled(false);
+
+    // UDP socket open (begin) must NOT happen when discovery is disabled.
+    EXPECT_CALL(udpMock, begin(_)).Times(0);
+    // No discovery packet should be written/sent.
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(0);
+    EXPECT_CALL(udpMock, write(_, _)).Times(0);
+    EXPECT_CALL(udpMock, endPacket()).Times(0);
+
+    // Run several loop ticks past the fast-cadence window.
+    firmwareApp->update(0);
+    firmwareApp->update(1000);
+    firmwareApp->update(2000);
+    firmwareApp->update(3000);
+
+    EXPECT_FALSE(broadcastDiscoveryCalled)
+        << "Discovery broadcast callback must not fire when discovery is disabled.";
+}
+
+TEST_F(FirmwareAppTest, Update_ClientConnected_SuppressesBroadcast) {
+    // Stage 3: the .ino feeds the live TCP-client state into FirmwareApp via
+    // setClientConnected(); DiscoveryManager should skip broadcasts while a buddy
+    // is connected (replaces the inline `haveClient` early-return).
+    firmwareApp->setCallbacks(callbackSpies);
+    firmwareApp->init();
+    EXPECT_CALL(udpMock, begin(_)).Times(AtLeast(1));  // socket opens on first tick
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(0);
+    EXPECT_CALL(udpMock, write(_, _)).Times(0);
+    EXPECT_CALL(udpMock, endPacket()).Times(0);
+
+    firmwareApp->setClientConnected(true);
+    firmwareApp->update(0);
+    firmwareApp->update(1000);
+
+    EXPECT_FALSE(broadcastDiscoveryCalled)
+        << "Discovery should be suppressed while a TCP client is connected.";
+}
+
 // ============================================================================
 // CREDENTIAL OPERATIONS TESTS
 // ============================================================================
@@ -428,7 +503,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_HasStoredReturnsFalse) {
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
-                   testDeviceId, "baked-ssid", "baked-pass");
+                   testDeviceId, canDeps, "baked-ssid", "baked-pass");
     app.init();
 
     EXPECT_FALSE(app.hasStoredCredentials());
@@ -439,7 +514,7 @@ TEST_F(FirmwareAppTest, StoreCredentials_OverridesBaked_WhenStored) {
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
-                   testDeviceId, "baked-ssid", "baked-pass");
+                   testDeviceId, canDeps, "baked-ssid", "baked-pass");
     app.init();
 
     app.storeCredentials("stored-ssid", "stored-pass");
@@ -496,38 +571,6 @@ TEST_F(FirmwareAppTest, ClearTcpServerRestartFlag_AfterClear_ReturnsFalse) {
 }
 
 // ============================================================================
-// MULTIPLE INSTANCE TESTS
-// ============================================================================
-
-TEST_F(FirmwareAppTest, TwoInstances_SameDependencies_DoNotInterfere) {
-    // Multiple FirmwareApp instances should not interfere
-    // NOTE: This test is DISABLED because it shares wifiMock/prefsMock between
-    // both instances, which causes crashes. A proper test would use separate mocks.
-    NiceMock<MockStatusLED> statusLedMock2;
-    NiceMock<MockUdp> udpMock2;
-    NiceMock<MockTime> timeMock2;
-
-    FirmwareApp app1(wifiMock, prefsMock, statusLedMock,
-                    wifiMock, udpMock, timeMock,
-                    sntpMock, timeNtpMock,
-                    testDeviceId);
-    FirmwareApp app2(wifiMock, prefsMock, statusLedMock2,
-                    wifiMock, udpMock2, timeMock2,
-                    sntpMock, timeNtpMock,
-                    testDeviceId);
-
-    app1.init();
-
-    // Skip app2.init() due to shared mock state causing crash
-    // app2.init();
-
-    // Test that app1 works independently
-    EXPECT_NO_THROW({
-        app1.update(1000);
-    });
-}
-
-// ============================================================================
 // EDGE CASE TESTS
 // ============================================================================
 
@@ -552,15 +595,24 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnected_InvalidReason_DoesNotThrow) {
     });
 }
 
-TEST_F(FirmwareAppTest, StoreCredentials_VeryLongSsid_HandlesGracefully) {
-    // Very long SSID should be handled gracefully
+TEST_F(FirmwareAppTest, StoreCredentials_VeryLongSsid_StoresAndRoundTrips) {
+    // storeCredentials has NO length cap of its own (WiFiManager.h: the AT
+    // command handler enforces the 1-32 SSID limit; the storage layer stores
+    // whatever it is given via IPreferences::putString, returning true iff both
+    // putString writes succeed). A long SSID therefore stores and round-trips.
     firmwareApp->init();
 
-    std::string longSsid(100, 'A');
-    bool result = firmwareApp->storeCredentials(longSsid, "pass");
+    const std::string longSsid(100, 'A');
+    const std::string longPass = "pass";
 
-    // Should either succeed or fail gracefully, not crash
-    EXPECT_TRUE(result == true || result == false);
+    bool result = firmwareApp->storeCredentials(longSsid, longPass);
+
+    ASSERT_TRUE(result);
+
+    std::string loadedSsid, loadedPass;
+    ASSERT_TRUE(firmwareApp->loadCredentials(loadedSsid, loadedPass));
+    EXPECT_EQ(loadedSsid, longSsid);
+    EXPECT_EQ(loadedPass, longPass);
 }
 
 TEST_F(FirmwareAppTest, LoadCredentials_EmptyStrings_DoesNotCrash) {
@@ -746,4 +798,142 @@ TEST_F(FirmwareAppTest, NtpRouting_SyncCallbackDrivesTimeFormatting) {
     ASSERT_TRUE(capturedSyncCallback_) << "sync callback must be wired before firing";
     timeval tv{1234567890, 0};
     capturedSyncCallback_(&tv);  // simulate SNTP firing the sync-notification
+}
+
+// ============================================================================
+// CAN BRIDGE ROUTING (Stage 1: wire vanilla CanBridge through FirmwareApp)
+// ============================================================================
+
+TEST_F(FirmwareAppTest, CanBridge_SetMonitorActive_DelegatesToBridge) {
+    // CONTRACT: setMonitorActive() must drive the wired CanBridge's monitor
+    // state so the .ino no longer owns a parallel global.
+    firmwareApp->init();
+
+    EXPECT_FALSE(firmwareApp->isMonitorActive());
+
+    firmwareApp->setMonitorActive(true);
+    EXPECT_TRUE(firmwareApp->isMonitorActive());
+
+    firmwareApp->setMonitorActive(false);
+    EXPECT_FALSE(firmwareApp->isMonitorActive());
+}
+
+TEST_F(FirmwareAppTest, CanBridge_ProcessCanFrames_BeforeInit_ThrowsLogicError) {
+    // processCanFrames() must not run against an uninitialized bridge.
+    EXPECT_ANY_THROW({
+        firmwareApp->processCanFrames(0);
+    });
+}
+
+TEST_F(FirmwareAppTest, CanBridge_ProcessCanFrames_AfterInit_DoesNotThrow) {
+    // With the stub (no-op) adapters, draining the TWAI RX queue must be safe.
+    firmwareApp->init();
+
+    EXPECT_NO_THROW({
+        firmwareApp->processCanFrames(0);
+        firmwareApp->processCanFrames(5000);  // quiet-period variant
+    });
+}
+
+// ── AT Command delegation (Stage 2: .ino -> vanilla AtCommandDispatcher) ────────
+// FirmwareApp owns the dispatcher and routes the .ino's TCP + serial command reads
+// through it. We pin the PUBLIC contract: setAtCommandAdapters wires the five
+// boundary adapters, and handleTcpAtCommand/handleSerialAtCommand delegate.
+
+namespace {
+
+// Minimal gmock-style spies for the five AT runtime boundaries.
+class SpyTcpClientAt : public ITcpClientAt {
+public:
+    std::string lastPrinted;
+    int flushCalls = 0;
+    void print(const char* str) override { lastPrinted = str ? str : ""; }
+    void flush() override { ++flushCalls; }
+};
+class SpySerialAt : public ISerialAt {
+public:
+    std::string lastLine;
+    int flushCalls = 0;
+    void println(const char* str) override { lastLine = str ? str : ""; }
+    void flush() override { ++flushCalls; }
+};
+class SpyEspAt : public IEspAt {
+public:
+    int restartCalls = 0;
+    void restart() override { ++restartCalls; }
+};
+class SpyWifiStore : public IWifiCredentialStore {
+public:
+    bool nextResult = true;
+    std::string lastSsid, lastPass;
+    int storeCalls = 0;
+    bool store(const std::string& ssid, const std::string& pass) override {
+        ++storeCalls; lastSsid = ssid; lastPass = pass; return nextResult;
+    }
+};
+class SpyMonitorState : public IMonitorState {
+public:
+    bool active = false;
+    void setMonitorActive(bool a) override { active = a; }
+};
+
+} // namespace
+
+TEST_F(FirmwareAppTest, AtCommand_NullAdapters_BeforeWire_Throws) {
+    // Invoking a command path before setAtCommandAdapters() is a programmer error.
+    firmwareApp->init();
+    EXPECT_ANY_THROW({ firmwareApp->handleTcpAtCommand("ATI"); });
+    EXPECT_ANY_THROW({ firmwareApp->handleSerialAtCommand("ATZ"); });
+}
+
+TEST_F(FirmwareAppTest, AtCommand_TcpCommand_RoutesToDispatcherWithCrCrGt) {
+    // ATI over TCP must reach the dispatcher and be framed as "<resp>\r\r>"
+    // (the host HELO handshake waits for the terminator); serial must NOT echo.
+    SpyTcpClientAt tcp;
+    SpySerialAt serial;
+    SpyEspAt esp;
+    SpyWifiStore wifi;
+    SpyMonitorState monitor;
+
+    firmwareApp->init();
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+
+    firmwareApp->handleTcpAtCommand("ATI");
+    EXPECT_EQ(tcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
+    EXPECT_EQ(serial.lastLine, "");  // no serial echo on TCP path
+}
+
+TEST_F(FirmwareAppTest, AtCommand_SerialCommand_AtzClearsMonitor) {
+    // ATZ over serial routes through the dispatcher and clears the monitor flag.
+    SpyTcpClientAt tcp;
+    SpySerialAt serial;
+    SpyEspAt esp;
+    SpyWifiStore wifi;
+    SpyMonitorState monitor;
+    monitor.active = true;
+
+    firmwareApp->init();
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+
+    firmwareApp->handleSerialAtCommand("ATZ");
+    EXPECT_EQ(serial.lastLine, "ELM327 v2.3");
+    EXPECT_FALSE(monitor.active);
+}
+
+TEST_F(FirmwareAppTest, AtCommand_Atreboot_NoExtraClientFlushBeforeRestart) {
+    // The flush-hang fix: ATREBOOT's shouldFlushClient=false means the only flush
+    // is the prompt's, then ESP.restart() proceeds. Exactly one flush + one restart.
+    SpyTcpClientAt tcp;
+    SpySerialAt serial;
+    SpyEspAt esp;
+    SpyWifiStore wifi;
+    SpyMonitorState monitor;
+
+    firmwareApp->init();
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+
+    firmwareApp->handleTcpAtCommand("ATREBOOT");
+    EXPECT_EQ(esp.restartCalls, 1);
+    EXPECT_EQ(tcp.flushCalls, 1);
+    EXPECT_EQ(tcp.lastPrinted, "REBOOT\r\r>");
 }

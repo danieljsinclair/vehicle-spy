@@ -77,7 +77,7 @@ public:
     void onBluetoothStateChanged(bool isPoweredOn);
 
     // Public wrapper for base class protected method (needed by delegate)
-    void addDevice(const BLEDeviceInfo& device) { addDiscoveredDevice(device); }
+    void addDevice(const BLEDeviceInfo& device) { deviceRegistry().addDiscoveredDevice(device); }
 
     /**
      * Wait for write and notify characteristics to be discovered.

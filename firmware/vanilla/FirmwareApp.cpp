@@ -3,7 +3,6 @@
 #include "DiscoveryManager.h"
 #include "CanBridge.h"
 #include "AtCommandDispatcher.h"
-#include "OtaUpdateServer.h"
 #include <stdexcept>
 
 namespace esp32_firmware {
@@ -12,6 +11,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
                          IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
                          ISntp& sntp, ITimeNtp& timeNtp,
                          const std::array<uint8_t, 16>& deviceId,
+                         const CanBridgeDeps& canBridgeDeps,
                          const char* bakedSsid, const char* bakedPass)
     : wifi_(wifi)
     , prefs_(prefs)
@@ -23,6 +23,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     , sntp_(sntp)
     , timeNtp_(timeNtp)
     , deviceId_(deviceId)
+    , canBridgeDeps_(canBridgeDeps)
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
     , initialized_(false) {
@@ -83,8 +84,14 @@ void FirmwareApp::setupManagers() {
         }
     });
 
-    // CanBridge / AtCommandDispatcher / OtaUpdateServer
-    // are routed into FirmwareApp in Task #2 (one manager at a time, strict TDD).
+    // CanBridge: built now (construction only wires the injected ICanDriver/
+    // ITcpClient/ISerialCan adapters — NO hardware/socket work). The TWAI driver
+    // itself is installed/started in setup() on the ESP32, so the adapter's
+    // driverInstall/start are no-ops post-boot. init() is deferred to init()'s
+    // caller-free path here (mark initialized); frame draining happens in the
+    // loop via processCanFrames().
+    canBridge_ = std::make_unique<CanBridge>(canBridgeDeps_);
+    canBridge_->init();
 }
 
 void FirmwareApp::setupCallbacks() {
@@ -112,7 +119,10 @@ void FirmwareApp::update(uint32_t now) {
     // Lazily open the UDP discovery socket on the first loop tick. This defers the
     // hardware-touching udp_.begin() out of the synchronous boot path (init()), where
     // the WiFi netif is not yet up, into loop() where WiFi.begin() has taken effect.
-    if (!discoveryStarted_ && discoveryManager_) {
+    // Gated by discoveryEnabled_ so the build-time VEHICLE_SIM_ENABLE_DISCOVERY=0
+    // toggle keeps the socket closed (no hardware/UDP work) — the .ino sets this
+    // from the macro in setup().
+    if (!discoveryStarted_ && discoveryManager_ && discoveryEnabled_) {
         discoveryManager_->init();
         discoveryStarted_ = true;
     }
@@ -130,19 +140,32 @@ void FirmwareApp::update(uint32_t now) {
         ntpTimeSync_->startIfWiFiConnected(wifi_.getMode(), wifi_.status());
     }
 
-    // Update DiscoveryManager with current time and client status
-    // DiscoveryManager needs to know if we have a TCP client to adjust broadcast cadence
-    // For now, we pass false (no client) - this will be wired to actual client state later
-    // TODO: Wire to actual TCP client state when bridging is complete
-    bool haveClient = false;
-    if (discoveryManager_) {
-        discoveryManager_->update(now, haveClient);
+    // Drive DiscoveryManager with the current time and the live TCP-client state.
+    // DiscoveryManager already knows whether to broadcast (it checks haveClient and
+    // the WiFi mode internally); it opens/uses the UDP socket only after
+    // discoveryManager_->init() ran above. When discovery is disabled this is a no-op.
+    if (discoveryManager_ && discoveryEnabled_) {
+        discoveryManager_->update(now, clientConnected_);
     }
 
     // Update LED pattern animation every tick
     // StatusLED.update() drives the current pattern animation (blinking, etc.)
     // This is separate from setPattern() which changes the pattern itself
     statusLed_.update(now);
+}
+
+void FirmwareApp::setDiscoveryEnabled(bool enabled) {
+    discoveryEnabled_ = enabled;
+}
+
+void FirmwareApp::setClientConnected(bool connected) {
+    clientConnected_ = connected;
+}
+
+void FirmwareApp::resetDiscoveryBackoff() {
+    if (discoveryManager_) {
+        discoveryManager_->resetBackoff();
+    }
 }
 
 void FirmwareApp::onWiFiDisconnected(int reason) {
@@ -211,6 +234,53 @@ bool FirmwareApp::loadCredentials(std::string& ssid, std::string& pass) const {
         throw std::logic_error("WiFiManager not initialized in loadCredentials()");
     }
     return wifiManager_->loadCredentials(ssid, pass);
+}
+
+void FirmwareApp::setMonitorActive(bool active) {
+    if (!canBridge_) {
+        throw std::logic_error("CanBridge not initialized in setMonitorActive()");
+    }
+    canBridge_->setMonitorActive(active);
+}
+
+bool FirmwareApp::isMonitorActive() const {
+    if (!canBridge_) {
+        throw std::logic_error("CanBridge not initialized in isMonitorActive()");
+    }
+    return canBridge_->isMonitorActive();
+}
+
+void FirmwareApp::processCanFrames(uint32_t serialQuietUntilMs) {
+    if (!canBridge_) {
+        throw std::logic_error("CanBridge not initialized in processCanFrames()");
+    }
+    // getWiFiState() gates on wifiManager_ internally (throws if not initialized),
+    // so it is safe to rely on canBridge_ being initialized whenever this runs.
+    canBridge_->processFrames(isMonitorActive(), serialQuietUntilMs);
+}
+
+void FirmwareApp::setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial,
+                                       IEspAt& esp, IWifiCredentialStore& wifiStore,
+                                       IMonitorState& monitor,
+                                       const std::array<uint8_t, 16>& deviceId) {
+    // Own a single dispatcher over the injected boundary adapters. The canonical
+    // firmware handler set is registered lazily on first handle*() call.
+    atDispatcher_ = std::make_unique<AtCommandDispatcher>(tcpClient, serial, esp,
+                                                          wifiStore, monitor, deviceId);
+}
+
+void FirmwareApp::handleTcpAtCommand(const std::string& cmd) {
+    if (!atDispatcher_) {
+        throw std::logic_error("AtCommandDispatcher not initialized in handleTcpAtCommand()");
+    }
+    atDispatcher_->handleTcpCommand(cmd);
+}
+
+void FirmwareApp::handleSerialAtCommand(const std::string& cmd) {
+    if (!atDispatcher_) {
+        throw std::logic_error("AtCommandDispatcher not initialized in handleSerialAtCommand()");
+    }
+    atDispatcher_->handleSerialCommand(cmd);
 }
 
 } // namespace esp32_firmware

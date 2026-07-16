@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "vanilla/NtpTimeSync.h"
+#include "vanilla/StatusLED.h"  // StatusLED::Pattern::ERROR_NO_NTP_SERVICE (the spec enum)
 #include "mocks/ArduinoMock.h"
 
 using namespace esp32_firmware;
@@ -172,12 +173,23 @@ TEST_F(NtpTimeSyncTest, Init_AlreadySynced_DoesNotReconfigure) {
 }
 
 TEST_F(NtpTimeSyncTest, Init_SntpAlreadyEnabled_DoesNotReinit) {
-    sntpMock.enabled_ = true;
-    ntpTimeSync->init();  // Will increment syncAttempts, then return because enabled() is true
+    // CONTRACT: when ISntp::enabled() returns true, init() must NOT reconfigure
+    // or re-init SNTP (no duplicate sockets / no clobbering of a running SNTP).
+    // Pin the no-reinit behavior directly, not the incidental syncAttempts count.
+    //
+    // Note: delegateToDummy() in SetUp captured `enabled_` (false) by value into
+    // the ON_CALL default, so flipping `enabled_` here has no effect. Re-bind the
+    // default to return true explicitly.
+    ON_CALL(sntpMock, enabled()).WillByDefault(Return(true));
 
-    // syncAttempts is incremented BEFORE checking enabled(), so it's 1
-    // But init() should NOT call sntp_.init() or set up callbacks
-    EXPECT_EQ(ntpTimeSync->getSyncAttempts(), 1);
+    EXPECT_CALL(sntpMock, init()).Times(0);
+    EXPECT_CALL(sntpMock, setOperatingMode(_)).Times(0);
+    EXPECT_CALL(sntpMock, setServerName(_, _)).Times(0);
+    EXPECT_CALL(sntpMock, setSyncMode(_)).Times(0);
+    EXPECT_CALL(sntpMock, setSyncInterval(_)).Times(0);
+    EXPECT_CALL(sntpMock, setTimeSyncNotificationCallback(_)).Times(0);
+
+    ntpTimeSync->init();
 }
 
 TEST_F(NtpTimeSyncTest, Init_ExceedsMaxRetries_ShowsErrorInStaMode) {
@@ -186,8 +198,11 @@ TEST_F(NtpTimeSyncTest, Init_ExceedsMaxRetries_ShowsErrorInStaMode) {
         ntpTimeSync->init();
     }
 
-    // In STA mode with WL_CONNECTED, should show ERROR_NO_NTP_SERVICE (pattern 8)
-    EXPECT_CALL(statusLedMock, setPattern(9));
+    // In STA mode with WL_CONNECTED, should show ERROR_NO_NTP_SERVICE.
+    // Use the spec enum, not a raw int, so the test tracks the semantic pattern
+    // and is robust to enum reordering.
+    EXPECT_CALL(statusLedMock, setPattern(
+        static_cast<int>(firmware::StatusLED::Pattern::ERROR_NO_NTP_SERVICE)));
     ntpTimeSync->init();
 
     // Callback should receive failure

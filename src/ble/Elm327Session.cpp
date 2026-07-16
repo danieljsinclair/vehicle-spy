@@ -210,6 +210,16 @@ void Elm327Session::stopCANMonitor() {
 // VIN query
 // ================================================
 
+// Send an OBD2 PID query using ELM327 ASCII encoding. Returns an empty response;
+// the actual response arrives asynchronously via the data callback.
+OBD2Response Elm327Session::queryPID(uint8_t pid) {
+    host_.sessionSendAscii(
+        boundary::ELM327Transport::buildOBD2Query(OBD2_MODE_LIVE_DATA, pid));
+    return OBD2Response{};
+}
+
+
+
 bool Elm327Session::initializeForVINQuery() {
     std::cout << "[Elm327Session] Initializing ELM327 for VIN query..." << std::endl;
 

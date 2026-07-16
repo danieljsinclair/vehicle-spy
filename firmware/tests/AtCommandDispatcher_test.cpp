@@ -14,9 +14,11 @@ using ::testing::AnyNumber;
 // Mock TCP Client interface
 class MockTcpClientAt : public ITcpClientAt {
 public:
+    MOCK_METHOD(void, print, (const char* str), (override));
     MOCK_METHOD(void, flush, (), (override));
 
     void delegateToDummy() {
+        ON_CALL(*this, print(_)).WillByDefault([](const char*) {});
         ON_CALL(*this, flush()).WillByDefault([]() {});
     }
 
@@ -61,6 +63,32 @@ public:
     }
 };
 
+// Mock WiFi credential store interface
+class MockWifiCredentialStore : public IWifiCredentialStore {
+public:
+    MOCK_METHOD(bool, store, (const std::string& ssid, const std::string& password), (override));
+
+    void delegateToDummy() {
+        ON_CALL(*this, store(_, _)).WillByDefault([](const std::string&, const std::string&) {
+            return true;
+        });
+    }
+
+    void reset() {}
+};
+
+// Mock monitor state interface
+class MockMonitorState : public IMonitorState {
+public:
+    MOCK_METHOD(void, setMonitorActive, (bool active), (override));
+
+    void delegateToDummy() {
+        ON_CALL(*this, setMonitorActive(_)).WillByDefault([](bool) {});
+    }
+
+    void reset() {}
+};
+
 // Test handler that matches a specific command
 class TestCommandHandler : public IAtCommandHandler {
 public:
@@ -84,20 +112,27 @@ protected:
     MockTcpClientAt tcpClientMock;
     MockSerialAt serialMock;
     MockEspAt espMock;
+    MockWifiCredentialStore wifiStoreMock;
+    MockMonitorState monitorMock;
+    std::array<uint8_t, 16> deviceIdMock = {};
     std::unique_ptr<AtCommandDispatcher> dispatcher;
 
     void SetUp() override {
         tcpClientMock.reset();
         serialMock.reset();
         espMock.reset();
+        wifiStoreMock.reset();
+        monitorMock.reset();
         arduino_mock::resetAllMocks();
 
         tcpClientMock.delegateToDummy();
         serialMock.delegateToDummy();
         espMock.delegateToDummy();
+        wifiStoreMock.delegateToDummy();
+        monitorMock.delegateToDummy();
 
         dispatcher = std::make_unique<AtCommandDispatcher>(
-            tcpClientMock, serialMock, espMock
+            tcpClientMock, serialMock, espMock, wifiStoreMock, monitorMock, deviceIdMock
         );
     }
 
@@ -137,7 +172,7 @@ TEST_F(AtCommandDispatcherTest, BuildHeloResponse_CorrectFormat) {
         0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF
     };
 
-    std::string response = AtCommandDispatcher::buildHeloResponse(deviceId);
+    std::string response = AtCommandDispatcher::buildHeloResponse(deviceId, "ESP32-CAN-Bridge", "0.2.0");
 
     EXPECT_THAT(response, testing::HasSubstr("ACK DEVICE=ESP32-CAN-Bridge"));
     EXPECT_THAT(response, testing::HasSubstr("FIRMWARE=0.2.0"));
@@ -197,24 +232,7 @@ TEST_F(AtCommandDispatcherTest, IsValidAuthToken_DifferentCommand) {
     EXPECT_FALSE(AtCommandDispatcher::isValidAuthToken("ABC123", "ABC123"));
 }
 
-// Handler registration tests
-TEST_F(AtCommandDispatcherTest, RegisterHandler_AddsHandler) {
-    auto handler = std::make_unique<TestCommandHandler>("AT+TEST");
-    dispatcher->registerHandler(std::move(handler));
-
-    // Handler is registered - we verify this indirectly by testing handleTcpCommand
-}
-
 // Command handling tests
-TEST_F(AtCommandDispatcherTest, HandleTcpCommand_MatchingHandler_SendsResponse) {
-    auto handler = std::make_unique<TestCommandHandler>("AT+TEST", "TEST_OK");
-    dispatcher->registerHandler(std::move(handler));
-
-    // We can't directly test TCP output in this setup, but we verify
-    // the handler is matched by checking no error is thrown
-    // In a fuller test, we'd mock sendTcpPrompt
-}
-
 TEST_F(AtCommandDispatcherTest, HandleSerialCommand_PrintsToSerial) {
     auto handler = std::make_unique<TestCommandHandler>("AT+PING", "PONG");
     dispatcher->registerHandler(std::move(handler));
@@ -248,15 +266,6 @@ TEST_F(AtCommandDispatcherTest, HandleSerialCommand_ShouldReboot_RestartsEsp) {
     EXPECT_CALL(serialMock, println(::testing::StrEq("OK")));
     EXPECT_CALL(espMock, restart());
     dispatcher->handleSerialCommand("AT+REBOOT");
-}
-
-TEST_F(AtCommandDispatcherTest, HandleTcpCommand_NormalizesCommand) {
-    // Handler expects uppercase normalized form
-    auto handler = std::make_unique<TestCommandHandler>("AT+TEST");
-    dispatcher->registerHandler(std::move(handler));
-
-    // Send lowercase with whitespace - should match
-    // We verify by ensuring no unknown command error
 }
 
 // Multiple handlers tests

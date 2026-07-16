@@ -139,7 +139,7 @@ public:
         return "UNKNOWN";
     }
 
-    void onEvent(std::function<void(int, void*)> cb, int event) override {
+    void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) override {
         eventCallbacks_[event] = std::move(cb);
     }
 
@@ -156,12 +156,15 @@ public:
         status_ = Status::WL_DISCONNECTED;
         auto it = eventCallbacks_.find(2);
         if (it != eventCallbacks_.end()) {
+            // Concrete event-info shape mirroring WiFiEventInfo_t. Typed through
+            // the opaque WifiEventInfo* at the interface boundary (type erasure,
+            // same role the old void* played, now with a meaningful name).
             struct MockEventInfo {
                 struct { int reason; } wifi_sta_disconnected;
             };
             MockEventInfo info;
             info.wifi_sta_disconnected.reason = reason;
-            it->second(2, &info);
+            it->second(2, reinterpret_cast<WifiEventInfo*>(&info));
         }
     }
 
@@ -193,7 +196,7 @@ private:
     std::string apSsid_;
     std::string apPass_;
     std::string hostname_;
-    std::map<int, std::function<void(int, void*)>> eventCallbacks_;
+    std::map<int, std::function<void(int, WifiEventInfo*)>> eventCallbacks_;
     uint32_t connectStartTimeMs_ = 0;
     uint32_t currentMillis_ = 0;
 };

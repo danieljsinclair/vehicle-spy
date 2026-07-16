@@ -148,10 +148,20 @@ struct ReconnectingStateHandler : public IWiFiStateHandler {
 };
 
 struct ConnectedStaStateHandler : public IWiFiStateHandler {
+    IWiFi& wifi_;
+
+    explicit ConnectedStaStateHandler(IWiFi& wifi) : wifi_(wifi) {}
+
+    // Spec section 8: a dropped STA connection while CONNECTED_STA must transition
+    // to RECONNECTING (tcpRestart=true, ntp=false). Mirrors the inline .ino handler
+    // that checked WiFiClass::status() != WL_CONNECTED — restored here (the vanilla
+    // version previously stayed in CONNECTED_STA forever, missing drops the WiFi
+    // event callback did not surface on the state-machine tick).
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         (void)now;
-        // WiFi status check would go here - but needs IWiFi reference
-        // For now, just stay connected
+        if (wifi_.status() != 3) {  // WL_CONNECTED
+            return StateTransition(WiFiState::State::RECONNECTING, true, false);
+        }
         return StateTransition(ctx.state);
     }
 };
@@ -175,7 +185,7 @@ WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     disconnectedHandler_ = std::make_unique<DisconnectedStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
     connectingHandler_ = std::make_unique<ConnectingStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
     reconnectingHandler_ = std::make_unique<ReconnectingStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
-    connectedStaHandler_ = std::make_unique<ConnectedStaStateHandler>();
+    connectedStaHandler_ = std::make_unique<ConnectedStaStateHandler>(wifi_);
     connectedApHandler_ = std::make_unique<ConnectedApStateHandler>();
 }
 

@@ -53,10 +53,31 @@ final class DiscoveryVerifierTests: XCTestCase {
         try verifier.verify(packet)
     }
 
-    // MARK: - Stale Timestamp (Anti-replay)
+    // MARK: - Unsigned timestamp freshness is NOT enforced
 
-    func testVerifyRejectsStaleTimestamp() {
+    // Unsigned discovery skips the freshness check: the timestamp may be
+    // uptime-based without NTP, so freshness is meaningless without a
+    // signature. This matches the CLI (src/discovery/UDPDiscovery.cpp).
+    func testVerifyAcceptsUnsignedStaleTimestamp() throws {
         let verifier = DiscoveryVerifier(publicKey: nil, maxClockSkew: 60)
+        let staleTimestamp = UInt64(Date().timeIntervalSince1970) - 600
+        let packet = makePacket(deviceId: deviceId, timestamp: staleTimestamp, sign: false)
+
+        try verifier.verify(packet)
+    }
+
+    func testVerifyAcceptsUnsignedFutureTimestamp() throws {
+        let verifier = DiscoveryVerifier(publicKey: nil, maxClockSkew: 60)
+        let futureTimestamp = UInt64(Date().timeIntervalSince1970) + 600
+        let packet = makePacket(deviceId: deviceId, timestamp: futureTimestamp, sign: false)
+
+        try verifier.verify(packet)
+    }
+
+    // MARK: - Stale Timestamp (anti-replay for SIGNED discovery)
+
+    func testVerifyRejectsStaleTimestampWhenSigned() {
+        let verifier = DiscoveryVerifier(publicKey: publicKey, maxClockSkew: 60)
         let staleTimestamp = UInt64(Date().timeIntervalSince1970) - 600
         let packet = makePacket(deviceId: deviceId, timestamp: staleTimestamp, sign: false)
 
@@ -65,8 +86,8 @@ final class DiscoveryVerifierTests: XCTestCase {
         }
     }
 
-    func testVerifyRejectsFutureTimestamp() {
-        let verifier = DiscoveryVerifier(publicKey: nil, maxClockSkew: 60)
+    func testVerifyRejectsFutureTimestampWhenSigned() {
+        let verifier = DiscoveryVerifier(publicKey: publicKey, maxClockSkew: 60)
         let futureTimestamp = UInt64(Date().timeIntervalSince1970) + 600
         let packet = makePacket(deviceId: deviceId, timestamp: futureTimestamp, sign: false)
 

@@ -1,5 +1,6 @@
 #include "vehicle-sim/util/IClock.h"
 #include <cassert>
+#include <thread>
 
 namespace vehicle_sim::util {
 
@@ -9,6 +10,12 @@ namespace vehicle_sim::util {
 
 IClock::time_point SystemClock::now() const {
     return std::chrono::steady_clock::now();
+}
+
+void SystemClock::sleepFor(std::chrono::milliseconds d) {
+    // Production path: real wall-clock sleep. Unchanged from the pre-seam
+    // std::this_thread::sleep_for used by TCPTransport's backoff + pacing.
+    std::this_thread::sleep_for(d);
 }
 
 bool SystemClock::waitForImpl(
@@ -33,6 +40,51 @@ bool SystemClock::waitForImpl(
 // ---------------------------------------------------------------------------
 
 FakeClock::FakeClock(time_point initial) noexcept : now_(initial) {}
+
+void FakeClock::sleepFor(std::chrono::milliseconds d) {
+    // Test path: do NOT park on the OS wall clock (that would re-introduce
+    // real-time sleeps into otherwise-instant tests). Advance virtual time by
+    // `d` and return immediately. This keeps TCPTransport's hunt backoff +
+    // handshake pacing deterministic and <1 ms in tests while still honouring
+    // the "caller yielded for `d` of clock time" contract: any later now() read
+    // (or a parked waitFor whose deadline lay within `d`) sees the advanced time.
+    //
+    // If a consumer happens to be parked in waitFor() on this clock, bump under
+    // its lock and notify (mirrors advance()) so its deadline check fires.
+    if (d <= duration::zero()) {
+        return;
+    }
+    std::condition_variable* cv = nullptr;
+    std::mutex* consumerMutex = nullptr;
+    {
+        std::scoped_lock guard(mutex_);
+        cv = registeredCv_;
+        if (registeredLock_ != nullptr) {
+            consumerMutex = registeredLock_->mutex();
+        }
+    }
+    if (cv == nullptr) {
+        std::scoped_lock guard(mutex_);
+        now_ += d;
+        return;
+    }
+    if (consumerMutex == nullptr) {
+        // cv is registered but its lock is not (a brief window where
+        // registeredCv_ is set but registeredLock_ is not, or the lock was
+        // released): never dereference a possibly-null consumerMutex. Bump
+        // now_ under FakeClock::mutex_ only, exactly like the cv==nullptr branch.
+        std::scoped_lock guard(mutex_);
+        now_ += d;
+        return;
+    }
+    {
+        // Document the proven invariant: cv != nullptr guarantees registeredLock_ != nullptr
+        assert(consumerMutex != nullptr && "consumerMutex must be non-null when cv is registered");
+        std::scoped_lock guard(*consumerMutex, mutex_);
+        now_ += d;
+    }
+    cv->notify_all();
+}
 
 IClock::time_point FakeClock::now() const {
     std::scoped_lock guard(mutex_);

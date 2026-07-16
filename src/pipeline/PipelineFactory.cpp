@@ -125,8 +125,9 @@ PipelineSource buildPipelineSource(
         // flip one flag they all poll; default to a fresh token if none supplied.
         if (!stop) stop = std::make_shared<StopToken>();
         PipelineSource src;
-        src.transport = std::make_unique<TCPTransport>(std::move(host), port, adapterProtocol,
-                                                       std::make_shared<StdOut>(), TcpReadTiming{}, stop);
+        src.transport = std::make_unique<TCPTransport>(
+            TransportEndpoint{std::move(host), port, std::string(adapterProtocol)},
+            std::make_shared<StdOut>(), TcpReadTiming{}, stop);
         if (effective == "elm327") {
             src.normaliser = std::make_unique<Elm327Normaliser>();
         } else {

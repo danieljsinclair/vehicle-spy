@@ -29,6 +29,7 @@ void DiscoveryManager::update(uint32_t now, bool haveClient) {
 }
 
 void DiscoveryManager::resetBackoff() {
+    ++resetCount_;
     ctx_.connectTimeMs = time_.millis();
     ctx_.lastBroadcastMs = 0;
     ctx_.backoffActive = true;
@@ -53,6 +54,7 @@ bool DiscoveryManager::shouldBroadcast(bool haveClient) const {
 }
 
 void DiscoveryManager::broadcast() {
+    ++broadcastCount_;
     std::array<uint8_t, DiscoveryConfig::DISCOVERY_PACKET_SIZE> packet;
 
     uint64_t timestamp = time_.getCurrentTimestamp();
