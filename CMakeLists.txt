@@ -85,6 +85,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/CaptureNormaliser.cpp
     src/pipeline/DemoTransport.cpp
     src/pipeline/TCPTransport.cpp
+    src/pipeline/PosixSocket.cpp
     src/pipeline/USBTransport.cpp
     src/pipeline/OTAHttpTransport.cpp
     src/pipeline/PipelineFactory.cpp
@@ -111,8 +112,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/discovery/UDPDiscovery.cpp
     src/pipeline/SecureTcpTransport.cpp
     src/pipeline/ITransportOutput.cpp
-    firmware/can-bridge/StatusLED.cpp
     firmware/can-bridge/HardwareStatusLEDOutput.cpp
+    firmware/vanilla/StatusLED.cpp
     firmware/vanilla/StatusLEDRenderer.cpp
     firmware/vanilla/AtCommandDispatcher.cpp
     firmware/vanilla/DiscoveryManager.cpp

@@ -102,6 +102,16 @@ public:
         }
 
         listening = true;
+
+        // Make the socket non-blocking so the poll() drain loop (tryReceive ->
+        // recvfrom) returns EAGAIN immediately once the receive queue is empty
+        // instead of blocking forever. Otherwise, if the sender stops mid-drain,
+        // the discovery thread never returns and callers that join it (e.g.
+        // TCPTransport::enterHuntingState) deadlock.
+        if (int flags = ::fcntl(sockfd, F_GETFL, 0); flags >= 0) {
+            ::fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+        }
+
         return true;
     }
 

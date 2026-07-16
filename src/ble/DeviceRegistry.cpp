@@ -1,5 +1,7 @@
 #include "vehicle-sim/ble/DeviceRegistry.h"
 
+#include <bit>
+#include <cstddef>
 #include <iostream>
 #include <iomanip>
 
@@ -12,7 +14,7 @@ namespace {
 std::string padToWidth(std::string_view s, int width) {
     int displayWidth = 0;
     for (char c : s) {
-        displayWidth += (static_cast<unsigned char>(c) & 0xC0) != 0x80 ? 1 : 0;
+        displayWidth += ((std::byte{static_cast<unsigned char>(c)} & std::byte{0xC0}) != std::byte{0x80}) ? 1 : 0;
     }
     if (displayWidth >= width) return std::string(s);
     return std::string(s) + std::string(width - displayWidth, ' ');

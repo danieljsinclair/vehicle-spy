@@ -1,7 +1,7 @@
 // StatusLEDRenderer_test.cpp - Tests for StatusLED pattern renderer
 
 #include <gtest/gtest.h>
-#include "can-bridge/StatusLED.h"
+#include "vanilla/StatusLED.h"
 #include "vanilla/StatusLEDRenderer.h"
 
 using namespace firmware;

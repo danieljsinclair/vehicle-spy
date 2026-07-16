@@ -402,8 +402,9 @@ private:
     // between the transport and the signal source so stop() flips the flag the
     // transport's hot loop polls.
     auto stop = std::make_shared<pipeline::StopToken>();
-    auto transport = std::make_unique<TCPTransport>(host, port, "raw",
-                                                    std::make_shared<pipeline::StdOut>(), pipeline::TcpReadTiming{}, stop);
+    auto transport = std::make_unique<TCPTransport>(
+        pipeline::TransportEndpoint{host, static_cast<int>(port), "raw"},
+        std::make_shared<pipeline::StdOut>(), pipeline::TcpReadTiming{}, stop);
     auto normaliser = std::make_unique<RawFrameNormaliser>();
 
     // Open the transport to verify connectivity before starting the thread
@@ -596,7 +597,7 @@ private:
     }
 
     if (result.hasSuggestion()) {
-        const char* conf = "";
+        const char* conf;
         switch (result.confidence) {
             case domain::DetectionConfidence::High: conf = "high"; break;
             case domain::DetectionConfidence::Medium: conf = "medium"; break;

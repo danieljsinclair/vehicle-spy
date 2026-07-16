@@ -27,7 +27,7 @@ public:
     int getMode() const override { return mode; }
     std::string SSID() const override { return lastSsid; }
     const char* disconnectReasonName(int) const override { return ""; }
-    void onEvent(std::function<void(int, void*)>, int) override {}
+    void onEvent(std::function<void(int, WifiEventInfo*)>, int) override {}
 };
 
 class FakePreferences : public IPreferences {

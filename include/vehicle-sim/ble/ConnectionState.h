@@ -13,12 +13,16 @@ namespace vehicle_sim {
  *        device id) and firing the connection callback on change. Extracted
  *        from BLEManagerBase (cpp:S1448).
  *
+ * Named BleConnectionState to avoid colliding with the global iOS
+ * `NS_ENUM ConnectionState` (VehicleSimWrapper.h) that is pulled into scope by
+ * `using namespace vehicle_sim` in the Objective-C++ wrapper.
+ *
  * Construction is deferred to BLEManagerBase::InitConnectionState() so the hub
  * reference is available; the base constructs it via the protected init method.
  */
-class ConnectionState {
+class BleConnectionState {
 public:
-    explicit ConnectionState(CallbackHub& callbacks) : callbacks_(callbacks) {}
+    explicit BleConnectionState(CallbackHub& callbacks) : callbacks_(callbacks) {}
 
     /// Set the raw connected flag (no callback).
     void setConnected(bool c) noexcept { connected_ = c; }

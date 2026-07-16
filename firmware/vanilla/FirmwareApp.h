@@ -27,7 +27,6 @@ namespace esp32_firmware {
 class CanBridge;
 struct CanBridgeDeps;
 class AtCommandDispatcher;
-class OtaUpdateServer;
 
 // Re-use interfaces from WiFiManager.h (IWiFi, IPreferences, IStatusLED)
 
@@ -131,6 +130,17 @@ public:
     bool isMonitorActive() const;
     void processCanFrames(uint32_t serialQuietUntilMs);
 
+    // Discovery (Stage 3 of the .ino → vanilla extraction): the .ino owns no
+    // discovery logic itself — FirmwareApp drives the vanilla DiscoveryManager.
+    // The .ino only injects the build-time feature toggle and the live TCP-client
+    // state, and resets the backoff timer on boot / buddy-disconnect. The actual
+    // UDP socket open + broadcast cadence live inside DiscoveryManager (which
+    // performs the send via the injected ArduinoUdp adapter); the broadcast
+    // callback remains a post-send firmware-effect hook (e.g. LED pulse).
+    void setDiscoveryEnabled(bool enabled);
+    void setClientConnected(bool connected);
+    void resetDiscoveryBackoff();
+
     // AT command handling: the .ino constructs the five runtime-boundary adapters
     // over Arduino (WiFiClient/Serial/ESP/Preferences) and hands them in here. We
     // own a single AtCommandDispatcher and route both the TCP and serial command
@@ -168,7 +178,6 @@ private:
     std::unique_ptr<NtpTimeSync> ntpTimeSync_;
     std::unique_ptr<CanBridge> canBridge_;
     std::unique_ptr<AtCommandDispatcher> atDispatcher_;
-    std::unique_ptr<OtaUpdateServer> otaServer_;
 
     // Callbacks for firmware-side effects
     FirmwareCallbacks callbacks_;
@@ -185,6 +194,12 @@ private:
     // boot — mirrors the DiscoveryManager deferral). Set true once NtpTimeSync has
     // been told to start; the WiFiManager NTP-init callback is the trigger.
     bool ntpStarted_;
+
+    // Discovery control flags injected from the .ino (build toggle + live client
+    // state). Defaults (enabled / no client) match the prior hardcoded-inline
+    // behavior so existing tests and the default build stay green.
+    bool discoveryEnabled_ = true;
+    bool clientConnected_ = false;
 
     // Helper methods
     void setupManagers();

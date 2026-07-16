@@ -22,11 +22,15 @@ struct DiscoveryVerifier {
     }
 
     func verify(_ packet: DiscoveryPacket) throws {
-        // Discovery packets are intentionally unsigned — the firmware sends a
-        // zeroed signature field. The OTA key is used for firmware *update*
-        // authentication, not for discovery. Discovery is the bootstrap that
-        // learns the device's IP before any secure channel exists. We only
-        // check timestamp freshness here; signature verification is skipped.
+        // Unsigned discovery: no freshness check — the firmware sends a zeroed
+        // signature field, and the timestamp may be uptime-based (seconds since
+        // boot) when the device lacks NTP sync, so it can be wildly different
+        // from host Unix time. Freshness is only meaningful once a signature
+        // provides the authenticity guarantee (replay protection for signed
+        // discovery). This matches the CLI listener, which accepts unsigned
+        // discovery regardless of timestamp (src/discovery/UDPDiscovery.cpp).
+        guard publicKey != nil else { return }
+        // Signed discovery: enforce timestamp freshness (replay protection).
         let currentUnix = UInt64(Date().timeIntervalSince1970)
         if packet.timestamp > currentUnix + maxClockSkew ||
            packet.timestamp + maxClockSkew < currentUnix {

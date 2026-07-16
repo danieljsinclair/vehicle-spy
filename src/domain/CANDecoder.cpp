@@ -44,7 +44,7 @@ std::uint64_t CANDecoder::extractRawBits(
         const std::size_t byteIdx = bitPos / 8;
         const std::size_t bitIdx = bitPos % 8;
 
-        if (static_cast<unsigned char>(frame[byteIdx]) & (1u << bitIdx)) {
+        if ((frame[byteIdx] & (std::byte{1} << bitIdx)) != std::byte{0}) {
             result |= (1ULL << i);
         }
     }

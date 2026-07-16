@@ -29,7 +29,7 @@ namespace vehicle_sim {
  * - OBD2 command encoding/decoding (delegated to the composed Elm327Session)
  * - Response parsing and validation (delegated to the composed Elm327Session)
  * - Device storage, connection state, callbacks and raw-activity bookkeeping
- *   (each extracted into its own collaborator: DeviceRegistry, ConnectionState,
+ *   (each extracted into its own collaborator: DeviceRegistry, BleConnectionState,
  *    CallbackHub, RawActivity)
  * - The ELM327 transport contract + connection-state primitives
  *
@@ -95,7 +95,7 @@ public:
      * @param timeout_ms Maximum time to wait in milliseconds
      * @return true if both characteristics discovered
      */
-    virtual bool waitForCharacteristics(int /*timeout_ms*/ = 10000) { return true; }
+    virtual bool waitForCharacteristics(int timeout_ms = 10000) { (void)timeout_ms; return true; }
 
     /**
      * Check if currently connected.
@@ -145,8 +145,8 @@ public:
     [[nodiscard]] const DeviceRegistry& deviceRegistry() const noexcept { return device_registry_; }
 
     /// Connection state (connected flag + connected device id) + change notify.
-    [[nodiscard]] ConnectionState& connectionState() noexcept { return connection_state_; }
-    [[nodiscard]] const ConnectionState& connectionState() const noexcept { return connection_state_; }
+    [[nodiscard]] BleConnectionState& connectionState() noexcept { return connection_state_; }
+    [[nodiscard]] const BleConnectionState& connectionState() const noexcept { return connection_state_; }
 
     /// Raw BLE activity bookkeeping (notification count + last raw hex).
     [[nodiscard]] RawActivity& rawActivity() noexcept { return raw_activity_; }
@@ -222,7 +222,7 @@ private:
 
     // Connection state. Holds a reference to callbacks_ (fires connection
     // callback on change).
-    ConnectionState connection_state_{callbacks_};
+    BleConnectionState connection_state_{callbacks_};
 
     // The composed ELM327 OBD2 session (roles 4+5: protocol, polling, CAN
     // monitor, VIN, auto-detection). Holds the obd2_protocol handler, the

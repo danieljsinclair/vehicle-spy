@@ -2,17 +2,40 @@
 """
 lcov_add_uninstrumented.py - Add synthetic lcov entries for uninstrumented source files.
 
-This script walks the source directories (firmware/can-bridge, firmware/vanilla),
-finds all .cpp/.h/.ino files under sonar.sources, and adds them to the lcov report
-with 0% coverage if they're not already present.
+This script walks the source directories listed on the command line (one or more
+``--src-dir`` args, each a path relative to ``--root``), finds every
+.cpp/.h/.ino file under them, and appends a synthetic 0%-coverage lcov entry for
+any that are NOT already present in the input lcov report.
+
+WHY: ``llvm-cov export`` OMITS source files whose functions no test calls (zero
+executed regions) — they get no SF record, even though compiled into the
+instrumented binary. The result is a lcov file-list that is a strict subset of
+sonar.sources, so sonar's lines_to_cover denominator counts files lcov has no
+record for → coverage % is computed against a denominator larger than lcov's
+world, and the never-called files are HIDDEN (not shown as 0%, just absent).
+Appending synthetic 0% entries makes the file-lists agree: every sonar.sources
+file appears in lcov, so absent==0%-not-hidden and sonar line-count == lcov
+line-count per project (the single-source-of-truth / "same count" bar).
+
+This is the durable fix for the metric-gaming trap: the alternative (derive
+sonar.coverage.exclusions from lcov's SF records) would DROP never-called files
+from sonar's denominator entirely, making coverage % rise while hiding untested
+code. Adding them as 0% surfaces the gap honestly instead.
 
 Usage:
-    python3 scripts/lcov_add_uninstrumented.py lcov.info lcoc.info.new --root /path/to/project
+    # Firmware (backward-compatible default: firmware/can-bridge + firmware/vanilla)
+    python3 scripts/lcov_add_uninstrumented.py lcov.info lcov.info.new --root /path
+
+    # vehicle-spy C++ core — explicit src dirs
+    python3 scripts/lcov_add_uninstrumented.py lcov.info lcov.info.new \\
+        --root /path --src-dir src --src-dir include --src-dir firmware/vanilla
 """
 
 import sys
 import os
 import re
+import argparse
+import fnmatch
 from pathlib import Path
 from typing import Set, Dict, List
 
@@ -71,11 +94,33 @@ def extract_lcov_files(lcov_path: str) -> Set[str]:
     return files
 
 
-def find_source_files(src_dirs: List[str]) -> Dict[str, int]:
+def matches_exclusion(rel_path: str, excludes: List[str]) -> bool:
+    """
+    True if rel_path (repo-relative, forward slashes) matches any sonar-style
+    exclusion pattern. Handles exact paths (src/main.cpp), basename globs
+    (**/OtaPublicKey.h), and path globs (firmware/can-bridge/**, build*/**).
+    Sonar's `**` matches any number of path segments; fnmatch treats `*` as
+    greedy across `/`, so we normalise `**` -> `*` and also do a basename check.
+    """
+    if not excludes:
+        return False
+    base = rel_path.rsplit('/', 1)[-1]
+    for pat in excludes:
+        # normalise sonar ** to fnmatch *
+        p = pat.replace('**/', '').replace('/**', '').replace('**', '*')
+        if fnmatch.fnmatch(rel_path, p) or fnmatch.fnmatch(base, p):
+            return True
+    return False
+
+
+def find_source_files(src_dirs: List[str], excludes: List[str] = None) -> Dict[str, int]:
     """
     Find all source files in source directories and count their code lines.
-    Returns dict: filepath -> line_count
+    Skips files matching any exclusion pattern (mirrors sonar.exclusions so the
+    lcov completion stays in lock-step with sonar's effective source set — no
+    drift in either direction). Returns dict: filepath -> line_count.
     """
+    excludes = excludes or []
     source_files = {}
 
     for src_dir in src_dirs:
@@ -91,6 +136,18 @@ def find_source_files(src_dirs: List[str]) -> Dict[str, int]:
                 # Include .cpp, .h, .ino files
                 if file.endswith(('.cpp', '.h', '.ino')):
                     filepath = os.path.join(root, file)
+                    # Symlinks are path aliases, not canonical source. The esp32
+                    # firmware/can-bridge/ tree has 26 symlinks -> ../vanilla/;
+                    # walking both would add a synthetic entry for each alias
+                    # AND its canonical target, double-counting every line.
+                    # Skip the symlink so only the canonical vanilla path counts.
+                    if os.path.islink(filepath):
+                        continue
+                    # Apply sonar-style exclusions (Phase 3 Part 2: keep lcov
+                    # completion == sonar.sources effective set).
+                    rel = os.path.relpath(filepath).replace(os.sep, '/')
+                    if matches_exclusion(rel, excludes):
+                        continue
                     line_count = count_code_lines(filepath)
                     if line_count > 0:
                         source_files[filepath] = line_count
@@ -115,17 +172,30 @@ def generate_lcov_entry(filepath: str, line_count: int) -> str:
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: lcov_add_uninstrumented.py <input_lcov.info> <output_lcov.info> --root <project_root>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='Add synthetic 0%-coverage lcov entries for source files not already in the lcov report.')
+    parser.add_argument('input_lcov', help='input lcov.info path')
+    parser.add_argument('output_lcov', help='output lcov.info path')
+    parser.add_argument('--root', default=os.getcwd(),
+                        help='project root for resolving relative src-dirs (default: cwd)')
+    parser.add_argument('--src-dir', action='append', dest='src_dirs',
+                        default=None,
+                        help='source dir to scan (relative to --root). Repeatable. '
+                             'Defaults to firmware/can-bridge + firmware/vanilla for backward compat.')
+    parser.add_argument('--exclude', action='append', dest='excludes',
+                        default=None,
+                        help='sonar-style exclusion pattern to skip (e.g. src/main.cpp, '
+                             '**/OtaPublicKey.h, firmware/can-bridge/**). Repeatable. '
+                             'Mirrors sonar.exclusions so lcov completion == sonar.sources effective set.')
+    args = parser.parse_args()
 
-    input_lcov = sys.argv[1]
-    output_lcov = sys.argv[2]
-
-    # Parse optional --root argument
-    project_root = os.getcwd()
-    if len(sys.argv) >= 5 and sys.argv[3] == '--root':
-        project_root = sys.argv[4]
+    input_lcov = args.input_lcov
+    output_lcov = args.output_lcov
+    project_root = args.root
+    # Backward-compatible default: the firmware recipe (Makefile coverage-firmware)
+    # invokes with no --src-dir, expecting the firmware can-bridge + vanilla scan.
+    src_dirs = args.src_dirs if args.src_dirs else ['firmware/can-bridge', 'firmware/vanilla']
+    excludes = args.excludes or []
 
     # Change to project root for relative path calculations
     original_cwd = os.getcwd()
@@ -135,13 +205,7 @@ def main():
         # Extract files already in lcov
         existing_files = extract_lcov_files(input_lcov)
 
-        # Find all source files under sonar.sources
-        src_dirs = [
-            'firmware/can-bridge',
-            'firmware/vanilla'
-        ]
-
-        source_files = find_source_files(src_dirs)
+        source_files = find_source_files(src_dirs, excludes)
 
         # Find uninstrumented files (in source but not in lcov)
         uninstrumented = {}

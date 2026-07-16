@@ -29,6 +29,11 @@ Local coverage sources supported:
            records when no /src/ record is present.
     xccov: an ``xcrun xccov view --report --json`` JSON file. Uses the
            top-level coveredLines/executableLines aggregates.
+    xml  : a SonarCloud generic-coverage XML — the CONVERTED report
+           (lcov_to_xml.py / xccov_to_sonar.py output) that sonar-scanner
+           uploads. Preferred for the local headline: it puts local on the
+           SAME basis as SonarCloud's ingested input, so any remaining gap
+           is a genuine scope difference, not a raw-vs-converted mismatch.
     none : no local source; the local line is omitted.
 
 SonarCloud-live GET mirrors the bridge: reads SONAR_TOKEN_ES / SONAR_TOKEN and
@@ -39,7 +44,7 @@ uncovered_lines`` for the given project key. Falls back gracefully (local only
 Usage:
 
     coverage_block.py --project-key KEY \\
-        [--local-cov PATH --local-type lcov|xccov] \\
+        [--local-cov PATH --local-type lcov|xccov|xml] \\
         [--exclusions PATH] [--label TEXT]
 
 Exit codes: 0 always (a missing token / fetch failure / absent local file is
@@ -50,8 +55,6 @@ import fnmatch
 import json
 import os
 import sys
-import urllib.parse
-import urllib.request
 
 RED = '\033[31m'
 ORANGE = '\033[38;5;208m'
@@ -244,43 +247,13 @@ def _mismatch_warning(local_tuple, sonar_dict):
 def fetch_sonar_coverage(project_key):
     """Live GET the SonarCloud coverage measures for the headline.
 
-    Reads SONAR_TOKEN_ES / SONAR_TOKEN and calls
-    ``/api/measures/component?metricKeys=coverage,lines_to_cover,
-    uncovered_lines`` for ``project_key``. Returns a dict of measures on
-    success, or None when there is no token or the fetch/parse fails (caller
-    falls back to local-only).
+    Delegates to the shared ``sonar_live`` module — the SINGLE source of truth
+    for SonarCloud numbers (no persistent cache, so staleness is impossible by
+    construction). Returns a dict of measures on success, or None when there is
+    no token or the fetch/parse fails (caller falls back to local-only).
     """
-    token = os.environ.get('SONAR_TOKEN_ES') or os.environ.get('SONAR_TOKEN_US')
-    if not token:
-        return None
-    query = urllib.parse.urlencode({
-        'component': project_key,
-        'metricKeys': 'coverage,lines_to_cover,uncovered_lines',
-    })
-    url = f'{SONAR_HOST}/api/measures/component?{query}'
-    req = urllib.request.Request(url)
-    # HTTP Basic auth with the token as the username (empty password) — same
-    # auth shape the rest of the pipeline uses with `curl -u "$TOKEN:"`.
-    import base64
-    cred = base64.b64encode(f'{token}:'.encode()).decode()
-    req.add_header('Authorization', f'Basic {cred}')
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode('utf-8'))
-    except (OSError, ValueError):
-        return None
-    measures = {}
-    for m in (data.get('component', {}) or {}).get('measures', []) or []:
-        metric = m.get('metric')
-        value = m.get('value')
-        if metric and value is not None:
-            try:
-                measures[metric] = float(value)
-            except ValueError:
-                measures[metric] = value
-    if 'coverage' not in measures:
-        return None
-    return measures
+    from sonar_live import fetch_measures
+    return fetch_measures(project_key)
 
 
 def parse_lcov(path):
@@ -440,12 +413,40 @@ def _xccov_pct(path):
     return int(covered), int(executable), pct
 
 
+def _xml_pct(path):
+    """Read (covered, total, pct) from a SonarCloud generic-coverage XML.
+
+    This is the CONVERTED report (lcov_to_xml.py / xccov_to_sonar.py output) —
+    i.e. the EXACT file sonar-scanner uploads. Counting ``<lineToCover>`` and
+    ``covered="true"`` elements here puts the local headline on the same basis
+    as SonarCloud's ingested input, so any remaining local-vs-Sonar gap is a
+    genuine scope/line-counting difference (e.g. a file in the XML that
+    SonarCloud dropped because no analyzer indexed it), never a
+    raw-vs-converted population mismatch.
+    """
+    try:
+        import xml.etree.ElementTree as ET
+        tree = ET.parse(path)
+    except (OSError, ET.ParseError):
+        return None
+    total = 0
+    covered = 0
+    for line in tree.iter('lineToCover'):
+        total += 1
+        if line.get('covered', '').lower() == 'true':
+            covered += 1
+    if not total:
+        return None
+    pct = (100.0 * covered / total) if total else 0.0
+    return covered, total, pct
+
+
 def local_coverage(path, local_type, project_root=None, exclusions_path=None):
     """Return (hit, total, pct) for the local source, or None if unavailable.
 
-    ``local_type`` is one of lcov|xccov|none. ``none`` and a missing/unreadable
-    file both yield None so the caller OMITS the local line rather than
-    fabricating a number.
+    ``local_type`` is one of lcov|xccov|xml|none. ``none`` and a
+    missing/unreadable file both yield None so the caller OMITS the local line
+    rather than fabricating a number.
 
     ``project_root`` and ``exclusions_path`` are passed through to _lcov_pct
     for scope filtering.
@@ -458,6 +459,8 @@ def local_coverage(path, local_type, project_root=None, exclusions_path=None):
         return _lcov_pct(path, project_root, exclusions_path)
     if local_type == 'xccov':
         return _xccov_pct(path)
+    if local_type == 'xml':
+        return _xml_pct(path)
     return None
 
 
@@ -559,10 +562,13 @@ def main(argv=None):
     p.add_argument('--project-key', required=True,
                    help='SonarCloud componentKey (e.g. danieljsinclair_engine-sim-cli)')
     p.add_argument('--local-cov',
-                   help='Path to the local coverage file (lcov.info or xccov JSON)')
-    p.add_argument('--local-type', choices=('lcov', 'xccov', 'none'),
+                   help='Path to the local coverage file (lcov.info, xccov JSON, '
+                        'or converted SonarCloud generic-coverage XML)')
+    p.add_argument('--local-type', choices=('lcov', 'xccov', 'xml', 'none'),
                    default='none',
-                   help='Local coverage source type (default: none -> omit local line)')
+                   help='Local coverage source type (default: none -> omit local line). '
+                        '"xml" = the converted SonarCloud report (what sonar-scanner '
+                        'uploads) — use this so local == SonarCloud input.')
     p.add_argument('--exclusions',
                    help='Path to sonar-project.properties (exclusions source)')
     p.add_argument('--label', default='Coverage',

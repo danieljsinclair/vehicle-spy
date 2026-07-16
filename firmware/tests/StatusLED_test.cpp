@@ -1,8 +1,8 @@
 // StatusLED_test.cpp - Tests for StatusLED vanilla class
 
 #include <gtest/gtest.h>
-#include "can-bridge/StatusLED.h"
-#include "can-bridge/IStatusLEDOutput.h"
+#include "vanilla/StatusLED.h"
+#include "vanilla/IStatusLEDOutput.h"
 #include "mocks/ArduinoMock.h"
 
 using namespace firmware;

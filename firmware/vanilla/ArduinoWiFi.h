@@ -81,7 +81,7 @@ public:
         return WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason));
     }
 
-    void onEvent(std::function<void(int, void*)> cb, int event) override {
+    void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) override {
         // Store callback and register with WiFi
         // Note: Arduino WiFiEvent requires a different signature
         // We'll need to adapt this - placeholder for TDD skeleton
@@ -89,7 +89,7 @@ public:
         (void)event;
         // TODO: Implement proper event callback registration
         // WiFi.onEvent([cb](WiFiEvent_t event, WiFiEventInfo_t info) {
-        //     cb(static_cast<int>(event), &info);
+        //     cb(static_cast<int>(event), reinterpret_cast<WifiEventInfo*>(&info));
         // }, static_cast<WiFiEvent_t>(event));
     }
 

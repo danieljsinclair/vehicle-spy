@@ -350,6 +350,51 @@ TEST_F(FirmwareAppTest, Update_DoesNotFireDiscoveryBeforeCadence_CallbackNotFire
     EXPECT_FALSE(broadcastDiscoveryCalled);
 }
 
+TEST_F(FirmwareAppTest, Update_DiscoveryDisabled_NoUdpOpenOrBroadcast) {
+    // Stage 3: the .ino injects the build-time VEHICLE_SIM_ENABLE_DISCOVERY toggle
+    // via FirmwareApp::setDiscoveryEnabled(). When disabled, the vanilla
+    // DiscoveryManager must never open the UDP socket nor broadcast — this mirrors
+    // the removed inline `#if VEHICLE_SIM_ENABLE_DISCOVERY` guard.
+    firmwareApp->setCallbacks(callbackSpies);
+    firmwareApp->init();
+    firmwareApp->setDiscoveryEnabled(false);
+
+    // UDP socket open (begin) must NOT happen when discovery is disabled.
+    EXPECT_CALL(udpMock, begin(_)).Times(0);
+    // No discovery packet should be written/sent.
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(0);
+    EXPECT_CALL(udpMock, write(_, _)).Times(0);
+    EXPECT_CALL(udpMock, endPacket()).Times(0);
+
+    // Run several loop ticks past the fast-cadence window.
+    firmwareApp->update(0);
+    firmwareApp->update(1000);
+    firmwareApp->update(2000);
+    firmwareApp->update(3000);
+
+    EXPECT_FALSE(broadcastDiscoveryCalled)
+        << "Discovery broadcast callback must not fire when discovery is disabled.";
+}
+
+TEST_F(FirmwareAppTest, Update_ClientConnected_SuppressesBroadcast) {
+    // Stage 3: the .ino feeds the live TCP-client state into FirmwareApp via
+    // setClientConnected(); DiscoveryManager should skip broadcasts while a buddy
+    // is connected (replaces the inline `haveClient` early-return).
+    firmwareApp->setCallbacks(callbackSpies);
+    firmwareApp->init();
+    EXPECT_CALL(udpMock, begin(_)).Times(AtLeast(1));  // socket opens on first tick
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(0);
+    EXPECT_CALL(udpMock, write(_, _)).Times(0);
+    EXPECT_CALL(udpMock, endPacket()).Times(0);
+
+    firmwareApp->setClientConnected(true);
+    firmwareApp->update(0);
+    firmwareApp->update(1000);
+
+    EXPECT_FALSE(broadcastDiscoveryCalled)
+        << "Discovery should be suppressed while a TCP client is connected.";
+}
+
 // ============================================================================
 // CREDENTIAL OPERATIONS TESTS
 // ============================================================================
@@ -526,38 +571,6 @@ TEST_F(FirmwareAppTest, ClearTcpServerRestartFlag_AfterClear_ReturnsFalse) {
 }
 
 // ============================================================================
-// MULTIPLE INSTANCE TESTS
-// ============================================================================
-
-TEST_F(FirmwareAppTest, TwoInstances_SameDependencies_DoNotInterfere) {
-    // Multiple FirmwareApp instances should not interfere
-    // NOTE: This test is DISABLED because it shares wifiMock/prefsMock between
-    // both instances, which causes crashes. A proper test would use separate mocks.
-    NiceMock<MockStatusLED> statusLedMock2;
-    NiceMock<MockUdp> udpMock2;
-    NiceMock<MockTime> timeMock2;
-
-    FirmwareApp app1(wifiMock, prefsMock, statusLedMock,
-                    wifiMock, udpMock, timeMock,
-                    sntpMock, timeNtpMock,
-                    testDeviceId, canDeps);
-    FirmwareApp app2(wifiMock, prefsMock, statusLedMock2,
-                    wifiMock, udpMock2, timeMock2,
-                    sntpMock, timeNtpMock,
-                    testDeviceId, canDeps);
-
-    app1.init();
-
-    // Skip app2.init() due to shared mock state causing crash
-    // app2.init();
-
-    // Test that app1 works independently
-    EXPECT_NO_THROW({
-        app1.update(1000);
-    });
-}
-
-// ============================================================================
 // EDGE CASE TESTS
 // ============================================================================
 
@@ -582,15 +595,24 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnected_InvalidReason_DoesNotThrow) {
     });
 }
 
-TEST_F(FirmwareAppTest, StoreCredentials_VeryLongSsid_HandlesGracefully) {
-    // Very long SSID should be handled gracefully
+TEST_F(FirmwareAppTest, StoreCredentials_VeryLongSsid_StoresAndRoundTrips) {
+    // storeCredentials has NO length cap of its own (WiFiManager.h: the AT
+    // command handler enforces the 1-32 SSID limit; the storage layer stores
+    // whatever it is given via IPreferences::putString, returning true iff both
+    // putString writes succeed). A long SSID therefore stores and round-trips.
     firmwareApp->init();
 
-    std::string longSsid(100, 'A');
-    bool result = firmwareApp->storeCredentials(longSsid, "pass");
+    const std::string longSsid(100, 'A');
+    const std::string longPass = "pass";
 
-    // Should either succeed or fail gracefully, not crash
-    EXPECT_TRUE(result == true || result == false);
+    bool result = firmwareApp->storeCredentials(longSsid, longPass);
+
+    ASSERT_TRUE(result);
+
+    std::string loadedSsid, loadedPass;
+    ASSERT_TRUE(firmwareApp->loadCredentials(loadedSsid, loadedPass));
+    EXPECT_EQ(loadedSsid, longSsid);
+    EXPECT_EQ(loadedPass, longPass);
 }
 
 TEST_F(FirmwareAppTest, LoadCredentials_EmptyStrings_DoesNotCrash) {

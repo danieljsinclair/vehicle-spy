@@ -1,6 +1,7 @@
 // DiscoveryManager_test.cpp - Tests for DiscoveryManager vanilla class
 
 #include <gtest/gtest.h>
+#include <cstring>
 #include "vanilla/DiscoveryManager.h"
 #include "mocks/WiFiMock.h"
 #include "mocks/ArduinoMock.h"
@@ -175,24 +176,23 @@ TEST_F(DiscoveryManagerTest, BuildDiscoveryPacket_CorrectFormat) {
         EXPECT_EQ(packet[6 + i], deviceId[i]) << "Device ID byte " << i;
     }
 
-    // Check nonce at offset 22 (4 bytes, little-endian)
-    EXPECT_EQ(packet[22], 0x39);  // 12345 = 0x3039
-    EXPECT_EQ(packet[23], 0x30);
-    EXPECT_EQ(packet[24], 0x00);
-    EXPECT_EQ(packet[25], 0x00);
+    // Check nonce at offset 22 (4 bytes, host-endian memcpy of uint32).
+    // Decode the field as a value rather than pinning individual bytes, so the
+    // test survives a refactor of how the nonce is serialized (memcpy vs loop),
+    // as long as the wire value is 12345.
+    uint32_t decodedNonce = 0;
+    std::memcpy(&decodedNonce, packet.data() + 22, 4);
+    EXPECT_EQ(decodedNonce, 12345u);
 
-    // Check timestamp at offset 30 (8 bytes)
-    // 1000000000 = 0x3B9ACA00
-    // The loop writes bytes in reverse index order but extracts LSB first
-    // Result: packet[30-33] = 00 00 00 00, packet[34-37] = 3B 9A CA 00
-    EXPECT_EQ(packet[30], 0x00);
-    EXPECT_EQ(packet[31], 0x00);
-    EXPECT_EQ(packet[32], 0x00);
-    EXPECT_EQ(packet[33], 0x00);
-    EXPECT_EQ(packet[34], 0x3B);
-    EXPECT_EQ(packet[35], 0x9A);
-    EXPECT_EQ(packet[36], 0xCA);
-    EXPECT_EQ(packet[37], 0x00);
+    // Check timestamp at offset 30 (8 bytes, big-endian Unix epoch per
+    // DiscoveryManager.cpp). Decode as a BE uint64 value rather than pinning
+    // bytes, so the test locks the WIRE FORMAT (BE timestamp == 1000000000)
+    // not the serialization loop shape.
+    uint64_t decodedTimestamp = 0;
+    for (int i = 0; i < 8; ++i) {
+        decodedTimestamp = (decodedTimestamp << 8) | packet[30 + i];
+    }
+    EXPECT_EQ(decodedTimestamp, 1000000000ULL);
 
     // Check TCP port (3333 = 0x0D05) at offset 38
     EXPECT_EQ(packet[38], 0x0D);
