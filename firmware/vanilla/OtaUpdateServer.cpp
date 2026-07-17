@@ -111,7 +111,7 @@ void OtaUpdateServer::handlePost() {
         http_.clientSetNoDelay(true);
         http_.send(OtaConfig::HTTP_OK, "text/plain", "Update Success! Rebooting...");
 
-        for (int i = 0; i < OtaConfig::REBOOT_FLUSH_COUNT; i++) {
+        for (uint32_t i = 0; i < OtaConfig::REBOOT_FLUSH_COUNT; i++) {
             http_.clientFlush();
             // In real implementation: delay(OtaConfig::REBOOT_FLUSH_DELAY_MS);
         }
