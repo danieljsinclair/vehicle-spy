@@ -42,7 +42,7 @@ public:
         CanFrame frame;
         frame.identifier = id;
         frame.data_length_code = std::min(len, static_cast<uint8_t>(8));
-        std::memcpy(frame.data, data, frame.data_length_code);
+        std::memcpy(frame.data.data(), data, frame.data_length_code);
         rxQueue_.push(frame);
     }
 

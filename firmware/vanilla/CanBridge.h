@@ -9,11 +9,14 @@
 
 namespace esp32_firmware {
 
-// CAN frame structure (matches twai_message_t)
+// CAN frame structure (matches twai_message_t). The payload buffer is a fixed
+// 8-byte binary field (NOT a string) — std::array keeps it stack-allocated and
+// copyable with known size, avoiding the C-style array flagged by cpp:S5945,
+// while preserving exact byte-layout interop with ESP-IDF's twai_message_t.data.
 struct CanFrame {
     uint32_t identifier;
     uint8_t data_length_code;
-    uint8_t data[8];
+    std::array<uint8_t, 8> data;
 };
 
 // CAN configuration
