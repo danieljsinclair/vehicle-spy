@@ -404,9 +404,12 @@ $(FIRMWARE_CRED_SENTINEL): $(FIRMWARE_DIR)/*.ino FORCE
 # would silently return the old binary. (arduino-cli itself is incremental,
 # but Make's dependency graph must know to re-invoke it.)
 # StatusLED.cpp/h live in firmware/vanilla/ (testable-shared, relocated by
-# cpp:c25321f); firmware/can-bridge/StatusLED.cpp is now a SYMLINK to it, so
-# the firmware/vanilla/*.cpp wildcard already covers the content. Only the
-# ESP32-specific HardwareStatusLEDOutput (GPIO) is named explicitly here.
+# cpp:c25321f). The ESP32 build reaches the vanilla sources via arduino-cli's
+# --library firmware/vanilla mechanism (registered as a library, compiled as
+# TUs, headers on the include path) — there are NO symlinks into can-bridge.
+# The firmware/vanilla/*.cpp wildcard below covers the content for dependency
+# tracking. Only the ESP32-specific HardwareStatusLEDOutput (GPIO) is named
+# explicitly here.
 FIRMWARE_SRCS := $(wildcard $(FIRMWARE_DIR)/*.ino) \
                  $(wildcard firmware/vanilla/*.cpp firmware/vanilla/*.h) \
                  $(wildcard $(FIRMWARE_DIR)/*.h) \
@@ -416,7 +419,7 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(FIRMWARE_SRCS)
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
-	arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++14"
+	arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++14"
 	$(ESPTOOL) \
 		--chip esp32 \
 		$(ESPTOOL_MERGE_CMD) --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin --target-offset 0x0 \
@@ -962,7 +965,7 @@ sonar-compiledb: $(SONAR_COMPILE_DB_FW)
 $(SONAR_COMPILE_DB_FW): $(wildcard $(FIRMWARE_DIR)/*.ino) $(wildcard $(FIRMWARE_DIR)/*.h) scripts/sonar_filter_compdb.py
 	@echo "--- Generating ESP32 compilation database ${CYAN}$(SONAR_COMPILE_DB_FW)${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)/compiledb
-	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) \
+	@arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) \
 		--build-path $(FIRMWARE_BUILD)/compiledb \
 		--only-compilation-database \
 		--build-property "compiler.cpp.extra_flags=-DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"" \

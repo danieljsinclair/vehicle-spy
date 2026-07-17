@@ -73,20 +73,6 @@ def _line_value_for(key: str, proj: dict, repo_root: str):
         return ",".join(proj.get("sources", [])) or None
     if key == "sonar.exclusions":
         excl = list(proj.get("exclusions", []))
-        # Machine-derived symlink exclusions (the ONE non-wildcard exception).
-        # For each dir in symlink_exclude_dirs, run `find <dir> -type l` and add
-        # each symlink path. This stops cfamily indexing a symlink facade AS
-        # WELL AS its canonical target (source-level double-count).
-        for d in proj.get("symlink_exclude_dirs", []):
-            abs_dir = os.path.join(repo_root, d)
-            if not os.path.isdir(abs_dir):
-                continue
-            for root, _dirs, files in os.walk(abs_dir):
-                for fn in files:
-                    fp = os.path.join(root, fn)
-                    if os.path.islink(fp):
-                        rel = os.path.relpath(fp, repo_root).replace(os.sep, "/")
-                        excl.append(rel)
         return ",".join(excl) if excl else None
     if key == "sonar.coverage.exclusions":
         excl = proj.get("coverage_exclusions")

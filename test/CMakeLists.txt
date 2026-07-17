@@ -92,6 +92,9 @@ if(APPLE)
 endif()
 
 # firmware paths: kept PRIVATE on vehicle-sim-lib (not propagated), so test target adds them explicitly.
+# firmware/vanilla holds the shared testable source (StatusLED.h etc.) that was
+# previously reached via symlinks in firmware/can-bridge; it must be on the
+# include path directly now that the symlinks are gone.
 target_include_directories(vehicle-sim-tests
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -99,6 +102,7 @@ target_include_directories(vehicle-sim-tests
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../firmware
     ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/can-bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/../firmware/vanilla
     ${SODIUM_INCLUDE_DIR}
 )
 

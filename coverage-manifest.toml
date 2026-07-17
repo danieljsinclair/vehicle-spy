@@ -135,26 +135,13 @@ sources = ["firmware/can-bridge", "firmware/vanilla"]
 # in the properties) disables C entirely so .h is unambiguous C++. See the
 # comment block in sonar-project-esp32.properties for the full rationale.
 cfamily_cpp_suffixes = [".ino", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".h"]
-# Dirs whose SYMLINKS are machine-derived exclusion entries (the ONE non-
-# wildcard exception per the design rules). At generation time,
-# gen_coverage_config.py runs `find <dir> -type l` and adds each symlink path
-# to this project's sonar.exclusions. This prevents cfamily from indexing the
-# can-bridge symlink facades AS WELL AS their canonical vanilla targets (which
-# would double-count every line at the source level, even though the coverage
-# XML is deduped by the converter's symlink-skip). vanilla is canonical, once.
-symlink_exclude_dirs = ["firmware/can-bridge"]
 exclusions = [
     "build-firmware/**",
     "build-verify/**",
     "firmware/tests/**",                 # test code
     "firmware/mocks/**",                 # test doubles
     "**/OtaPublicKey.h",                 # generated per-user Ed25519 key (config artifact)
-    # NOTE: the 26 firmware/can-bridge/ symlinks -> ../vanilla/ are NOT listed
-    # here. They are machine-derived at scan time (`find firmware/can-bridge
-    # -type l`) and handled in scripts (lcov_to_xml.py +
-    # lcov_add_uninstrumented.py skip symlinks). vanilla/ is the canonical path,
-    # counted once; the symlink aliases are dropped so no line is double-counted.
-    # This is the ONE non-wildcard exception, generated not hand-enumerated.
+    "firmware/**/Arduino*.h",            # ESP32 Arduino platform veneers (platform-specific adapters, #ifdef ARDUINO gated, untestable on host; declared gap like .mm, two-sided exclusion)
 ]
 
 # =============================================================================

@@ -136,14 +136,15 @@ def build_coverage_xml(
         if globs and _matches_any_glob(rel, globs):
             dropped_glob += 1
             continue
-        # Symlinks are path ALIASES, never canonical source. The esp32 firmware
-        # build compiles vanilla C++ via firmware/can-bridge/ symlinks (26 of
-        # them point at ../vanilla/), so llvm-cov emits coverage under BOTH
-        # paths — emitting both here double-counts every line (the can-bridge
-        # symlink entry + the vanilla canonical entry). Dropping the symlink
-        # path keeps the canonical entry as the single source of truth, so each
-        # production line lands in the denominator exactly once. This is
-        # automatic and drift-proof (no hand-maintained exclusion list).
+        # Symlinks are path ALIASES, never canonical source. Historically the
+        # esp32 firmware build referenced vanilla C++ via firmware/can-bridge/
+        # symlinks (26 of them pointed at ../vanilla/), so llvm-cov could emit
+        # coverage under BOTH paths — emitting both here would double-count every
+        # line. The symlinks have since been removed (the build now reaches
+        # vanilla via arduino-cli --library firmware/vanilla), so this islink
+        # guard is dormant but kept as a defensive, drift-proof measure: any
+        # future alias is dropped in favour of the canonical path, keeping each
+        # production line in the denominator exactly once.
         resolved = abs_path if os.path.isabs(abs_path) else os.path.join(project_root, rel)
         if os.path.islink(resolved):
             dropped_symlink += 1

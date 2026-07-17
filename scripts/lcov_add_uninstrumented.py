@@ -164,10 +164,12 @@ def find_source_files(src_dirs: List[str], excludes: List[str] = None) -> Dict[s
                 if file.endswith(('.cpp', '.ino')):
                     filepath = os.path.join(root, file)
                     # Symlinks are path aliases, not canonical source. The esp32
-                    # firmware/can-bridge/ tree has 26 symlinks -> ../vanilla/;
-                    # walking both would add a synthetic entry for each alias
-                    # AND its canonical target, double-counting every line.
-                    # Skip the symlink so only the canonical vanilla path counts.
+                    # firmware/can-bridge/ tree historically had 26 symlinks ->
+                    # ../vanilla/; walking both would double-count every line.
+                    # The symlinks are now removed (build uses arduino-cli
+                    # --library firmware/vanilla), so this guard is dormant but
+                    # kept defensively: skip any alias so only the canonical
+                    # vanilla path counts.
                     if os.path.islink(filepath):
                         continue
                     # Apply sonar-style exclusions (Phase 3 Part 2: keep lcov
