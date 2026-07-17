@@ -12,7 +12,7 @@ class TWAIMock : public ICanDriver {
 public:
     TWAIMock() = default;
 
-    int driverInstall(void* gcfg, void* tcfg, void* fcfg) override {
+    int driverInstall(CanGeneralConfig*, CanTimingConfig*, CanFilterConfig*) override {
         (void)gcfg; (void)tcfg; (void)fcfg;
         installed_ = true;
         return 0;  // ESP_OK

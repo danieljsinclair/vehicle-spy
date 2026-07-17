@@ -22,9 +22,20 @@ struct CanConfig {
     static constexpr uint8_t MAX_DATA_LENGTH = 8;
 };
 
+// Opaque handles for the ESP-IDF TWAI driver configs. Forward-declared here and
+// defined ONLY in the adapter (ArduinoCanDriver wraps twai_general_config_t /
+// twai_timing_config_t / twai_filter_config_t*). The vanilla never dereferences
+// them — it threads the pointers between the injected ICanDriver::driverInstall
+// call sites. This replaces raw `void*` (cpp:S5008) with named type-safe
+// handles while keeping the vanilla free of ESP-IDF headers (mirrors the
+// OtaPartitionRef idiom in OtaUpdateServer.h).
+struct CanGeneralConfig;
+struct CanTimingConfig;
+struct CanFilterConfig;
+
 // TWAI/CAN interface
 struct ICanDriver {
-    virtual int driverInstall(void* gcfg, void* tcfg, void* fcfg) = 0;
+    virtual int driverInstall(CanGeneralConfig* gcfg, CanTimingConfig* tcfg, CanFilterConfig* fcfg) = 0;
     virtual int start() = 0;
     virtual int receive(CanFrame* msg, uint32_t timeoutMs) = 0;
     virtual ~ICanDriver() = default;

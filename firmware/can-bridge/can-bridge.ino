@@ -266,7 +266,7 @@ static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASS
 static WiFiClient client;
 #if VEHICLE_SIM_ENABLE_TWAI
 struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
-    int driverInstall(void*, void*, void*) override { return 0; }  // done in setup()
+    int driverInstall(esp32_firmware::CanGeneralConfig*, esp32_firmware::CanTimingConfig*, esp32_firmware::CanFilterConfig*) override { return 0; }  // done in setup()
     int start() override { return 0; }                              // done in setup()
     int receive(esp32_firmware::CanFrame* msg, uint32_t timeoutMs) override {
         twai_message_t m{};
@@ -279,7 +279,7 @@ struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
 };
 #else
 struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
-    int driverInstall(void*, void*, void*) override { return -1; }
+    int driverInstall(esp32_firmware::CanGeneralConfig*, esp32_firmware::CanTimingConfig*, esp32_firmware::CanFilterConfig*) override { return -1; }
     int start() override { return -1; }
     int receive(esp32_firmware::CanFrame*, uint32_t) override { return -1; }
 };

@@ -56,7 +56,7 @@ public:
 // Mock CAN Driver interface
 class MockCanDriver : public ICanDriver {
 public:
-    MOCK_METHOD(int, driverInstall, (void* gcfg, void* tcfg, void* fcfg), (override));
+    MOCK_METHOD(int, driverInstall, (CanGeneralConfig*, CanTimingConfig*, CanFilterConfig*), (override));
     MOCK_METHOD(int, start, (), (override));
     MOCK_METHOD(int, receive, (CanFrame* msg, uint32_t timeoutMs), (override));
 

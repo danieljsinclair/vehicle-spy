@@ -70,7 +70,7 @@ public:
 // satisfy the injected interfaces without doing anything.
 class StubCanDriver : public ICanDriver {
 public:
-    int driverInstall(void*, void*, void*) override { return 0; }
+    int driverInstall(CanGeneralConfig*, CanTimingConfig*, CanFilterConfig*) override { return 0; }
     int start() override { return 0; }
     int receive(CanFrame*, uint32_t) override { return -1; }  // no frames
 };

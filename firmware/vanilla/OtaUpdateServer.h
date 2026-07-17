@@ -128,7 +128,7 @@ struct IPartition {
     // verifyPartition rejects an image whose declared size exceeds this capacity,
     // matching the inline ota_update.ino guard `size > part->size`.
     virtual uint32_t size(const OtaPartitionRef* partition) = 0;
-    virtual int read(const OtaPartitionRef* partition, uint32_t offset, void* data, size_t size) = 0;
+    virtual int read(const OtaPartitionRef* partition, uint32_t offset, uint8_t* data, size_t size) = 0;
     virtual int getStatePartition(const OtaPartitionRef* partition, int* state) = 0;
     virtual int setBootPartition(const OtaPartitionRef* partition) = 0;
     virtual int markAppValidCancelRollback() = 0;

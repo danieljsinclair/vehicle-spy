@@ -80,7 +80,7 @@ public:
     MOCK_METHOD(const OtaPartitionRef*, getRunningPartition, (), (override));
     MOCK_METHOD(const OtaPartitionRef*, getNextUpdatePartition, (const OtaPartitionRef* running), (override));
     MOCK_METHOD(uint32_t, size, (const OtaPartitionRef* partition), (override));
-    MOCK_METHOD(int, read, (const OtaPartitionRef* partition, uint32_t offset, void* data, size_t size), (override));
+    MOCK_METHOD(int, read, (const OtaPartitionRef* partition, uint32_t offset, uint8_t* data, size_t size), (override));
     MOCK_METHOD(int, getStatePartition, (const OtaPartitionRef* partition, int* state), (override));
     MOCK_METHOD(int, setBootPartition, (const OtaPartitionRef* partition), (override));
     MOCK_METHOD(int, markAppValidCancelRollback, (), (override));

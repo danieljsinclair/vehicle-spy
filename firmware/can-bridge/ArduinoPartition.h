@@ -54,7 +54,7 @@ public:
         return partition->part->size;
     }
 
-    int read(const OtaPartitionRef* partition, uint32_t offset, void* data, size_t sz) override {
+    int read(const OtaPartitionRef* partition, uint32_t offset, uint8_t* data, size_t sz) override {
         return esp_partition_read(partition->part, offset, data, sz);
     }
 
