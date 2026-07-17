@@ -133,7 +133,7 @@ void OtaUpdateServer::reportError(OtaError err) {
 
 void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
     // START: reset per-upload state, then validate crypto + signature + begin.
-    if (upload.status == IHttpUpload::UPLOAD_FILE_START) {
+    if (upload.status == IHttpUpload::Status::UPLOAD_FILE_START) {
         otaErr_.clear();
         otaHasSig_ = false;
         // Stamp the upload start time via the injected clock so the WRITE path
@@ -163,7 +163,7 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
     // WRITE: append bytes, but only while the upload is still healthy. A failed
     // START leaves otaErr_ non-empty, so subsequent WRITE chunks are no-ops
     // (the sticky-error contract pinned by HandleUpload_Write_AfterFailedStart).
-    if (upload.status == IHttpUpload::UPLOAD_FILE_WRITE && otaErr_.empty()) {
+    if (upload.status == IHttpUpload::Status::UPLOAD_FILE_WRITE && otaErr_.empty()) {
         // Abort a stalled upload: if the wall clock has advanced past the
         // UPLOAD_TIMEOUT_MS window since START, give up. Mirrors the inline
         // ota_update.ino timeout guard (millis() - otaUploadStartTime).
@@ -180,7 +180,7 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
 
     // END: finalize + verify signature + select boot partition. Only reached
     // when otaErr_ is still empty (no prior START/WRITE failure).
-    if (upload.status == IHttpUpload::UPLOAD_FILE_END && otaErr_.empty()) {
+    if (upload.status == IHttpUpload::Status::UPLOAD_FILE_END && otaErr_.empty()) {
         // Defensive: START must have parsed a signature before reaching END. By
         // construction every START path either sets otaErr_ (so END is skipped)
         // or sets otaHasSig_=true, making this guard unreachable — kept as a
@@ -221,7 +221,7 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
     }
 
     // ABORTED: tear down the in-flight update regardless of prior state.
-    if (upload.status == IHttpUpload::UPLOAD_FILE_ABORTED) {
+    if (upload.status == IHttpUpload::Status::UPLOAD_FILE_ABORTED) {
         update_.abort();
         reportError(OtaError::UPLOAD_ABORTED);
         return;

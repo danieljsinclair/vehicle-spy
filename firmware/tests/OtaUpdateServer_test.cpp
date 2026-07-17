@@ -405,7 +405,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Start_SodiumNotReady_NoBegin) {
 
     EXPECT_CALL(updateMock, begin(_, _)).Times(0);
 
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
 
     EXPECT_TRUE(sink.fired);
@@ -423,7 +423,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Start_MissingSignature_NoBegin) {
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string()));
     EXPECT_CALL(updateMock, begin(_, _)).Times(0);
 
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
 
     EXPECT_TRUE(sink.fired);
@@ -440,7 +440,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Start_BeginFails_UpdateBeginFailed) {
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string(kValidSigHex)));
     EXPECT_CALL(updateMock, begin(_, _)).WillOnce(Return(false));
 
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
 
     EXPECT_TRUE(sink.fired);
@@ -458,7 +458,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Start_ValidSigAndBegin_NoError) {
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string(kValidSigHex)));
     EXPECT_CALL(updateMock, begin(_, _)).WillOnce(Return(true));
 
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
 
     EXPECT_FALSE(sink.fired) << "a successful START must not raise an error";
@@ -471,7 +471,7 @@ void successfulStart(MockHttpServer& httpMock, MockUpdate& updateMock,
                      std::unique_ptr<OtaUpdateServer>& otaServer) {
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string(kValidSigHex)));
     EXPECT_CALL(updateMock, begin(_, _)).WillOnce(Return(true));
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
 }
 
@@ -491,7 +491,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_AllBytesAccepted_NoError) {
     EXPECT_CALL(updateMock, write(_, sizeof(payload)))
         .WillOnce(Return(sizeof(payload)));
 
-    IHttpUpload wr = makeUpload(IHttpUpload::UPLOAD_FILE_WRITE, payload, sizeof(payload));
+    IHttpUpload wr = makeUpload(IHttpUpload::Status::UPLOAD_FILE_WRITE, payload, sizeof(payload));
     otaServer->handleUpload(wr);
 
     EXPECT_FALSE(sink.fired) << "a successful WRITE must not raise an error";
@@ -508,7 +508,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_PartialWrite_UpdateWriteFailed) {
     // write accepts only 1 of 4 bytes => failure.
     EXPECT_CALL(updateMock, write(_, sizeof(payload))).WillOnce(Return(1));
 
-    IHttpUpload wr = makeUpload(IHttpUpload::UPLOAD_FILE_WRITE, payload, sizeof(payload));
+    IHttpUpload wr = makeUpload(IHttpUpload::Status::UPLOAD_FILE_WRITE, payload, sizeof(payload));
     otaServer->handleUpload(wr);
 
     EXPECT_TRUE(sink.fired);
@@ -525,14 +525,14 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_AfterFailedStart_NoWrite) {
     primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/-1, sink);
 
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
     ASSERT_TRUE(sink.fired) << "precondition: START must have failed";
 
     // A subsequent WRITE must not touch IUpdate.
     EXPECT_CALL(updateMock, write(_, _)).Times(0);
     uint8_t payload[] = {0x01};
-    IHttpUpload wr = makeUpload(IHttpUpload::UPLOAD_FILE_WRITE, payload, sizeof(payload));
+    IHttpUpload wr = makeUpload(IHttpUpload::Status::UPLOAD_FILE_WRITE, payload, sizeof(payload));
     otaServer->handleUpload(wr);
 }
 
@@ -554,7 +554,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Write_PastUploadTimeout_AbortsAndReport
     EXPECT_CALL(updateMock, write(_, _)).Times(0);
 
     uint8_t payload[] = {0xde, 0xad};
-    IHttpUpload wr = makeUpload(IHttpUpload::UPLOAD_FILE_WRITE, payload, sizeof(payload));
+    IHttpUpload wr = makeUpload(IHttpUpload::Status::UPLOAD_FILE_WRITE, payload, sizeof(payload));
     otaServer->handleUpload(wr);
 
     EXPECT_TRUE(sink.fired);
@@ -574,7 +574,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_Aborted_CallsAbortAndReports) {
 
     EXPECT_CALL(updateMock, abort()).Times(1);
 
-    IHttpUpload ab = makeUpload(IHttpUpload::UPLOAD_FILE_ABORTED, nullptr, 0);
+    IHttpUpload ab = makeUpload(IHttpUpload::Status::UPLOAD_FILE_ABORTED, nullptr, 0);
     otaServer->handleUpload(ab);
 
     EXPECT_TRUE(sink.fired);
@@ -595,7 +595,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_EndReturnsFalse_UpdateEndFailed) {
 
     EXPECT_CALL(updateMock, end(true)).WillOnce(Return(false));
 
-    IHttpUpload end = makeUpload(IHttpUpload::UPLOAD_FILE_END, nullptr, 0);
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
     otaServer->handleUpload(end);
 
     EXPECT_TRUE(sink.fired);
@@ -612,7 +612,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_UpdateHasError_UpdateError) {
     EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
     EXPECT_CALL(updateMock, hasError()).WillOnce(Return(true));
 
-    IHttpUpload end = makeUpload(IHttpUpload::UPLOAD_FILE_END, nullptr, 0);
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
     otaServer->handleUpload(end);
 
     EXPECT_TRUE(sink.fired);
@@ -633,7 +633,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_NoNextPartition_NoOtaPartition) {
     EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr))
         .WillOnce(Return(nullptr));
 
-    IHttpUpload end = makeUpload(IHttpUpload::UPLOAD_FILE_END, nullptr, 0);
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
     otaServer->handleUpload(end);
 
     EXPECT_TRUE(sink.fired);
@@ -664,7 +664,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_FullSuccess_NoError) {
     EXPECT_CALL(partitionMock, read(_, _, _, _)).WillRepeatedly(Return(0));
     EXPECT_CALL(partitionMock, setBootPartition(part)).WillOnce(Return(0));
 
-    IHttpUpload end = makeUpload(IHttpUpload::UPLOAD_FILE_END, nullptr, 0);
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
     otaServer->handleUpload(end);
 
     EXPECT_FALSE(sink.fired) << "a fully successful END must not raise an error";
@@ -694,7 +694,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_SigVerifyFails_SignatureVerifyFaile
     EXPECT_CALL(partitionMock, read(_, _, _, _)).WillRepeatedly(Return(0));
     EXPECT_CALL(updateMock, abort()).Times(1);
 
-    IHttpUpload end = makeUpload(IHttpUpload::UPLOAD_FILE_END, nullptr, 0);
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
     otaServer->handleUpload(end);
 
     EXPECT_TRUE(sink.fired);
@@ -734,7 +734,7 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_ImageLargerThanPartition_SignatureV
     // totalSize (not the chunk payload) is what verifyPartition checks; set it
     // directly past the capacity without a WRITE payload.
     IHttpUpload end;
-    end.status = IHttpUpload::UPLOAD_FILE_END;
+    end.status = IHttpUpload::Status::UPLOAD_FILE_END;
     end.totalSize = kImageSize;
     end.currentSize = 0;
     otaServer->handleUpload(end);
@@ -768,7 +768,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_SignatureError_ForbiddenAndVerifyFailedCa
 
     // Drive START with no signature header => otaErr_ contains "signature".
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string()));
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
     ASSERT_TRUE(sink.fired) << "precondition: START must have set a signature error";
 
@@ -788,7 +788,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_SodiumError_ForbiddenAndSodiumCallback) {
     primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
              otaServer, /*sodiumInitResult=*/-1, sink);
 
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
     ASSERT_TRUE(sink.fired) << "precondition: START must have set a sodium error";
 
@@ -810,7 +810,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_OtherError_BadRequestAndUpdateErrorCallba
     // START with valid sig but begin fails => otaErr_ = "failed to begin update".
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string(kValidSigHex)));
     EXPECT_CALL(updateMock, begin(_, _)).WillOnce(Return(false));
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
     ASSERT_TRUE(sink.fired) << "precondition: START must have set a begin error";
 
@@ -834,7 +834,7 @@ TEST_F(OtaUpdateServerTest, HandlePost_NoErrorNoUpdateError_OkAndSuccessCallback
     // Successful START => otaErr_ stays empty.
     ON_CALL(httpMock, header(_)).WillByDefault(Return(std::string(kValidSigHex)));
     EXPECT_CALL(updateMock, begin(_, _)).WillOnce(Return(true));
-    IHttpUpload start = makeUpload(IHttpUpload::UPLOAD_FILE_START, nullptr, 0);
+    IHttpUpload start = makeUpload(IHttpUpload::Status::UPLOAD_FILE_START, nullptr, 0);
     otaServer->handleUpload(start);
     ASSERT_FALSE(errSink.fired) << "precondition: START must have succeeded";
 

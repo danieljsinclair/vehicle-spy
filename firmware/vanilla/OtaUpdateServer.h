@@ -87,14 +87,14 @@ struct IHttpServer {
 
 // HTTP upload interface
 struct IHttpUpload {
-    enum Status {
+    enum class Status {
         UPLOAD_FILE_START,
         UPLOAD_FILE_WRITE,
         UPLOAD_FILE_END,
         UPLOAD_FILE_ABORTED
     };
 
-    Status status = UPLOAD_FILE_START;
+    Status status = Status::UPLOAD_FILE_START;
     const char* name = nullptr;
     const char* filename = nullptr;
     uint8_t* buf = nullptr;
