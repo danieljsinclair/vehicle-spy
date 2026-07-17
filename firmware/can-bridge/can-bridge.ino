@@ -424,7 +424,7 @@ static void drainSerialATCommands() {
         const auto c = static_cast<char>(Serial.read());
         if (c == '\r' || c == '\n') {
             if (!serialCmd.isEmpty()) {
-                firmwareApp.handleSerialAtCommand(static_cast<const char*>(serialCmd.c_str()));
+                firmwareApp.handleSerialAtCommand(serialCmd.c_str());
                 serialQuietUntilMs = millis() + Constants::SERIAL_QUIET_DURATION_MS;
                 serialCmd = "";
             }
@@ -632,7 +632,7 @@ void loop() {
             case esp32_firmware::WiFiState::State::RECONNECTING:   stateName = "RECONNECTING";   break;
         }
         Serial.printf("[STATE] uptime=%lums wifi=%s monitor=%s\r\n",
-                      static_cast<unsigned long>(millis()),
+                      millis(),
                       stateName,
                       firmwareApp.isMonitorActive() ? "ACTIVE" : "idle");
     }
