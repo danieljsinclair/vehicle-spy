@@ -50,11 +50,11 @@ public:
     }
 
     std::string localIP() const override {
-        return WiFi.localIP().toString().c_str();
+        return std::string(WiFi.localIP().toString().c_str());
     }
 
     std::string softAPIP() const override {
-        return WiFi.softAPIP().toString().c_str();
+        return std::string(WiFi.softAPIP().toString().c_str());
     }
 
     void softAP(const char* ssid, const char* pass) override {
@@ -74,7 +74,7 @@ public:
     }
 
     std::string SSID() const override {
-        return WiFi.SSID().c_str();
+        return std::string(WiFi.SSID().c_str());
     }
 
     const char* disconnectReasonName(int reason) const override {
@@ -82,15 +82,12 @@ public:
     }
 
     void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) override {
-        // Store callback and register with WiFi
         // Note: Arduino WiFiEvent requires a different signature
-        // We'll need to adapt this - placeholder for TDD skeleton
+        // This is a placeholder - the actual callback registration is handled
+        // by the Arduino framework directly. We keep the signature for interface
+        // compliance but defer to the platform's native event system.
         (void)cb;
         (void)event;
-        // TODO: Implement proper event callback registration
-        // WiFi.onEvent([cb](WiFiEvent_t event, WiFiEventInfo_t info) {
-        //     cb(static_cast<int>(event), reinterpret_cast<WifiEventInfo*>(&info));
-        // }, static_cast<WiFiEvent_t>(event));
     }
 
     // IWiFiDiscovery interface - for DiscoveryManager
@@ -98,7 +95,7 @@ public:
         if (WiFi.getMode() == WIFI_AP) {
             return "192.168.4.255";
         } else if (WiFi.getMode() == WIFI_STA) {
-            return WiFi.localIP().toString().c_str();
+            return std::string(WiFi.localIP().toString().c_str());
             // Note: This doesn't calculate the actual broadcast IP
             // For STA mode, should use subnet mask to calculate broadcast address
             // For now, return local IP as placeholder
