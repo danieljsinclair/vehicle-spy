@@ -1066,7 +1066,22 @@ endef
 # The file is touched when the summary is fresh, making `sonar-summary`
 # skippable when nothing changed.
 
-sonar-scan: $(SONAR_REPORT)
+# Option B (drift-stability hardening): a stale build dir (leftover
+# coverage-sonar.xml / .profraw from a prior source state) could be uploaded
+# by a scan, causing scope oscillation (e.g. the 2026-07-16 17:11 vehicle-spy
+# spike to pre-fix 7045). Every scan now DEPENDS on a FULL REGENERATION via
+# `coverage-run` (not a delete-and-pray). `coverage-run` already regenerates
+# the XML from scratch whenever sources/scripts change; `make clean` wipes the
+# dir at the start of a full build. The prior `coverage-clean` prereq DELETED
+# the XML (and .profraw) BEFORE the scan's $(SONAR_REPORT) depended on it —
+# but coverage-sonar.xml is an orphan side-effect with no make rule, so nothing
+# rebuilt it → "No rule to make target 'build-cov/coverage-sonar.xml'".
+# Depending on `coverage-run` instead guarantees regeneration from current source
+# state, without deleting the profdata/profraw needed to do so. The standalone
+# `coverage-clean` / `coverage-firmware-clean` targets are UNTOUCHED and still
+# delete coverage artifacts exactly as before (manual `make coverage-clean` or
+# `make clean` still works). The only change is the intra-scan prereq.
+sonar-scan: coverage-run $(SONAR_REPORT)
 
 # == Coverage manifest (single source of truth) ==
 # coverage-manifest.toml is the authority for each project's sonar.sources /
@@ -1093,7 +1108,7 @@ $(SONAR_REPORT): SS_LABEL         := vehicle-spy
 $(SONAR_REPORT): SS_COMPILE_DB    := $(BUILD_COV_DIR)/compile_commands.json
 $(SONAR_REPORT): SS_BUILD_DIR     := build-sonar
 
-$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_XML_CPP) $(SONAR_PROPERTIES) $(SONAR_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
+$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_LCOV) $(SONAR_PROPERTIES) $(SONAR_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 sonar-scan-ios: $(SONAR_IOS_REPORT)
@@ -1110,7 +1125,9 @@ $(SONAR_IOS_REPORT): SS_BUILD_DIR     := build-ios
 $(SONAR_IOS_REPORT): $(COMPILE_COMMANDS_IOS) $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES) $(SONAR_IOS_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
-sonar-scan-esp32: $(SONAR_ESP32_REPORT)
+# Option B hardening (see sonar-scan above): clean esp32 coverage artifacts
+# before regenerating, so a stale firmware/build-verify XML can never upload.
+sonar-scan-esp32: coverage-firmware $(SONAR_ESP32_REPORT)
 
 $(SONAR_ESP32_REPORT): SS_PROPERTIES    := $(SONAR_ESP32_PROPERTIES)
 $(SONAR_ESP32_REPORT): SS_PROJECT_KEY   := $(SONAR_ESP32_PROJECT_KEY)
@@ -1122,7 +1139,7 @@ $(SONAR_ESP32_REPORT): SS_LABEL         := vehicle-spy-esp32
 $(SONAR_ESP32_REPORT): SS_COMPILE_DB    := $(SONAR_COMPILE_DB_FW)
 $(SONAR_ESP32_REPORT): SS_BUILD_DIR     := build-firmware
 
-$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_XML) $(SONAR_ESP32_PROPERTIES) $(SONAR_ESP32_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
+$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_LCOV) $(SONAR_ESP32_PROPERTIES) $(SONAR_ESP32_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 # sonar-summary: regenerate only when a report file or the summary script

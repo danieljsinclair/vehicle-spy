@@ -61,6 +61,41 @@ def _load_measures(path: str) -> Optional[dict]:
     }
 
 
+def _load_deferred_arduino_veneer(manifest_path: str) -> Optional[dict]:
+    """Read the [deferred.arduino_veneer] declared gap from coverage-manifest.toml.
+
+    Returns {'status': str, 'resolution': str, 'files': [ {path, owner, lines,
+    measure}... ]} or None if the manifest/section is absent. ``lines`` is the
+    int count when known; ``measure`` is 'coverable' (from a coverage XML) or
+    'physical' (wc -l upper bound — file never indexed, coverable unmeasured).
+    """
+    try:
+        with open(manifest_path, 'rb') as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    dm = data.get('deferred', {}).get('arduino_veneer', {})
+    if not dm:
+        return None
+    files = []
+    for fi in dm.get('files', []):
+        try:
+            lines = int(fi.get('lines'))
+        except (TypeError, ValueError):
+            continue
+        files.append({
+            'path': fi.get('path', '?'),
+            'owner': fi.get('owner', '?'),
+            'lines': lines,
+            'measure': fi.get('lines_measure', 'unknown'),
+        })
+    return {
+        'status': dm.get('status', 'deferred'),
+        'resolution': dm.get('resolution', ''),
+        'files': files,
+    }
+
+
 def _load_deferred_mm(manifest_path: str) -> Optional[dict]:
     """Read the [deferred.mm] declared gap from coverage-manifest.toml.
 
@@ -154,7 +189,8 @@ RESET = '\033[0m'
 
 
 def render(rows: List[Tuple[str, int, float, int]], trustworthy: bool, use_colour: bool,
-           deferred_mm: Optional[dict] = None, glob_mm: Optional[List[dict]] = None) -> str:
+           deferred_mm: Optional[dict] = None, glob_mm: Optional[List[dict]] = None,
+           deferred_arduino_veneer: Optional[dict] = None) -> str:
     """Render the scorecard text from (label, lines_to_cover, coverage%, uncovered) rows.
 
     ``glob_mm`` (preferred) renders the .mm gap as YELLOW ACTIONABLE WARNINGS,
@@ -207,7 +243,39 @@ def render(rows: List[Tuple[str, int, float, int]], trustworthy: bool, use_colou
     mm_block = render_deferred_mm(deferred_mm, glob_mm, use_colour)
     if mm_block:
         out.append(mm_block)
+    # Declared Arduino veneer gap — YELLOW ACTIONABLE WARNINGS
+    av_block = render_deferred_arduino_veneer(deferred_arduino_veneer, use_colour)
+    if av_block:
+        out.append(av_block)
     return '\n'.join(out)
+
+
+def render_deferred_arduino_veneer(deferred_arduino_veneer: Optional[dict], use_colour: bool) -> str:
+    """Render the deferred-arduino_veneer YELLOW ACTIONABLE WARNINGS block.
+
+    Mirrors the [deferred.mm] pattern: surfaces ESP32 Arduino platform veneers
+    as a declared YELLOW gap (two-sided exclusion, count-zero in host XML, live
+    lines in cfamily). Tracked, not hidden. Glob-driven via manifest (no new
+    glob needed — manifest list is the source).
+    """
+    yellow = '\033[33m' if use_colour else ''
+    reset = '\033[0m' if use_colour else ''
+    files = deferred_arduino_veneer.get('files', []) if deferred_arduino_veneer else []
+    if not files:
+        return ''
+    total_lines = sum(f.get('lines', 0) for f in files)
+    lines = []
+    lines.append('')
+    lines.append(f"{yellow}  ⚠ DEFERRED Arduino veneer — {len(files)} file(s), {total_lines} lines, "
+                 f"count-ZERO in host XML (untestable #ifdef ARDUINO), live lines in cfamily. ACTION: "
+                 f"migrate each Arduino*.h adapter to thin Arduino shell + .cpp core (PIMPL) so the .cpp counts in vehicle-spy.{reset}")
+    for f in files:
+        owner = f.get('owner', '?')
+        flines = f.get('lines', 0)
+        path = f.get('path', '?')
+        lines.append(f"{yellow}    [{owner:14s}] {flines:>5d} lines  {path}  -> migrate to .cpp{reset}")
+    lines.append(f"{yellow}  (persists every build until each veneer is migrated; tracked, not suppressed){reset}")
+    return '\n'.join(lines)
 
 
 def render_deferred_mm(deferred_mm: Optional[dict], glob_mm: Optional[List[dict]],
@@ -327,8 +395,9 @@ def main() -> int:
 
     manifest_path = os.path.join(repo_root, 'coverage-manifest.toml')
     deferred_mm = _load_deferred_mm(manifest_path)
+    deferred_arduino_veneer = _load_deferred_arduino_veneer(manifest_path)
     glob_mm = _glob_mm_files(repo_root)
-    print(render(rows, args.trustworthy, use_colour, deferred_mm, glob_mm))
+    print(render(rows, args.trustworthy, use_colour, deferred_mm, glob_mm, deferred_arduino_veneer))
     return 0 if rows else 1
 
 

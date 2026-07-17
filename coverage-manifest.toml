@@ -193,3 +193,70 @@ path = "vehicle-sim-ios/VehicleSim/VehicleSimWrapper.mm"
 owner = "vehicle-spy-ios"
 lines = 390
 lines_measure = "coverable"              # from pre-exclusion iOS coverage XML
+
+# =============================================================================
+# DEFERRED — ESP32 Arduino platform veneer gap (PURE FALLBACK adopted 2026-07-17).
+# =============================================================================
+# These Arduino*.h adapters are #ifdef ARDUINO gated platform veneers — the
+# implementation logic lives in their .cpp twins but the headers themselves
+# carry inline methods (method bodies in the class declaration) that cfamily
+# counts as executable lines. Host tests don't build the ARDUINO path, so
+# llvm-cov sees 0 coverage; cfamily sees the inline bodies and counts them.
+# Two-sided exclusion (this manifest's sonar.exclusions + the XML converter's
+# .h skip) is the honest two-sided gap (like .mm), NOT hiding. Tracked as a
+# declared YELLOW migration roadmap: migrate each to a thin Arduino shell +
+# .cpp core (PIMPL) so the .cpp counts in vehicle-spy host coverage.
+[deferred.arduino_veneer]
+status = "deferred"                      # PURE FALLBACK; swap to "counted" only if migrate-to-cpp lands
+resolution = "migrate-to-cpp"            # the durable fix (PIMPL; thin Arduino shell + .cpp core)
+note = "count-zero in host XML; live lines in cfamily; declared gap (PURE FALLBACK), NOT hidden. Surfaced as YELLOW warnings in the coverage scorecard. Migrate each Arduino*.h adapter to thin Arduino shell + .cpp core so the .cpp counts in vehicle-spy host coverage."
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoCrypto.h"
+owner = "vehicle-spy-esp32"
+lines = 10
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoHttpServer.h"
+owner = "vehicle-spy-esp32"
+lines = 27
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoPartition.h"
+owner = "vehicle-spy-esp32"
+lines = 15
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoPreferences.h"
+owner = "vehicle-spy-esp32"
+lines = 9
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoSntp.h"
+owner = "vehicle-spy-esp32"
+lines = 10
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoTcpServer.h"
+owner = "vehicle-spy-esp32"
+lines = 7
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoTcpServerClient.h"
+owner = "vehicle-spy-esp32"
+lines = 9
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoTimeNtp.h"
+owner = "vehicle-spy-esp32"
+lines = 5
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoUdp.h"
+owner = "vehicle-spy-esp32"
+lines = 4
+lines_measure = "coverable"
+[[deferred.arduino_veneer.files]]
+path = "firmware/can-bridge/ArduinoUpdate.h"
+owner = "vehicle-spy-esp32"
+lines = 14
+lines_measure = "coverable"
