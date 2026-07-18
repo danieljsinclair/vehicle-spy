@@ -475,13 +475,6 @@ static void onBroadcastDiscovery() {
     // .ino-only side effect (e.g. LED pulse) would be added here.
 }
 
-static void onHandleOta() {
-    // Service OTA upload (non-blocking, handles one connection)
-#if VEHICLE_SIM_ENABLE_OTA_SERVER
-    otaLoop();
-#endif
-}
-
 // FirmwareCallbacks structure for FirmwareApp — constructed locally in setup()
 // and copied into FirmwareApp via setCallbacks() (which stores its own copy).
 // Kept out of global scope (S5421).
@@ -530,8 +523,7 @@ void setup() {
     firmwareApp.init();
     firmwareApp.setCallbacks(esp32_firmware::FirmwareCallbacks{
         .restartTcpServer = onRestartTcpServer,
-        .broadcastDiscovery = onBroadcastDiscovery,
-        .handleOta = onHandleOta
+        .broadcastDiscovery = onBroadcastDiscovery
     });
 
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────

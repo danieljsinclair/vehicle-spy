@@ -37,9 +37,6 @@ struct FirmwareCallbacks {
 
     // Discovery packet should broadcast
     std::function<void()> broadcastDiscovery;
-
-    // OTA update handler
-    std::function<void()> handleOta;
 };
 
 // FirmwareApp - Main application orchestrator

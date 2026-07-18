@@ -235,11 +235,19 @@ bool WiFiManager::clearCredentials() {
 void WiFiManager::onDisconnected(int reason) {
     ctx_.lastDisconnectReason = reason;
 
-    // Special handling for AUTH_FAIL - transition straight to AP mode
+    // Credential/auth rejections: the SSID/PSK combination was refused, so
+    // retrying the SAME credentials is guaranteed-futile. Transition straight
+    // to AP mode (do NOT re-enter the RECONNECTING connect cycle). Covers the
+    // full ESP-IDF auth-failure family, not just the three common ones.
     if (reason == WIFI_REASON_AUTH_FAIL ||
         reason == WIFI_REASON_AUTH_EXPIRE ||
-        reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT) {
-        // Transition to AP mode immediately on auth failure
+        reason == WIFI_REASON_AUTH_LEAVE ||
+        reason == WIFI_REASON_NOT_AUTHED ||
+        reason == WIFI_REASON_NOT_ASSOCED ||
+        reason == WIFI_REASON_ASSOC_NOT_AUTHED ||
+        reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+        reason == WIFI_REASON_802_1X_AUTH_FAILED ||
+        reason == WIFI_REASON_CIPHER_SUITE_REJECTED) {
         wifi_.disconnect(false, true);
         wifi_.setMode(2);  // WIFI_AP
         wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);

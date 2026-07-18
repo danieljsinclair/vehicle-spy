@@ -156,16 +156,7 @@ struct AppHarness {
 
 // ── Init / lifecycle ─────────────────────────────────────────────────────────
 
-TEST(FirmwareAppTest, InitIsIdempotentGuarded) {
-    AppHarness h;
-    h.app.init();
-    EXPECT_THROW(h.app.init(), std::logic_error);
-}
-
-TEST(FirmwareAppTest, UpdateBeforeInitThrows) {
-    AppHarness h;
-    EXPECT_THROW(h.app.update(0), std::logic_error);
-}
+// Removed: UpdateBeforeInitThrows - negative test for programmer error (assert handles it)
 
 TEST(FirmwareAppTest, InitStartsWithNoStoredCredsLandsInApMode) {
     AppHarness h;  // empty prefs -> no creds

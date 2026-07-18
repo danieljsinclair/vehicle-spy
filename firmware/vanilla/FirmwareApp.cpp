@@ -3,7 +3,7 @@
 #include "DiscoveryManager.h"
 #include "CanBridge.h"
 #include "AtCommandDispatcher.h"
-#include <stdexcept>
+#include <cassert>
 
 namespace esp32_firmware {
 
@@ -31,9 +31,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
 FirmwareApp::~FirmwareApp() = default;
 
 void FirmwareApp::init() {
-    if (initialized_) {
-        throw std::logic_error("FirmwareApp::init() called twice");
-    }
+    assert(!initialized_ && "FirmwareApp::init() called twice");
 
     setupManagers();
     setupCallbacks();
@@ -111,9 +109,7 @@ void FirmwareApp::setupCallbacks() {
 }
 
 void FirmwareApp::update(uint32_t now) {
-    if (!initialized_) {
-        throw std::logic_error("FirmwareApp::update() called before init()");
-    }
+    assert(initialized_ && "FirmwareApp::update() called before init()");
 
     // Lazily open the UDP discovery socket on the first loop tick. This defers the
     // hardware-touching udp_.begin() out of the synchronous boot path (init()), where
@@ -162,36 +158,27 @@ void FirmwareApp::setClientConnected(bool connected) {
 }
 
 void FirmwareApp::resetDiscoveryBackoff() {
-    if (discoveryManager_) {
-        discoveryManager_->resetBackoff();
-    }
+    assert(discoveryManager_ && "FirmwareApp::resetDiscoveryBackoff called before init()");
+    discoveryManager_->resetBackoff();
 }
 
 void FirmwareApp::onWiFiDisconnected(int reason) {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in onWiFiDisconnected()");
-    }
+    assert(wifiManager_ && "FirmwareApp::onWiFiDisconnected called before init()");
     wifiManager_->onDisconnected(reason);
 }
 
 bool FirmwareApp::factoryReset() {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in factoryReset()");
-    }
+    assert(wifiManager_ && "FirmwareApp::factoryReset called before init()");
     return wifiManager_->factoryReset();
 }
 
 bool FirmwareApp::storeCredentials(const std::string& ssid, const std::string& pass) {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in storeCredentials()");
-    }
+    assert(wifiManager_ && "FirmwareApp::storeCredentials called before init()");
     return wifiManager_->storeCredentials(ssid, pass);
 }
 
 bool FirmwareApp::hasStoredCredentials() const {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in hasStoredCredentials()");
-    }
+    assert(wifiManager_ && "FirmwareApp::hasStoredCredentials called before init()");
     return wifiManager_->hasStoredCredentials();
 }
 
@@ -201,59 +188,43 @@ void FirmwareApp::setCallbacks(const FirmwareCallbacks& callbacks) {
 }
 
 int FirmwareApp::getWiFiState() const {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in getWiFiState()");
-    }
+    assert(wifiManager_ && "FirmwareApp::getWiFiState called before init()");
     return static_cast<int>(wifiManager_->getState());
 }
 
 bool FirmwareApp::shouldRestartTcpServer() const {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in shouldRestartTcpServer()");
-    }
+    assert(wifiManager_ && "FirmwareApp::shouldRestartTcpServer called before init()");
     return wifiManager_->shouldRestartTcpServer();
 }
 
 void FirmwareApp::clearTcpServerRestartFlag() {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in clearTcpServerRestartFlag()");
-    }
+    assert(wifiManager_ && "FirmwareApp::clearTcpServerRestartFlag called before init()");
     wifiManager_->clearTcpServerRestartFlag();
 }
 
 bool FirmwareApp::clearCredentials() {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in clearCredentials()");
-    }
+    assert(wifiManager_ && "FirmwareApp::clearCredentials called before init()");
     return wifiManager_->clearCredentials();
 }
 
 bool FirmwareApp::loadCredentials(std::string& ssid, std::string& pass) const {
-    if (!wifiManager_) {
-        throw std::logic_error("WiFiManager not initialized in loadCredentials()");
-    }
+    assert(wifiManager_ && "FirmwareApp::loadCredentials called before init()");
     return wifiManager_->loadCredentials(ssid, pass);
 }
 
 void FirmwareApp::setMonitorActive(bool active) {
-    if (!canBridge_) {
-        throw std::logic_error("CanBridge not initialized in setMonitorActive()");
-    }
+    assert(canBridge_ && "FirmwareApp::setMonitorActive called before init()");
     canBridge_->setMonitorActive(active);
 }
 
 bool FirmwareApp::isMonitorActive() const {
-    if (!canBridge_) {
-        throw std::logic_error("CanBridge not initialized in isMonitorActive()");
-    }
+    assert(canBridge_ && "FirmwareApp::isMonitorActive called before init()");
     return canBridge_->isMonitorActive();
 }
 
 void FirmwareApp::processCanFrames(uint32_t serialQuietUntilMs) {
-    if (!canBridge_) {
-        throw std::logic_error("CanBridge not initialized in processCanFrames()");
-    }
-    // getWiFiState() gates on wifiManager_ internally (throws if not initialized),
+    assert(canBridge_ && "FirmwareApp::processCanFrames called before init()");
+    // getWiFiState() gates on wifiManager_ via assert internally,
     // so it is safe to rely on canBridge_ being initialized whenever this runs.
     canBridge_->processFrames(isMonitorActive(), serialQuietUntilMs);
 }
@@ -269,16 +240,12 @@ void FirmwareApp::setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& seria
 }
 
 void FirmwareApp::handleTcpAtCommand(const std::string& cmd) {
-    if (!atDispatcher_) {
-        throw std::logic_error("AtCommandDispatcher not initialized in handleTcpAtCommand()");
-    }
+    assert(atDispatcher_ && "FirmwareApp::handleTcpAtCommand called before setAtCommandAdapters()");
     atDispatcher_->handleTcpCommand(cmd);
 }
 
 void FirmwareApp::handleSerialAtCommand(const std::string& cmd) {
-    if (!atDispatcher_) {
-        throw std::logic_error("AtCommandDispatcher not initialized in handleSerialAtCommand()");
-    }
+    assert(atDispatcher_ && "FirmwareApp::handleSerialAtCommand called before setAtCommandAdapters()");
     atDispatcher_->handleSerialCommand(cmd);
 }
 
