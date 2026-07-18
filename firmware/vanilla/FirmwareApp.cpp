@@ -19,13 +19,22 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     , wifiDiscovery_(wifiDiscovery)
     , udp_(udp)
     , time_(time)
-    , sntp_(sntp)
-    , timeNtp_(timeNtp)
     , deviceId_(deviceId)
     , canBridgeDeps_(canBridgeDeps)
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
     , initialized_(false) {
+    // Construct the owned managers here (ctor scope), where the PASSED-ONLY
+    // interface refs (sntp/timeNtp/udp/wifiDiscovery/time/deviceId/prefs) are still
+    // in scope. Construction ONLY wires injected refs into each manager's
+    // constructor — NO hardware/socket/netif work — so it is safe at static-init
+    // time (FirmwareApp is a static global in the .ino, constructed before
+    // setup()). The hardware-touching init() calls (WiFi.begin, UDP open, NTP,
+    // TWAI) are deferred to FirmwareApp::init()/update(), which run from setup()/
+    // loop() after the netif is up. This is the cpp:S1820 forward: the PASSED-ONLY
+    // refs are forwarded straight into the owning manager's constructor instead of
+    // being stored as FirmwareApp members.
+    constructManagers(sntp, timeNtp);
 }
 
 FirmwareApp::~FirmwareApp() = default;
@@ -33,7 +42,11 @@ FirmwareApp::~FirmwareApp() = default;
 void FirmwareApp::init() {
     assert(!initialized_ && "FirmwareApp::init() called twice");
 
-    setupManagers();
+    // Deferred boot-time initialization (must NOT run at static-init / ctor time):
+    // WiFi.begin(), CanBridge TWAI driver install, and the firmware-effect
+    // callbacks. These touch hardware/netif, so they wait until setup() has run.
+    wifiManager_->init();
+    canBridge_->init();
     setupCallbacks();
 
     initialized_ = true;
@@ -41,38 +54,32 @@ void FirmwareApp::init() {
     ntpStarted_ = false;
 }
 
-void FirmwareApp::setupManagers() {
-    // Create WiFiManager (primary state machine driver)
+void FirmwareApp::constructManagers(ISntp& sntp, ITimeNtp& timeNtp) {
+    // Create WiFiManager (primary state machine driver). Construction only stores
+    // the injected refs; the WiFi.begin() it performs lives in WiFiManager::init(),
+    // which init() defers to setup()-time.
     wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs_, statusLed_,
                                                    bakedSsid_, bakedPass_);
 
-    // Initialize WiFi state machine. WiFi.begin() is issued here at boot - this is
-    // safe and matches the original .ino ordering (WiFi.begin ran early in setup(),
-    // before tcpServer.begin()). It is async and does not open a socket.
-    wifiManager_->init();
-
-    // Create DiscoveryManager (UDP broadcast discovery)
+    // Create DiscoveryManager (UDP broadcast discovery). Forwards the PASSED-ONLY
+    // udp_/wifiDiscovery_/time_/deviceId_ refs — no longer stored as members.
     discoveryManager_ = std::make_unique<DiscoveryManager>(udp_, wifiDiscovery_, time_, deviceId_);
 
-    // Create NtpTimeSync (NTP time synchronization). Construction only wires the
-    // injected ISntp/ITimeNtp/IStatusLED — NO hardware/socket work here. NTP init
-    // (which touches SNTP/sockets) is deferred to update() after WiFi connects,
-    // matching the boot-crash lesson (never touch netif at boot).
-    // wifiMode/wifiStatus are passed as placeholder values now; they are
-    // overwritten by WiFiManager's NTP-init callback via startIfWiFiConnected()
-    // before init() reads them. These are compile-time placeholders only.
+    // Create NtpTimeSync (NTP time synchronization). Forwards the PASSED-ONLY
+    // sntp/timeNtp refs (received by this ctor, passed straight through) — not
+    // stored as members. Construction only wires ISntp/ITimeNtp/IStatusLED; NTP
+    // init (touches SNTP/sockets) is deferred to update() after WiFi connects.
+    // wifiMode/wifiStatus are compile-time placeholders, overwritten by
+    // WiFiManager's NTP-init callback via startIfWiFiConnected() before init()
+    // reads them.
     constexpr int WIFI_MODE_PLACEHOLDER = 0;
     constexpr int WIFI_STATUS_PLACEHOLDER = 0;
-    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp_, timeNtp_, statusLed_,
+    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp, timeNtp, statusLed_,
                                                  WIFI_MODE_PLACEHOLDER, WIFI_STATUS_PLACEHOLDER);
 
-    // NOTE: discoveryManager_->init() opens the UDP socket (udp_.begin()). On ESP32
-    // this MUST NOT run during boot/static-init: when FirmwareApp::init() executes
-    // the WiFi netif is not yet up, so opening the socket here aborts (Guru
-    // Meditation) with zero serial output - the exact boot crash this refactor
-    // introduced. Defer the UDP open to the first update() tick (which runs from
-    // loop(), post-Serial.begin and after WiFi.begin has had time to bring the
-    // netif up). The broadcast callback is set now regardless of init timing.
+    // The broadcast callback is set now (assignment only, no hardware). The UDP
+    // socket open (udp_.begin()) is deferred to the first update() tick so it
+    // never runs at static-init / before the netif is up.
     discoveryManager_->setBroadcastCallback([this](const uint8_t* packet, size_t len) {
         (void)packet;  // Suppress unused warning
         (void)len;     // Suppress unused warning
@@ -81,14 +88,12 @@ void FirmwareApp::setupManagers() {
         }
     });
 
-    // CanBridge: built now (construction only wires the injected ICanDriver/
-    // ITcpClient/ISerialCan adapters — NO hardware/socket work). The TWAI driver
-    // itself is installed/started in setup() on the ESP32, so the adapter's
-    // driverInstall/start are no-ops post-boot. init() is deferred to init()'s
-    // caller-free path here (mark initialized); frame draining happens in the
-    // loop via processCanFrames().
+    // CanBridge: construction only wires the injected ICanDriver/ITcpClient/
+    // ISerialCan adapters (NO hardware/socket work). The TWAI driver itself is
+    // installed/started in setup() on the ESP32, so the adapter's driverInstall/
+    // start are no-ops post-boot; the actual init() (TWAI install) is deferred to
+    // FirmwareApp::init() below.
     canBridge_ = std::make_unique<CanBridge>(canBridgeDeps_);
-    canBridge_->init();
 }
 
 void FirmwareApp::setupCallbacks() {

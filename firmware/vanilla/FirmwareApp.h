@@ -162,8 +162,6 @@ private:
     IWiFiDiscovery& wifiDiscovery_;
     IUdp& udp_;
     ITime& time_;
-    ISntp& sntp_;
-    ITimeNtp& timeNtp_;
     const std::array<uint8_t, 16>& deviceId_;
     CanBridgeDeps canBridgeDeps_;
     const char* bakedSsid_;
@@ -199,7 +197,11 @@ private:
     bool clientConnected_ = false;
 
     // Helper methods
-    void setupManagers();
+    // constructManagers() builds the owned manager objects from the PASSED-ONLY
+    // interface refs and is called from the ctor (where those refs are in scope).
+    // It performs construction ONLY — no hardware/netif work — so it is safe at
+    // static-init time. The hardware-touching init() calls are deferred to init().
+    void constructManagers(ISntp& sntp, ITimeNtp& timeNtp);
     void setupCallbacks();
 };
 
