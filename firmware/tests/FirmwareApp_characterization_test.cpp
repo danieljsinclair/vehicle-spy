@@ -427,6 +427,79 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_FullDependencySetBuildsAndInits) {
         << "update() must not change monitor state (only setMonitorActive does)";
 }
 
+// STEP 0 (cpp:S1820 Phase 3 safety-net tightening): the two construction-invariant
+// tests above assert managers were *built*, but NOT that they were built *with the
+// right dependencies*. A refactor that forwards a PASSED-ONLY ref could drop it from
+// the owning manager's constructor (e.g. DiscoveryManager built without udp_/
+// wifiDiscovery_/deviceId_, or WiFiManager built without prefs_) and the existing
+// 6 assertions would STILL PASS — because the manager itself exists. These two pins
+// catch the *dropped-ctor-dep* risk specifically by exercising observable behavior
+// that only exists when the dependency was actually plumbed through.
+//
+// (a) Discovery broadcast fires after a tick: DiscoveryManager::init() opens the UDP
+//     socket (udp_.begin) and broadcasts only because it was constructed with real
+//     udp_ + wifiDiscovery_ + deviceId_. If any of those were dropped from its ctor,
+//     the broadcast callback (which FirmwareApp forwards to our spy) never fires.
+// (b) Credential round-trip via prefs_: storeCredentials() -> hasStoredCredentials()
+//     returns true only because WiFiManager was constructed WITH prefs_ (the NVS
+//     backing). A WiFiManager built without prefs_ would have no persistence and this
+//     assertion would fail.
+//
+// Both pins go through the PUBLIC CONTRACT only — no private field is read.
+
+TEST_F(FirmwareAppTest, ConstructionInvariant_DiscoveryBroadcastFiresWithDeps) {
+    // CONTRACT: after init() + one discovery-enabled update() tick, the
+    // broadcastDiscovery callback spy fires — proving DiscoveryManager was built with
+    // real udp_/wifiDiscovery_/deviceId_ deps (it cannot open the socket or build a
+    // packet without them). Pins "DiscoveryManager ctor received all 3 forwarded
+    // deps" so a Phase-3 drop of udp_/wifiDiscovery_/deviceId_ from that ctor is
+    // caught (the spy stays false).
+    //
+    // Setup: AP mode (broadcastIP available), discovery enabled (default). The first
+    // tick at t=0 opens the socket; the broadcast fires once fast-cadence (500ms)
+    // elapses (lastBroadcastMs starts at 0, so t>=500 is required).
+    firmwareApp->init();
+    firmwareApp->setCallbacks(callbackSpies);
+
+    // Set WiFi to AP mode so broadcastIP() resolves (DiscoveryManager broadcasts in AP).
+    wifiMock.setMode(2);  // WIFI_AP
+
+    EXPECT_CALL(udpMock, begin(_)).Times(AtLeast(1));        // socket opens on first tick
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, write(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, endPacket()).Times(AtLeast(1));
+
+    FakeClock clock;
+    firmwareApp->update(clock.now());        // t=0: opens socket, no broadcast yet (cadence)
+    clock.advance(1000);                     // advance past fast-cadence (500ms)
+    firmwareApp->update(clock.now());        // t=1000: broadcast fires
+
+    EXPECT_TRUE(broadcastDiscoveryCalled)
+        << "DiscoveryManager built WITHOUT udp_/wifiDiscovery_/deviceId_ would "
+           "never fire the broadcast callback — a dropped ctor dep is caught here";
+}
+
+TEST_F(FirmwareAppTest, ConstructionInvariant_CredentialRoundTripViaPrefs) {
+    // CONTRACT: storeCredentials() followed by hasStoredCredentials()==true proves
+    // WiFiManager was constructed WITH prefs_ (the NVS-backed persistence). A
+    // WiFiManager built without prefs_ has no storage layer and would report false.
+    // Pins "WiFiManager ctor received prefs_" so a Phase-3 drop of prefs_ from that
+    // ctor is caught.
+    firmwareApp->init();
+
+    ASSERT_TRUE(firmwareApp->storeCredentials("roundtrip-ssid", "roundtrip-pass"));
+
+    EXPECT_TRUE(firmwareApp->hasStoredCredentials())
+        << "WiFiManager built WITHOUT prefs_ would have no persistence and report "
+           "false — a dropped prefs_ ctor dep is caught here";
+
+    // Sanity: the value actually round-trips through the backing store.
+    std::string loadedSsid, loadedPass;
+    ASSERT_TRUE(firmwareApp->loadCredentials(loadedSsid, loadedPass));
+    EXPECT_EQ(loadedSsid, "roundtrip-ssid");
+    EXPECT_EQ(loadedPass, "roundtrip-pass");
+}
+
 TEST_F(FirmwareAppTest, ConstructionInvariant_MonitorAndTcpWiringSurviveRegroup) {
     // CONTRACT (Phase-2 regroup-safety, second axis): the two init()-wired
     // behavior paths that a careless field-drop would silently break — the
