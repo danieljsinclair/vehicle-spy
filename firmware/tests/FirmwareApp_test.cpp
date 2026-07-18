@@ -86,7 +86,7 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnected_AfterInit_DoesNotThrow) {
     firmwareApp->init();
 
     EXPECT_NO_THROW({
-        firmwareApp->onWiFiDisconnected(1); // AUTH_EXPIRE
+        firmwareApp->onWiFiDisconnected(2); // WIFI_REASON_AUTH_EXPIRE (real ESP-IDF code)
     });
 }
 

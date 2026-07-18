@@ -103,7 +103,11 @@ public:
     }
 
     const char* disconnectReasonName(int reason) const override {
+        // Positional by ESP-IDF wifi_err_reason_t value: index 0 is unused
+        // (real codes start at 1 = UNSPECIFIED), index 200+ continues the
+        // beacon/auth-fail family.
         static const char* reasons[] = {
+            "(unused-0)",
             "UNSPECIFIED",
             "AUTH_EXPIRE",
             "AUTH_LEAVE",
@@ -115,6 +119,7 @@ public:
             "ASSOC_NOT_AUTHED",
             "DISASSOC_PWRCAP_BAD",
             "DISASSOC_SUPCHAN_BAD",
+            "BSS_TRANSITION_DISASSOC",
             "IE_INVALID",
             "MIC_FAILURE",
             "4WAY_HANDSHAKE_TIMEOUT",

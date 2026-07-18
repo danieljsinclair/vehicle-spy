@@ -235,16 +235,21 @@ bool WiFiManager::clearCredentials() {
 void WiFiManager::onDisconnected(int reason) {
     ctx_.lastDisconnectReason = reason;
 
-    // Credential/auth rejections: the SSID/PSK combination was refused, so
-    // retrying the SAME credentials is guaranteed-futile. Transition straight
-    // to AP mode (do NOT re-enter the RECONNECTING connect cycle). Covers the
-    // full ESP-IDF auth-failure family, not just the three common ones.
+    // Permanent, unrecoverable STA auth failures: the SSID/PSK combination was
+    // cryptographically refused, so retrying the SAME credentials is
+    // guaranteed-futile. Transition straight to AP mode (do NOT re-enter the
+    // RECONNECTING connect cycle). This covers only the auth failures that
+    // indicate a *wrong credential* rather than a transient link flap:
+    //   - AUTH_FAIL (202): bad PSK
+    //   - 802_1X_AUTH_FAILED (21): enterprise auth rejected
+    //   - CIPHER_SUITE_REJECTED (22): crypto negotiation impossible
+    //   - 4WAY_HANDSHAKE_TIMEOUT (15): handshake never completed (bad PSK-class)
+    //
+    // Transient session/assoc lifecycle reasons that are RECOVERABLE by a fresh
+    // reconnect — AUTH_EXPIRE(1), AUTH_LEAVE(2), NOT_AUTHED(5), NOT_ASSOCED(6),
+    // ASSOC_NOT_AUTHED(8) — deliberately fall through to the RECONNECTING branch
+    // below so the stack re-associates instead of abandoning STA for AP mode.
     if (reason == WIFI_REASON_AUTH_FAIL ||
-        reason == WIFI_REASON_AUTH_EXPIRE ||
-        reason == WIFI_REASON_AUTH_LEAVE ||
-        reason == WIFI_REASON_NOT_AUTHED ||
-        reason == WIFI_REASON_NOT_ASSOCED ||
-        reason == WIFI_REASON_ASSOC_NOT_AUTHED ||
         reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
         reason == WIFI_REASON_802_1X_AUTH_FAILED ||
         reason == WIFI_REASON_CIPHER_SUITE_REJECTED) {

@@ -58,7 +58,7 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnectedThenReconnect_ReArmsTcpRestartFlag) {
     //
     // Disconnect reason 200 (WIFI_REASON_BEACON_TIMEOUT) is a non-auth drop: it takes
     // the RECONNECTING branch (WiFiManager::onDisconnected), which sets the flag. An
-    // auth-fail reason (1/2/202) instead parks in AP mode and clears the flag — that is
+    // auth-fail reason (2/202) instead parks in AP mode and clears the flag — that is
     // a DIFFERENT contract and is intentionally NOT asserted here.
     FakeClock clock;
     firmwareApp->init();
@@ -90,15 +90,14 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnectedThenReconnect_ReArmsTcpRestartFlag) {
 }
 
 TEST_F(FirmwareAppTest, CredentialFailure_DoesNotReconnect_SettlesInApMode) {
-    // CONTRACT (refactor-safety net for cpp:S1820): a credential/auth rejection
-    // (bad SSID/PSK) MUST NOT re-enter the connect cycle against the same
-    // credentials — retrying a refused SSID/PSK is guaranteed-futile. From a
+    // CONTRACT (refactor-safety net for cpp:S1820): a *permanent* credential/auth
+    // rejection (bad SSID/PSK) MUST NOT re-enter the connect cycle against the
+    // same credentials — retrying a refused SSID/PSK is guaranteed-futile. From a
     // CONNECTED_STA state, the disconnect must settle in AP mode and leave the
-    // TCP-restart flag CLEARED (no STA connection to serve). Pins the full
-    // ESP-IDF auth-failure family (AUTH_FAIL=202, AUTH_EXPIRE=1, AUTH_LEAVE=2,
-    // NOT_AUTHED=5, NOT_ASSOCED=6, ASSOC_NOT_AUTHED=8, 4WAY_HANDSHAKE_TIMEOUT=13,
-    // 802_1X_AUTH_FAILED=21, CIPHER_SUITE_REJECTED=22), so a god-struct split
-    // cannot silently drop any of them back into RECONNECTING.
+    // TCP-restart flag CLEARED (no STA connection to serve). Pins the four
+    // unrecoverable auth failures (AUTH_FAIL=202, 4WAY_HANDSHAKE_TIMEOUT=15,
+    // 802_1X_AUTH_FAILED=23, CIPHER_SUITE_REJECTED=24 — real ESP-IDF codes), so a
+    // god-struct split cannot silently drop any of them back into RECONNECTING.
     //
     // Each reason is exercised from a fresh CONNECTED_STA precondition (a new
     // FirmwareApp per reason, initialized exactly once), because once the app is
@@ -106,7 +105,7 @@ TEST_F(FirmwareAppTest, CredentialFailure_DoesNotReconnect_SettlesInApMode) {
     // machine — that is real behavior, not a setup the test should fight.
     // Time is driven by a FakeClock advanced explicitly (no realtime waits), so
     // the whole loop completes in ~0ms.
-    for (int reason : {202, 1, 2, 5, 6, 8, 13, 21, 22}) {
+    for (int reason : {202, 15, 23, 24}) {
         firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
         firmwareApp->init();
         firmwareApp->setCallbacks(callbackSpies);
@@ -123,8 +122,40 @@ TEST_F(FirmwareAppTest, CredentialFailure_DoesNotReconnect_SettlesInApMode) {
         firmwareApp->onWiFiDisconnected(reason);
         firmwareApp->update(clock.now());
         EXPECT_FALSE(firmwareApp->shouldRestartTcpServer())
-            << "credential failure (reason " << reason
+            << "permanent auth failure (reason " << reason
             << ") must settle in AP mode and leave the TCP restart flag cleared";
+    }
+}
+
+TEST_F(FirmwareAppTest, RecoverableAuthDisconnect_ReconnectsAndReArmsTcpFlag) {
+    // CONTRACT (refactor-safety net for cpp:S1820): transient session/assoc
+    // lifecycle drops (AUTH_EXPIRE=2, AUTH_LEAVE=3, NOT_AUTHED=6, NOT_ASSOCED=7,
+    // ASSOC_NOT_AUTHED=9 — real ESP-IDF codes) are RECOVERABLE — they are not wrong-credential rejections,
+    // so the stack must re-associate rather than abandon STA for AP mode. From a
+    // CONNECTED_STA state the disconnect must settle in RECONNECTING and KEEP the
+    // TCP-restart flag armed (a drop occurred, the link must be rebuilt). Pins all
+    // five recoverable reasons so a god-struct split cannot silently promote any of
+    // them into the unrecoverable AP-mode set.
+    for (int reason : {2, 3, 6, 7, 9}) {
+        firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
+        firmwareApp->init();
+        firmwareApp->setCallbacks(callbackSpies);
+
+        FakeClock clock;
+        // Establish CONNECTED_STA with the TCP-restart flag armed.
+        wifiMock.simulateConnectSuccess();
+        firmwareApp->update(clock.now());
+        ASSERT_TRUE(firmwareApp->shouldRestartTcpServer())
+            << "precondition: connect arms the TCP restart flag (reason " << reason << ")";
+
+        // The recoverable drop must NOT bail to AP mode; it re-enters RECONNECTING
+        // and keeps the flag armed.
+        clock.advance(1000);  // deterministic advance, no realtime wait
+        firmwareApp->onWiFiDisconnected(reason);
+        firmwareApp->update(clock.now());
+        EXPECT_TRUE(firmwareApp->shouldRestartTcpServer())
+            << "recoverable auth drop (reason " << reason
+            << ") must stay in RECONNECTING and keep the TCP restart flag armed";
     }
 }
 

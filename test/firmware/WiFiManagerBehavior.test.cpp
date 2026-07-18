@@ -490,7 +490,7 @@ TEST(WiFiBehaviorConnectedApTest, ApModeIsStableWithNoWifiCalls) {
 // §10 onDisconnected — reason routing
 // ════════════════════════════════════════════════════════════════════════════
 
-TEST(WiFiBehaviorOnDisconnectedTest, AuthExpireGoesToApMode) {
+TEST(WiFiBehaviorOnDisconnectedTest, AuthExpireGoesToReconnecting) {
     Harness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
@@ -499,10 +499,38 @@ TEST(WiFiBehaviorOnDisconnectedTest, AuthExpireGoesToApMode) {
     h.mgr->update(1000);
     ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
 
+    // AUTH_EXPIRE is a transient session expiry — recoverable by reconnect, so
+    // it must NOT bail to AP mode; instead it re-enters RECONNECTING and re-arms
+    // the TCP-server restart flag.
     h.mgr->onDisconnected(WIFI_REASON_AUTH_EXPIRE);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
-    EXPECT_FALSE(h.mgr->shouldRestartTcpServer());
-    EXPECT_EQ(h.wifi.mode, WIFI_AP);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_TRUE(h.mgr->shouldRestartTcpServer());
+    EXPECT_EQ(h.wifi.mode, WIFI_STA);
+}
+
+// The five recoverable auth/assoc-lifecycle reasons (AUTH_EXPIRE=1, AUTH_LEAVE=2,
+// NOT_AUTHED=5, NOT_ASSOCED=6, ASSOC_NOT_AUTHED=8) must all route to RECONNECTING
+// rather than AP mode — they are transient link/session flaps, not wrong-credential
+// rejections.
+TEST(WiFiBehaviorOnDisconnectedTest, RecoverableAuthReasonsGoToReconnecting) {
+    for (int reason : {WIFI_REASON_AUTH_EXPIRE, WIFI_REASON_AUTH_LEAVE,
+                       WIFI_REASON_NOT_AUTHED, WIFI_REASON_NOT_ASSOCED,
+                       WIFI_REASON_ASSOC_NOT_AUTHED}) {
+        Harness h;
+        h.prefs.ssid = "net"; h.prefs.pass = "pw";
+        h.build();
+        h.mgr->init();
+        h.wifi.statusVal = WL_CONNECTED;
+        h.mgr->update(1000);
+        ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA)
+            << "precondition (reason " << reason << ")";
+
+        h.mgr->onDisconnected(reason);
+        EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING)
+            << "recoverable auth reason " << reason << " must go to RECONNECTING";
+        EXPECT_TRUE(h.mgr->shouldRestartTcpServer())
+            << "recoverable auth reason " << reason << " must re-arm TCP restart flag";
+    }
 }
 
 TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutGoesToApMode) {
@@ -517,6 +545,31 @@ TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutGoesToApMode) {
     h.mgr->onDisconnected(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
     EXPECT_FALSE(h.mgr->shouldRestartTcpServer());
+}
+
+// The four permanent, unrecoverable auth failures (AUTH_FAIL=202,
+// 802_1X_AUTH_FAILED=21, CIPHER_SUITE_REJECTED=22, 4WAY_HANDSHAKE_TIMEOUT=13)
+// must each bail straight to AP mode with the TCP restart flag cleared.
+TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresGoToApMode) {
+    for (int reason : {WIFI_REASON_AUTH_FAIL, WIFI_REASON_802_1X_AUTH_FAILED,
+                       WIFI_REASON_CIPHER_SUITE_REJECTED,
+                       WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT}) {
+        Harness h;
+        h.prefs.ssid = "net"; h.prefs.pass = "pw";
+        h.build();
+        h.mgr->init();
+        h.wifi.statusVal = WL_CONNECTED;
+        h.mgr->update(1000);
+        ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA)
+            << "precondition (reason " << reason << ")";
+
+        h.mgr->onDisconnected(reason);
+        EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP)
+            << "permanent auth failure " << reason << " must go to AP mode";
+        EXPECT_FALSE(h.mgr->shouldRestartTcpServer())
+            << "permanent auth failure " << reason
+            << " must leave the TCP restart flag cleared";
+    }
 }
 
 TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromConnectedStaGoesReconnecting) {
