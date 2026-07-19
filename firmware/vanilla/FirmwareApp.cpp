@@ -15,7 +15,6 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
                          const char* bakedSsid, const char* bakedPass)
     : wifi_(wifi)
     , statusLed_(statusLed)
-    , deviceId_(deviceId)
     , canBridgeDeps_(canBridgeDeps)
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
@@ -30,7 +29,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     // loop() after the netif is up. This is the cpp:S1820 forward: the PASSED-ONLY
     // refs are forwarded straight into the owning manager's constructor instead of
     // being stored as FirmwareApp members.
-    constructManagers(prefs, udp, wifiDiscovery, time, sntp, timeNtp);
+    constructManagers(deviceId, prefs, udp, wifiDiscovery, time, sntp, timeNtp);
 }
 
 FirmwareApp::~FirmwareApp() = default;
@@ -50,7 +49,8 @@ void FirmwareApp::init() {
     ntpStarted_ = false;
 }
 
-void FirmwareApp::constructManagers(IPreferences& prefs, IUdp& udp,
+void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
+                                     IPreferences& prefs, IUdp& udp,
                                      IWiFiDiscovery& wifiDiscovery, ITime& time,
                                      ISntp& sntp, ITimeNtp& timeNtp) {
     // Create WiFiManager (primary state machine driver). Construction only stores
@@ -64,7 +64,7 @@ void FirmwareApp::constructManagers(IPreferences& prefs, IUdp& udp,
     // Create DiscoveryManager (UDP broadcast discovery). Forwards the PASSED-ONLY
     // udp/wifiDiscovery/time/deviceId refs (received by this ctor, passed straight
     // through) — no longer stored as FirmwareApp members.
-    discoveryManager_ = std::make_unique<DiscoveryManager>(udp, wifiDiscovery, time, deviceId_);
+    discoveryManager_ = std::make_unique<DiscoveryManager>(udp, wifiDiscovery, time, deviceId);
 
     // Create NtpTimeSync (NTP time synchronization). Forwards the PASSED-ONLY
     // sntp/timeNtp refs (received by this ctor, passed straight through) — not
