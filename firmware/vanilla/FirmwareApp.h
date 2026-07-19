@@ -157,7 +157,6 @@ public:
 private:
     // Dependencies
     IWiFi& wifi_;
-    IPreferences& prefs_;
     IStatusLED& statusLed_;
     const std::array<uint8_t, 16>& deviceId_;
     CanBridgeDeps canBridgeDeps_;
@@ -198,8 +197,8 @@ private:
     // interface refs and is called from the ctor (where those refs are in scope).
     // It performs construction ONLY — no hardware/netif work — so it is safe at
     // static-init time. The hardware-touching init() calls are deferred to init().
-    void constructManagers(IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime& time,
-                           ISntp& sntp, ITimeNtp& timeNtp);
+    void constructManagers(IPreferences& prefs, IUdp& udp, IWiFiDiscovery& wifiDiscovery,
+                           ITime& time, ISntp& sntp, ITimeNtp& timeNtp);
     void setupCallbacks();
 };
 
