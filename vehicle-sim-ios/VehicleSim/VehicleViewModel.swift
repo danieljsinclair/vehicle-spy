@@ -62,7 +62,7 @@ class VehicleViewModel: ObservableObject {
     }
 
     // MARK: - Private
-    private var wrapper: VehicleSimWrapper?
+    private var wrapper: VehicleSimWrapperProtocol?
     private var updateTimer: Timer?
     private var discoveryListener: ESP32DiscoveryListener?
     private var discoveryRetryTimer: Timer?
