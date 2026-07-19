@@ -24,6 +24,7 @@ add_executable(vehicle-sim-tests
     domain/DefaultVehicleConfigs.test.cpp
     domain/DemoSignalProvider.test.cpp
     domain/SignalSourceFactory.test.cpp
+    domain/DemoSignalSource.test.cpp
     domain/VehicleConfigResolver.test.cpp
     domain/MockSignalSource.h
     ble/BLEManager.test.cpp

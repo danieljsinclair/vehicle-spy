@@ -31,6 +31,20 @@ public:
 
     [[nodiscard]] bool isRunning() const noexcept;
 
+    /**
+     * Pure per-step signal computation (SRP seam: math separated from the
+     * threaded timing loop in generateSignals()). Given a phase angle and a
+     * timestamp, returns the fully-formed VehicleSignal for that step. Has no
+     * side effects and touches no clock/thread, so it is directly unit-testable.
+     *
+     * @param phase           oscillation phase (radians); periodicity 2π.
+     * @param timestampUtcMs  timestamp stamped onto the produced signal.
+     * @return computed VehicleSignal.
+     */
+    [[nodiscard]] static VehicleSignal computeNextSignal(
+        double phase,
+        std::uint64_t timestampUtcMs) noexcept;
+
 private:
     void generateSignals();
 
