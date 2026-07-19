@@ -16,9 +16,6 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     : wifi_(wifi)
     , prefs_(prefs)
     , statusLed_(statusLed)
-    , wifiDiscovery_(wifiDiscovery)
-    , udp_(udp)
-    , time_(time)
     , deviceId_(deviceId)
     , canBridgeDeps_(canBridgeDeps)
     , bakedSsid_(bakedSsid)
@@ -34,7 +31,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     // loop() after the netif is up. This is the cpp:S1820 forward: the PASSED-ONLY
     // refs are forwarded straight into the owning manager's constructor instead of
     // being stored as FirmwareApp members.
-    constructManagers(sntp, timeNtp);
+    constructManagers(udp, wifiDiscovery, time, sntp, timeNtp);
 }
 
 FirmwareApp::~FirmwareApp() = default;
@@ -54,7 +51,8 @@ void FirmwareApp::init() {
     ntpStarted_ = false;
 }
 
-void FirmwareApp::constructManagers(ISntp& sntp, ITimeNtp& timeNtp) {
+void FirmwareApp::constructManagers(IUdp& udp, IWiFiDiscovery& wifiDiscovery,
+                                     ITime& time, ISntp& sntp, ITimeNtp& timeNtp) {
     // Create WiFiManager (primary state machine driver). Construction only stores
     // the injected refs; the WiFi.begin() it performs lives in WiFiManager::init(),
     // which init() defers to setup()-time.
@@ -62,8 +60,9 @@ void FirmwareApp::constructManagers(ISntp& sntp, ITimeNtp& timeNtp) {
                                                    bakedSsid_, bakedPass_);
 
     // Create DiscoveryManager (UDP broadcast discovery). Forwards the PASSED-ONLY
-    // udp_/wifiDiscovery_/time_/deviceId_ refs — no longer stored as members.
-    discoveryManager_ = std::make_unique<DiscoveryManager>(udp_, wifiDiscovery_, time_, deviceId_);
+    // udp/wifiDiscovery/time/deviceId refs (received by this ctor, passed straight
+    // through) — no longer stored as FirmwareApp members.
+    discoveryManager_ = std::make_unique<DiscoveryManager>(udp, wifiDiscovery, time, deviceId_);
 
     // Create NtpTimeSync (NTP time synchronization). Forwards the PASSED-ONLY
     // sntp/timeNtp refs (received by this ctor, passed straight through) — not
