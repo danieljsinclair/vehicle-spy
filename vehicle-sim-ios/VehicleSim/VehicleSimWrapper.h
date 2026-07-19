@@ -2,6 +2,9 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// Forward declaration
+@protocol VehicleSimWrapperProtocol;
+
 /// Connection state enumeration for the vehicle simulation
 typedef NS_ENUM(NSInteger, ConnectionState) {
     ConnectionStateDisconnected = 0,
@@ -16,9 +19,49 @@ typedef NS_ENUM(NSInteger, ConnectionState) {
 @property (nonatomic, assign) int rssi;
 @end
 
+// MARK: - Protocol for Testability
+
+@protocol VehicleSimWrapperProtocol <NSObject>
+
+// MARK: - Connection Control
+- (void)startDemo;
+- (void)startBLE;
+- (void)stop;
+- (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName vehicleType:(NSString *)vehicleType;
+
+// MARK: - BLE Scanning
+- (NSArray<VehicleSimDevice *> *)scanForDevices:(NSTimeInterval)timeout;
+
+// MARK: - Vehicle Options
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)getVehicleOptions;
+- (BOOL)switchVehicleType:(NSString *)vehicleType;
+- (void)disconnect;
+
+// MARK: - Signal Values
+@property (nonatomic, readonly, nullable) NSNumber *throttlePercent;
+@property (nonatomic, readonly, nullable) NSNumber *speedKmh;
+@property (nonatomic, readonly, nullable) NSNumber *accelerationG;
+@property (nonatomic, readonly, nullable) NSNumber *brakePercent;
+@property (nonatomic, readonly, nullable) NSNumber *motorRpm;
+@property (nonatomic, readonly, nullable) NSNumber *motorTorqueNm;
+@property (nonatomic, readonly, nullable) NSString *gearSelector;
+@property (nonatomic, readonly, nullable) NSNumber *steeringAngleDeg;
+
+// MARK: - State
+@property (nonatomic, readonly) ConnectionState connectionState;
+@property (nonatomic, readonly) BOOL isBluetoothReady;
+@property (nonatomic, readonly, nullable) NSString *connectedDeviceName;
+@property (nonatomic, readonly, nullable) NSString *connectedDeviceAddress;
+@property (nonatomic, readonly) NSString *detectionInfo;
+@property (nonatomic, readonly) BOOL isReceivingData;
+@property (nonatomic, readonly) int bleNotificationCount;
+@property (nonatomic, readonly) NSString *lastRawHex;
+
+@end
+
 /// Objective-C++ wrapper for vehicle-sim C++ core
 /// Supports both demo simulation mode and live BLE data mode
-@interface VehicleSimWrapper : NSObject
+@interface VehicleSimWrapper : NSObject <VehicleSimWrapperProtocol>
 
 // MARK: - Initialization
 
@@ -28,95 +71,6 @@ typedef NS_ENUM(NSInteger, ConnectionState) {
 
 /// Initialize with default vehicle type
 - (instancetype)init;
-
-// MARK: - Vehicle Configuration
-
-/// Get available vehicle options from the registry
-/// @return Array of dictionaries with "id" and "displayName" keys
-- (NSArray<NSDictionary<NSString*, NSString*>*> *)getVehicleOptions;
-
-// MARK: - Connection Control
-
-/// Start demo live mode
-- (void)startDemo;
-
-/// Start BLE live mode
-- (void)startBLE;
-
-/// Stop current connection (demo, BLE, or TCP)
-- (void)stop;
-
-/// Scan for BLE devices
-/// @param timeout Duration to scan in seconds
-/// @return Array of discovered devices
-- (NSArray<VehicleSimDevice*> *)scanForDevices:(NSTimeInterval)timeout;
-
-/// Connect to a BLE device or TCP target (e.g. "tcp:192.168.4.1:3333")
-/// @param address Device address or TCP target to connect to
-/// @param deviceName Display name of the connected device
-/// @param vehicleType Vehicle type used for decoding
-/// @return YES if connection initiated successfully
-- (BOOL)connectToDevice:(NSString *)address deviceName:(NSString *)deviceName vehicleType:(NSString *)vehicleType;
-
-/// Disconnect from current BLE device
-- (void)disconnect;
-
-/// Switch vehicle type while connected
-/// @param vehicleType New vehicle type (e.g., "tesla_model3", "audi_mlb_evo", "generic")
-/// @return YES if switch succeeded
-- (BOOL)switchVehicleType:(NSString *)vehicleType;
-
-// MARK: - Signal Values
-
-/// Latest throttle percent (0.0 - 100.0), nil when no data
-@property (nonatomic, readonly, nullable) NSNumber *throttlePercent;
-
-/// Latest speed in km/h (0.0 - 300.0), nil when no data
-@property (nonatomic, readonly, nullable) NSNumber *speedKmh;
-
-/// Latest acceleration in G (-5.0 to +5.0), nil when no data
-@property (nonatomic, readonly, nullable) NSNumber *accelerationG;
-
-/// Latest brake percent (0.0 - 100.0), nil when no data
-@property (nonatomic, readonly, nullable) NSNumber *brakePercent;
-
-/// Latest motor RPM (0.0 - 20000.0), nil when no data
-@property (nonatomic, readonly, nullable) NSNumber *motorRpm;
-
-/// Latest motor torque in Nm (-7500.0 to +7500.0), nil when no data
-@property (nonatomic, readonly, nullable) NSNumber *motorTorqueNm;
-
-/// Latest gear selector ("P", "R", "N", "D", "S"), nil when no data
-@property (nonatomic, readonly, nullable) NSString *gearSelector;
-
-/// Latest steering angle in degrees (-819.2 to +819.2), nil when no data
-@property (nonatomic, readonly, nullable) NSNumber *steeringAngleDeg;
-
-// MARK: - State
-
-/// Current connection state
-@property (nonatomic, readonly) ConnectionState connectionState;
-
-/// YES if BLE is ready for connections
-@property (nonatomic, readonly) BOOL isBluetoothReady;
-
-/// Name of the connected BLE adapter
-@property (nonatomic, readonly, nullable) NSString *connectedDeviceName;
-
-/// Address of the connected BLE adapter
-@property (nonatomic, readonly, nullable) NSString *connectedDeviceAddress;
-
-/// Vehicle detection diagnostic info
-@property (nonatomic, readonly) NSString *detectionInfo;
-
-/// Whether frames are actively being received (< 1s since last frame)
-@property (nonatomic, readonly) BOOL isReceivingData;
-
-/// Raw BLE notification count (increments on every BLE notification, before parsing)
-@property (nonatomic, readonly) int bleNotificationCount;
-
-/// Hex dump of last raw bytes received from BLE (before parsing)
-@property (nonatomic, readonly) NSString *lastRawHex;
 
 @end
 
