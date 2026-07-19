@@ -24,7 +24,6 @@
 		B1000013 /* BLEManagerBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000013 /* BLEManagerBase.cpp */; };
 		B1000014 /* TeslaBLETransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000014 /* TeslaBLETransport.cpp */; };
 		B1000015 /* BLEManagerMock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000015 /* BLEManagerMock.cpp */; };
-		B1000016 /* ConfigLoader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000016 /* ConfigLoader.cpp */; };
 		B1000017 /* VehicleSignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000017 /* VehicleSignal.cpp */; };
 		B1000018 /* TelemetrySignal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000018 /* TelemetrySignal.cpp */; };
 		B1000019 /* DeviceRegistry.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000019 /* DeviceRegistry.cpp */; };
@@ -97,7 +96,6 @@
 		B2000013 /* BLEManagerBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerBase.cpp; path = ../../src/ble/BLEManagerBase.cpp; sourceTree = "<group>"; };
 		B2000014 /* TeslaBLETransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaBLETransport.cpp; path = ../../src/ble/TeslaBLETransport.cpp; sourceTree = "<group>"; };
 		B2000015 /* BLEManagerMock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerMock.cpp; path = ../../src/ble/platform/BLEManagerMock.cpp; sourceTree = "<group>"; };
-		B2000016 /* ConfigLoader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ConfigLoader.cpp; path = ../../src/config/ConfigLoader.cpp; sourceTree = "<group>"; };
 		B2000017 /* VehicleSignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignal.cpp; path = ../../src/domain/VehicleSignal.cpp; sourceTree = "<group>"; };
 		B2000018 /* TelemetrySignal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetrySignal.cpp; path = ../../src/domain/TelemetrySignal.cpp; sourceTree = "<group>"; };
 		B2000019 /* DeviceRegistry.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DeviceRegistry.cpp; path = ../../src/ble/DeviceRegistry.cpp; sourceTree = "<group>"; };
@@ -242,7 +240,6 @@
 				B2000013 /* BLEManagerBase.cpp */,
 				B2000014 /* TeslaBLETransport.cpp */,
 				B2000015 /* BLEManagerMock.cpp */,
-				B2000016 /* ConfigLoader.cpp */,
 				B2000017 /* VehicleSignal.cpp */,
 				B2000018 /* TelemetrySignal.cpp */,
 				B2000019 /* DeviceRegistry.cpp */,
@@ -429,7 +426,6 @@
 				B1000013 /* BLEManagerBase.cpp in Sources */,
 				B1000014 /* TeslaBLETransport.cpp in Sources */,
 				B1000015 /* BLEManagerMock.cpp in Sources */,
-				B1000016 /* ConfigLoader.cpp in Sources */,
 				B1000017 /* VehicleSignal.cpp in Sources */,
 				B1000018 /* TelemetrySignal.cpp in Sources */,
 				B1000019 /* DeviceRegistry.cpp in Sources */,

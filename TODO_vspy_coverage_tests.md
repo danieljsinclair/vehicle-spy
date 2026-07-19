@@ -34,3 +34,30 @@ Spawn a verifier teammate that independently: re-runs the suite (per-test runtim
 
 ## DO NOT
 - Don't push. Don't suppress. Don't re-extract `.ino`→vanilla (it's done). Don't touch Category A. Don't add real-I/O tests. Don't delete `SimulationSignalSource` — finish it. Don't exclude files to game coverage (if something shows 0%, the answer is a test or the instrumentation fix, never an exclusion).
+
+---
+
+## PHASE-1 LIVE ASSESSMENT (2026-07-19) — read-only assessor; supersedes stale premises above
+
+Live baseline (`make coverage-clean` + `make coverage-run`, exit 0; Sonar API cross-check, **zero drift**):
+- **vehicle-spy = 74.2%** (6019 to_cover / 4469 covered / 1550 uncovered).
+- **Category B = 246 uncovered = 15.9%** of all uncovered. Honest ceiling this phase ≈ vehicle-spy **76–77%** (per-file wins dramatic; headline modest — value-coverage, not a percent grab).
+
+Per-file (live): DemoSignalSource 30.4% / 55 uncov (extract pure `computeNextSignal`); BLEManager 52.2% / 54 (low-value forwards — defer); SecureTcpTransport 79.9% / 57 (inject `ISocket`); BLESignalSource 0% / 35 (existing seam; +OCP `BLEManagerBase*`); ConfigLoader 0% / 21 (pure, I/O-free today); SimulationSignalSource 0% / 24 (extract `IVehicleSimulator` + wire DI — mandatory complete).
+
+**PREMISE CORRECTIONS (assessor found the original SCOPE framing partly stale):**
+1. **SecureTcpTransport does NOT use the FakeSocket/ISocket seam** (that belongs to `TCPTransport`, a different class). Its two originally-named targets (handshake happy-path + cert-validation fail) are **ALREADY covered** by the existing real-loopback test. The remaining 57 branches need an `ISocket`-injection enabling refactor (same shape as TCPTransport Phase-1) — a veneer-enabling extraction, not a coverage task. **DECISION (lead, 2026-07-19): ISocket injection IS in scope this phase** (capstone, after the 4 smaller files).
+2. **BLEManager "state-machine / connect-disconnect gaps" framing is STALE** — connect/disconnect ARE covered; the 54 uncovered are thin 2-line facade forwards whose ELM327/OBD2 logic is already tested at the platform layer (tests bypass the facade). DEFER exhaustive; at most a null-platform safety test (optional).
+
+**AGREED PHASE-2 SCOPE (lead-signed 2026-07-19; ConfigLoader UPDATED 2026-07-19)** — sequential, one gate-green `test:`-prefixed commit per area, author→harsh-critic→independent-verifier per file:
+
+**ConfigLoader — DROPPED + DELETED (not covered).** Lead independent grep proved it has ZERO production callers; research confirmed it's a 2026-04-05 repo-init placeholder stub, superseded by the shipped `vehicle_sim::domain::VehicleConfig` + `VehicleConfigRegistry` + `DefaultVehicleConfigs` (2026-04-30). Complete-but-dead, NOT an unfinished refactor. Deleted (3 source files: include/vehicle-sim/config/ConfigLoader.h + src/config/ConfigLoader.cpp + src/config/ConfigLoader.h dup; 2 CMakeLists entries; test/config/ConfigLoader.test.cpp), gated by `make gate` incl. ios-analyze green. Lesson: the assessor measured coverage % but NOT liveness — dead ConfigLoader slipped through. **LIVENESS GATE now hard:** every Files 2–5 author + critic must confirm the SUT has ≥1 production caller; zero callers ⇒ STOP + flag, no vanity tests.
+
+REVISED FILE ORDER (4 files):
+1. **DemoSignalSource** — extract pure `computeNextSignal(phase)`; test signal math + gear-select. (was File 2)
+2. **BLESignalSource** — test real `onDataReceived` parsing via `BLEManager`+`setPlatform(MockBLEManagerBase)`; +OCP depend on `BLEManagerBase*`.
+3. **SimulationSignalSource** — COMPLETE refactor: extract `IVehicleSimulator` + wire `PipelineFactory` DI + test. (mandatory; highest veneer value)
+4. **SecureTcpTransport** — `ISocket`-injection refactor (mirror TCPTransport Phase-1) + test reachable branches. (capstone; biggest scope)
+**DEFERRED:** BLEManager (low-value forwards); UDPDiscovery (needs its own seam — separate workstream).
+
+**Through-line:** vehicle-spy coverage as **FOUNDATION-LAYING for the esp32/iOS thin-veneer sonar-zero path** — solidify the vanilla core + its abstractions (`IVehicleSimulator`, `ISocket`, `BLEManagerBase`) so platform thinning lands on a tested, interface-driven base.
