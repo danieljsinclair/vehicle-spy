@@ -60,7 +60,7 @@ void ensureOtaServer() {
     otaPartition  = std::make_unique<ArduinoPartition>();
     otaCrypto     = std::make_unique<ArduinoCrypto>();
     otaServer = std::make_unique<OtaUpdateServer>(
-        *otaHttp, *otaUpdateLib, *otaPartition, *otaCrypto, arduinoTime);
+        *otaHttp, *otaUpdateLib, *otaPartition, *otaCrypto, timeAdapters().time);
 }
 } // namespace
 

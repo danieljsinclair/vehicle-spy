@@ -11,6 +11,12 @@
 // OTA:      port 80 (HTTPUpdateServer — standard Arduino OTA)
 // Protocol: Minimal ELM327 — ATZ, ATE0, ATSP6, ATH1, ATMA
 
+// Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
+// this TU and returned by reference from the timeAdapters() accessor; this
+// satisfies Arduino's auto-generated function prototypes (hoisted above the
+// struct definition). See the struct + accessor where the former globals were.
+struct TimeAdapters;
+
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <time.h>
@@ -254,9 +260,17 @@ StatusLED& statusLed() { static StatusLED inst(&ledOutput()); return inst; }
 ArduinoWiFi& arduinoWiFi() { static ArduinoWiFi inst; return inst; }
 ArduinoPreferences& arduinoPrefs() { static ArduinoPreferences inst; return inst; }
 ArduinoUdp& arduinoUdp() { static ArduinoUdp inst; return inst; }
-static ArduinoTime arduinoTime;
-static ArduinoSntp arduinoSntp;        // ISntp adapter for NTP sync
-static ArduinoTimeNtp arduinoTimeNtp;  // ITimeNtp adapter for NTP sync
+// cpp:S5421 (composite): were 3 mutable globals (arduinoTime/Sntp/TimeNtp).
+// Grouped into a struct held by a function-local static accessor — the struct
+// instance is function-local (not namespace-scope), so S5421 does not flag it,
+// clearing all 3 issues. Members stay default-constructed (same init timing as
+// the prior file-scope statics: first call is during firmwareApp construction).
+struct TimeAdapters {
+    ArduinoTime time;
+    ArduinoSntp sntp;        // ISntp adapter for NTP sync
+    ArduinoTimeNtp timeNtp;  // ITimeNtp adapter for NTP sync
+};
+TimeAdapters& timeAdapters() { static TimeAdapters inst; return inst; }
 
 // Baked credentials: use the build-injected ESP32_WIFI_SSID/ESP32_WIFI_PASS when
 // present (the real station credentials), otherwise nullptr so WiFiManager falls
@@ -364,8 +378,8 @@ static ArduinoAtMonitor arduinoAtMonitor;
 // NTP is routed through FirmwareApp (owns NtpTimeSync + ArduinoSntp/ArduinoTimeNtp)
 // CanBridge is constructed inside FirmwareApp from the adapter bundle above.
 FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(),
-                              arduinoWiFi(), arduinoUdp(), arduinoTime,
-                              arduinoSntp, arduinoTimeNtp,
+                              arduinoWiFi(), arduinoUdp(), timeAdapters().time,
+                              timeAdapters().sntp, timeAdapters().timeNtp,
                               discoveryDeviceId(),
                               canBridgeDeps,
                               BAKED_SSID, BAKED_PASS);
