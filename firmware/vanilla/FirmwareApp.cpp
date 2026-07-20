@@ -228,11 +228,15 @@ bool FirmwareApp::isMonitorActive() const {
     return canBridge_->isMonitorActive();
 }
 
-void FirmwareApp::processCanFrames(uint32_t serialQuietUntilMs) {
+void FirmwareApp::processCanFrames() {
     assert(canBridge_ && "FirmwareApp::processCanFrames called before init()");
     // getWiFiState() gates on wifiManager_ via assert internally,
     // so it is safe to rely on canBridge_ being initialized whenever this runs.
-    canBridge_->processFrames(isMonitorActive(), serialQuietUntilMs);
+    canBridge_->processFrames(isMonitorActive(), serialQuietUntilMs_);
+}
+
+void FirmwareApp::setSerialQuietUntilMs(uint32_t ms) {
+    serialQuietUntilMs_ = ms;
 }
 
 void FirmwareApp::setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial,

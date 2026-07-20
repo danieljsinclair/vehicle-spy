@@ -359,7 +359,6 @@ FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
                               BAKED_SSID, BAKED_PASS);
 
 static WiFiServer tcpServer(Constants::TCP_PORT);
-static uint32_t serialQuietUntilMs = 0;
 
 // ── TCP Server Manager wiring (Stage 6) ──────────────────────────────────────────────
 // ArduinoTcpServer adapts the global tcpServer + client (the single connection
@@ -425,7 +424,7 @@ static void drainSerialATCommands() {
         if (c == '\r' || c == '\n') {
             if (!serialCmd.isEmpty()) {
                 firmwareApp.handleSerialAtCommand(serialCmd.c_str());
-                serialQuietUntilMs = millis() + Constants::SERIAL_QUIET_DURATION_MS;
+                firmwareApp.setSerialQuietUntilMs(millis() + Constants::SERIAL_QUIET_DURATION_MS);
                 serialCmd = "";
             }
         } else {
@@ -670,7 +669,7 @@ void loop() {
     // serial logging live otherwise, with no WiFi client). Single RX drain —
     // never double-reads a frame.
 #if VEHICLE_SIM_ENABLE_TWAI
-    firmwareApp.processCanFrames(serialQuietUntilMs);
+    firmwareApp.processCanFrames();
 #endif
 }
 

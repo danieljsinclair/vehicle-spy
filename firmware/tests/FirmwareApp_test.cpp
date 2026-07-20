@@ -640,8 +640,9 @@ TEST_F(FirmwareAppTest, CanBridge_ProcessCanFrames_AfterInit_DoesNotThrow) {
     firmwareApp->init();
 
     EXPECT_NO_THROW({
-        firmwareApp->processCanFrames(0);
-        firmwareApp->processCanFrames(5000);  // quiet-period variant
+        firmwareApp->processCanFrames();
+        firmwareApp->setSerialQuietUntilMs(5000);  // quiet-period variant
+        firmwareApp->processCanFrames();
     });
 }
 

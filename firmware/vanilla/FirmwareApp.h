@@ -125,7 +125,12 @@ public:
     // the vanilla CanBridge instead of inline logic.
     void setMonitorActive(bool active);
     bool isMonitorActive() const;
-    void processCanFrames(uint32_t serialQuietUntilMs);
+    void processCanFrames();
+    // Serial quiet-window ownership moved out of the .ino global (cpp:S5421):
+    // the .ino sets this (millis()-based) when it drains a serial AT command;
+    // processCanFrames() forwards it to CanBridge::processFrames so serial
+    // emission is suppressed during that window.
+    void setSerialQuietUntilMs(uint32_t ms);
 
     // Discovery (Stage 3 of the .ino → vanilla extraction): the .ino owns no
     // discovery logic itself — FirmwareApp drives the vanilla DiscoveryManager.
@@ -190,6 +195,11 @@ private:
     // behavior so existing tests and the default build stay green.
     bool discoveryEnabled_ = true;
     bool clientConnected_ = false;
+
+    // Serial quiet-window (millis()-based ms). Set from the .ino via
+    // setSerialQuietUntilMs(); read by processCanFrames(). Promoted from a
+    // mutable .ino global to clear cpp:S5421 (global variables should be const).
+    uint32_t serialQuietUntilMs_ = 0;
 
     // Helper methods
     // constructManagers() builds the owned manager objects from the PASSED-ONLY
