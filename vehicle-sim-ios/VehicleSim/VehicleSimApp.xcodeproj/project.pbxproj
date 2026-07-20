@@ -11,7 +11,8 @@
 		T1000002 /* DiscoveryVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000002 /* DiscoveryVerifierTests.swift */; };
 		T1000003 /* TCPTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003 /* TCPTransportTests.swift */; };
 		T1000004 /* WiFiSecurityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000004 /* WiFiSecurityPolicyTests.swift */; };
-		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
+		T1000005 /* VehicleViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000005 /* VehicleViewModelTests.swift */; };
+		T1000006 /* MockVehicleSimWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000006 /* MockVehicleSimWrapper.swift */; };		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
 		B1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002 /* ContentView.swift */; };
 		B1000003 /* VehicleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003 /* VehicleViewModel.swift */; };
 		B1000005 /* VehicleSimWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000005 /* VehicleSimWrapper.mm */; };
@@ -153,7 +154,8 @@
 		T2000002 /* DiscoveryVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryVerifierTests.swift; path = ../VehicleSimTests/DiscoveryVerifierTests.swift; sourceTree = "<group>"; };
 		T2000003 /* TCPTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TCPTransportTests.swift; path = ../VehicleSimTests/TCPTransportTests.swift; sourceTree = "<group>"; };
 		T2000004 /* WiFiSecurityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WiFiSecurityPolicyTests.swift; path = ../VehicleSimTests/WiFiSecurityPolicyTests.swift; sourceTree = "<group>"; };
-		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		T2000005 /* VehicleViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelTests.swift; path = ../VehicleSimTests/VehicleViewModelTests.swift; sourceTree = "<group>"; };
+		T2000006 /* MockVehicleSimWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MockVehicleSimWrapper.swift; path = ../VehicleSimTests/MockVehicleSimWrapper.swift; sourceTree = "<group>"; };		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -299,6 +301,8 @@
 				T2000002 /* DiscoveryVerifierTests.swift */,
 				T2000003 /* TCPTransportTests.swift */,
 				T2000004 /* WiFiSecurityPolicyTests.swift */,
+			T2000005 /* VehicleViewModelTests */,
+			T2000006 /* MockVehicleSimWrapper */,
 			);
 			name = VehicleSimTests;
 			sourceTree = "<group>";
@@ -484,6 +488,8 @@
 				T1000002 /* DiscoveryVerifierTests.swift in Sources */,
 				T1000003 /* TCPTransportTests.swift in Sources */,
 				T1000004 /* WiFiSecurityPolicyTests.swift in Sources */,
+			T1000005 /* VehicleViewModelTests.swift in Sources */,
+			T1000006 /* MockVehicleSimWrapper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

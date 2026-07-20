@@ -98,10 +98,10 @@ class VehicleViewModel: ObservableObject {
 
     // MARK: - Lifecycle
 
-    init() {
+    init(wrapper: VehicleSimWrapperProtocol? = nil) {
         let savedMode = UserDefaults.standard.string(forKey: "connectionMode") ?? ""
         self.connectionMode = ConnectionMode(rawValue: savedMode) ?? .ble
-        wrapper = VehicleSimWrapper()
+        self.wrapper = wrapper ?? VehicleSimWrapper()
 
         // Subscribe to app lifecycle notifications
         NotificationCenter.default.publisher(for: .resumeDiscovery)
