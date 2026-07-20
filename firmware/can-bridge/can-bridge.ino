@@ -242,14 +242,18 @@ static constexpr const char* AP_PASS = "cancan12";
 
 // ── Status LED ─────────────────────────────────────────────────────────────────
 // Visual feedback using the blue LED on GPIO2
-static HardwareStatusLEDOutput ledOutput(2);  // GPIO2 for ESP32 blue LED
-static StatusLED statusLed(&ledOutput);
+// cpp:S5421: were mutable globals. Function-local static accessors; statusLed's
+// accessor calls ledOutput() so the init order is deterministic (ledOutput first).
+HardwareStatusLEDOutput& ledOutput() { static HardwareStatusLEDOutput inst(2); return inst; }  // GPIO2 for ESP32 blue LED
+StatusLED& statusLed() { static StatusLED inst(&ledOutput()); return inst; }
 
 // ── FirmwareApp Components ─────────────────────────────────────────────────────
 // Arduino adapters for vanilla interfaces (scoped to .ino via ARDUINO ifdef)
-static ArduinoWiFi arduinoWiFi;
-static ArduinoPreferences arduinoPrefs;
-static ArduinoUdp arduinoUdp;
+// cpp:S5421: were mutable globals. Function-local static accessors (WiFi /
+// Preferences / UDP Arduino adapters injected into FirmwareApp).
+ArduinoWiFi& arduinoWiFi() { static ArduinoWiFi inst; return inst; }
+ArduinoPreferences& arduinoPrefs() { static ArduinoPreferences inst; return inst; }
+ArduinoUdp& arduinoUdp() { static ArduinoUdp inst; return inst; }
 static ArduinoTime arduinoTime;
 static ArduinoSntp arduinoSntp;        // ISntp adapter for NTP sync
 static ArduinoTimeNtp arduinoTimeNtp;  // ITimeNtp adapter for NTP sync
@@ -359,8 +363,8 @@ static ArduinoAtMonitor arduinoAtMonitor;
 // ArduinoWiFi implements both IWiFi and IWiFiDiscovery
 // NTP is routed through FirmwareApp (owns NtpTimeSync + ArduinoSntp/ArduinoTimeNtp)
 // CanBridge is constructed inside FirmwareApp from the adapter bundle above.
-FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
-                              arduinoWiFi, arduinoUdp, arduinoTime,
+FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(),
+                              arduinoWiFi(), arduinoUdp(), arduinoTime,
                               arduinoSntp, arduinoTimeNtp,
                               discoveryDeviceId(),
                               canBridgeDeps,
@@ -392,7 +396,7 @@ static ArduinoTcpServer arduinoTcpServer(tcpServer(), client());
 static FirmwareAppTcpHostCallbacks tcpHostCallbacks(firmwareApp);
 // authToken is the bare token; the vanilla prepends "AUTH " when comparing
 // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
-static TcpServerManager tcpManager(arduinoTcpServer, statusLed,
+static TcpServerManager tcpManager(arduinoTcpServer, statusLed(),
                                    std::string(TCP_AUTH_TOKEN),
                                    tcpHostCallbacks);
 
@@ -521,7 +525,7 @@ void setup() {
     Serial.begin(Constants::SERIAL_BAUD);
 
     // Initialize StatusLED first - turns LED OFF, then sets BOOT pattern
-    statusLed.init();
+    statusLed().init();
 
     // Factory reset check before WiFi init - allows wiping stored credentials
     // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
