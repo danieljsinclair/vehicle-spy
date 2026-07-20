@@ -144,7 +144,10 @@ static const char* const NC     = "\033[0m";
 // command NVS-write adapter). READ / has / clear paths are owned by WiFiManager
 // via the injected IPreferences (ArduinoPreferences) — FirmwareApp exposes
 // hasStoredCredentials()/loadCredentials()/clearCredentials() for them.
-static Preferences wifiCredentials;  // NVS storage for WiFi SSID/password
+// cpp:S5421: was a mutable global. Function-local static accessor — the NVS
+// Preferences handle for WiFi SSID/pass, opened/closed around each credential
+// write in storeWifiCredentials() below.
+Preferences& wifiCredentials() { static Preferences inst; return inst; }
 
 // NVS keys for WiFi credentials storage
 static constexpr const char* NVS_WIFI_NAMESPACE = "wifi";
@@ -153,23 +156,25 @@ static constexpr const char* NVS_WIFI_PASS = "pass";
 
 // Store WiFi credentials to NVS (ATSETWIFI command path)
 static bool storeWifiCredentials(const String& ssid, const String& pass) {
-    wifiCredentials.begin(NVS_WIFI_NAMESPACE, false);  // Read-write
-    bool success = wifiCredentials.putString(NVS_WIFI_SSID, ssid) > 0;
-    success = success && wifiCredentials.putString(NVS_WIFI_PASS, pass) > 0;
-    wifiCredentials.end();
+    wifiCredentials().begin(NVS_WIFI_NAMESPACE, false);  // Read-write
+    bool success = wifiCredentials().putString(NVS_WIFI_SSID, ssid) > 0;
+    success = success && wifiCredentials().putString(NVS_WIFI_PASS, pass) > 0;
+    wifiCredentials().end();
     return success;
 }
 
-// Device ID declaration - needed for message tagging
-static std::array<uint8_t, 16> discoveryDeviceId;
+// cpp:S5421: was a mutable global array. Function-local static accessor; filled
+// from the MAC in setup() (mutated at boot — fine for a function-local static).
+// Read by reference by FirmwareApp (ctor + setAtCommandAdapters).
+std::array<uint8_t, 16>& discoveryDeviceId() { static std::array<uint8_t, 16> inst; return inst; }
 
 // ── Message Tagging ────────────────────────────────────────────────────────────
 // Tag Serial diagnostic messages with device ID for clarity in monitor output
 static String deviceMessageTag() {
     std::array<char, 32> tag{};
     snprintf(tag.data(), tag.size(), "[%02X%02X%02X%02X] ",
-             discoveryDeviceId[0], discoveryDeviceId[1],
-             discoveryDeviceId[2], discoveryDeviceId[3]);
+             discoveryDeviceId()[0], discoveryDeviceId()[1],
+             discoveryDeviceId()[2], discoveryDeviceId()[3]);
     return String(tag.data());
 }
 
@@ -263,7 +268,10 @@ static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASS
 // (hardware-touching), so the adapter only READS frames here (safe post-boot).
 // NOTE: the connected-buddy WiFiClient must be declared before these adapters
 // because their member bodies reference it (complete-class context).
-static WiFiClient client;
+// cpp:S5421: was `static WiFiClient client;`. Function-local static accessor —
+// the single connected-buddy WiFiClient (connection truth source, assigned into
+// by ArduinoTcpServer::accept).
+WiFiClient& client() { static WiFiClient inst; return inst; }
 #if VEHICLE_SIM_ENABLE_TWAI
 struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
     int driverInstall(esp32_firmware::CanGeneralConfig*, esp32_firmware::CanTimingConfig*, esp32_firmware::CanFilterConfig*) override { return 0; }  // done in setup()
@@ -287,9 +295,9 @@ struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
 
 // ITcpClient wrapping the global WiFiClient (the connected buddy).
 struct ArduinoTcpClient : public esp32_firmware::ITcpClient {
-    bool connected() const override { return client && client.connected(); }
-    size_t print(const char* str) override { return client.print(str); }
-    void flush() override { client.flush(); }
+    bool connected() const override { return client() && client().connected(); }
+    size_t print(const char* str) override { return client().print(str); }
+    void flush() override { client().flush(); }
 };
 
 // ISerialCan wrapping Serial (USB diagnostic logging).
@@ -314,8 +322,8 @@ static esp32_firmware::CanBridgeDeps canBridgeDeps{
 class FirmwareApp;
 extern FirmwareApp firmwareApp;
 struct ArduinoAtTcpClient : public esp32_firmware::ITcpClientAt {
-    void print(const char* str) override { client.print(str); }
-    void flush() override { client.flush(); }
+    void print(const char* str) override { client().print(str); }
+    void flush() override { client().flush(); }
 };
 
 struct ArduinoAtSerial : public esp32_firmware::ISerialAt {
@@ -354,11 +362,13 @@ static ArduinoAtMonitor arduinoAtMonitor;
 FirmwareApp firmwareApp(arduinoWiFi, arduinoPrefs, statusLed,
                               arduinoWiFi, arduinoUdp, arduinoTime,
                               arduinoSntp, arduinoTimeNtp,
-                              discoveryDeviceId,
+                              discoveryDeviceId(),
                               canBridgeDeps,
                               BAKED_SSID, BAKED_PASS);
 
-static WiFiServer tcpServer(Constants::TCP_PORT);
+// cpp:S5421: was `static WiFiServer tcpServer(Constants::TCP_PORT);`. Function-
+// local static accessor — the TCP listener, end/begun on IP change in loop().
+WiFiServer& tcpServer() { static WiFiServer inst(Constants::TCP_PORT); return inst; }
 
 // ── TCP Server Manager wiring (Stage 6) ──────────────────────────────────────────────
 // ArduinoTcpServer adapts the global tcpServer + client (the single connection
@@ -378,7 +388,7 @@ struct FirmwareAppTcpHostCallbacks : public ITcpHostCallbacks {
 };
 } // namespace
 
-static ArduinoTcpServer arduinoTcpServer(tcpServer, client);
+static ArduinoTcpServer arduinoTcpServer(tcpServer(), client());
 static FirmwareAppTcpHostCallbacks tcpHostCallbacks(firmwareApp);
 // authToken is the bare token; the vanilla prepends "AUTH " when comparing
 // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
@@ -444,13 +454,13 @@ static void drainSerialATCommands() {
 static void restartTcpServerIfNeeded() {
     if (firmwareApp.shouldRestartTcpServer()) {
         Serial.printf("%sRestarting TCP server on IP change%s\r\n", YELLOW, NC);
-        tcpServer.end();
-        tcpServer.begin();
+        tcpServer().end();
+        tcpServer().begin();
         firmwareApp.clearTcpServerRestartFlag();
 
         // Disconnect any existing client since IP changed
-        if (client.connected()) {
-            client.stop();
+        if (client().connected()) {
+            client().stop();
             Serial.println("TCP: disconnected client due to IP change");
         }
     }
@@ -571,14 +581,14 @@ void setup() {
     // NtpTimeSync from the WiFi-connected event (deferred into loop()/update()).
 
     // Start TCP server (will be restarted on WiFi reconnect/IP change)
-    tcpServer.begin();
+    tcpServer().begin();
     Serial.printf("TCP listening on port %u\r\n", Constants::TCP_PORT);
 
     // Initialize device ID from MAC address
     std::array<uint8_t, 6> mac;
     WiFi.macAddress(mac.data());
-    discoveryDeviceId.fill(0);
-    std::copy(mac.begin(), mac.end(), discoveryDeviceId.begin());
+    discoveryDeviceId().fill(0);
+    std::copy(mac.begin(), mac.end(), discoveryDeviceId().begin());
 
     // Wire the AT command boundary adapters into FirmwareApp. The deviceId is now
     // populated (above), so the dispatcher reads the live array when a command is
@@ -586,7 +596,7 @@ void setup() {
     // ESP restart / NVS WiFi store / monitor state) to the vanilla
     // AtCommandDispatcher that FirmwareApp owns.
     firmwareApp.setAtCommandAdapters(arduinoAtTcpClient, arduinoAtSerial, arduinoAtEsp,
-                                     arduinoAtWifiStore, arduinoAtMonitor, discoveryDeviceId);
+                                     arduinoAtWifiStore, arduinoAtMonitor, discoveryDeviceId());
 
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");
@@ -632,7 +642,7 @@ void loop() {
     // Tell FirmwareApp the live TCP-client state so DiscoveryManager can suppress
     // broadcasts while a buddy is connected. FirmwareApp.update() calls
     // WiFiManager.update(), statusLed.update(), and DiscoveryManager.update().
-    firmwareApp.setClientConnected(client && client.connected());
+    firmwareApp.setClientConnected(client() && client().connected());
     firmwareApp.update(millis());
 
     // NOTE: statusLed.update() and discovery broadcast are now driven by
