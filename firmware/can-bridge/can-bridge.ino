@@ -16,6 +16,7 @@
 // satisfies Arduino's auto-generated function prototypes (hoisted above the
 // struct definition). See the struct + accessor where the former globals were.
 struct TimeAdapters;
+struct CanAdapters;   // cpp:S5421 composite (C5): defined later, returned by canAdapters()
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -324,12 +325,19 @@ struct ArduinoSerialCan : public esp32_firmware::ISerialCan {
     void flush() override { Serial.flush(); }
 };
 
-static ArduinoCanDriver arduinoCanDriver;
-static ArduinoTcpClient arduinoTcpClient;
-static ArduinoSerialCan arduinoSerialCan;
-static esp32_firmware::CanBridgeDeps canBridgeDeps{
-    arduinoCanDriver, arduinoTcpClient, arduinoSerialCan
+// cpp:S5421 (composite, C5): were 4 mutable globals (arduinoCanDriver/
+// arduinoTcpClient/arduinoSerialCan + the canBridgeDeps bundle built from
+// them). Grouped into a CanAdapters struct held by a function-local static
+// accessor (struct instance is function-local -> not flagged; clears all 4).
+// deps is constructed from the 3 driver members (preserves the prior wiring).
+struct CanAdapters {
+    ArduinoCanDriver canDriver;
+    ArduinoTcpClient tcpClient;
+    ArduinoSerialCan serialCan;
+    esp32_firmware::CanBridgeDeps deps;
+    CanAdapters() : deps{canDriver, tcpClient, serialCan} {}
 };
+CanAdapters& canAdapters() { static CanAdapters inst; return inst; }
 
 // ── AT Command Adapters (vanilla AtCommandDispatcher boundaries) ────────────
 // Thin Arduino implementations of the vanilla AT-boundary interfaces. The .ino
@@ -381,7 +389,7 @@ FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(),
                               arduinoWiFi(), arduinoUdp(), timeAdapters().time,
                               timeAdapters().sntp, timeAdapters().timeNtp,
                               discoveryDeviceId(),
-                              canBridgeDeps,
+                              canAdapters().deps,
                               BAKED_SSID, BAKED_PASS);
 
 // cpp:S5421: was `static WiFiServer tcpServer(Constants::TCP_PORT);`. Function-
