@@ -17,6 +17,7 @@
 // struct definition). See the struct + accessor where the former globals were.
 struct TimeAdapters;
 struct CanAdapters;   // cpp:S5421 composite (C5): defined later, returned by canAdapters()
+struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by atAdapters()
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -375,10 +376,17 @@ struct ArduinoAtMonitor : public esp32_firmware::IMonitorState {
     void setMonitorActive(bool active) override { firmwareApp.setMonitorActive(active); }
 };
 
-static ArduinoAtTcpClient arduinoAtTcpClient;
-static ArduinoAtSerial arduinoAtSerial;
-static ArduinoAtEsp arduinoAtEsp;
-static ArduinoAtWifiStore arduinoAtWifiStore;
+// cpp:S5421 (composite, C6): were 4 mutable globals (arduinoAtTcpClient/Serial/
+// Esp/WifiStore). Grouped into an AtAdapters struct held by a function-local
+// static accessor (struct instance is function-local -> not flagged; clears all
+// 4). arduinoAtMonitor is NOT grouped — it is not S5421-flagged (left as-is).
+struct AtAdapters {
+    ArduinoAtTcpClient tcpClient;
+    ArduinoAtSerial serial;
+    ArduinoAtEsp esp;
+    ArduinoAtWifiStore wifiStore;
+};
+AtAdapters& atAdapters() { static AtAdapters inst; return inst; }
 static ArduinoAtMonitor arduinoAtMonitor;
 
 // FirmwareApp orchestrator - delegates WiFi/LED/NTP/CAN to vanilla managers
@@ -621,8 +629,8 @@ void setup() {
     // first handled. This hands the five Arduino adapters (TCP client / serial /
     // ESP restart / NVS WiFi store / monitor state) to the vanilla
     // AtCommandDispatcher that FirmwareApp owns.
-    firmwareApp.setAtCommandAdapters(arduinoAtTcpClient, arduinoAtSerial, arduinoAtEsp,
-                                     arduinoAtWifiStore, arduinoAtMonitor, discoveryDeviceId());
+    firmwareApp.setAtCommandAdapters(atAdapters().tcpClient, atAdapters().serial, atAdapters().esp,
+                                     atAdapters().wifiStore, arduinoAtMonitor, discoveryDeviceId());
 
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");
