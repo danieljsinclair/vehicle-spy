@@ -12,7 +12,16 @@ final class VehicleViewModelTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        // Clear UserDefaults to ensure test isolation
+        UserDefaults.standard.removeObject(forKey: "connectionMode")
         mockWrapper = MockVehicleSimWrapper()
+        // Supply telemetry via the mock. The real wrapper populates these in
+        // startDemo(); the mock does not, so tests that enter demo mode and
+        // assert telemetry appears must have values to poll. Setting them here
+        // is inert until the view model's demo polling loop starts, so it does
+        // not affect tests that assert telemetry is nil before connecting.
+        mockWrapper.throttlePercentValue = 42.0
+        mockWrapper.speedKmhValue = 88.0
         viewModel = VehicleViewModel(wrapper: mockWrapper)
         cancellables = []
     }
@@ -99,6 +108,7 @@ final class VehicleViewModelTests: XCTestCase {
     func testSwitchingToDemoProvidesTelemetryValues() {
         let expectation = XCTestExpectation(description: "Demo telemetry available")
 
+        // Mock telemetry is supplied in setUp; demo polling surfaces it here.
         viewModel.connectionMode = .demo
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -162,15 +172,22 @@ final class VehicleViewModelTests: XCTestCase {
     func testStopClearsDiscoveredDevices() {
         viewModel.connectionMode = .demo
 
+        let expectation = XCTestExpectation(description: "Discovered devices cleared")
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.viewModel.stop()
             XCTAssertTrue(self.viewModel.discoveredDevices.isEmpty)
+            expectation.fulfill()
         }
+
+        wait(for: [expectation], timeout: 1.0)
     }
 
     func testStopCanBeCalledMultipleTimesSafely() {
         viewModel.connectionMode = .demo
 
+        let expectation = XCTestExpectation(description: "Repeated stop is safe")
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.viewModel.stop()
             XCTAssertEqual(self.viewModel.connectionState, .disconnected)
@@ -178,7 +195,10 @@ final class VehicleViewModelTests: XCTestCase {
             XCTAssertEqual(self.viewModel.connectionState, .disconnected)
             self.viewModel.stop()
             XCTAssertEqual(self.viewModel.connectionState, .disconnected)
+            expectation.fulfill()
         }
+
+        wait(for: [expectation], timeout: 1.0)
     }
 
     // MARK: - Demo Mode Tests
@@ -202,7 +222,7 @@ final class VehicleViewModelTests: XCTestCase {
         mockWrapper.getVehicleOptionsResult = [
             ["id": "tesla_model3", "displayName": "Tesla Model 3"],
             ["id": "generic", "displayName": "Generic OBD2"]
-        ] as [NSDictionary]
+        ]
 
         XCTAssertFalse(viewModel.vehicleOptions.isEmpty, "Should have at least one vehicle option")
     }
@@ -211,7 +231,7 @@ final class VehicleViewModelTests: XCTestCase {
         mockWrapper.getVehicleOptionsResult = [
             ["id": "tesla_model3", "displayName": "Tesla Model 3"],
             ["id": "generic", "displayName": "Generic OBD2"]
-        ] as [NSDictionary]
+        ]
 
         for option in viewModel.vehicleOptions {
             XCTAssertFalse(option.0.isEmpty, "Vehicle ID should not be empty")
@@ -223,7 +243,7 @@ final class VehicleViewModelTests: XCTestCase {
         mockWrapper.getVehicleOptionsResult = [
             ["id": "tesla_model3", "displayName": "Tesla Model 3"],
             ["id": "generic", "displayName": "Generic OBD2"]
-        ] as [NSDictionary]
+        ]
 
         if let firstOption = viewModel.vehicleOptions.first {
             XCTAssertEqual(viewModel.selectedVehicle, firstOption.0)
@@ -288,9 +308,14 @@ final class VehicleViewModelTests: XCTestCase {
     func testClientTagIsPresent() {
         viewModel.connectionMode = .demo
 
+        let expectation = XCTestExpectation(description: "Client tag present")
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             XCTAssertTrue(self.viewModel.connectionStatus.contains("[CLIENT]"))
+            expectation.fulfill()
         }
+
+        wait(for: [expectation], timeout: 1.0)
     }
 
     // MARK: - Multiple Mode Switch Tests
@@ -350,11 +375,16 @@ final class VehicleViewModelTests: XCTestCase {
     func testESP32DiscoveryStopsWhenSwitchingFromWiFi() {
         viewModel.connectionMode = .wifi
 
+        let expectation = XCTestExpectation(description: "Discovery stops on mode switch")
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let wasActive = self.viewModel.isESP32DiscoveryActive
+            let _ = self.viewModel.isESP32DiscoveryActive
             self.viewModel.connectionMode = .ble
             XCTAssertFalse(self.viewModel.isESP32DiscoveryActive)
+            expectation.fulfill()
         }
+
+        wait(for: [expectation], timeout: 1.0)
     }
 
     // MARK: - Connection State Transition Tests
@@ -500,7 +530,7 @@ final class VehicleViewModelTests: XCTestCase {
     func testVehicleDisplayNameReturnsDisplayNameForValidId() {
         mockWrapper.getVehicleOptionsResult = [
             ["id": "tesla_model3", "displayName": "Tesla Model 3"]
-        ] as [NSDictionary]
+        ]
 
         if let firstOption = viewModel.vehicleOptions.first {
             let displayName = viewModel.vehicleDisplayName(firstOption.0)

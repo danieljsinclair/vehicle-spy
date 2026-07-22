@@ -5,6 +5,10 @@ import Combine
 
 // MARK: - Mock VehicleSimWrapperProtocol
 
+// Use the Swift ConnectionState from VehicleViewModel to avoid ambiguity
+// with the Obj-C NS_ENUM ConnectionState from VehicleSimWrapper.h
+typealias MockConnectionState = VehicleSim.ConnectionState
+
 final class MockVehicleSimWrapper: NSObject, VehicleSimWrapperProtocol {
     // MARK: - Connection Control
     var startDemoCalled = false
@@ -45,9 +49,9 @@ final class MockVehicleSimWrapper: NSObject, VehicleSimWrapperProtocol {
 
     // MARK: - Vehicle Options
     var getVehicleOptionsCalled = false
-    var getVehicleOptionsResult: [NSDictionary] = []
+    var getVehicleOptionsResult: [[String: String]] = []
 
-    func getVehicleOptions() -> [NSDictionary] {
+    func getVehicleOptions() -> [[String: String]] {
         getVehicleOptionsCalled = true
         return getVehicleOptionsResult
     }
@@ -86,22 +90,22 @@ final class MockVehicleSimWrapper: NSObject, VehicleSimWrapperProtocol {
     var steeringAngleDeg: NSNumber? { steeringAngleDegValue }
 
     // MARK: - State
-    var connectionStateValue: ConnectionState = .disconnected
+    var connectionStateValue: MockConnectionState = .disconnected
     var isBluetoothReadyValue = false
     var connectedDeviceNameValue: String?
     var connectedDeviceAddressValue: String?
     var detectionInfoValue = ""
     var isReceivingDataValue = false
-    var bleNotificationCountValue = 0
+    var bleNotificationCountValue: Int32 = 0
     var lastRawHexValue = ""
 
-    var connectionState: ConnectionState { connectionStateValue }
+    var connectionState: MockConnectionState { connectionStateValue }
     var isBluetoothReady: Bool { isBluetoothReadyValue }
     var connectedDeviceName: String? { connectedDeviceNameValue }
     var connectedDeviceAddress: String? { connectedDeviceAddressValue }
     var detectionInfo: String { detectionInfoValue }
     var isReceivingData: Bool { isReceivingDataValue }
-    var bleNotificationCount: Int { bleNotificationCountValue }
+    var bleNotificationCount: Int32 { bleNotificationCountValue }
     var lastRawHex: String { lastRawHexValue }
 
     // MARK: - Reset

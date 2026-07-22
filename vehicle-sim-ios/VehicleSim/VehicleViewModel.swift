@@ -21,8 +21,8 @@ class VehicleViewModel: ObservableObject {
     @Published var steeringAngleDeg: Double? = nil
 
     // MARK: - Connection State
-    @Published var connectionState: ConnectionState = .disconnected
-    @Published var connectionStatus: String = "Disconnected"
+    @Published var connectionState: ViewModelConnectionState = .disconnected
+    @Published var connectionStatus: String = "Disconnected [CLIENT]"
     @Published var connectedDeviceName: String?
     @Published var connectedDeviceAddress: String?
 
@@ -442,6 +442,9 @@ class VehicleViewModel: ObservableObject {
     /// The user must confirm this action via the UI.
     func trustESP32(_ esp32: DiscoveredESP32) {
         wifiSecurityPolicy.markUserTrusted(deviceId: esp32.deviceId)
+        // Trusting the device resolves any prior verification refusal, so clear
+        // the stale security error rather than leave a refusal message showing.
+        wifiSecurityError = nil
         // Remove from discovered list and re-add to update UI state
         if let idx = discoveredESP32s.firstIndex(where: { $0.address == esp32.address }) {
             discoveredESP32s[idx] = esp32
@@ -634,9 +637,9 @@ class VehicleViewModel: ObservableObject {
     }
 }
 
-// MARK: - Connection State Enum
+// MARK: - Connection State Enum (renamed to avoid shadowing Obj-C ConnectionState typedef)
 
-enum ConnectionState {
+enum ViewModelConnectionState {
     case disconnected
     case connecting
     case connected
