@@ -11,14 +11,6 @@
 // OTA:      port 80 (HTTPUpdateServer — standard Arduino OTA)
 // Protocol: Minimal ELM327 — ATZ, ATE0, ATSP6, ATH1, ATMA
 
-// Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
-// this TU and returned by reference from the timeAdapters() accessor; this
-// satisfies Arduino's auto-generated function prototypes (hoisted above the
-// struct definition). See the struct + accessor where the former globals were.
-struct TimeAdapters;
-struct CanAdapters;   // cpp:S5421 composite (C5): defined later, returned by canAdapters()
-struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by atAdapters()
-
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <time.h>
@@ -30,14 +22,10 @@ struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by at
 #include <algorithm>      // std::copy for byte buffers
 #include <type_traits>    // static_assert noexcept-move checks (S5018)
 #include <utility>        // std::move for noexcept move ops (S5018)
-
-// DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
-
 // ── StatusLED Class Definitions ─────────────────────────────────────────────────────
 // Declarative pattern-based LED implementation with SOLID principles and TDD
 #include "StatusLED.h"
 #include "HardwareStatusLEDOutput.h"
-
 // ── FirmwareApp Components ───────────────────────────────────────────────────────────
 // Vanilla firmware orchestrator (WiFi/LED state machine + callback seams)
 #include "ArduinoWiFi.h"
@@ -47,7 +35,6 @@ struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by at
 #include "ArduinoSntp.h"
 #include "ArduinoTimeNtp.h"
 #include "FirmwareApp.h"
-
 // ── TcpServerManager (Stage 6 extraction) ────────────────────────────────────────────
 // Vanilla accept/auth/dispatch state machine (host-tested, 14 tests). The .ino
 // supplies the WiFiServer/WiFiClient adapters + a narrow ITcpHostCallbacks impl
@@ -55,6 +42,16 @@ struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by at
 #include "ITcpServer.h"
 #include "TcpServerManager.h"
 #include "ArduinoTcpServer.h"
+
+// Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
+// this TU and returned by reference from the timeAdapters() accessor; this
+// satisfies Arduino's auto-generated function prototypes (hoisted above the
+// struct definition). See the struct + accessor where the former globals were.
+struct TimeAdapters;
+struct CanAdapters;   // cpp:S5421 composite (C5): defined later, returned by canAdapters()
+struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by atAdapters()
+
+// DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
 
 // Use firmware namespace for components
 using firmware::StatusLED;
