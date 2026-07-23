@@ -20,8 +20,9 @@ public:
     /**
      * Create a signal source based on CLI options
      *
-     * @param sourceType "demo" or "ble"
-     * @param updateIntervalMs Update interval for demo source
+     * @param sourceType "demo" (sine-wave generator) or "simulation"
+     *                   (VehicleSimulator-backed live loop)
+     * @param updateIntervalMs Update interval for the source's worker loop
      * @return Unique pointer to ISignalSource
      * @throws std::invalid_argument if source type is unknown
      */
