@@ -11,6 +11,7 @@ using ::testing::_;
 using ::testing::Return;
 using ::testing::Invoke;
 using ::testing::AnyNumber;
+using ::testing::AtLeast;
 
 // Controllable ITime for the upload-timeout seam. millis() returns the
 // scripted value so a WRITE can be driven past UPLOAD_TIMEOUT_MS deterministically.
@@ -870,4 +871,143 @@ TEST_F(OtaUpdateServerTest, HandleGet_Responds_OkHtml) {
         .Times(1);
 
     otaServer->handleGet();
+}
+
+// ---------------------------------------------------------------------------
+// Spec §8 — verifyPartition chunked verification loop (L244-264).
+//
+// The existing END tests upload totalSize=0, so the while(off<size) loop body
+// never executes. These tests drive END with a real (non-zero) totalSize so
+// the chunk loop runs at least once — exercising partition.read + crypto
+// init/update/final across a full + partial chunk (the loop's ternary), and
+// each early-return guard.
+// ---------------------------------------------------------------------------
+
+namespace {
+// Size chosen to span one full VERIFY_CHUNK_SIZE (512) plus a partial tail,
+// forcing the chunk-loop ternary through BOTH branches in a single pass.
+constexpr uint32_t kMultiChunkSize = OtaConfig::VERIFY_CHUNK_SIZE + 88;
+
+void expectVerifyHappy(MockPartition& partitionMock, MockCrypto& cryptoMock,
+                       const OtaPartitionRef* part) {
+    EXPECT_CALL(partitionMock, size(part))
+        .WillRepeatedly(Return(1024 * 1024));
+    EXPECT_CALL(cryptoMock, sodiumInit()).Times(AnyNumber()).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _)).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phFinalVerify(_, _)).WillRepeatedly(Return(0));
+    EXPECT_CALL(partitionMock, read(_, _, _, _)).WillRepeatedly(Return(0));
+}
+} // namespace
+
+// END with non-zero totalSize drives the chunk loop end-to-end: partition.read
+// feeds each chunk into crypto.signEd25519phUpdate, finalVerify accepts, and
+// setBootPartition succeeds. Verifies the multi-chunk path (full + partial).
+TEST_F(OtaUpdateServerTest, HandleUpload_End_NonZeroSize_VerifiesAndSetsBoot) {
+    ErrorCapture sink;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    successfulStart(httpMock, updateMock, otaServer);
+
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
+    EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
+    EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
+    EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    expectVerifyHappy(partitionMock, cryptoMock, part);
+    // Assert the chunk loop actually iterated MORE THAN ONCE: totalSize spans a
+    // full VERIFY_CHUNK_SIZE (512) plus an 88-byte tail, so read() must fire
+    // twice. AtLeast(2) makes this a real regression guard — a broken loop that
+    // read 0/1 chunk would fail here (AnyNumber would let it through silently).
+    EXPECT_CALL(partitionMock, read(_, _, _, _)).Times(AtLeast(2)).WillRepeatedly(Return(0));
+    EXPECT_CALL(partitionMock, setBootPartition(part)).WillOnce(Return(0));
+
+    // END chunk carries the TOTAL image size; the loop verifies that many bytes.
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
+    end.totalSize = kMultiChunkSize;
+    otaServer->handleUpload(end);
+
+    EXPECT_FALSE(sink.fired) << "multi-chunk verify success must not raise";
+}
+
+// verifyPartition early-return A: crypto init fails (nonzero) => false,
+// abort + SIGNATURE_VERIFY_FAILED, WITHOUT reading any partition bytes.
+TEST_F(OtaUpdateServerTest, HandleUpload_End_CryptoInitFails_SignatureVerifyFailed) {
+    ErrorCapture sink;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    successfulStart(httpMock, updateMock, otaServer);
+
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
+    EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
+    EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
+    EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    EXPECT_CALL(partitionMock, size(part)).WillOnce(Return(1024 * 1024));
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).WillOnce(Return(-1));
+    // Init bails before any read/update — they must NOT be called.
+    EXPECT_CALL(partitionMock, read(_, _, _, _)).Times(0);
+    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _)).Times(0);
+    EXPECT_CALL(updateMock, abort()).Times(1);
+
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
+    end.totalSize = 128;
+    otaServer->handleUpload(end);
+
+    EXPECT_TRUE(sink.fired);
+    EXPECT_EQ(sink.error, OtaError::SIGNATURE_VERIFY_FAILED);
+}
+
+// verifyPartition early-return B: partition.read fails (nonzero) mid-stream =>
+// false, abort + SIGNATURE_VERIFY_FAILED.
+TEST_F(OtaUpdateServerTest, HandleUpload_End_PartitionReadFails_SignatureVerifyFailed) {
+    ErrorCapture sink;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    successfulStart(httpMock, updateMock, otaServer);
+
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
+    EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
+    EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
+    EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    EXPECT_CALL(partitionMock, size(part)).WillOnce(Return(1024 * 1024));
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).WillOnce(Return(0));
+    EXPECT_CALL(partitionMock, read(_, _, _, _)).WillOnce(Return(-1));
+    EXPECT_CALL(updateMock, abort()).Times(1);
+
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
+    end.totalSize = 64;
+    otaServer->handleUpload(end);
+
+    EXPECT_TRUE(sink.fired);
+    EXPECT_EQ(sink.error, OtaError::SIGNATURE_VERIFY_FAILED);
+}
+
+// verifyPartition early-return C: crypto.signEd25519phUpdate fails (nonzero) =>
+// false, abort + SIGNATURE_VERIFY_FAILED. Proves the loop checks each chunk's
+// update return, not just the read.
+TEST_F(OtaUpdateServerTest, HandleUpload_End_CryptoUpdateFails_SignatureVerifyFailed) {
+    ErrorCapture sink;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    successfulStart(httpMock, updateMock, otaServer);
+
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
+    EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
+    EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
+    EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    EXPECT_CALL(partitionMock, size(part)).WillOnce(Return(1024 * 1024));
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).WillOnce(Return(0));
+    EXPECT_CALL(partitionMock, read(_, _, _, _)).WillOnce(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _)).WillOnce(Return(-1));
+    EXPECT_CALL(updateMock, abort()).Times(1);
+
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
+    end.totalSize = 32;
+    otaServer->handleUpload(end);
+
+    EXPECT_TRUE(sink.fired);
+    EXPECT_EQ(sink.error, OtaError::SIGNATURE_VERIFY_FAILED);
 }

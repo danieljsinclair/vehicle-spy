@@ -273,3 +273,139 @@ TEST_F(WiFiManagerTest, OnDisconnected_AuthFail_TransitionsToApMode) {
     // TCP server restart flag should NOT be set for AP mode transition
     EXPECT_FALSE(wifiManager->shouldRestartTcpServer());
 }
+
+// ── State-handler body coverage (Disconnected / Connecting branches) ─────────────────
+// The pure helpers above are well-tested; these tests drive the state-machine
+// handler BODIES via update() — the Disconnected NONE→AP fallback, the
+// Connecting CONNECT_FAILED retry + AP fallback, and the initial-connect
+// timeout branches (STORED_NVS / BAKED_IN) plus the Reconnecting recovery.
+
+TEST_F(WiFiManagerTest, Init_NoCredentials_TransitionsToApMode) {
+    // DisconnectedStateHandler NONE branch: no stored NVS creds AND no baked
+    // credentials → setMode(AP) + softAP() → CONNECTED_AP.
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock,
+        nullptr, nullptr);  // no baked creds
+
+    wifiManager->init();
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+    EXPECT_EQ(wifiMock.getApSsid(), std::string(WiFiConfig::AP_SSID));
+}
+
+TEST_F(WiFiManagerTest, Connecting_ConnectFailedAndTimeout_FallsBackToApMode) {
+    // ConnectingStateHandler: status==CONNECT_FAILED + connectDuration past the
+    // WIFI_CONNECT_TIMEOUT_MS threshold → shouldFallbackToApMode true → AP mode.
+    prefsMock.setValue("wifi", "ssid", "real-ssid");
+    prefsMock.setValue("wifi", "pass", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, nullptr, nullptr);
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECT_FAILED);  // status 4
+    wifiManager->init();
+    // Disconnected(STORED_NVS) → CONNECTING; connectStartTime set at init time.
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+
+    // init()'s Disconnected handler called wifi_.begin(stored), which the mock
+    // resets to WL_IDLE_STATUS — so re-assert the failed status AFTER init to
+    // model a real connection attempt that has failed.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECT_FAILED);
+    // Advance past the connect timeout (30s) so shouldFallbackToApMode() is true.
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1000);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+}
+
+TEST_F(WiFiManagerTest, Connecting_ConnectFailedBeforeTimeout_RetriesStoredCredentials) {
+    // ConnectingStateHandler: status==CONNECT_FAILED but within the timeout →
+    // no AP fallback; shouldRetryWiFi triggers a disconnect+begin retry using
+    // the STORED_NVS credentials. State stays CONNECTING.
+    prefsMock.setValue("wifi", "ssid", "real-ssid");
+    prefsMock.setValue("wifi", "pass", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, nullptr, nullptr);
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECT_FAILED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+
+    // init()'s Disconnected handler called wifi_.begin(stored), which the mock
+    // resets to WL_IDLE_STATUS — re-assert the failed status AFTER init.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECT_FAILED);
+    // Advance past the retry interval (5s) but well within the 30s timeout.
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1);
+
+    // Still attempting (CONNECTING), not fallen back to AP.
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+    // The retry path disconnected then re-began with the stored SSID.
+    EXPECT_EQ(wifiMock.getCurrentSsid(), std::string("real-ssid"));
+}
+
+TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithStoredCredentials_FallsBackToApMode) {
+    // ConnectingStateHandler isInitialConnectTimeout branch: status neither
+    // CONNECTED nor CONNECT_FAILED/NO_SSID (idle), and connectDuration exceeds
+    // the initial-connect budget → STORED_NVS → AP fallback.
+    prefsMock.setValue("wifi", "ssid", "real-ssid");
+    prefsMock.setValue("wifi", "pass", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, nullptr, nullptr);
+
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);  // neither 3 nor 4/1
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+
+    // Past the initial-connect budget (60 retries * 5s = 300s).
+    const uint32_t kInitialBudgetMs =
+        WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES * WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
+    wifiManager->update(kInitialBudgetMs + 1);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+}
+
+TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithBakedCredentials_TransitionsToReconnecting) {
+    // isInitialConnectTimeout branch for BAKED_IN: baked creds should "just
+    // work", so on initial timeout the handler hands off to RECONNECTING
+    // (keeps trying) rather than falling back to AP.
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, "baked-ssid", "baked-pass");
+
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+
+    const uint32_t kInitialBudgetMs =
+        WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES * WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
+    wifiManager->update(kInitialBudgetMs + 1);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
+}
+
+TEST_F(WiFiManagerTest, Reconnecting_WhenWifiConnected_TransitionsToConnectedSta) {
+    // ReconnectingStateHandler body: once status() reports WL_CONNECTED, the
+    // handler transitions back to CONNECTED_STA (tcpRestart + ntp init).
+    prefsMock.setValue("wifi", "ssid", "real-ssid");
+    prefsMock.setValue("wifi", "pass", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, nullptr, nullptr);
+
+    // Reach RECONNECTING through a real connect + non-auth drop.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();                                   // → CONNECTING
+    // init()'s Disconnected handler called wifi_.begin(), which the mock resets
+    // to WL_IDLE_STATUS — re-assert connected so the next tick observes it.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);                              // → CONNECTED_STA
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
+
+    wifiManager->onDisconnected(200);  // BEACON_TIMEOUT → RECONNECTING
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
+
+    // While RECONNECTING, WiFi comes back → CONNECTED_STA.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(1000);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
+}

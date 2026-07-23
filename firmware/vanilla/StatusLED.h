@@ -82,6 +82,11 @@ public:
     // Test helper: Get pattern array for given pattern (exposed for white-box testing)
     static std::pair<const LEDStep*, size_t> getPatternSteps(Pattern pattern);
 
+    // Diagnostic: human-readable name for a pattern. Exposed for host
+    // testability (pure lookup, no side effects) — mirrors the
+    // getPatternSteps precedent above.
+    const char* getPatternName(Pattern pattern);
+
 private:
     IStatusLEDOutput* output_;     // Hardware interface (DI)
     Pattern currentPattern_;       // Active pattern
@@ -100,9 +105,6 @@ private:
 
     // Reset pattern to beginning (on pattern change or cycle completion)
     void resetPattern(uint32_t currentTime);
-
-    // Diagnostics
-    const char* getPatternName(Pattern pattern);
 };
 
 } // namespace firmware
