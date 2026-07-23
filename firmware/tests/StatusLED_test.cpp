@@ -343,3 +343,30 @@ TEST_F(StatusLEDTest, Update_SamePatternNoChange_DoesNotReset) {
     statusLed->update(StatusLEDConstants::MED_FLASH_MS + 1);
     EXPECT_FALSE(outputMock.ledOn);
 }
+
+// getPatternName: maps every Pattern to its display string. Drives the full
+// switch (the L200-215 block that was previously uncovered). The last case
+// asserts the UNKNOWN fallback for an out-of-range value.
+TEST_F(StatusLEDTest, GetPatternName_ReturnsDisplayNameForEachPattern) {
+    statusLed = std::make_unique<StatusLED>(&outputMock);
+
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::OFF), "OFF");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::BOOT), "BOOT");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::WIFI_SEARCHING), "WIFI_SEARCHING");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::WIFI_CONNECTED), "WIFI_CONNECTED");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::CLIENT_CONNECTED), "CLIENT_CONNECTED");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::AP_MODE), "AP_MODE");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::OTA_IN_PROGRESS), "OTA_IN_PROGRESS");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_AUTH_FAILURE), "ERROR_AUTH_FAILURE");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_RECOVERABLE), "ERROR_RECOVERABLE");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_NO_NTP_SERVICE), "ERROR_NO_NTP_SERVICE");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::FATAL_UNRECOVERABLE), "FATAL_UNRECOVERABLE");
+}
+
+TEST_F(StatusLEDTest, GetPatternName_OutOfRangeValue_ReturnsUnknownFallback) {
+    statusLed = std::make_unique<StatusLED>(&outputMock);
+
+    // Cast an out-of-range int to exercise the switch's default branch.
+    const auto outOfRange = static_cast<StatusLED::Pattern>(999);
+    EXPECT_STREQ(statusLed->getPatternName(outOfRange), "UNKNOWN_PATTERN");
+}

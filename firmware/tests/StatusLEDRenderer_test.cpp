@@ -1,6 +1,8 @@
 // StatusLEDRenderer_test.cpp - Tests for StatusLED pattern renderer
 
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <string>
 #include "vanilla/StatusLED.h"
 #include "vanilla/StatusLEDRenderer.h"
 
@@ -154,4 +156,80 @@ TEST(StatusLEDRendererTest, GenerateHelpText_OutputStructure) {
     // Verify timing notes are present
     EXPECT_NE(help.find("0.1s"), std::string::npos);  // TINY_FLASH
     EXPECT_NE(help.find("0.8s"), std::string::npos);  // LONG_FLASH
+}
+
+// generateTable: the compact one-line-per-pattern diagnostic table that backs
+// the --led-diag CLI flag. Distinct from generateHelpText() (already tested).
+// Drives generateTable() + getCategoryName() (all category cases, reached via
+// the category grouping) + timingNote() (incl. the SEPARATOR branch via the
+// AP_MODE / error / fatal patterns) and formatDuration(). (getPatternInfo /
+// getAllPatterns are NOT exercised here — they are dead code with no callers,
+// flagged separately for tech-arch triage.)
+TEST(StatusLEDRendererTest, GenerateTable_ContainsEveryPatternName) {
+    std::string table = StatusLEDRenderer::generateTable();
+
+    // Every registered pattern name must appear as a row.
+    EXPECT_NE(table.find("OFF"), std::string::npos);
+    EXPECT_NE(table.find("BOOT"), std::string::npos);
+    EXPECT_NE(table.find("WIFI_SEARCHING"), std::string::npos);
+    EXPECT_NE(table.find("WIFI_CONNECTED"), std::string::npos);
+    EXPECT_NE(table.find("CLIENT_CONNECTED"), std::string::npos);
+    EXPECT_NE(table.find("AP_MODE"), std::string::npos);
+    EXPECT_NE(table.find("OTA_IN_PROGRESS"), std::string::npos);
+    EXPECT_NE(table.find("ERROR_AUTH_FAILURE"), std::string::npos);
+    EXPECT_NE(table.find("ERROR_RECOVERABLE"), std::string::npos);
+    EXPECT_NE(table.find("ERROR_NO_NTP_SERVICE"), std::string::npos);
+    EXPECT_NE(table.find("FATAL_UNRECOVERABLE"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, GenerateTable_HasHeaderAndTimingNotes) {
+    std::string table = StatusLEDRenderer::generateTable();
+
+    // Header explains the encoding (intent, not exact wording).
+    EXPECT_NE(table.find("100ms"), std::string::npos);
+    // Timing-note column ("# ...") carries formatted durations.
+    EXPECT_NE(table.find("0.1s"), std::string::npos);
+    EXPECT_NE(table.find("0.8s"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, GenerateTable_RendersSolidOnAndSeparatorTiming) {
+    std::string table = StatusLEDRenderer::generateTable();
+
+    // CLIENT_CONNECTED is a solid-ON pattern -> "solid ON" timing note, with
+    // the '#' (solid) glyph in its visual.
+    EXPECT_NE(table.find("solid ON"), std::string::npos);
+    // Patterns carrying a SEPARATOR step (AP_MODE / error / fatal families)
+    // render a "sep" timing entry — exercises the SEPARATOR branch of
+    // timingNote(), which generateHelpText() does not reliably reach.
+    EXPECT_NE(table.find("sep"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, GenerateTable_GroupsPatternsAdjacently) {
+    std::string table = StatusLEDRenderer::generateTable();
+
+    // generateTable groups by PatternCategory (via std::map) but does NOT emit
+    // category headers (that line is intentionally commented out — header
+    // rendering lives in generateHelpText). What we CAN assert: members of the
+    // same category appear adjacently. The two WIFI patterns are consecutive.
+    const size_t searching = table.find("WIFI_SEARCHING");
+    const size_t connected = table.find("WIFI_CONNECTED");
+    ASSERT_NE(searching, std::string::npos);
+    ASSERT_NE(connected, std::string::npos);
+    EXPECT_NE(searching, connected);
+
+    // No other registered pattern name should appear between them (adjacency).
+    static const std::string kOtherPatterns[] = {
+        "BOOT", "CLIENT_CONNECTED", "AP_MODE", "OTA_IN_PROGRESS",
+        "ERROR_AUTH_FAILURE", "ERROR_RECOVERABLE", "ERROR_NO_NTP_SERVICE",
+        "FATAL_UNRECOVERABLE",
+    };
+    const size_t lo = std::min(searching, connected);
+    const size_t hi = std::max(searching, connected);
+    for (const std::string& name : kOtherPatterns) {
+        const size_t pos = table.find(name);
+        ASSERT_NE(pos, std::string::npos);
+        // Each non-WiFi pattern must sit outside the [lo,hi] window.
+        EXPECT_TRUE(pos < lo || pos > hi)
+            << "pattern '" << name << "' splits the WiFi group";
+    }
 }
