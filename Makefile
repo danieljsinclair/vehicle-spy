@@ -51,9 +51,9 @@ all: header test firmware ios coverage-run coverage-ios coverage-firmware sonar-
 # classes on .mm/.m). sonar-scan re-scans vehicle-spy (the gate-affected
 # project) and fails the gate if new issues appear. Run this before committing.
 .PHONY: gate
-gate: test firmware-host-tests ios ios-analyze firmware sonar-scan
+gate: test firmware-host-tests ios ios-test-gate ios-analyze firmware sonar-scan
 	@printf "$${GREEN}== COMMIT GATE PASSED ==$${NC}\n"
-	@printf "  test 1111 | firmware-host 219 | ios (-Werror) | ios-analyze (CLEAN) | firmware | sonar vehicle-spy 7 OPEN\n"
+	@printf "  test 1111 | firmware-host 219 | ios (-Werror) | ios-test-gate (XCTest) | ios-analyze (CLEAN) | firmware | sonar vehicle-spy 7 OPEN\n"
 
 # Shared macro to show build config (DRY)
 define show_wifi
@@ -733,22 +733,61 @@ COVERAGE_XML_IOS  := $(BUILD_IOS_DIR)/coverage-ios.xml
 IOS_COV_INPUTS    := $(shell find vehicle-sim-ios/VehicleSim vehicle-sim-ios/VehicleSimTests -type f \( -name '*.swift' -o -name '*.mm' -o -name '*.h' \) 2>/dev/null | sort) Makefile
 
 # test-ios: run the iOS unit-test bundle on the simulator (no coverage).
-# Reports pass/fail but does NOT gate the pipeline (some pre-existing tests
-# are latent app bugs -- see commit history). The xcresult is still produced.
+# File-artefact target: re-runs only when the log is missing or the app
+# sources / Makefile have changed since the last run. The log is the
+# artefact Make tracks; the coloured PASSED/FAILED line is just display.
 #
-# xcodebuild prints results to stderr; we tee the full output to a log file
-# (so failures are captured for post-mortem) then grep the test summary from
-# the log for a concise on-screen verdict. The summary line looks like:
+# xcodebuild prints results to stderr; we redirect the full output to a log
+# file (captured for post-mortem). The exit code is NOT authoritative on its
+# own: a nonzero xcodebuild exit (test failures OR a host crash) is masked
+# with `|| true` so the recipe body can reach the display logic below, which
+# greps the test summary for a concise on-screen verdict. The summary line
+# looks like:
 #   Test Suite 'VehicleSimTests.xctest' passed at ... :
 #   Executed 51 tests, with 5 failures ...
 # or
 #   ** TEST FAILED **
 IOS_TEST_LOG := $(BUILD_IOS_DIR)/ios-test.log
 
-# test-ios: run the iOS unit-test bundle on the simulator (no coverage).
-# File-artefact target: re-runs only when the log is missing or the app
-# sources / Makefile have changed since the last run. The log is the
-# artefact Make tracks; the coloured PASSED/FAILED line is just display.
+# ios_test_verdict — AUTHORITATIVE pass/fail for an iOS test log.
+#
+# Why this exists: xcodebuild's exit code is unreliable as a gate signal.
+# (1) `make ios` only BUILDS (never `test`), so the XCTest bundle was never
+#     run by the gate at all. (2) `test-ios` masks xcodebuild's exit with
+#     `|| true` to reach its display logic, so the gate could not inherit a
+#     real signal. (3) on a host crash, xcodebuild restarts and the retry
+#     output never lands in the log — the log TRUNCATES mid-line ("Testing
+#     started" with no SUCCEEDED/FAILED marker), which can look like "no
+#     failures" when tests actually crashed.
+#
+# This macro resolves a log to a single authoritative verdict by scanning for
+# xcodebuild's explicit terminal markers, NOT exit codes or the cosmetic
+# PASSED line:
+#   PASS  <=> '** TEST SUCCEEDED **' present
+#   FAIL  <=> '** TEST FAILED **' present, OR a crash/restart signature
+#             ('Restarting after unexpected exit' / 'Fatal error'), OR neither
+#             marker present (truncated/unknown log — treated as FAIL so a
+#             half-written log can never look green).
+#
+# Args: $$1 = log path. Prints the executed-tests line + coloured verdict.
+# Sets shell var IOS_VERDICT to PASSED|FAILED for the caller to act on.
+define ios_test_verdict
+	_line=$$(grep -E 'Executed [0-9]+ tests' $(1) | tail -1 | sed 's/^/  /'); \
+	if grep -qE '\*\* TEST SUCCEEDED \*\*' $(1); then \
+		IOS_VERDICT=PASSED; \
+		printf "  $(GREEN)iOS tests: PASSED — %s$(NC)\n" "$$_line"; \
+	elif grep -qE '\*\* TEST FAILED \*\*' $(1); then \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: FAILED — %s$(NC)\n" "$$_line"; \
+	elif grep -qE 'Restarting after unexpected exit|Fatal error' $(1); then \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: CRASHED/RESTARTED (host crash) — %s$(NC)\n" "$$_line"; \
+	else \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: UNKNOWN (no TEST SUCCEEDED/FAILED marker — log truncated?)$(NC)\n"; \
+	fi
+endef
+
 test-ios: $(IOS_TEST_LOG)
 
 $(IOS_TEST_LOG): app-icons $(IOS_COV_INPUTS)
@@ -761,13 +800,27 @@ $(IOS_TEST_LOG): app-icons $(IOS_COV_INPUTS)
 		-derivedDataPath $(BUILD_IOS_DIR) \
 		CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
 		> $@ 2>&1 || true
-	@_line=$$(grep -E 'Executed [0-9]+ tests' $@ | tail -1 | sed 's/^/  /'); \
-	if grep -q 'Test Suite.*passed' $@ 2>/dev/null; then \
-		echo "  $(GREEN)iOS tests: PASSED — $$_line$(NC)"; \
-	elif grep -q 'Test Suite.*failed' $@ 2>/dev/null; then \
-		echo "  $(RED)iOS tests: FAILED — $$_line$(NC)"; \
-	else \
-		echo "  $(YELLOW)iOS tests: unknown (see $@)$(NC)"; fi
+	@$(call ios_test_verdict,$@)
+
+# ios-test-gate: the GATE's authoritative iOS test leg.
+#
+# `make gate` depends on this (NOT on `ios`, which only BUILDS the app and
+# never runs XCTest). This target (1) forces a FRESH test run by removing the
+# cached log artefact (the file-artefact cache in test-ios would otherwise
+# let the gate inherit a stale green log from a prior run when no source
+# changed), then (2) builds the log via the test-ios recipe, then (3) applies
+# ios_test_verdict and FAILS the gate unless the log shows an authoritative
+# PASS. A red test, a host crash, or a truncated log all fail the gate.
+.PHONY: ios-test-gate
+ios-test-gate:
+	@rm -f $(IOS_TEST_LOG)
+	@$(MAKE) $(IOS_TEST_LOG)
+	@$(call ios_test_verdict,$(IOS_TEST_LOG)); \
+	if [ "$$IOS_VERDICT" != "PASSED" ]; then \
+		printf "$(RED)== ios-test-gate FAILED: iOS tests not green (see $(IOS_TEST_LOG)) ==$(NC)\n"; \
+		exit 1; \
+	fi
+	@printf "$(GREEN)== ios-test-gate PASSED: iOS tests green ==$(NC)\n"
 
 # coverage-ios: xcodebuild test -enableCodeCoverage, extract xccov, convert to
 # SonarCloud XML. Tolerates test FAILURES and hard crashes: writes the xcresult
