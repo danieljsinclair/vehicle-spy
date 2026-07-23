@@ -139,6 +139,39 @@ final class WiFiSecurityPolicyTests: XCTestCase {
         XCTAssertNotEqual(policy1, policy2)
     }
 
+    // Two policies built from the SAME non-nil public key are equal — pins the
+    // Curve25519 key-comparison branch (rawRepresentation equality), which the
+    // default nil-key equality test above does not reach.
+    func testPolicyEqualityWithSamePublicKey() {
+        let keyPair = Curve25519.Signing.PrivateKey()
+        let policy1 = WiFiSecurityPolicy(publicKey: keyPair.publicKey)
+        let policy2 = WiFiSecurityPolicy(publicKey: keyPair.publicKey)
+
+        XCTAssertEqual(policy1, policy2, "policies with the same public key should be equal")
+    }
+
+    // Two policies with DIFFERENT public keys are NOT equal — pins the
+    // inequality fallback for two present-but-distinct keys.
+    func testPolicyInequalityWithDifferentPublicKeys() {
+        let keyA = Curve25519.Signing.PrivateKey()
+        let keyB = Curve25519.Signing.PrivateKey()
+        let policy1 = WiFiSecurityPolicy(publicKey: keyA.publicKey)
+        let policy2 = WiFiSecurityPolicy(publicKey: keyB.publicKey)
+
+        XCTAssertNotEqual(policy1, policy2, "policies with different public keys should not be equal")
+    }
+
+    // A policy with a key and a policy without one are NOT equal — pins the
+    // one-nil / one-present (mixed) default branch of the key comparison.
+    func testPolicyInequalityWhenOneHasKeyAndOtherDoesNot() {
+        let keyPair = Curve25519.Signing.PrivateKey()
+        let withKey = WiFiSecurityPolicy(publicKey: keyPair.publicKey)
+        let withoutKey = WiFiSecurityPolicy(publicKey: nil)
+
+        XCTAssertNotEqual(withKey, withoutKey,
+                          "a policy with a key must not equal one without")
+    }
+
     // MARK: - Error Descriptions
 
     func testWiFiSecurityPolicyErrorDescriptions() {
