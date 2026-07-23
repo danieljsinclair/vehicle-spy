@@ -168,7 +168,10 @@ final class ESP32DiscoveryListener {
 
 // MARK: - NWEndpoint host address
 
-private extension NWEndpoint {
+// Internal (not private) so the host-resolution logic is reachable from
+// @testable unit tests; it is still module-internal (not public) so the
+// surface area exposed to consumers is unchanged.
+extension NWEndpoint {
     var hostAddressString: String {
         // Expressed as if/else (not switch) per swift:S1301 — only one handled case.
         // The outer `if case .hostPort` matches the only endpoint shape we can resolve a
