@@ -1,9 +1,14 @@
 #include "vehicle-sim/domain/SimulationSignalSource.h"
 
+#include <chrono>
+
 namespace vehicle_sim::domain {
 
-SimulationSignalSource::SimulationSignalSource(std::unique_ptr<VehicleSimulator> simulator) noexcept
-    : simulator_(std::move(simulator))
+SimulationSignalSource::SimulationSignalSource(
+    std::unique_ptr<IVehicleSimulator> simulator,
+    int intervalMs) noexcept
+    : simulator_(std::move(simulator)),
+      intervalMs_(intervalMs)
 {
 }
 
@@ -17,18 +22,43 @@ VehicleSignal SimulationSignalSource::latestSignal() const noexcept {
 }
 
 void SimulationSignalSource::start() noexcept {
-    if (running_) return;
+    if (bool expected = false; !running_.compare_exchange_strong(expected, true)) {
+        return;  // Already running — second start is a no-op (idempotent).
+    }
 
     simulator_->initialize();
     simulator_->start();
-    running_ = true;
+
+    worker_ = std::thread(&SimulationSignalSource::pollSimulator, this);
 }
 
 void SimulationSignalSource::stop() noexcept {
-    if (!running_) return;
+    if (!running_.exchange(false)) {
+        return;  // Was not running — nothing to stop (idempotent).
+    }
+
+    if (worker_.joinable()) {
+        worker_.join();
+    }
 
     simulator_->stop();
-    running_ = false;
+}
+
+void SimulationSignalSource::pollSimulator() {
+    while (running_.load()) {
+        simulator_->update();
+        VehicleSignal signal = simulator_->getLatestSignal();
+
+        {
+            std::scoped_lock lock(signalMutex_);
+            latestSignal_ = signal;
+        }
+
+        if (!running_.load()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(intervalMs_));
+    }
 }
 
 } // namespace vehicle_sim::domain

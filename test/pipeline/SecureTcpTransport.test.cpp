@@ -231,6 +231,19 @@ public:
         sendAll(data, len);
     }
 
+    // Receive exactly 32 bytes (a public key) from the client. Used by
+    // partial-handshake tests that need to consume the client's ephemeral key
+    // without completing the protocol.
+    bool recvExactPublic(std::array<uint8_t, 32>& dst) {
+        return recvExact(dst.data(), dst.size());
+    }
+
+    // Send exactly 32 raw bytes (e.g. an arbitrary ephemeral public key) to
+    // the client, with no signature or further protocol bytes following.
+    bool sendRawPublic(const std::array<uint8_t, 32>& src) {
+        return sendAll(src.data(), src.size());
+    }
+
 private:
     bool sendAll(const uint8_t* data, size_t len) {
         size_t sent = 0;
@@ -599,4 +612,180 @@ TEST(SecureTcpTransportTest, RawBufferOverflow_ReturnsNulloptAndCloses) {
 
     serverThread.join();
     g_testStop->reset();
+}
+
+// ============================================================
+// Uncovered-path coverage (P2) — handshake early-failure branches,
+// open() cancellation, and nextLine() final-line flush.
+//
+// Each test drives a REAL loopback connection to a MockSecureServer variant
+// that aborts the protocol at a specific step, so the failure is exercised
+// against production code paths (performHandshake / open / nextLine) rather
+// than mocked. The CapturingOutput sink records err() calls so assertions
+// target intent (e.g. "signature verification") without fragile exact strings.
+// ============================================================
+
+namespace {
+
+// ITransportOutput that records every err() message, so tests can assert which
+// failure path was taken by its distinguishing content (intent, not wording).
+class CapturingOutput final : public ITransportOutput {
+public:
+    void out(const std::string& /*msg*/) override {}
+    void err(const std::string& msg) override { messages_.push_back(msg); }
+
+    bool errContains(std::string_view needle) const {
+        for (const auto& m : messages_) {
+            if (m.find(needle) != std::string::npos) return true;
+        }
+        return false;
+    }
+    const std::vector<std::string>& errors() const { return messages_; }
+
+private:
+    std::vector<std::string> messages_;
+};
+
+} // namespace
+
+// Handshake: server accepts the TCP connection but never sends its ephemeral
+// public key (closes early). The client's doRecvExact for the server pubkey
+// times out → performHandshake returns false → open() fails. Covers the
+// "Failed to receive server public key" branch and the handshake-failure
+// (non-retry) path in open().
+TEST(SecureTcpTransportTest, HandshakeFails_ServerNeverSendsPublicKey) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    g_testStop->reset();
+    auto out = std::make_shared<CapturingOutput>();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, out, 1000, g_testStop);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        // Read the client's ephemeral public key (so the client's send
+        // succeeds), then close without sending anything back.
+        std::array<uint8_t, 32> sink{};
+        std::ignore = server.recvExactPublic(sink);
+        server.closeClient();
+    });
+
+    // open() must fail: handshake timed out waiting for the server pubkey.
+    EXPECT_FALSE(t.open());
+    // Intent: the failure was a handshake/key-exchange problem, not a refusal.
+    EXPECT_TRUE(out->errContains("public key"));
+
+    serverThread.join();
+}
+
+// Handshake: server sends its ephemeral public key but never sends the Ed25519
+// signature. The client's doRecvExact for the signature times out →
+// performHandshake returns false. Covers the "Failed to receive server
+// signature" branch.
+TEST(SecureTcpTransportTest, HandshakeFails_ServerNeverSendsSignature) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    g_testStop->reset();
+    auto out = std::make_shared<CapturingOutput>();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey, out, 1000, g_testStop);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        // Exchange ephemeral keys with a VALID server keypair (so the client's
+        // crypto_kx_client_session_keys succeeds), then close WITHOUT sending
+        // the Ed25519 signature. The client's doRecvExact for the 64-byte
+        // signature hits EOF → "Failed to receive server signature".
+        std::array<uint8_t, 32> clientPk{};
+        std::ignore = server.recvExactPublic(clientPk);
+        std::array<uint8_t, 32> serverPk{};
+        std::array<uint8_t, 32> serverSk{};
+        ASSERT_EQ(crypto_kx_keypair(serverPk.data(), serverSk.data()), 0);
+        ASSERT_TRUE(server.sendRawPublic(serverPk));
+        server.closeClient();
+    });
+
+    EXPECT_FALSE(t.open());
+    EXPECT_TRUE(out->errContains("signature"));
+
+    serverThread.join();
+}
+
+// open() cancellation: if stop is requested before a connection is attempted,
+// open() returns false and reports cancellation. Covers the stop-requested
+// early-return in the connect loop. Uses a port with no listener so the
+// stop signal is what terminates, not a successful connect.
+TEST(SecureTcpTransportTest, OpenCancelled_WhenStopRequestedBeforeConnect) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto kp = MockSecureServer::generateKeypair();
+    auto out = std::make_shared<CapturingOutput>();
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", /*port=*/9, kp.publicKey, out, 1000, g_testStop);
+
+    // Request stop before open() — the connect loop checks stop first.
+    g_testStop->requestStop();
+
+    EXPECT_FALSE(t.open());
+    EXPECT_FALSE(t.isOpen());
+    EXPECT_TRUE(out->errContains("cancel"));
+
+    g_testStop->reset();
+}
+
+// Characterization: after the peer sends exactly one frame and then closes,
+// nextLine() returns that frame and then nullopt (the recv() EOF sets
+// exhausted_). Note this does NOT exercise the "plaintext remaining without a
+// '\n'" flush branch in nextLine() — production unconditionally appends '\n'
+// after every decrypted frame, so a single complete frame is returned via the
+// normal newline-found path. (Whether that flush branch is reachable at all is
+// a separate tech-arch question — it is out of scope for these tests.)
+TEST(SecureTcpTransportTest, NextLine_ReturnsFrameThenNulloptOnPeerClose) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto serverKp = MockSecureServer::generateKeypair();
+    MockSecureServer server;
+    ASSERT_TRUE(server.start());
+
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", server.port(), serverKp.publicKey,
+                         std::make_shared<StdOut>(), 1000, g_testStop);
+
+    std::thread serverThread([&] {
+        ASSERT_GE(server.acceptClient(), 0);
+        ASSERT_TRUE(server.performHandshake(serverKp));
+        // One complete frame, then the peer disconnects.
+        server.sendEncryptedLine("first");
+        server.closeClient();
+    });
+
+    ASSERT_TRUE(t.open());
+
+    auto first = t.nextLine();
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(*first, "first");
+    // After the peer closed, the next read returns nullopt (EOF / exhausted).
+    EXPECT_FALSE(t.nextLine().has_value());
+
+    serverThread.join();
+}
+
+// nextLine() before open(): returns nullopt immediately. Covers the not-open
+// early-return at the top of nextLine().
+TEST(SecureTcpTransportTest, NextLine_ReturnsNulloptBeforeOpen) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto kp = MockSecureServer::generateKeypair();
+    g_testStop->reset();
+    SecureTcpTransport t("127.0.0.1", 9, kp.publicKey, std::make_shared<StdOut>(), 1000, g_testStop);
+
+    // Never opened — nextLine() must short-circuit to nullopt.
+    EXPECT_FALSE(t.nextLine().has_value());
+    EXPECT_FALSE(t.isOpen());
 }
