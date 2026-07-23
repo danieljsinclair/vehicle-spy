@@ -748,6 +748,14 @@ IOS_COV_INPUTS    := $(shell find vehicle-sim-ios/VehicleSim vehicle-sim-ios/Veh
 # or
 #   ** TEST FAILED **
 IOS_TEST_LOG := $(BUILD_IOS_DIR)/ios-test.log
+# Deterministic result-bundle path for test-ios. A STABLE path (cleared each
+# run) avoids the result-bundle STAGING CONTAMINATION seen with xcodebuild's
+# default timestamped location under build-ios/Logs/Test: stale "1_Test"
+# staging entries there cause `Result bundle saving failed` + a FALSE
+# `** TEST FAILED **`. Clearing the bundle + staging dir before each run keeps
+# the test leg self-healing (see ios_test_verdict's CONTAMINATED branch).
+IOS_TEST_BUNDLE := $(BUILD_IOS_DIR)/ios-test.xcresult
+IOS_TEST_STAGING := $(BUILD_IOS_DIR)/Logs/Test
 
 # ios_test_verdict — AUTHORITATIVE pass/fail for an iOS test log.
 #
@@ -758,12 +766,21 @@ IOS_TEST_LOG := $(BUILD_IOS_DIR)/ios-test.log
 #     real signal. (3) on a host crash, xcodebuild restarts and the retry
 #     output never lands in the log — the log TRUNCATES mid-line ("Testing
 #     started" with no SUCCEEDED/FAILED marker), which can look like "no
-#     failures" when tests actually crashed.
+#     failures" when tests actually crashed. (4) result-bundle STAGING
+#     CONTAMINATION in build-ios/Logs/Test leaves stale "1_Test" entries that
+#     make xcodebuild emit `Result bundle saving failed ... mkstemp: No such
+#     file` / `Staging directory still contains` and a FALSE `** TEST FAILED
+#     **` even when no assertion failed — a spurious RED. Clearing the staging
+#     dir (or a deterministic -resultBundlePath) self-heals it; see the recipe.
 #
 # This macro resolves a log to a single authoritative verdict by scanning for
-# xcodebuild's explicit terminal markers, NOT exit codes or the cosmetic
-# PASSED line:
-#   PASS  <=> '** TEST SUCCEEDED **' present
+# xcodebuild's explicit terminal markers / contamination signatures, NOT exit
+# codes or the cosmetic PASSED line:
+#   FAIL  <=> result-bundle contamination signature present (checked FIRST —
+#             a contaminated run can't be trusted as green; re-run after the
+#             recipe clears the staging dir). Surfaced distinctly so a human
+#             sees "infrastructure, not a test regression".
+#   PASS  <=> '** TEST SUCCEEDED **' present (and no contamination)
 #   FAIL  <=> '** TEST FAILED **' present, OR a crash/restart signature
 #             ('Restarting after unexpected exit' / 'Fatal error'), OR neither
 #             marker present (truncated/unknown log — treated as FAIL so a
@@ -773,7 +790,10 @@ IOS_TEST_LOG := $(BUILD_IOS_DIR)/ios-test.log
 # Sets shell var IOS_VERDICT to PASSED|FAILED for the caller to act on.
 define ios_test_verdict
 	_line=$$(grep -E 'Executed [0-9]+ tests' $(1) | tail -1 | sed 's/^/  /'); \
-	if grep -qE '\*\* TEST SUCCEEDED \*\*' $(1); then \
+	if grep -qE 'Result bundle saving failed|Staging directory still contains' $(1); then \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: CONTAMINATED (result-bundle staging corruption — re-run; not a test regression)$(NC)\n"; \
+	elif grep -qE '\*\* TEST SUCCEEDED \*\*' $(1); then \
 		IOS_VERDICT=PASSED; \
 		printf "  $(GREEN)iOS tests: PASSED — %s$(NC)\n" "$$_line"; \
 	elif grep -qE '\*\* TEST FAILED \*\*' $(1); then \
@@ -792,12 +812,24 @@ test-ios: $(IOS_TEST_LOG)
 
 $(IOS_TEST_LOG): app-icons $(IOS_COV_INPUTS)
 	@echo "=== [vehicle-spy] Running iOS tests on simulator $(IOS_SIMULATOR) ==="
+	@# Ensure the build dir exists before the redirect below writes to it (on a
+	@# clean tree build-ios/ is absent and `> $@` would fail with ENOENT).
+	@mkdir -p $(BUILD_IOS_DIR)
+	@# Clear the result bundle + Logs/Test staging dir before each run so stale
+	@# "1_Test" entries can't contaminate this run (false-RED root cause). The
+	@# bundle itself must go — xcodebuild refuses -resultBundlePath if the dir
+	@# already exists (find -mindepth 1 -delete leaves the empty dir behind and
+	@# the run aborts with "Existing file at -resultBundlePath"). The staging
+	@# dir contents are cleared in place (find -delete, no leaf dir needed).
+	@rm -rf $(IOS_TEST_BUNDLE); \
+	find $(IOS_TEST_STAGING) -mindepth 1 -delete 2>/dev/null || true
 	@_run=$$(date +%Y%m%d-%H%M%S); \
 	xcodebuild test \
 		-project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj \
 		-scheme VehicleSimApp -configuration Debug \
 		-destination 'platform=iOS Simulator,name=$(IOS_SIMULATOR),arch=arm64' \
 		-derivedDataPath $(BUILD_IOS_DIR) \
+		-resultBundlePath $(IOS_TEST_BUNDLE) \
 		CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
 		> $@ 2>&1 || true
 	@$(call ios_test_verdict,$@)
