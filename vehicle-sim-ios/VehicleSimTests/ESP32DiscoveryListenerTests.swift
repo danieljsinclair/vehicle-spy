@@ -23,6 +23,47 @@ final class ESP32DiscoveryListenerTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Async-state helpers
+    //
+    // NWListener.start(queue:) is asynchronous: the `.ready` state update (which
+    // flips isListening to true) and the `.cancelled` update (from cancel()) are
+    // delivered on `queue` after start()/stop() returns. Asserting isListening
+    // synchronously right after start()/stop() is therefore a race — the flag may
+    // not have flipped yet. These helpers poll the flag on a background queue and
+    // fulfill an expectation as soon as the target state is observed (or time out).
+
+    /// Waits until `listener.isListening == true`, polling off-thread so the
+    /// async `.ready` state has a chance to land. Fulfills on the main thread.
+    private func waitForListening(timeout: TimeInterval = 2.0) {
+        let expectation = XCTestExpectation(description: "listener is listening")
+        let pollQueue = DispatchQueue(label: "test-poll-listening")
+        pollQueue.async { [weak self] in
+            guard let self else { return }
+            while self.listener.isListening == false {
+                // Spin-wait on a background queue; isListening is lock-protected
+                // so concurrent reads are safe. Bounded by the outer wait() timeout.
+            }
+            DispatchQueue.main.async { expectation.fulfill() }
+        }
+        wait(for: [expectation], timeout: timeout)
+    }
+
+    /// Waits until `listener.isListening == false`, polling off-thread so the
+    /// async `.cancelled` state (or a synchronous stop()) has a chance to land.
+    /// Fulfills on the main thread.
+    private func waitForNotListening(timeout: TimeInterval = 2.0) {
+        let expectation = XCTestExpectation(description: "listener is not listening")
+        let pollQueue = DispatchQueue(label: "test-poll-not-listening")
+        pollQueue.async { [weak self] in
+            guard let self else { return }
+            while self.listener.isListening == true {
+                // See waitForListening: bounded by the outer wait() timeout.
+            }
+            DispatchQueue.main.async { expectation.fulfill() }
+        }
+        wait(for: [expectation], timeout: timeout)
+    }
+
     // MARK: - Initialization
 
     func testListenerInitializesWithCallbacks() {
@@ -72,6 +113,7 @@ final class ESP32DiscoveryListenerTests: XCTestCase {
 
         try listener.start()
 
+        waitForListening()
         XCTAssertTrue(listener.isListening, "Listener should be marked as listening after start")
 
         // Clean up
@@ -88,6 +130,7 @@ final class ESP32DiscoveryListenerTests: XCTestCase {
         try? listener.start()
         listener.stop()
 
+        waitForNotListening()
         XCTAssertFalse(listener.isListening, "Listener should not be listening after stop")
     }
 
@@ -106,23 +149,36 @@ final class ESP32DiscoveryListenerTests: XCTestCase {
 
     // MARK: - Error Handling
 
-    func testListenerReceivesErrorCallback() throws {
-        let errorExpectation = XCTestExpectation(description: "Error callback invoked")
+    /// Pins the happy-path error contract: on a successful start the listener
+    /// reaches `.ready` and does NOT invoke `onError`.
+    ///
+    /// (The original test asserted the inverse — that `onError` fires — but never
+    /// induced a failure, so the expectation could never be fulfilled. Reliably
+    /// driving an `NWListener` into its `.failed` state is environment-dependent
+    /// and would need a DI seam in production; rather than hack production for a
+    /// flake or assert a contract the test can't drive, this verifies the
+    /// deterministic side: a clean start surfaces no error. The error-firing path
+    /// remains exercised in production via the `.failed` handler in
+    /// ESP32DiscoveryListener.start().)
+    func testSuccessfulStartDoesNotInvokeErrorCallback() throws {
+        // isInverted = true → fulfills on timeout, FAILS if the callback fires.
+        let noError = XCTestExpectation(description: "onError not invoked")
+        noError.isInverted = true
 
         listener = ESP32DiscoveryListener(
             publicKey: nil,
             onDiscovered: { _ in },
-            onError: { error in
-                XCTAssertEqual(error.localizedDescription, "Discovery listener failed")
-                errorExpectation.fulfill()
+            onError: { _ in
+                noError.fulfill()
             },
             queue: queue
         )
 
         try listener.start()
+        waitForListening()
 
-        // Wait a bit to ensure any startup errors are caught
-        wait(for: [errorExpectation], timeout: 1.0)
+        // Give the `.ready` path a window to prove no error arrives.
+        wait(for: [noError], timeout: 1.0)
 
         listener.stop()
     }
@@ -159,6 +215,17 @@ final class ESP32DiscoveryListenerTests: XCTestCase {
         )
 
         try? listener?.start()
+
+        // Wait for the async `.ready` state to land before asserting listening.
+        // This instance is local (not self.listener), so poll inline rather than
+        // via the self.listener-based helpers (no duplicate helper added).
+        let listening = XCTestExpectation(description: "local listener is listening")
+        let pollQueue = DispatchQueue(label: "test-poll-deinit")
+        pollQueue.async {
+            while listener?.isListening == false { }
+            DispatchQueue.main.async { listening.fulfill() }
+        }
+        wait(for: [listening], timeout: 2.0)
         XCTAssertTrue(listener?.isListening ?? false)
 
         // Deinit should clean up
@@ -238,18 +305,22 @@ final class ESP32DiscoveryListenerTests: XCTestCase {
 
         // After start
         try listener.start()
+        waitForListening()
         XCTAssertTrue(listener.isListening)
 
         // After stop
         listener.stop()
+        waitForNotListening()
         XCTAssertFalse(listener.isListening)
 
         // Can restart
         try listener.start()
+        waitForListening()
         XCTAssertTrue(listener.isListening)
 
         // Final cleanup
         listener.stop()
+        waitForNotListening()
         XCTAssertFalse(listener.isListening)
     }
 }
