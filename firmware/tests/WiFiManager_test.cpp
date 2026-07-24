@@ -409,3 +409,83 @@ TEST_F(WiFiManagerTest, Reconnecting_WhenWifiConnected_TransitionsToConnectedSta
 
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
 }
+
+// ── State-handler body coverage: remaining reachable branches ───────────────
+// Three uncovered handler paths that ARE reachable production behaviour (as
+// opposed to the dead/defensive branches — see chunk-2 report). Each drives a
+// real transition the field relies on.
+
+TEST_F(WiFiManagerTest, Connecting_ConnectFailedWithBakedCreds_RetriesBakedCredentials) {
+    // ConnectingStateHandler retry branch: status==CONNECT_FAILED, within the
+    // 30s timeout (no AP fallback), no STORED_NVS credentials → the retry
+    // falls through to the baked-credentials begin() (the `else if (baked)`
+    // arm). State stays CONNECTING; the re-attempt uses the baked SSID.
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, "baked-ssid", "baked-pass");
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECT_FAILED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+
+    // Re-assert failed status after init (begin() resets the mock), then
+    // advance past the retry interval but within the timeout.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECT_FAILED);
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::CONNECTING);
+    // The retry re-began with the BAKED SSID (no stored creds to use).
+    EXPECT_EQ(wifiMock.getCurrentSsid(), std::string("baked-ssid"));
+}
+
+TEST_F(WiFiManagerTest, Reconnecting_NotConnectedAfterInterval_RetriesCredentials) {
+    // ReconnectingStateHandler retry branch: still not connected, the retry
+    // interval has elapsed → begin() with stored creds (falls back to baked
+    // when there are none). Pins the retry body (the existing Reconnecting
+    // test only covers the "connected again → CONNECTED_STA" arm).
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, "baked-ssid", "baked-pass");
+
+    // Reach RECONNECTING via a real connect + non-auth drop.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
+    wifiManager->onDisconnected(200);  // BEACON_TIMEOUT → RECONNECTING
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
+
+    // Still not connected; advance past the retry interval so shouldRetryWiFi
+    // fires the begin() retry with the baked SSID (no stored creds present).
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1);
+
+    // State stays RECONNECTING (retry doesn't change it); the re-attempt used
+    // the baked SSID.
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(wifiMock.getCurrentSsid(), std::string("baked-ssid"));
+}
+
+TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToReconnecting) {
+    // ConnectedStaStateHandler body: a STA drop observed on the state-machine
+    // tick (status() != WL_CONNECTED while in CONNECTED_STA) transitions to
+    // RECONNECTING with the tcp-restart flag. Distinct from onDisconnected()
+    // (event-callback driven): this is the per-tick self-heal that catches
+    // drops the WiFi event callback did not surface.
+    prefsMock.setValue("wifi", "ssid", "real-ssid");
+    prefsMock.setValue("wifi", "pass", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, nullptr, nullptr);
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
+
+    // The STA link drops between ticks — the next update() observes it.
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(200);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer());
+}
