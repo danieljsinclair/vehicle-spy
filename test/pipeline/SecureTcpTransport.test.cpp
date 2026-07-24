@@ -789,3 +789,90 @@ TEST(SecureTcpTransportTest, NextLine_ReturnsNulloptBeforeOpen) {
     EXPECT_FALSE(t.nextLine().has_value());
     EXPECT_FALSE(t.isOpen());
 }
+
+// ============================================================
+// open() failure-path coverage (Phase 3). The uncovered lines cluster on the
+// connectToHost failure modes + the open() backoff/retry loop. These tests
+// drive them with deterministic, hermetic inputs (no real external network):
+//   - getaddrinfo failure  -> connectToHost returns -1 -> backoff iteration
+//   - ECONNREFUSED         -> connectToHost returns -2 -> immediate no-retry fail
+// The full 10-attempt exhaustion loop is intentionally NOT exercised here — it
+// would sleep for tens of seconds (real exponential backoff). It is flagged as
+// a coverage gap; the deterministic stop-cancelled backoff below covers the
+// same code arm without the wall-clock cost.
+// ============================================================
+
+// Connect to a hostname that cannot resolve (RFC 6761 .invalid TLD is reserved
+// to NEVER resolve). getaddrinfo fails -> connectToHost returns -1 -> open()
+// enters the backoff/retry loop. The stop flag cancels it on the NEXT iteration
+// (checked at the top of the loop), so at most ONE real backoff sleep elapses
+// before cancellation. Covers the getaddrinfo-failure arm + the stop-requested
+// early-exit + one backoff iteration (the calculateReconnectDelayMs path).
+TEST(SecureTcpTransportTest, Open_UnresolvableHost_BackoffThenCancelledByStop) {
+    ASSERT_GE(sodium_init(), 0);
+
+    auto kp = MockSecureServer::generateKeypair();
+    auto stop = std::make_shared<StopToken>();
+    auto out = std::make_shared<CapturingOutput>();
+
+    SecureTcpTransport t("vehicle-sim-nonexistent-host.invalid", 12345,
+                         kp.publicKey, out, 1000, stop);
+
+    // Cancel after the first connect attempt lands in the backoff sleep. The
+    // loop re-checks stop at its top, so this fires the stop-requested exit
+    // within one backoff delay (~1s).
+    std::thread canceller([&stop] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        stop->requestStop();
+    });
+
+    EXPECT_FALSE(t.open());
+    EXPECT_FALSE(t.isOpen());
+
+    // The backoff path emits a retry/cancellation intent message. Assert the
+    // intent (one of the distinguishing substrings), not the exact wording.
+    EXPECT_TRUE(out->errContains("retrying") ||
+                out->errContains("cancelled") ||
+                out->errContains("attempt"))
+        << "expected a backoff or cancellation message; got: "
+        << (out->errors().empty() ? "<none>" : out->errors().front());
+
+    canceller.join();
+}
+
+// ECONNREFUSED is a distinct failure mode: connectToHost returns -2 and open()
+// fails IMMEDIATELY without retrying (nothing is listening — retrying is
+// futile). Pins the -2 / no-retry arm and distinguishes it from the -1 backoff
+// arm above via the "connection refused" intent message.
+TEST(SecureTcpTransportTest, Open_ConnectionRefused_FailsImmediatelyWithoutRetry) {
+    ASSERT_GE(sodium_init(), 0);
+
+    // Reserve a free port then close it so connect() returns ECONNREFUSED.
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    int tmpFd = socket(AF_INET, SOCK_STREAM, 0);
+    ASSERT_GE(tmpFd, 0);
+    ASSERT_EQ(bind(tmpFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
+    ASSERT_EQ(listen(tmpFd, 1), 0);
+    socklen_t len = sizeof(addr);
+    getsockname(tmpFd, reinterpret_cast<sockaddr*>(&addr), &len);
+    int refusedPort = ntohs(addr.sin_port);
+    close(tmpFd);
+
+    auto kp = MockSecureServer::generateKeypair();
+    g_testStop->reset();
+    auto out = std::make_shared<CapturingOutput>();
+
+    SecureTcpTransport t("127.0.0.1", refusedPort, kp.publicKey, out, 1000, g_testStop);
+
+    EXPECT_FALSE(t.open());
+    EXPECT_FALSE(t.isOpen());
+    // Intent: the refused path names the failure mode; it must NOT emit the
+    // backoff "retrying" message (refused = fail fast, no retry).
+    EXPECT_TRUE(out->errContains("refused"))
+        << "expected a 'connection refused' message; got: "
+        << (out->errors().empty() ? "<none>" : out->errors().front());
+    EXPECT_FALSE(out->errContains("retrying"));
+}

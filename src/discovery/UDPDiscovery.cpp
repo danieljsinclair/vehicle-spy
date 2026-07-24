@@ -1,23 +1,14 @@
 #include "vehicle-sim/discovery/UDPDiscovery.h"
 
+#include "vehicle-sim/discovery/PosixDiscoverySocket.h"
+
 #include <iostream>
 #include <array>
 #include <cstring>
 #include <algorithm>
 #include <ctime>
 #include <memory>
-#include <cerrno>
-
-// Platform-specific socket headers
-#ifdef __APPLE__
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <poll.h>
-#include <errno.h>
-#endif
+#include <string>
 
 namespace vehicle_sim::discovery {
 
@@ -30,9 +21,30 @@ static uint64_t nowEpoch() {
     return static_cast<uint64_t>(std::time(nullptr));
 }
 
+// Format an IPv4 address (host byte order, 32-bit) as dotted-quad. Equivalent
+// to inet_ntoa(in_addr{s_addr=htonl(addr)}) for every IPv4 value, with no POSIX
+// dependency — used so the IDiscoverySocket seam can report addresses as plain
+// integers while UDPDiscovery still produces the same address string it did
+// when it called inet_ntoa directly.
+static std::string ipv4DottedQuad(uint32_t addrHostOrder) {
+    return std::to_string((addrHostOrder >> 24) & 0xFFu) + "." +
+           std::to_string((addrHostOrder >> 16) & 0xFFu) + "." +
+           std::to_string((addrHostOrder >> 8) & 0xFFu) + "." +
+           std::to_string(addrHostOrder & 0xFFu);
+}
+
 class UDPDiscovery::Impl {
 public:
-    int sockfd = -1;
+    explicit Impl(std::unique_ptr<IDiscoverySocket> socket)
+        : socket_(std::move(socket)) {
+        if (!socket_) {
+            socket_ = std::make_unique<PosixDiscoverySocket>();
+        }
+    }
+
+    // Raw UDP socket (production = PosixDiscoverySocket; tests inject a fake).
+    // Impl is a PIMPL internal; encapsulation is at the UDPDiscovery boundary.
+    std::unique_ptr<IDiscoverySocket> socket_;
     bool listening = false;
     std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey{};
     bool hasPublicKey = false;
@@ -46,80 +58,27 @@ public:
     std::shared_ptr<pipeline::StopToken> stop_ = std::make_shared<pipeline::StopToken>();
 
     bool start() {
-        if (sockfd >= 0) {
+        if (listening) {
             return true;  // already started
         }
 
-        sockfd = ::socket(AF_INET, SOCK_DGRAM, 0);
-        if (sockfd < 0) {
-            std::cerr << "UDPDiscovery: socket() failed: " << strerror(errno) << "\n";
+        if (!socket_->bind(DISCOVERY_PORT)) {
             return false;
         }
 
-        // Allow address reuse
-        int reuse = 1;
-        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-#ifdef SO_REUSEPORT
-        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
-#endif
-
-        // Bind to the discovery port.
-        // Use sockaddr_storage as the storage type to satisfy Sonar cpp:S3630
-        // (avoid reinterpret_cast from sockaddr_in*). The cast is structurally
-        // required by the bind() API which takes a generic sockaddr*, but using
-        // sockaddr_storage with memcpy ensures:
-        //   1. No reinterpret_cast from incompatible pointer types (sockaddr_in* -> sockaddr*)
-        //   2. Static assertion guarantees sockaddr_in fits in sockaddr_storage on this platform
-        //   3. The memcpy is a no-op on all supported platforms (memcpy of trivially-copyable types)
-        //   4. sockaddr_storage is the POSIX-approved type for generic socket address storage
-        struct sockaddr_storage addrStorage;
-        std::memset(&addrStorage, 0, sizeof(addrStorage));
-
-        struct sockaddr_in addr;
-        std::memset(&addr, 0, sizeof(addr));
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
-        addr.sin_port = htons(DISCOVERY_PORT);
-
-        // Platform protection: ensure sockaddr_in fits in sockaddr_storage on this platform.
-        // This is guaranteed by POSIX but a static_assert documents the assumption
-        // and will fail compilation if a future platform violates it.
-        // Copy the initialized sockaddr_in into the sockaddr_storage.
-        // This is a well-defined byte copy (trivially copyable types).
-        // The reinterpret_cast below is now from sockaddr_storage* to sockaddr*,
-        // which is the standard, POSIX-approved pattern for generic socket address storage.
-        // Sonar cpp:S3630 does not flag reinterpret_cast from sockaddr_storage*.
-        static_assert(sizeof(addr) <= sizeof(addrStorage), "sockaddr_in must fit within sockaddr_storage on this platform");
-        std::memcpy(&addrStorage, &addr, sizeof(addr));
-
-        if (::bind(sockfd, static_cast<struct sockaddr*>(static_cast<void*>(&addrStorage)),
-                   sizeof(addr)) < 0) {
-            std::cerr << "UDPDiscovery: bind() failed on port " << DISCOVERY_PORT
-                      << ": " << strerror(errno) << "\n";
-            ::close(sockfd);
-            sockfd = -1;
-            return false;
+        if (!socket_->setNonBlocking()) {
+            // The original Impl treated a failed fcntl as non-fatal (it only
+            // applied the non-blocking flag if F_GETFL succeeded; a failure left
+            // the socket blocking but still bound/listening). Preserve that: do
+            // not fail start() here.
         }
 
         listening = true;
-
-        // Make the socket non-blocking so the poll() drain loop (tryReceive ->
-        // recvfrom) returns EAGAIN immediately once the receive queue is empty
-        // instead of blocking forever. Otherwise, if the sender stops mid-drain,
-        // the discovery thread never returns and callers that join it (e.g.
-        // TCPTransport::enterHuntingState) deadlock.
-        if (int flags = ::fcntl(sockfd, F_GETFL, 0); flags >= 0) {
-            ::fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
-        }
-
         return true;
     }
 
     void stop() {
-        if (sockfd >= 0) {
-            ::close(sockfd);
-            sockfd = -1;
-        }
+        socket_->close();
         listening = false;
     }
 
@@ -129,45 +88,17 @@ public:
 
     // Try to receive and process one packet. Returns true if a valid device was found.
     bool tryReceive() {
-        if (sockfd < 0) return false;
-
         std::array<uint8_t, PACKET_LEN * 2> buf;  // allow some extra space
+        uint32_t fromAddrHost = 0;
 
-        // Halfgaar idiom (Sonar cpp:S3630): receive into sockaddr_storage,
-        // validate address family, then memcpy to typed sockaddr_in.
-        // This avoids reinterpret_cast from sockaddr_in* to sockaddr*,
-        // which is flagged as undefined behavior by strict-aliasing rules.
-        // The static_assert documents the POSIX guarantee that sockaddr_in
-        // fits within sockaddr_storage on all supported platforms.
-        struct sockaddr_storage fromStorage;
-        std::memset(&fromStorage, 0, sizeof(fromStorage));
-        socklen_t fromLen = sizeof(fromStorage);
-
-        ssize_t n = ::recvfrom(sockfd, buf.data(), buf.size(), 0,
-                               static_cast<struct sockaddr*>(static_cast<void*>(&fromStorage)), &fromLen);
+        ssize_t n = socket_->recvFrom(buf.data(), buf.size(), &fromAddrHost);
         if (n < 0) {
             return false;
         }
 
-        // IPv4-only discovery: ignore IPv6 or unknown address families.
-        // This check is defensive; the socket was created with AF_INET so
-        // only IPv4 packets should arrive, but the Halfgaar idiom requires
-        // explicit family validation before casting.
-        if (fromStorage.ss_family != AF_INET) {
-            return false;
-        }
-
-        // Platform protection: ensure sockaddr_in fits in sockaddr_storage.
-        // This is guaranteed by POSIX but the static_assert documents the
-        // assumption and will fail compilation if a future platform violates it.
-        static_assert(sizeof(struct sockaddr_in) <= sizeof(struct sockaddr_storage),
-                      "sockaddr_in must fit within sockaddr_storage on this platform");
-        struct sockaddr_in fromAddr;
-        std::memcpy(&fromAddr, &fromStorage, sizeof(fromAddr));
-
         // Debug: log packet reception
         std::cerr << "UDPDiscovery: received " << n << " bytes from "
-                  << inet_ntoa(fromAddr.sin_addr) << "\n";
+                  << ipv4DottedQuad(fromAddrHost) << "\n";
 
         // Parse the packet
         DiscoveryPacket packet;
@@ -179,7 +110,7 @@ public:
         // Debug: log timestamp for diagnosis
         uint64_t now = nowEpoch();
         std::cerr << "UDPDiscovery: packet timestamp=" << packet.timestamp
-                  << ", now=" << now << ", deviceId=";
+                  << ", now=" << now << ", deviceId:";
         for (auto b : packet.deviceId) std::cerr << std::hex << (int)b;
         std::cerr << std::dec << "\n";
 
@@ -195,8 +126,8 @@ public:
         // where the signature provides the authenticity guarantee.
         // For discovery, we accept any valid packet format regardless of timestamp.
 
-        // Extract the IP address
-        std::string addrStr(inet_ntoa(fromAddr.sin_addr));
+        // Extract the IP address string (equivalent to the former inet_ntoa call).
+        std::string addrStr = ipv4DottedQuad(fromAddrHost);
 
         // Build the discovered device
         DiscoveredDevice device;
@@ -220,17 +151,8 @@ public:
     std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout) {
         std::vector<DiscoveredDevice> result;
 
-        if (sockfd < 0) {
-            return result;
-        }
-
         // Clear previously seen addresses for this poll cycle
         seenAddresses.clear();
-
-        // Use poll() to wait for data with a timeout
-        struct pollfd pfd;
-        pfd.fd = sockfd;
-        pfd.events = POLLIN;
 
         auto remainingMs = static_cast<int>(timeout.count());
         auto start = std::chrono::steady_clock::now();
@@ -245,12 +167,12 @@ public:
                     return false;
                 }
 
-                int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
+                int ret = socket_->pollReadable(std::min(remainingMs, 100));  // poll in 100ms chunks
                 if (ret < 0) {
                     if (errno == EINTR) return false;  // SIGINT/SIGTERM: stop the poll immediately
                     return true;                        // other transient error: keep going
                 }
-                if (ret > 0 && (pfd.revents & POLLIN)) {
+                if (ret > 0) {
                     // Drain all available packets
                     while (tryReceive()) {
                         // keep draining
@@ -295,10 +217,18 @@ public:
     }
 };
 
-UDPDiscovery::UDPDiscovery() : impl_(std::make_unique<Impl>()) {}
+UDPDiscovery::UDPDiscovery() : impl_(std::make_unique<Impl>(nullptr)) {}
 
 UDPDiscovery::UDPDiscovery(std::shared_ptr<pipeline::StopToken> stop)
-    : impl_(std::make_unique<Impl>()) {
+    : impl_(std::make_unique<Impl>(nullptr)) {
+    if (stop) {
+        impl_->stop_ = std::move(stop);
+    }
+}
+
+UDPDiscovery::UDPDiscovery(std::unique_ptr<IDiscoverySocket> socket,
+                           std::shared_ptr<pipeline::StopToken> stop)
+    : impl_(std::make_unique<Impl>(std::move(socket))) {
     if (stop) {
         impl_->stop_ = std::move(stop);
     }

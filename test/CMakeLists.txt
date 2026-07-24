@@ -35,6 +35,7 @@ add_executable(vehicle-sim-tests
     cli/CliOptions.test.cpp
     cli/TelemetryRunner.test.cpp
     cli/Orchestration.test.cpp
+    cli/ReplayRunContext.test.cpp
     boundary/TeslaBLETransport.test.cpp
     boundary/OBD2Transport.test.cpp
     boundary/ELM327Protocol.test.cpp
@@ -57,6 +58,7 @@ add_executable(vehicle-sim-tests
     pipeline/TCPTransportHuntingCancel.test.cpp
     pipeline/TCPTransportHuntingGap.test.cpp
     pipeline/USBTransport.test.cpp
+    pipeline/ITransportOutput.test.cpp
     pipeline/OTAHttpTransport.test.cpp
     pipeline/PipelineFactory.test.cpp
     pipeline/FileTransport.test.cpp
@@ -65,6 +67,8 @@ add_executable(vehicle-sim-tests
     pipeline/ConsoleProgressReporter.test.cpp
     discovery/DiscoveryPacket.test.cpp
     discovery/DiscoveryVerifier.test.cpp
+    discovery/UDPDiscovery.test.cpp
+    discovery/PosixDiscoverySocket.test.cpp
     pipeline/SecureTcpTransport.test.cpp
     util/IClock.test.cpp
     firmware/StatusLED.test.cpp
