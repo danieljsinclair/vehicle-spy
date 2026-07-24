@@ -35,6 +35,7 @@ add_executable(vehicle-sim-tests
     cli/CliOptions.test.cpp
     cli/TelemetryRunner.test.cpp
     cli/Orchestration.test.cpp
+    cli/ReplayRunContext.test.cpp
     boundary/TeslaBLETransport.test.cpp
     boundary/OBD2Transport.test.cpp
     boundary/ELM327Protocol.test.cpp
