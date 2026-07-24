@@ -42,6 +42,12 @@
 #include "ITcpServer.h"
 #include "TcpServerManager.h"
 #include "ArduinoTcpServer.h"
+// ── SerialCommandFramer (Phase 2 extraction) ─────────────────────────────────────────
+// Vanilla serial line-framer (host-tested, 10 tests). Owns the CR/LF framing,
+// empty-line, and overflow-reset rules; the .ino supplies an ISerialSource
+// backed by Serial + a handler that forwards to FirmwareApp. Inline framing
+// loop deleted from drainSerialATCommands().
+#include "SerialCommandFramer.h"
 
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
@@ -50,6 +56,8 @@
 struct TimeAdapters;
 struct CanAdapters;   // cpp:S5421 composite (C5): defined later, returned by canAdapters()
 struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by atAdapters()
+struct ArduinoSerialSource;  // defined later; forward-declared so arduino-cli's
+                             // hoisted serialSource() prototype sees the type.
 
 // DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
 
@@ -66,6 +74,7 @@ using esp32_firmware::FirmwareApp;
 using esp32_firmware::TcpServerManager;
 using esp32_firmware::ArduinoTcpServer;
 using esp32_firmware::ITcpHostCallbacks;
+using esp32_firmware::SerialCommandFramer;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -444,6 +453,26 @@ static TcpServerManager tcpManager(arduinoTcpServer, statusLed(),
 // See FirmwareApp::update() which drives DiscoveryManager::update(now, haveClient)
 // on every loop tick.
 
+// ── Serial Command Framer (Phase 2: delegate to vanilla SerialCommandFramer) ─────
+// The serial line-framing rules (CR/LF termination, empty-line skip, overflow
+// reset) now live in the vanilla SerialCommandFramer. The .ino supplies only the
+// Serial-backed byte source (ArduinoSerialSource) and a handler that forwards
+// each completed line to FirmwareApp + sets the serial-quiet window (the same two
+// side effects the inline loop performed). cpp:S5421: the source + framer are
+// held by a function-local static accessor pair (not namespace globals).
+struct ArduinoSerialSource : public esp32_firmware::ISerialSource {
+    int read() override {
+        // Serial.read() returns -1 when no byte is available — exactly the
+        // ISerialSource empty sentinel the vanilla framer drains on.
+        return Serial.read();
+    }
+};
+ArduinoSerialSource& serialSource() { static ArduinoSerialSource inst; return inst; }
+SerialCommandFramer& serialFramer() {
+    static SerialCommandFramer inst(serialSource(), Constants::MAX_SERIAL_CMD_LENGTH);
+    return inst;
+}
+
 // ── AT Command Handling: delegate to vanilla AtCommandDispatcher ───────────
 // The command structs, registry, and dispatch loop that used to live here were
 // extracted into firmware/vanilla/AtCommandDispatcher (host + gmock tested). The
@@ -458,23 +487,14 @@ static TcpServerManager tcpManager(arduinoTcpServer, statusLed(),
 // dead/half-closed socket.
 
 static void drainSerialATCommands() {
-    static String serialCmd;
-
-    while (Serial.available()) {
-        const auto c = static_cast<char>(Serial.read());
-        if (c == '\r' || c == '\n') {
-            if (!serialCmd.isEmpty()) {
-                firmwareApp.handleSerialAtCommand(serialCmd.c_str());
-                firmwareApp.setSerialQuietUntilMs(millis() + Constants::SERIAL_QUIET_DURATION_MS);
-                serialCmd = "";
-            }
-        } else {
-            serialCmd += c;
-            if (serialCmd.length() > Constants::MAX_SERIAL_CMD_LENGTH) {
-                serialCmd = "";
-            }
-        }
-    }
+    // Delegate framing to the vanilla SerialCommandFramer (Phase 2 extraction).
+    // The framer reads every available byte via ArduinoSerialSource and invokes
+    // this handler once per complete, non-empty line — the same behavior the
+    // inline loop performed (dispatch + serial-quiet window).
+    serialFramer().drain([](const std::string& line) {
+        firmwareApp.handleSerialAtCommand(line.c_str());
+        firmwareApp.setSerialQuietUntilMs(millis() + Constants::SERIAL_QUIET_DURATION_MS);
+    });
 }
 
 

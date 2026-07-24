@@ -59,6 +59,7 @@ set(VANILLA_SOURCES
     vanilla/ArduinoWiFi.cpp
     vanilla/StatusLED.cpp
     vanilla/TcpServerManager.cpp
+    vanilla/SerialCommandFramer.cpp
 )
 
 # ESP32-specific hardware veneer (GPIO LED driver) — stays in can-bridge/
@@ -102,6 +103,7 @@ add_executable(esp32-firmware-tests
     tests/FirmwareApp_test.cpp
     tests/FirmwareApp_characterization_test.cpp
     tests/TcpServerManager_test.cpp
+    tests/SerialCommandFramer_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests
