@@ -60,6 +60,8 @@ set(VANILLA_SOURCES
     vanilla/StatusLED.cpp
     vanilla/TcpServerManager.cpp
     vanilla/SerialCommandFramer.cpp
+    vanilla/DeviceTag.cpp
+    vanilla/FactoryReset.cpp
 )
 
 # ESP32-specific hardware veneer (GPIO LED driver) — stays in can-bridge/
@@ -104,6 +106,8 @@ add_executable(esp32-firmware-tests
     tests/FirmwareApp_characterization_test.cpp
     tests/TcpServerManager_test.cpp
     tests/SerialCommandFramer_test.cpp
+    tests/DeviceTag_test.cpp
+    tests/FactoryReset_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests

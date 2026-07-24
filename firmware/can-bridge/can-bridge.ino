@@ -48,6 +48,8 @@
 // backed by Serial + a handler that forwards to FirmwareApp. Inline framing
 // loop deleted from drainSerialATCommands().
 #include "SerialCommandFramer.h"
+#include "DeviceTag.h"
+#include "FactoryReset.h"
 
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
@@ -183,13 +185,11 @@ static bool storeWifiCredentials(const String& ssid, const String& pass) {
 std::array<uint8_t, 16>& discoveryDeviceId() { static std::array<uint8_t, 16> inst; return inst; }
 
 // ── Message Tagging ────────────────────────────────────────────────────────────
-// Tag Serial diagnostic messages with device ID for clarity in monitor output
+// Tag Serial diagnostic messages with device ID for clarity in monitor output.
+// The format logic lives in vanilla (formatDeviceTag) so it is host-testable;
+// this veneer converts the std::string result to Arduino String for Serial.printf.
 static String deviceMessageTag() {
-    std::array<char, 32> tag{};
-    snprintf(tag.data(), tag.size(), "[%02X%02X%02X%02X] ",
-             discoveryDeviceId()[0], discoveryDeviceId()[1],
-             discoveryDeviceId()[2], discoveryDeviceId()[3]);
-    return String(tag.data());
+    return String(esp32_firmware::formatDeviceTag(discoveryDeviceId()).c_str());
 }
 
 // Helper to print tagged messages (optional - can be used for key diagnostics)
@@ -539,32 +539,39 @@ static void onBroadcastDiscovery() {
 // and copied into FirmwareApp via setCallbacks() (which stores its own copy).
 // Kept out of global scope (S5421).
 
-// Factory reset: check if GPIO0 (BOOT button) is held at boot
+// Factory reset: check if GPIO0 (BOOT button) is held at boot.
+// The debounce/threshold logic lives in vanilla (FactoryResetDebouncer) so it
+// is host-testable; this veneer owns the GPIO read + delay (hardware/timing).
 static bool checkFactoryReset() {
     pinMode(Constants::FACTORY_RESET_PIN, INPUT_PULLUP);
 
-    // Check if button is pressed (low = pressed on GPIO0 with pullup)
-    if (digitalRead(Constants::FACTORY_RESET_PIN) == LOW) {
-        Serial.printf("%sFactory reset: GPIO0 held at boot, waiting %lums to confirm...%s\r\n",
-                        YELLOW, static_cast<unsigned long>(Constants::FACTORY_RESET_HOLD_MS), NC);
+    if (digitalRead(Constants::FACTORY_RESET_PIN) != LOW) {
+        return false;
+    }
 
-        // Wait to see if button continues to be held
-        uint32_t heldMs = 0;
-        while (heldMs < Constants::FACTORY_RESET_HOLD_MS) {
-            if (digitalRead(Constants::FACTORY_RESET_PIN) != LOW) {
-                Serial.printf("%sFactory reset: released early, cancelling%s\r\n", YELLOW, NC);
-                return false;
-            }
-            delay(100);
-            heldMs += 100;
+    Serial.printf("%sFactory reset: GPIO0 held at boot, waiting %lums to confirm...%s\r\n",
+                    YELLOW, static_cast<unsigned long>(Constants::FACTORY_RESET_HOLD_MS), NC);
+
+    // Delegate debounce logic to vanilla; drive with live GPIO readings.
+    esp32_firmware::FactoryResetDebouncer debouncer(
+        Constants::FACTORY_RESET_HOLD_MS, 100);
+    esp32_firmware::FactoryResetResult result;
+    while (true) {
+        result = debouncer.feed(digitalRead(Constants::FACTORY_RESET_PIN) == LOW);
+        if (result != esp32_firmware::FactoryResetResult::WAITING) {
+            break;
         }
+        delay(100);
+    }
 
-        // Button held for full duration - clear WiFi credentials
+    if (result == esp32_firmware::FactoryResetResult::CONFIRMED) {
         Serial.printf("%sFactory reset: clearing WiFi credentials and booting to AP mode%s\r\n",
                         RED, NC);
         firmwareApp.clearCredentials();
         return true;
     }
+
+    Serial.printf("%sFactory reset: released early, cancelling%s\r\n", YELLOW, NC);
     return false;
 }
 
