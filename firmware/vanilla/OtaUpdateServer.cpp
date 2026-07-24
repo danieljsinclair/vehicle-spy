@@ -181,16 +181,6 @@ void OtaUpdateServer::handleUpload(IHttpUpload& upload) {
     // END: finalize + verify signature + select boot partition. Only reached
     // when otaErr_ is still empty (no prior START/WRITE failure).
     if (upload.status == IHttpUpload::Status::UPLOAD_FILE_END && otaErr_.empty()) {
-        // Defensive: START must have parsed a signature before reaching END. By
-        // construction every START path either sets otaErr_ (so END is skipped)
-        // or sets otaHasSig_=true, making this guard unreachable — kept as a
-        // 1-line safety net (no test; see gap-3 analysis).
-        if (!otaHasSig_) {
-            update_.abort();
-            reportError(OtaError::NO_SIGNATURE);
-            return;
-        }
-
         if (!update_.end(true)) {
             reportError(OtaError::UPDATE_END_FAILED);
             return;
