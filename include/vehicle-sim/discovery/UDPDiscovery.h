@@ -16,6 +16,7 @@
 #include "vehicle-sim/discovery/DiscoveredDevice.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
 #include "vehicle-sim/discovery/IDiscoveryListener.h"
+#include "vehicle-sim/discovery/IDiscoverySocket.h"
 #include "vehicle-sim/pipeline/StopToken.h"
 
 #include <string>
@@ -33,6 +34,12 @@ public:
 
     UDPDiscovery();
     explicit UDPDiscovery(std::shared_ptr<pipeline::StopToken> stop);
+    // Test seam: inject the raw UDP socket (default = PosixDiscoverySocket, the
+    // production POSIX adapter; tests inject a fake that scripts canned packets).
+    // Passing nullptr selects the production adapter. Behavior is identical to
+    // the single-argument ctor when socket is nullptr.
+    explicit UDPDiscovery(std::unique_ptr<IDiscoverySocket> socket,
+                          std::shared_ptr<pipeline::StopToken> stop = nullptr);
     ~UDPDiscovery();
 
     // Non-copyable

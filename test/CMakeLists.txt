@@ -67,6 +67,8 @@ add_executable(vehicle-sim-tests
     pipeline/ConsoleProgressReporter.test.cpp
     discovery/DiscoveryPacket.test.cpp
     discovery/DiscoveryVerifier.test.cpp
+    discovery/UDPDiscovery.test.cpp
+    discovery/PosixDiscoverySocket.test.cpp
     pipeline/SecureTcpTransport.test.cpp
     util/IClock.test.cpp
     firmware/StatusLED.test.cpp

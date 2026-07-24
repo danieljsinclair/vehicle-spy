@@ -109,6 +109,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/discovery/DiscoveryPacket.cpp
     src/discovery/DiscoveryVerifier.cpp
     src/discovery/UDPDiscovery.cpp
+    src/discovery/PosixDiscoverySocket.cpp
     src/pipeline/SecureTcpTransport.cpp
     src/pipeline/ITransportOutput.cpp
     firmware/can-bridge/HardwareStatusLEDOutput.cpp
