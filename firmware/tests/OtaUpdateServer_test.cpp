@@ -1011,3 +1011,95 @@ TEST_F(OtaUpdateServerTest, HandleUpload_End_CryptoUpdateFails_SignatureVerifyFa
     EXPECT_TRUE(sink.fired);
     EXPECT_EQ(sink.error, OtaError::SIGNATURE_VERIFY_FAILED);
 }
+
+// ===========================================================================
+// §4 END — setBootPartition failure. The full END chain succeeds through
+//    signature verification, but partition_.setBootPartition() returns nonzero
+//    (the ESP-IDF refused to select the boot partition). Pins the last END
+//    error path: SET_BOOT_PARTITION_FAILED via the error callback. This is the
+//    only reachable END branch not already covered by the §3 matrix above.
+// ===========================================================================
+TEST_F(OtaUpdateServerTest, HandleUpload_End_SetBootPartitionFails_SetBootPartitionFailed) {
+    ErrorCapture sink;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    successfulStart(httpMock, updateMock, otaServer);
+
+    const OtaPartitionRef* part = reinterpret_cast<const OtaPartitionRef*>(0x2000);
+    EXPECT_CALL(updateMock, end(true)).WillOnce(Return(true));
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
+    EXPECT_CALL(partitionMock, getRunningPartition()).WillOnce(Return(nullptr));
+    EXPECT_CALL(partitionMock, getNextUpdatePartition(nullptr)).WillOnce(Return(part));
+    EXPECT_CALL(partitionMock, size(part)).WillOnce(Return(1024 * 1024));
+    EXPECT_CALL(cryptoMock, sodiumInit()).Times(AnyNumber()).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phInit()).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phUpdate(_, _)).WillRepeatedly(Return(0));
+    EXPECT_CALL(cryptoMock, signEd25519phFinalVerify(_, _)).WillRepeatedly(Return(0));
+    EXPECT_CALL(partitionMock, read(_, _, _, _)).WillRepeatedly(Return(0));
+    // setBootPartition refuses the partition (nonzero return).
+    EXPECT_CALL(partitionMock, setBootPartition(part)).WillOnce(Return(-1));
+
+    IHttpUpload end = makeUpload(IHttpUpload::Status::UPLOAD_FILE_END, nullptr, 0);
+    otaServer->handleUpload(end);
+
+    EXPECT_TRUE(sink.fired);
+    EXPECT_EQ(sink.error, OtaError::SET_BOOT_PARTITION_FAILED);
+}
+
+// ===========================================================================
+// §5 handlePost — the /update POST response dispatcher. Two uncovered paths:
+//    (a) update_.hasError() true (no otaErr_ string, but the Update subsystem
+//        flagged a failure) → HTTP_BAD_REQUEST + UPDATE_ERROR callback.
+//    (b) success path (no otaErr_, no update error) → HTTP_OK + reboot flush
+//        loop + success callback. Pins the response side that handleUpload
+//        (the per-chunk path above) does not touch.
+// ===========================================================================
+TEST_F(OtaUpdateServerTest, HandlePost_UpdateHasError_SendsBadRequestAndErrorCallback) {
+    ErrorCapture sink;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+
+    // No otaErr_ set, but the Update subsystem reports a failure.
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(true));
+    EXPECT_CALL(httpMock, send(OtaConfig::HTTP_BAD_REQUEST, _, _)).Times(1);
+
+    otaServer->handlePost();
+
+    EXPECT_TRUE(sink.fired);
+    EXPECT_EQ(sink.error, OtaError::UPDATE_ERROR);
+}
+
+TEST_F(OtaUpdateServerTest, HandlePost_NoError_SendsOkAndInvokesSuccessCallback) {
+    ErrorCapture sink;
+    bool successFired = false;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    otaServer->setSuccessCallback([&successFired]() { successFired = true; });
+
+    EXPECT_CALL(updateMock, hasError()).WillOnce(Return(false));
+    EXPECT_CALL(httpMock, clientSetNoDelay(true)).Times(1);
+    // The reboot flush loop drains the client REBOOT_FLUSH_COUNT times, then
+    // closes the connection. Assert intent (flush + stop happen), not the
+    // exact count, so the test survives a tuned flush constant.
+    EXPECT_CALL(httpMock, clientFlush()).Times(AnyNumber());
+    EXPECT_CALL(httpMock, clientStop()).Times(1);
+    EXPECT_CALL(httpMock, send(OtaConfig::HTTP_OK, _, _)).Times(1);
+
+    otaServer->handlePost();
+
+    EXPECT_TRUE(successFired);
+}
+
+// ===========================================================================
+// §6 loop — thin dispatch surface. loop() forwards to the IHttpServer (the
+//    WebServer pump) so the OTA route stays serviced each main-loop tick.
+//    (setupHandlers() is private + unused — part of the dead-code family
+//    flagged for tech-arch triage; not a valid host-test target.)
+// ===========================================================================
+TEST_F(OtaUpdateServerTest, Loop_ForwardsToHttpServerHandleClient) {
+    ErrorCapture sink;
+    primeOta(httpMock, updateMock, partitionMock, cryptoMock, timeMock,
+             otaServer, /*sodiumInitResult=*/0, sink);
+    EXPECT_CALL(httpMock, handleClient()).Times(1);
+    otaServer->loop();
+}

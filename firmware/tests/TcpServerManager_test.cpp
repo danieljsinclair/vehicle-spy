@@ -360,5 +360,60 @@ TEST_F(TcpServerManagerTest, Cycle_NoPendingClient_NoSideEffects) {
     manager_.cycle(/*nowMs=*/1000);
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// §9  WHITESPACE first line — the wire delivered a blank/whitespace-only line
+//    (e.g. a pre-auth keepalive CR). trim() reduces it to "" which cannot equal
+//    "AUTH <token>", so the client is rejected as unauthorized. Pins trim()'s
+//    all-whitespace → empty branch (an uncovered path) without asserting on the
+//    private helper directly.
+// ════════════════════════════════════════════════════════════════════════════
+
+TEST_F(TcpServerManagerTest, Cycle_AcceptBlankLine_RejectsAsUnauthorized) {
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    // Pure whitespace (CR/space/tab) — trim() collapses this to an empty line.
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(std::string(" \r\t ")));
+    EXPECT_CALL(client, println(std::string("ERROR unauthorized")));
+    EXPECT_CALL(client, flush());
+    EXPECT_CALL(client, stop());
+    EXPECT_CALL(led_, setPattern(kLedClientConnected)).Times(0);
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+
+    manager_.cycle(/*nowMs=*/1000);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// §10 LIFECYCLE — start() is a reserved no-op (the listening socket is owned by
+//     the .ino); calling it must not touch any seam. stop() drops an adopted
+//     client: the held client is stop()'d and the handle released. Pins the
+//     shutdown cleanup path (stop with an active client).
+// ════════════════════════════════════════════════════════════════════════════
+
+TEST_F(TcpServerManagerTest, Start_IsNoOp_DoesNotTouchAnySeam) {
+    // start() is intentionally a no-op: no accept/begin/LED/host calls.
+    EXPECT_CALL(server_, accept()).Times(0);
+    EXPECT_CALL(server_, begin()).Times(0);
+    EXPECT_CALL(led_, setPattern(_)).Times(0);
+    EXPECT_CALL(host_, setMonitorActive(_)).Times(0);
+    manager_.start();
+}
+
+TEST_F(TcpServerManagerTest, Stop_WithAdoptedClient_StopsAndReleasesClient) {
+    // Adopt a client first (valid AUTH cycle installs it as current_). The
+    // auth-adoption cycle drives println("OK") + setMonitorActive(false).
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+    manager_.cycle(/*nowMs=*/1000);
+
+    // stop() must stop() the held client exactly once (shutdown teardown).
+    // After stop(), current_ releases (deletes) the client, so no further
+    // expectations are set on `client` — its handle is gone by design.
+    EXPECT_CALL(client, stop()).Times(1);
+    manager_.stop();
+}
+
 }  // namespace
 }  // namespace esp32_firmware
