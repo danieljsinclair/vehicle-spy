@@ -45,17 +45,11 @@ public:
     static std::string generateTable();
 
 private:
-    // Get pattern metadata (name, category, description)
-    static PatternInfo getPatternInfo(StatusLED::Pattern pattern);
-
     // Get category name for display
     static const char* getCategoryName(PatternCategory category);
 
     // Format duration as human-readable string (e.g., "0.1s on, 0.9s off")
     static std::string formatDuration(uint32_t durationMs);
-
-    // Pattern registry for iteration
-    static const std::vector<PatternInfo> getAllPatterns();
 
     // Brief inline timing note for a pattern (e.g. "ON 0.1s, OFF 0.9s" / "solid ON").
     static std::string timingNote(StatusLED::Pattern pattern);

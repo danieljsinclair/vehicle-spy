@@ -182,10 +182,11 @@ TEST(DiscoveryIntervalTest, BeyondThirtyMinutesSlow) {
 
 // ── shouldBroadcast mode logic ─────────────────────────────────────────────────
 
-TEST(DiscoveryShouldBroadcastTest, NoBroadcastWhenClientConnected) {
+TEST(DiscoveryShouldBroadcastTest, BroadcastsEvenWhenClientConnected) {
     FakeUdp udp; FakeWiFiDiscovery wifi; FakeTime time; FakeSigner signer;
     DiscoveryManager dm(udp, wifi, time, kDeviceId, signer);
-    EXPECT_FALSE(dm.shouldBroadcast(true));
+    // Always broadcast — the device must remain discoverable even with a connected client.
+    EXPECT_TRUE(dm.shouldBroadcast(true));
 }
 
 TEST(DiscoveryShouldBroadcastTest, BroadcastInApMode) {

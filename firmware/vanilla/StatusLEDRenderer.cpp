@@ -183,16 +183,6 @@ std::string StatusLEDRenderer::generateHelpText() {
     return help.str();
 }
 
-// ── Get Pattern Info ───────────────────────────────────────────────────────────────
-PatternInfo StatusLEDRenderer::getPatternInfo(StatusLED::Pattern pattern) {
-    for (const auto& patternInfo : PATTERN_REGISTRY) {
-        if (patternInfo.pattern == pattern) {
-            return patternInfo;
-        }
-    }
-    return {StatusLED::Pattern::OFF, PatternCategory::OFF, "OFF", "LED off"};
-}
-
 // ── Get Category Name ───────────────────────────────────────────────────────────────
 const char* StatusLEDRenderer::getCategoryName(PatternCategory category) {
     switch (category) {
@@ -204,7 +194,6 @@ const char* StatusLEDRenderer::getCategoryName(PatternCategory category) {
         case PatternCategory::ERROR:        return "Error States (Recoverable)";
         case PatternCategory::FATAL:        return "Fatal Errors (Unrecoverable)";
         case PatternCategory::OFF:          return "Power Off";
-        default: return "Other";
     }
 }
 
@@ -214,11 +203,6 @@ std::string StatusLEDRenderer::formatDuration(uint32_t durationMs) {
     formatted << std::fixed << std::setprecision(1);
     formatted << (durationMs / 1000.0) << "s";
     return formatted.str();
-}
-
-// ── Get All Patterns ────────────────────────────────────────────────────────────────
-const std::vector<PatternInfo> StatusLEDRenderer::getAllPatterns() {
-    return PATTERN_REGISTRY;
 }
 
 } // namespace firmware

@@ -229,15 +229,15 @@ TEST_F(DiscoveryManagerTest, Update_NoClient_APMode_Broadcasts) {
     EXPECT_EQ(capturedLen, DiscoveryConfig::DISCOVERY_PACKET_SIZE);
 }
 
-TEST_F(DiscoveryManagerTest, Update_HasClient_DoesNotBroadcast) {
+TEST_F(DiscoveryManagerTest, Update_HasClient_StillBroadcasts) {
     wifiMock.setMode(2);  // WIFI_AP
     wifiMock.softAP("ESP32-CAN", "cancan12");
     discoveryManager->init();
 
     timeMock.setMillis(1000);
-    discoveryManager->update(1000, true);  // has client
+    discoveryManager->update(1000, true);  // has client — still broadcasts (always discoverable)
 
-    EXPECT_EQ(capturedLen, 0);
+    EXPECT_GT(capturedLen, 0);
 }
 
 TEST_F(DiscoveryManagerTest, Update_IntervalNotElapsed_DoesNotBroadcast) {
