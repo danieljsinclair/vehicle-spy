@@ -193,23 +193,26 @@ TEST_F(FirmwareAppTest, Update_DiscoveryDisabled_NoUdpOpenOrBroadcast) {
         << "Discovery broadcast callback must not fire when discovery is disabled.";
 }
 
-TEST_F(FirmwareAppTest, Update_ClientConnected_SuppressesBroadcast) {
-    // Stage 3: the .ino feeds the live TCP-client state into FirmwareApp via
-    // setClientConnected(); DiscoveryManager should skip broadcasts while a buddy
-    // is connected (replaces the inline `haveClient` early-return).
+TEST_F(FirmwareAppTest, Update_ClientConnected_StillBroadcasts) {
+    // The device always broadcasts (even with a connected client) so it remains
+    // discoverable. Previously: suppress entirely when haveClient. That hid the
+    // device once any client connected AND masked a stuck-haveClient state where
+    // discovery silently stopped. The time-based backoff slows the cadence; no
+    // full suppress. (setClientConnected still feeds the live state for future
+    // backed-off-when-connected refinement.)
     firmwareApp->setCallbacks(callbackSpies);
     firmwareApp->init();
     EXPECT_CALL(udpMock, begin(_)).Times(AtLeast(1));  // socket opens on first tick
-    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(0);
-    EXPECT_CALL(udpMock, write(_, _)).Times(0);
-    EXPECT_CALL(udpMock, endPacket()).Times(0);
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, write(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, endPacket()).Times(AtLeast(1));
 
     firmwareApp->setClientConnected(true);
     firmwareApp->update(0);
     firmwareApp->update(1000);
 
-    EXPECT_FALSE(broadcastDiscoveryCalled)
-        << "Discovery should be suppressed while a TCP client is connected.";
+    EXPECT_TRUE(broadcastDiscoveryCalled)
+        << "Discovery should still broadcast even when a TCP client is connected (always discoverable).";
 }
 
 // ============================================================================

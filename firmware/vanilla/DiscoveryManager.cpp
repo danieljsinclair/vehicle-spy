@@ -40,7 +40,11 @@ void DiscoveryManager::forceBroadcast() {
 }
 
 bool DiscoveryManager::shouldBroadcast(bool haveClient) const {
-    if (haveClient) return false;
+    // Always broadcast — the device must remain discoverable even with a connected client.
+    // Previously: suppress entirely when haveClient. That hid the device once any client
+    // connected, AND masked a stuck-haveClient state (discovery silently stopped). The
+    // time-based backoff in update() already slows the cadence; no full suppress needed.
+    (void)haveClient;
 
     int mode = wifi_.getMode();
     if (mode == 2) {  // WIFI_AP
