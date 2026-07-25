@@ -557,4 +557,64 @@ final class VehicleViewModelTests: XCTestCase {
         XCTAssertNoThrow(viewModel.stop())
         XCTAssertEqual(viewModel.connectionState, .disconnected)
     }
+
+    // MARK: - startBLE Coverage (uncovered lines 162–167)
+
+    func testStartBLESetsConnectingStateAndCallsWrapper() {
+        viewModel.startBLE()
+
+        XCTAssertEqual(viewModel.connectionState, .connecting,
+                       "startBLE should transition to connecting state")
+        XCTAssertEqual(viewModel.connectionStatus, "Scanning [CLIENT]",
+                       "startBLE should surface the scanning status with client tag")
+        XCTAssertTrue(mockWrapper.startBLECalled,
+                      "startBLE should delegate to the underlying wrapper")
+    }
+
+    // MARK: - scanForDevices DeviceEntry Mapping (uncovered lines 201–205)
+
+    func testScanForDevicesMapsDeviceEntriesFromWrapper() {
+        let objcDevice = VehicleSimDevice()
+        objcDevice.name = "TestPeripheral"
+        objcDevice.address = "AA:BB:CC:DD:EE:FF"
+        objcDevice.rssi = -55
+        mockWrapper.scanForDevicesResult = [objcDevice]
+
+        let expectation = XCTestExpectation(description: "Scan async completes")
+
+        viewModel.scanForDevices()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            XCTAssertEqual(self.viewModel.discoveredDevices.count, 1,
+                           "One wrapper device should produce one DeviceEntry")
+            let entry = self.viewModel.discoveredDevices[0]
+            XCTAssertEqual(entry.name, "TestPeripheral")
+            XCTAssertEqual(entry.address, "AA:BB:CC:DD:EE:FF")
+            XCTAssertEqual(entry.rssi, -55,
+                           "rssi should be bridged from Obj-C int to Swift Int")
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 3.0)
+    }
+
+    // MARK: - disconnect WiFi-mode Discovery Restart (uncovered lines 256–257)
+
+    func testDisconnectInWiFiModeAttemptsDiscoveryRestart() {
+        viewModel.connectionMode = .wifi
+
+        // Allow the mode-switch async side-effects to settle before disconnect.
+        let settleExpectation = XCTestExpectation(description: "Mode switch settles")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            settleExpectation.fulfill()
+        }
+        wait(for: [settleExpectation], timeout: 0.2)
+
+        viewModel.disconnect()
+
+        XCTAssertEqual(viewModel.connectionState, .disconnected,
+                       "disconnect should always reset connection state")
+        XCTAssertTrue(viewModel.connectionStatus.contains("Disconnected"),
+                      "disconnect should show the disconnected status")
+    }
 }
