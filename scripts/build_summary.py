@@ -355,6 +355,35 @@ def _impact_severity_facet(data):
     return None
 
 
+# Severity ranking (mirrors sonar_summary.py).
+IMPACT_ORDER = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"]
+IMPACT_RANK = {sev: len(IMPACT_ORDER) - i for i, sev in enumerate(IMPACT_ORDER)}
+
+
+def highest_impact_severity(issue):
+    """Return the highest-impact severity for an issue, or None."""
+    impacts = issue.get("impacts") or []
+    best = None
+    best_rank = -1
+    for imp in impacts:
+        sev = imp.get("severity") if isinstance(imp, dict) else None
+        rank = IMPACT_RANK.get(sev, -1)
+        if sev is not None and rank > best_rank:
+            best = sev
+            best_rank = rank
+    return best
+
+
+def count_by_impact(issues):
+    """Count issues once each by their highest-impact severity."""
+    counts = {sev: 0 for sev in IMPACT_ORDER}
+    for issue in issues:
+        sev = highest_impact_severity(issue)
+        if sev in counts:
+            counts[sev] += 1
+    return counts
+
+
 def _open_counts(data):
     """Derive (open_count, blocker_count) from a parsed OPEN issues/search report.
 
@@ -418,6 +447,64 @@ def parse_sonar_live(project_key):
     effective_removed = removed if removed is not None else 0
     total = open_count + effective_removed
     return open_count, total, blocker_count, removed
+
+
+def parse_sonar_cached(sonar_report_path):
+    """Return (open, total, blocker_count, removed) from a cached sonar-report.json.
+
+    Uses the API's ``total`` field as the authoritative open count (it is not
+    limited by the ``ps=500`` page cap that truncates the issues array).  Severity
+    breakdown falls back to per-issue counting when the ``impactSeverities`` facet
+    is absent (the Makefile's curl does not request facets).
+    """
+    try:
+        with open(sonar_report_path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+    # Authoritative open count from the API's total field.
+    open_count = data.get('total', 0)
+
+    # Severity breakdown: use the impactSeverities facet if present, else per-issue.
+    issues = data.get('issues') or []
+    facet = _impact_severity_facet(data)
+    if facet is not None:
+        impact_counts = facet
+        blocker_count = facet.get('BLOCKER', 0) or 0
+    else:
+        impact_counts = count_by_impact(issues)
+        blocker_count = 0
+        for issue in issues:
+            if highest_impact_severity(issue) == 'BLOCKER' or issue.get('severity') == 'BLOCKER':
+                blocker_count += 1
+
+    # No removed data in the cached OPEN-only report.
+    return open_count, open_count, blocker_count, None
+
+
+def coverage_from_cache(measures_path):
+    """Return (covered, total, pct) from a cached sonar-measures.json, or None."""
+    try:
+        with open(measures_path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    measures = {}
+    for m in (data.get('component', {}) or {}).get('measures', []) or []:
+        metric = m.get('metric')
+        value = m.get('value')
+        if metric and value is not None:
+            measures[metric] = value
+    if 'coverage' not in measures:
+        return None
+    try:
+        coverage = float(measures['coverage'])
+        ltc = int(float(measures.get('lines_to_cover', 0) or 0))
+        unc = int(float(measures.get('uncovered_lines', 0) or 0))
+    except (TypeError, ValueError):
+        return None
+    return ltc - unc, ltc, coverage
 
 
 # ---------------------------------------------------------------------------
@@ -533,9 +620,17 @@ def main(argv=None):
     p.add_argument('--project-key',
                    help='SonarCloud component key (e.g. danieljsinclair_vehicle-spy). '
                         'Coverage + sonar OPEN/total are fetched LIVE from the API '
-                        '(single source of truth; impossible to be stale). On any '
-                        'fetch failure (no token / network error / bad JSON) the '
-                        'fields are OMITTED (N/A / dropped) — NEVER a stale number.')
+                        'when no cached artefact is supplied. On any fetch failure '
+                        '(no token / network error / bad JSON) the fields are '
+                        'OMITTED (N/A / dropped) — NEVER a stale number.')
+    p.add_argument('--sonar-report', default=None,
+                   help='Path to cached sonar-report.json (authoritative open-count). '
+                        'When the file exists, read OPEN/total from it instead of '
+                        'the live API.')
+    p.add_argument('--sonar-measures', default=None,
+                   help='Path to cached sonar-measures.json (authoritative coverage). '
+                        'When the file exists, read coverage from it instead of the '
+                        'live API.')
     args = p.parse_args(argv)
 
     try:
@@ -546,8 +641,21 @@ def main(argv=None):
             tests = (tests[0] + xc_tests[0], tests[1] + xc_tests[1])
         elif xc_tests is not None:
             tests = xc_tests
-        cov = coverage_for(args.project_key)
-        sonar = parse_sonar_live(args.project_key)
+
+        # Coverage: prefer cached measures, fall back to live API.
+        cov = None
+        if args.sonar_measures and os.path.isfile(args.sonar_measures):
+            cov = coverage_from_cache(args.sonar_measures)
+        if cov is None and args.project_key:
+            cov = coverage_for(args.project_key)
+
+        # Sonar: prefer cached report, fall back to live API.
+        sonar = None
+        if args.sonar_report and os.path.isfile(args.sonar_report):
+            sonar = parse_sonar_cached(args.sonar_report)
+        if sonar is None and args.project_key:
+            sonar = parse_sonar_live(args.project_key)
+
         emit_line(args.label, tests, cov, sonar)
     except Exception as exc:  # never crash a display target
         print('{}{} summary failed: {}{}'.format(RED, args.label, exc, RESET),
