@@ -721,6 +721,19 @@ $(COVERAGE_LCOV): $(BUILD_COV_STAMP) $(COV_BUILD_INPUTS) scripts/run_coverage_te
 		bash scripts/run_coverage_tests.sh $(BUILD_COV_DIR)
 
 coverage-run: $(COVERAGE_LCOV)
+
+# coverage-sonar.xml is now a first-class make target (was a side-effect inside
+# run_coverage_tests.sh).  This guarantees the gate always has a fresh XML that
+# matches the current lcov.info before the sonar scan consumes it via
+# sonar.coverageReportPaths.
+$(COVERAGE_XML_CPP): $(COVERAGE_LCOV) scripts/lcov_to_xml.py scripts/manifest_query.py
+	@python3 scripts/lcov_to_xml.py \
+		$(COVERAGE_LCOV) \
+		$(COVERAGE_XML_CPP) \
+		--project-root "$(CURDIR)" \
+		$$(python3 scripts/manifest_query.py --mode src-roots vehicle-spy) \
+		--exclude-glob '**/*.mm'
+
 coverage-clean:
 	@rm -f $(COVERAGE_LCOV) $(COVERAGE_XML_CPP) $(BUILD_COV_DIR)/coverage.profdata $(BUILD_COV_DIR)/coverage.txt
 	@rm -rf $(BUILD_COV_DIR)/profraw
@@ -1193,7 +1206,7 @@ $(SONAR_REPORT): SS_LABEL         := vehicle-spy
 $(SONAR_REPORT): SS_COMPILE_DB    := $(BUILD_COV_DIR)/compile_commands.json
 $(SONAR_REPORT): SS_BUILD_DIR     := build-sonar
 
-$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_LCOV) $(SONAR_PROPERTIES) $(SONAR_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
+$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_LCOV) $(COVERAGE_XML_CPP) $(SONAR_PROPERTIES) $(SONAR_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 sonar-scan-ios: $(SONAR_IOS_REPORT)
@@ -1324,31 +1337,36 @@ summary: $(SUMMARY_FILE)
 	else echo "$(YELLOW)summary unavailable$(NC) — run $(GREEN)make summary$(NC) after sonar-scan/coverage-run"; fi
 
 $(SUMMARY_FILE): $(wildcard $(TEST_REPORT)) $(wildcard $(FIRMWARE_TEST_REPORT)) \
+		$(wildcard $(SONAR_REPORT)) $(wildcard $(SONAR_MEASURES)) \
+		$(wildcard $(SONAR_IOS_REPORT)) $(wildcard $(SONAR_IOS_MEASURES)) \
+		$(wildcard $(SONAR_ESP32_REPORT)) $(wildcard $(SONAR_ESP32_MEASURES)) \
 		scripts/build_summary.py scripts/coverage_scorecard.py scripts/sonar_live.py
 	@mkdir -p $$(dirname $@)
-	@# HEADLINE = LIVE-OR-OMIT. Coverage + sonar OPEN/total are fetched LIVE
-	@# from the SonarCloud API per run (single source of truth via
-	@# scripts/sonar_live.py). On ANY fetch failure (no token / network error /
-	@# bad JSON) the fields are OMITTED (cov: N/A, sonar dropped) — NEVER a
-	@# stale number and NEVER a local-export substitute (those are a different
-	@# basis; the local-vs-live comparison lives in `make coverage-summary`).
-	@# Staleness is architecturally impossible: no persistent sonar cache and
-	@# no local fallback is read for the headline. The scan still WRITES
-	@# sonar-measures.json / sonar-report.json as audit artefacts.
+	@# HEADLINE = CACHE-OR-LIVE. Sonar OPEN/total + coverage are read from the
+	@# cached scan artefacts (sonar-report.json + sonar-measures.json) when
+	@# present — those are the authoritative outputs of the just-run scan.  If a
+	@# cache file is absent (no scan yet, or clean tree) we fall back to the
+	@# live SonarCloud API via --project-key so the headline never fabricates.
 	@_tmp=$$(mktemp build-sonar/.summary.XXXXXX); \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy]" \
 		--project-key "$(SONAR_PROJECT_KEY)" \
+		--sonar-report "$(SONAR_REPORT)" \
+		--sonar-measures "$(SONAR_MEASURES)" \
 		--test-log "$(TEST_REPORT)" \
 		> $$_tmp; \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy-ios]" \
 		--project-key "$(SONAR_IOS_PROJECT_KEY)" \
+		--sonar-report "$(SONAR_IOS_REPORT)" \
+		--sonar-measures "$(SONAR_IOS_MEASURES)" \
 		--xcresult-glob "$(IOS_XCRESULT_DIR)/run-*.xcresult" \
 		>> $$_tmp; \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy-esp32]" \
 		--project-key "$(SONAR_ESP32_PROJECT_KEY)" \
+		--sonar-report "$(SONAR_ESP32_REPORT)" \
+		--sonar-measures "$(SONAR_ESP32_MEASURES)" \
 		>> $$_tmp; \
 	python3 scripts/coverage_scorecard.py --mm-only --colour >> $$_tmp; \
 	mv $$_tmp $(SUMMARY_FILE)
