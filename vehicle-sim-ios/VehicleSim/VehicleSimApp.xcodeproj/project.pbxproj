@@ -89,6 +89,7 @@
 		T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */; };
 		T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */; };
 	T1000014 /* VehicleViewModelConnectionHuntTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000014 /* VehicleViewModelConnectionHuntTests.swift */; };
+	T1000015 /* DiscoveryPacketReceptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000015 /* DiscoveryPacketReceptionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -188,6 +189,7 @@
 		T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };
 		T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };
 		T2000014 /* VehicleViewModelConnectionHuntTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelConnectionHuntTests.swift; path = ../VehicleSimTests/VehicleViewModelConnectionHuntTests.swift; sourceTree = "<group>"; };
+		T2000015 /* DiscoveryPacketReceptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryPacketReceptionTests.swift; path = ../VehicleSimTests/DiscoveryPacketReceptionTests.swift; sourceTree = "<group>"; };
 		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -345,6 +347,7 @@
 				T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */,
 				T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */,
 				T2000014 /* VehicleViewModelConnectionHuntTests.swift */,
+				T2000015 /* DiscoveryPacketReceptionTests.swift */,
 				ED39D8AAB147FDFF14F8ABA3 /* VehicleSimAppAppTests.swift */,
 			);
 			name = VehicleSimTests;
@@ -527,6 +530,7 @@
 				T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */,
 				T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */,
 				T1000014 /* VehicleViewModelConnectionHuntTests.swift in Sources */,
+				T1000015 /* DiscoveryPacketReceptionTests.swift in Sources */,
 				88B7D2AE35B4CA44C617AF28 /* VehicleSimAppAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
