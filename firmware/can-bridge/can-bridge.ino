@@ -55,6 +55,7 @@
 #include "FactoryReset.h"
 #include "FactoryResetCheck.h"
 #include "ArduinoResetAdapters.h"
+#include "ArduinoCanAdapters.h"
 
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
@@ -86,6 +87,11 @@ using esp32_firmware::LoopHeartbeat;
 using esp32_firmware::ArduinoResetGpio;
 using esp32_firmware::ArduinoResetDelay;
 using esp32_firmware::ArduinoResetLogger;
+using esp32_firmware::ArduinoCanDriver;
+using esp32_firmware::ArduinoTcpClient;
+using esp32_firmware::ArduinoSerialCan;
+using esp32_firmware::ArduinoTwaiLogger;
+using esp32_firmware::ArduinoTwaiHardware;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -298,85 +304,15 @@ static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASS
 // the single connected-buddy WiFiClient (connection truth source, assigned into
 // by ArduinoTcpServer::accept).
 WiFiClient& client() { static WiFiClient inst; return inst; }
-#if VEHICLE_SIM_ENABLE_TWAI
-struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
-    int driverInstall(esp32_firmware::CanGeneralConfig*, esp32_firmware::CanTimingConfig*, esp32_firmware::CanFilterConfig*) override { return 0; }  // done in setup()
-    int start() override { return 0; }                              // done in setup()
-    int receive(esp32_firmware::CanFrame* msg, uint32_t timeoutMs) override {
-        twai_message_t m{};
-        if (twai_receive(&m, timeoutMs) != ESP_OK) return -1;
-        msg->identifier = m.identifier;
-        msg->data_length_code = m.data_length_code;
-        std::copy(std::begin(m.data), std::end(m.data), std::begin(msg->data));
-        return 0;  // ESP_OK
-    }
-};
-#else
-struct ArduinoCanDriver : public esp32_firmware::ICanDriver {
-    int driverInstall(esp32_firmware::CanGeneralConfig*, esp32_firmware::CanTimingConfig*, esp32_firmware::CanFilterConfig*) override { return -1; }
-    int start() override { return -1; }
-    int receive(esp32_firmware::CanFrame*, uint32_t) override { return -1; }
-};
-#endif
-
-// ITcpClient wrapping the global WiFiClient (the connected buddy).
-struct ArduinoTcpClient : public esp32_firmware::ITcpClient {
-    bool connected() const override { return client() && client().connected(); }
-    size_t print(const char* str) override { return client().print(str); }
-    void flush() override { client().flush(); }
-};
-
-// ISerialCan wrapping Serial (USB diagnostic logging).
-struct ArduinoSerialCan : public esp32_firmware::ISerialCan {
-    size_t print(const char* str) override { return Serial.print(str); }
-    void flush() override { Serial.flush(); }
-};
-
-// cpp:S5421 (composite, C5): were 4 mutable globals (arduinoCanDriver/
-// arduinoTcpClient/arduinoSerialCan + the canBridgeDeps bundle built from
-// them). Grouped into a CanAdapters struct held by a function-local static
-// accessor (struct instance is function-local -> not flagged; clears all 4).
-// deps is constructed from the 3 driver members (preserves the prior wiring).
 struct CanAdapters {
     ArduinoCanDriver canDriver;
     ArduinoTcpClient tcpClient;
     ArduinoSerialCan serialCan;
     esp32_firmware::CanBridgeDeps deps;
-    CanAdapters() : deps{canDriver, tcpClient, serialCan} {}
+    CanAdapters() : tcpClient{client()}, deps{canDriver, tcpClient, serialCan} {}
 };
 CanAdapters& canAdapters() { static CanAdapters inst; return inst; }
 
-// ── TWAI Init Adapters (vanilla CanDriver boundaries) ──────────────────────
-// Thin Arduino implementations of the vanilla CanDriver interfaces. The .ino
-// owns the hardware objects (TWAI driver + Serial); CanDriver owns the
-// enabled/disabled branch, install/start sequence, and error handling.
-struct ArduinoTwaiLogger : public esp32_firmware::ILogger {
-    void log(const char* msg, bool isError) override {
-        // Preserve exact diagnostic text; add color codes matching the original.
-        if (isError) {
-            Serial.printf("%s%s%s\r\n", RED, msg, NC);
-        } else {
-            Serial.printf("%s\r\n", msg);
-        }
-    }
-};
-
-struct ArduinoTwaiHardware : public esp32_firmware::ITwaiHardware {
-    int driverInstall(esp32_firmware::CanGeneralConfig* gcfg,
-                      esp32_firmware::CanTimingConfig* tcfg,
-                      esp32_firmware::CanFilterConfig* fcfg) override {
-        // CanGeneralConfig is forward-declared in vanilla (opaque handle).
-        // The .ino passes actual twai_general_config_t objects — cast back.
-        return ::twai_driver_install(
-            reinterpret_cast<const twai_general_config_t*>(gcfg),
-            reinterpret_cast<const twai_timing_config_t*>(tcfg),
-            reinterpret_cast<const twai_filter_config_t*>(fcfg)
-        );
-    }
-    int start() override {
-        return ::twai_start();
-    }
-};
 
 // ── AT Command Adapters (vanilla AtCommandDispatcher boundaries) ────────────
 // Thin Arduino implementations of the vanilla AT-boundary interfaces. The .ino
@@ -620,7 +556,7 @@ void setup() {
     // TWAI init — listen-only so we never transmit on the vehicle bus
     // Delegate to vanilla CanDriver (enabled/disabled branch, install/start
     // sequence, error logging). The adapters below bridge ESP32 hardware.
-    ArduinoTwaiLogger twaiLogger;
+    ArduinoTwaiLogger twaiLogger(RED, NC);
     ArduinoTwaiHardware twaiHardware;
     esp32_firmware::CanDriver twaiInit(twaiLogger, twaiHardware, VEHICLE_SIM_ENABLE_TWAI);
 
