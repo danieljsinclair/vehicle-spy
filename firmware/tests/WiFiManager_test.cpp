@@ -437,6 +437,16 @@ TEST_F(WiFiManagerTest, Connecting_ConnectFailedWithBakedCreds_RetriesBakedCrede
     EXPECT_EQ(wifiMock.getCurrentSsid(), std::string("baked-ssid"));
 }
 
+// Covers shouldFallbackToApMode with NONE source: never falls back to AP
+// (only STORED_NVS with elapsed timeout falls back).
+TEST_F(WiFiManagerTest, ShouldFallbackToApMode_None_ReturnsFalse) {
+    bool result = shouldFallbackToApMode(
+        CredentialSource::NONE,
+        WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1
+    );
+    EXPECT_FALSE(result);
+}
+
 TEST_F(WiFiManagerTest, Reconnecting_NotConnectedAfterInterval_RetriesCredentials) {
     // ReconnectingStateHandler retry branch: still not connected, the retry
     // interval has elapsed → begin() with stored creds (falls back to baked
@@ -463,6 +473,33 @@ TEST_F(WiFiManagerTest, Reconnecting_NotConnectedAfterInterval_RetriesCredential
     // the baked SSID.
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
     EXPECT_EQ(wifiMock.getCurrentSsid(), std::string("baked-ssid"));
+}
+
+// Covers line 139: ReconnectingStateHandler retry branch with STORED_NVS creds
+// hits wifi_.begin(storedSsid, storedPass) when loadCredentialsImpl succeeds.
+TEST_F(WiFiManagerTest, Reconnecting_NotConnectedAfterInterval_RetriesStoredCredentials) {
+    prefsMock.setValue("wifi", "ssid", "real-ssid");
+    prefsMock.setValue("wifi", "pass", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, statusLedMock, nullptr, nullptr);
+
+    // Reach RECONNECTING via a real connect + non-auth drop.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::CONNECTED_STA);
+    wifiManager->onDisconnected(200);  // BEACON_TIMEOUT → RECONNECTING
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
+
+    // Still not connected; advance past the retry interval so shouldRetryWiFi
+    // fires the begin() retry with the stored SSID (loadCredentialsImpl succeeds).
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1);
+
+    // State stays RECONNECTING; the re-attempt used the stored SSID.
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(wifiMock.getCurrentSsid(), std::string("real-ssid"));
 }
 
 TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToReconnecting) {

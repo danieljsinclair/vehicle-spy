@@ -268,6 +268,27 @@ TEST_F(DiscoveryManagerTest, Update_IntervalNotElapsed_DoesNotBroadcast) {
     EXPECT_EQ(capturedLen, DiscoveryConfig::DISCOVERY_PACKET_SIZE);
 }
 
+// Covers lines 19-20: update() returns early when shouldBroadcast() is false
+// (WiFi mode neither AP nor STA and no client connected).
+TEST_F(DiscoveryManagerTest, Update_ShouldBroadcastFalse_ReturnsEarly) {
+    wifiMock.setMode(0);  // neither AP (2) nor STA (1) -> shouldBroadcast returns false
+    discoveryManager->init();
+    timeMock.setMillis(1000);
+    discoveryManager->update(1000, false);  // haveClient=false
+    EXPECT_TRUE(udpMock.lastPacketIp.empty());  // beginPacket never called
+}
+
+// Covers line 85: broadcast() null-callback else branch (no callback registered).
+TEST_F(DiscoveryManagerTest, Broadcast_NoCallback_DoesNotCrash) {
+    wifiMock.setMode(2);  // WIFI_AP
+    wifiMock.softAP("ESP32-CAN", "cancan12");
+    // Create manager without registering a callback to hit the null branch.
+    DiscoveryManager dm(udpMock, wifiMock, timeMock, deviceId, nullSigner);
+    dm.init();
+    dm.forceBroadcast();
+    EXPECT_GT(udpMock.lastPacketData.size(), 0);  // UDP packet still sent
+}
+
 TEST_F(DiscoveryManagerTest, ForceBroadcast_SendsPacket) {
     wifiMock.setMode(2);  // WIFI_AP
     wifiMock.softAP("ESP32-CAN", "cancan12");
