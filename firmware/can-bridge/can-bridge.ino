@@ -35,6 +35,7 @@
 #include "ArduinoSntp.h"
 #include "ArduinoTimeNtp.h"
 #include "FirmwareApp.h"
+#include "LoopHeartbeat.h"
 // ── TcpServerManager (Stage 6 extraction) ────────────────────────────────────────────
 // Vanilla accept/auth/dispatch state machine (host-tested, 14 tests). The .ino
 // supplies the WiFiServer/WiFiClient adapters + a narrow ITcpHostCallbacks impl
@@ -78,6 +79,7 @@ using esp32_firmware::TcpServerManager;
 using esp32_firmware::ArduinoTcpServer;
 using esp32_firmware::ITcpHostCallbacks;
 using esp32_firmware::SerialCommandFramer;
+using esp32_firmware::LoopHeartbeat;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -92,6 +94,7 @@ namespace Constants {
     static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 60;  // 5 minutes at 5s interval
     static constexpr uint32_t SERIAL_BAUD = 115200;
     static constexpr uint32_t SERIAL_QUIET_DURATION_MS = 250;
+    static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
 
     // TCP timeouts
     static constexpr uint32_t TCP_AUTH_TIMEOUT_MS = 5000;
@@ -674,24 +677,11 @@ void setup() {
 }
 
 void loop() {
-    // 5-second heartbeat: prints current state model snapshot so the serial
-    // monitor shows exactly what state the firmware thinks it's in.
-    static uint32_t lastHeartbeatMs = 0;
-    if (millis() - lastHeartbeatMs > 5000) {
-        lastHeartbeatMs = millis();
-        int wifiState = firmwareApp.getWiFiState();
-        const char* stateName = "?";
-        switch (static_cast<esp32_firmware::WiFiState::State>(wifiState)) {
-            case esp32_firmware::WiFiState::State::DISCONNECTED:   stateName = "DISCONNECTED";   break;
-            case esp32_firmware::WiFiState::State::CONNECTING:     stateName = "CONNECTING";     break;
-            case esp32_firmware::WiFiState::State::CONNECTED_STA:  stateName = "CONNECTED_STA";  break;
-            case esp32_firmware::WiFiState::State::CONNECTED_AP:   stateName = "CONNECTED_AP";   break;
-            case esp32_firmware::WiFiState::State::RECONNECTING:   stateName = "RECONNECTING";   break;
-        }
-        Serial.printf("[STATE] uptime=%lums wifi=%s monitor=%s\r\n",
-                      millis(),
-                      stateName,
-                      firmwareApp.isMonitorActive() ? "ACTIVE" : "idle");
+    // 5-second heartbeat: delegate to vanilla LoopHeartbeat which formats the
+    // state snapshot. The exact text and severity are preserved.
+    static LoopHeartbeat heartbeat(Constants::HEARTBEAT_INTERVAL_MS);
+    if (heartbeat.tick(millis(), firmwareApp.getWiFiState(), firmwareApp.isMonitorActive())) {
+        Serial.print(heartbeat.snapshot().c_str());
     }
 
     // ── Update FirmwareApp (drives WiFiManager + StatusLED + Discovery) ────────────

@@ -63,6 +63,7 @@ set(VANILLA_SOURCES
     vanilla/DeviceTag.cpp
     vanilla/FactoryReset.cpp
     vanilla/FactoryResetCheck.cpp
+    vanilla/LoopHeartbeat.cpp
 )
 
 # ESP32-specific hardware veneer (GPIO LED driver) — stays in can-bridge/
@@ -110,6 +111,7 @@ add_executable(esp32-firmware-tests
     tests/DeviceTag_test.cpp
     tests/FactoryReset_test.cpp
     tests/FactoryResetCheck_test.cpp
+    tests/LoopHeartbeat_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests
