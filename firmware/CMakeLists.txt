@@ -52,6 +52,7 @@ set(VANILLA_SOURCES
     vanilla/DiscoveryManager.cpp
     vanilla/NtpTimeSync.cpp
     vanilla/CanBridge.cpp
+    vanilla/CanDriver.cpp
     vanilla/AtCommandDispatcher.cpp
     vanilla/OtaUpdateServer.cpp
     vanilla/StatusLEDRenderer.cpp
@@ -112,6 +113,7 @@ add_executable(esp32-firmware-tests
     tests/DeviceTag_test.cpp
     tests/FactoryReset_test.cpp
     tests/FactoryResetCheck_test.cpp
+    tests/CanDriver_test.cpp
     tests/LoopHeartbeat_test.cpp
     tests/NvsWifiCredentialStore_test.cpp
 )

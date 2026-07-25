@@ -37,6 +37,7 @@
 #include "FirmwareApp.h"
 #include "LoopHeartbeat.h"
 #include "NvsWifiCredentialStore.h"  // vanilla storeWifiCredentials (NVS write logic)
+#include "CanDriver.h"
 // ── TcpServerManager (Stage 6 extraction) ────────────────────────────────────────────
 // Vanilla accept/auth/dispatch state machine (host-tested, 14 tests). The .ino
 // supplies the WiFiServer/WiFiClient adapters + a narrow ITcpHostCallbacks impl
@@ -341,6 +342,38 @@ struct CanAdapters {
 };
 CanAdapters& canAdapters() { static CanAdapters inst; return inst; }
 
+// ── TWAI Init Adapters (vanilla CanDriver boundaries) ──────────────────────
+// Thin Arduino implementations of the vanilla CanDriver interfaces. The .ino
+// owns the hardware objects (TWAI driver + Serial); CanDriver owns the
+// enabled/disabled branch, install/start sequence, and error handling.
+struct ArduinoTwaiLogger : public esp32_firmware::ILogger {
+    void log(const char* msg, bool isError) override {
+        // Preserve exact diagnostic text; add color codes matching the original.
+        if (isError) {
+            Serial.printf("%s%s%s\r\n", RED, msg, NC);
+        } else {
+            Serial.printf("%s\r\n", msg);
+        }
+    }
+};
+
+struct ArduinoTwaiHardware : public esp32_firmware::ITwaiHardware {
+    int driverInstall(esp32_firmware::CanGeneralConfig* gcfg,
+                      esp32_firmware::CanTimingConfig* tcfg,
+                      esp32_firmware::CanFilterConfig* fcfg) override {
+        // CanGeneralConfig is forward-declared in vanilla (opaque handle).
+        // The .ino passes actual twai_general_config_t objects — cast back.
+        return ::twai_driver_install(
+            reinterpret_cast<const twai_general_config_t*>(gcfg),
+            reinterpret_cast<const twai_timing_config_t*>(tcfg),
+            reinterpret_cast<const twai_filter_config_t*>(fcfg)
+        );
+    }
+    int start() override {
+        return ::twai_start();
+    }
+};
+
 // ── AT Command Adapters (vanilla AtCommandDispatcher boundaries) ────────────
 // Thin Arduino implementations of the vanilla AT-boundary interfaces. The .ino
 // owns the hardware objects (WiFiClient/Serial/ESP/Preferences); FirmwareApp owns
@@ -610,22 +643,26 @@ void setup() {
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
     // TWAI init — listen-only so we never transmit on the vehicle bus
+    // Delegate to vanilla CanDriver (enabled/disabled branch, install/start
+    // sequence, error logging). The adapters below bridge ESP32 hardware.
+    ArduinoTwaiLogger twaiLogger;
+    ArduinoTwaiHardware twaiHardware;
+    esp32_firmware::CanDriver twaiInit(twaiLogger, twaiHardware, VEHICLE_SIM_ENABLE_TWAI);
+
 #if VEHICLE_SIM_ENABLE_TWAI
     twai_general_config_t gcfg = TWAI_GENERAL_CONFIG_DEFAULT(Constants::TWAI_TX, Constants::TWAI_RX, TWAI_MODE_LISTEN_ONLY);
     twai_timing_config_t tcfg = TWAI_TIMING_CONFIG_500KBITS();
     twai_filter_config_t fcfg = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-    if (twai_driver_install(&gcfg, &tcfg, &fcfg) != ESP_OK) {
-        Serial.printf("%sFAIL: twai_driver_install%s\r\n", RED, NC);
-        while (true) delay(1000);
+    if (!twaiInit.initialize(
+            reinterpret_cast<esp32_firmware::CanGeneralConfig*>(&gcfg),
+            reinterpret_cast<esp32_firmware::CanTimingConfig*>(&tcfg),
+            reinterpret_cast<esp32_firmware::CanFilterConfig*>(&fcfg))) {
+        while (true) delay(1000);  // Hang on failure (preserves original fatal behavior)
     }
-    if (twai_start() != ESP_OK) {
-        Serial.printf("%sFAIL: twai_start%s\r\n", RED, NC);
-        while (true) delay(1000);
-    }
-    Serial.println("TWAI started @ 500kbps (listen-only)");
 #else
-    Serial.println("TWAI disabled via VEHICLE_SIM_ENABLE_TWAI=0");
+    // Still call initialize() so the disabled-path log is emitted.
+    (void)twaiInit.initialize(nullptr, nullptr, nullptr);
 #endif
 
     // NOTE: WiFi state machine is driven by FirmwareApp (WiFiManager). init() ran
