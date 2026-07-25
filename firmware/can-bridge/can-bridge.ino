@@ -56,6 +56,7 @@
 #include "FactoryResetCheck.h"
 #include "ArduinoResetAdapters.h"
 #include "ArduinoCanAdapters.h"
+#include "ArduinoAtAdapters.h"
 
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
@@ -92,6 +93,10 @@ using esp32_firmware::ArduinoTcpClient;
 using esp32_firmware::ArduinoSerialCan;
 using esp32_firmware::ArduinoTwaiLogger;
 using esp32_firmware::ArduinoTwaiHardware;
+using esp32_firmware::ArduinoAtTcpClient;
+using esp32_firmware::ArduinoAtSerial;
+using esp32_firmware::ArduinoAtEsp;
+using esp32_firmware::ArduinoAtWifiStore;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -322,41 +327,6 @@ CanAdapters& canAdapters() { static CanAdapters inst; return inst; }
 // Forward-declare FirmwareApp so adapter methods can reference it (static init order).
 class FirmwareApp;
 extern FirmwareApp firmwareApp;
-struct ArduinoAtTcpClient : public esp32_firmware::ITcpClientAt {
-    void print(const char* str) override { client().print(str); }
-    void flush() override { client().flush(); }
-};
-
-struct ArduinoAtSerial : public esp32_firmware::ISerialAt {
-    void println(const char* str) override { Serial.println(str); }
-    void flush() override { Serial.flush(); }
-};
-
-struct ArduinoAtEsp : public esp32_firmware::IEspAt {
-    void restart() override {
-        delay(Constants::TCP_REBOOT_DELAY_MS);
-        ESP.restart();
-    }
-};
-
-struct ArduinoAtWifiStore : public esp32_firmware::IWifiCredentialStore {
-    bool store(const std::string& ssid, const std::string& password) override {
-        // Delegate to the vanilla NVS write function (host-tested).
-        // The adapter bridges the vanilla INvsWifiStore interface over the
-        // concrete Arduino Preferences class held by wifiCredentials().
-        struct NvsAdapter : public esp32_firmware::INvsWifiStore {
-            void begin(const char* name, bool readOnly) override {
-                wifiCredentials().begin(name, readOnly);
-            }
-            size_t putString(const char* key, const std::string& value) override {
-                return wifiCredentials().putString(key, value.c_str());
-            }
-            void end() override { wifiCredentials().end(); }
-        };
-        NvsAdapter adapter;
-        return esp32_firmware::storeWifiCredentials(adapter, ssid, password);
-    }
-};
 
 // cpp:S5421 (composite, C6): were 4 mutable globals (arduinoAtTcpClient/Serial/
 // Esp/WifiStore). Grouped into an AtAdapters struct held by a function-local
@@ -368,6 +338,7 @@ struct AtAdapters {
     ArduinoAtSerial serial;
     ArduinoAtEsp esp;
     ArduinoAtWifiStore wifiStore;
+    AtAdapters() : tcpClient{client()}, esp{Constants::TCP_REBOOT_DELAY_MS}, wifiStore{wifiCredentials()} {}
 };
 AtAdapters& atAdapters() { static AtAdapters inst; return inst; }
 
