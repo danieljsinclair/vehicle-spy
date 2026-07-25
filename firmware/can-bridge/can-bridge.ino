@@ -36,6 +36,7 @@
 #include "ArduinoTimeNtp.h"
 #include "FirmwareApp.h"
 #include "LoopHeartbeat.h"
+#include "NvsWifiCredentialStore.h"  // vanilla storeWifiCredentials (NVS write logic)
 // ── TcpServerManager (Stage 6 extraction) ────────────────────────────────────────────
 // Vanilla accept/auth/dispatch state machine (host-tested, 14 tests). The .ino
 // supplies the WiFiServer/WiFiClient adapters + a narrow ITcpHostCallbacks impl
@@ -169,19 +170,9 @@ static const char* const NC     = "\033[0m";
 // write in storeWifiCredentials() below.
 Preferences& wifiCredentials() { static Preferences inst; return inst; }
 
-// NVS keys for WiFi credentials storage
-static constexpr const char* NVS_WIFI_NAMESPACE = "wifi";
-static constexpr const char* NVS_WIFI_SSID = "ssid";
-static constexpr const char* NVS_WIFI_PASS = "pass";
-
-// Store WiFi credentials to NVS (ATSETWIFI command path)
-static bool storeWifiCredentials(const String& ssid, const String& pass) {
-    wifiCredentials().begin(NVS_WIFI_NAMESPACE, false);  // Read-write
-    bool success = wifiCredentials().putString(NVS_WIFI_SSID, ssid) > 0;
-    success = success && wifiCredentials().putString(NVS_WIFI_PASS, pass) > 0;
-    wifiCredentials().end();
-    return success;
-}
+// NVS keys for WiFi credentials storage are defined in
+// firmware/vanilla/NvsWifiCredentialStore.cpp (the vanilla storeWifiCredentials
+// function owns the namespace + key constants; this veneer delegates to it).
 
 // cpp:S5421: was a mutable global array. Function-local static accessor; filled
 // from the MAC in setup() (mutated at boot — fine for a function-local static).
@@ -377,8 +368,20 @@ struct ArduinoAtEsp : public esp32_firmware::IEspAt {
 
 struct ArduinoAtWifiStore : public esp32_firmware::IWifiCredentialStore {
     bool store(const std::string& ssid, const std::string& password) override {
-        // Bridge vanilla std::string -> Arduino String for the NVS write.
-        return storeWifiCredentials(String(ssid.c_str()), String(password.c_str()));
+        // Delegate to the vanilla NVS write function (host-tested).
+        // The adapter bridges the vanilla INvsWifiStore interface over the
+        // concrete Arduino Preferences class held by wifiCredentials().
+        struct NvsAdapter : public esp32_firmware::INvsWifiStore {
+            void begin(const char* name, bool readOnly) override {
+                wifiCredentials().begin(name, readOnly);
+            }
+            size_t putString(const char* key, const std::string& value) override {
+                return wifiCredentials().putString(key, value.c_str());
+            }
+            void end() override { wifiCredentials().end(); }
+        };
+        NvsAdapter adapter;
+        return esp32_firmware::storeWifiCredentials(adapter, ssid, password);
     }
 };
 
