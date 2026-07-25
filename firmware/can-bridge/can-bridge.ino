@@ -418,14 +418,11 @@ struct ArduinoAtWifiStore : public esp32_firmware::IWifiCredentialStore {
     }
 };
 
-struct ArduinoAtMonitor : public esp32_firmware::IMonitorState {
-    void setMonitorActive(bool active) override { firmwareApp.setMonitorActive(active); }
-};
-
 // cpp:S5421 (composite, C6): were 4 mutable globals (arduinoAtTcpClient/Serial/
 // Esp/WifiStore). Grouped into an AtAdapters struct held by a function-local
 // static accessor (struct instance is function-local -> not flagged; clears all
-// 4). arduinoAtMonitor is NOT grouped — it is not S5421-flagged (left as-is).
+// 4). The monitor-state boundary is no longer adapted here — FirmwareApp
+// implements IMonitorState directly (passed to its own AtCommandDispatcher).
 struct AtAdapters {
     ArduinoAtTcpClient tcpClient;
     ArduinoAtSerial serial;
@@ -433,7 +430,6 @@ struct AtAdapters {
     ArduinoAtWifiStore wifiStore;
 };
 AtAdapters& atAdapters() { static AtAdapters inst; return inst; }
-static ArduinoAtMonitor arduinoAtMonitor;
 
 // FirmwareApp orchestrator - delegates WiFi/LED/NTP/CAN to vanilla managers
 // ArduinoWiFi implements both IWiFi and IWiFiDiscovery
@@ -453,28 +449,15 @@ WiFiServer& tcpServer() { static WiFiServer inst(Constants::TCP_PORT); return in
 // ── TCP Server Manager wiring (Stage 6) ──────────────────────────────────────────────
 // ArduinoTcpServer adapts the global tcpServer + client (the single connection
 // truth source); TcpServerManager drives the accept/auth/dispatch lifecycle.
-// The ITcpHostCallbacks impl below delegates the 4 out-of-SRP behaviours to
-// firmwareApp (command dispatch, monitor flag, discovery backoff, WiFi state).
-namespace {
-struct FirmwareAppTcpHostCallbacks : public ITcpHostCallbacks {
-    FirmwareApp& app;
-    explicit FirmwareAppTcpHostCallbacks(FirmwareApp& a) : app(a) {}
-    void handleTcpAtCommand(const std::string& cmd) override {
-        app.handleTcpAtCommand(cmd);
-    }
-    void setMonitorActive(bool active) override { app.setMonitorActive(active); }
-    void resetDiscoveryBackoff() override { app.resetDiscoveryBackoff(); }
-    int getWiFiState() const override { return app.getWiFiState(); }
-};
-} // namespace
-
+// FirmwareApp itself implements ITcpHostCallbacks, so the 4 out-of-SRP behaviours
+// (command dispatch, monitor flag, discovery backoff, WiFi state) are reached
+// directly — no forwarder adapter struct needed.
 static ArduinoTcpServer arduinoTcpServer(tcpServer(), client());
-static FirmwareAppTcpHostCallbacks tcpHostCallbacks(firmwareApp);
 // authToken is the bare token; the vanilla prepends "AUTH " when comparing
 // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
 static TcpServerManager tcpManager(arduinoTcpServer, statusLed(),
                                    std::string(TCP_AUTH_TOKEN),
-                                   tcpHostCallbacks);
+                                   firmwareApp);
 
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
 // NTP time is now owned entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
@@ -595,9 +578,7 @@ struct ArduinoResetLogger : public esp32_firmware::IFactoryResetLogger {
         Serial.printf("%s%s%s\r\n", isConfirmed ? RED : YELLOW, msg, NC);
     }
 };
-struct ArduinoCredClear : public esp32_firmware::ICredentialClear {
-    void clear() override { firmwareApp.clearCredentials(); }
-};
+// No ArduinoCredClear adapter: FirmwareApp implements ICredentialClear directly.
 
 static bool checkFactoryReset() {
     pinMode(Constants::FACTORY_RESET_PIN, INPUT_PULLUP);
@@ -605,10 +586,11 @@ static bool checkFactoryReset() {
     ArduinoResetGpio gpio;
     ArduinoResetDelay delayAdapter;
     ArduinoResetLogger logger;
-    ArduinoCredClear credClear;
 
+    // firmwareApp is the ICredentialClear (wipes stored WiFi credentials on a
+    // confirmed hold) — no forwarder adapter struct needed.
     esp32_firmware::FactoryResetCheck checker(
-        Constants::FACTORY_RESET_HOLD_MS, 100, gpio, delayAdapter, logger, credClear);
+        Constants::FACTORY_RESET_HOLD_MS, 100, gpio, delayAdapter, logger, firmwareApp);
     return checker.run();
 }
 
@@ -691,11 +673,12 @@ void setup() {
 
     // Wire the AT command boundary adapters into FirmwareApp. The deviceId is now
     // populated (above), so the dispatcher reads the live array when a command is
-    // first handled. This hands the five Arduino adapters (TCP client / serial /
-    // ESP restart / NVS WiFi store / monitor state) to the vanilla
-    // AtCommandDispatcher that FirmwareApp owns.
+    // first handled. This hands the four Arduino adapters (TCP client / serial /
+    // ESP restart / NVS WiFi store) to the vanilla AtCommandDispatcher that
+    // FirmwareApp owns. The monitor-state boundary is satisfied by firmwareApp
+    // itself (it implements IMonitorState), so no adapter is passed for it.
     firmwareApp.setAtCommandAdapters(atAdapters().tcpClient, atAdapters().serial, atAdapters().esp,
-                                     atAdapters().wifiStore, arduinoAtMonitor, discoveryDeviceId());
+                                     atAdapters().wifiStore, firmwareApp, discoveryDeviceId());
 
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");
@@ -750,9 +733,10 @@ void loop() {
     // ── TCP accept/auth/dispatch (Stage 6: delegated to vanilla TcpServerManager) ────
     // One tick of the client-facing TCP lifecycle (accept → AUTH → command-dispatch →
     // disconnect cleanup + LED revert). The inline loop was deleted; the manager
-    // drives it through ArduinoTcpServer/ArduinoTcpServerClient + the
-    // FirmwareAppTcpHostCallbacks seam. The global `client` stays the single
-    // connection truth source (ArduinoTcpServer::accept assigns into it), so
+    // drives it through ArduinoTcpServer/ArduinoTcpServerClient + FirmwareApp
+    // (which implements ITcpHostCallbacks directly). The global `client` stays
+    // the single connection truth source (ArduinoTcpServer::accept assigns into
+    // it), so
     // setClientConnected / ArduinoTcpClient above remain in sync.
     tcpManager.cycle(static_cast<uint32_t>(millis()));
 

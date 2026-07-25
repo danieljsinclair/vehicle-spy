@@ -213,6 +213,12 @@ bool FirmwareApp::clearCredentials() {
     return wifiManager_->clearCredentials();
 }
 
+void FirmwareApp::clear() {
+    // ICredentialClear seam: FactoryResetCheck only needs the wipe performed;
+    // whether NVS held credentials (the bool) is not used by the reset flow.
+    (void)clearCredentials();
+}
+
 bool FirmwareApp::loadCredentials(std::string& ssid, std::string& pass) const {
     assert(wifiManager_ && "FirmwareApp::loadCredentials called before init()");
     return wifiManager_->loadCredentials(ssid, pass);

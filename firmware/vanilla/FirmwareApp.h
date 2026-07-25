@@ -20,6 +20,8 @@
 #include "NtpTimeSync.h"
 #include "CanBridge.h"
 #include "AtCommandDispatcher.h"  // owns AtCommandDispatcher + the ITcpClientAt/ISerialAt/IEspAt/IWifiCredentialStore/IMonitorState AT boundaries
+#include "ITcpServer.h"           // ITcpHostCallbacks (TcpServerManager delegation seam)
+#include "FactoryResetCheck.h"    // ICredentialClear (factory-reset credential boundary)
 
 namespace esp32_firmware {
 
@@ -48,7 +50,18 @@ struct FirmwareCallbacks {
 // - Provide factory-reset and credential operations
 //
 // Thread safety: Single-threaded (ESP32 Arduino main loop)
-class FirmwareApp {
+//
+// FirmwareApp is the orchestrator, so it directly implements the narrow
+// interfaces its owned managers consume (ISP/SRP): this removes the prior
+// "wrapper-of-wrapper" forwarder adapter structs that lived in the .ino purely
+// to bounce a call straight back into FirmwareApp.
+//   - ITcpHostCallbacks : TcpServerManager delegation (cmd dispatch, monitor,
+//                        discovery backoff, WiFi-state read)
+//   - IMonitorState     : AtCommandDispatcher monitor-flag boundary
+//   - ICredentialClear  : FactoryResetCheck credential-wipe boundary
+class FirmwareApp : public ITcpHostCallbacks,
+                    public IMonitorState,
+                    public ICredentialClear {
 public:
     // Constructor - inject dependencies
     // - wifi: WiFi interface (ArduinoWiFi or mock)
@@ -110,7 +123,9 @@ public:
     void setCallbacks(const FirmwareCallbacks& callbacks);
 
     // Get current WiFi state (for debugging/testing)
-    int getWiFiState() const;
+    // ITcpHostCallbacks: read by TcpServerManager for the LED-revert-on-disconnect
+    // decision (only revert to WIFI_CONNECTED when WiFi is CONNECTED_STA/AP).
+    int getWiFiState() const override;
 
     // Check if TCP server needs restart (after WiFi reconnect)
     bool shouldRestartTcpServer() const;
@@ -120,10 +135,19 @@ public:
     bool clearCredentials();
     bool loadCredentials(std::string& ssid, std::string& pass) const;
 
+    // ICredentialClear: FactoryResetCheck wipes stored WiFi credentials through
+    // this narrow seam. Delegates to clearCredentials() (the bool return —
+    // whether NVS had credentials to clear — is not needed by the reset flow,
+    // which only requires the wipe to be performed). Behavior-identical to the
+    // prior ArduinoCredClear forwarder that lived in the .ino.
+    void clear() override;
+
     // CAN bridge: the .ino routes monitor-state and the TWAI RX drain here so
     // frame streaming (Serial always, TCP when connected+monitoring) runs through
     // the vanilla CanBridge instead of inline logic.
-    void setMonitorActive(bool active);
+    // IMonitorState (AtCommandDispatcher) + ITcpHostCallbacks (TcpServerManager)
+    // both reach the monitor flag through this single override.
+    void setMonitorActive(bool active) override;
     bool isMonitorActive() const;
     void processCanFrames();
     // Serial quiet-window ownership moved out of the .ino global (cpp:S5421):
@@ -141,7 +165,9 @@ public:
     // callback remains a post-send firmware-effect hook (e.g. LED pulse).
     void setDiscoveryEnabled(bool enabled);
     void setClientConnected(bool connected);
-    void resetDiscoveryBackoff();
+    // ITcpHostCallbacks: TcpServerManager resets the discovery backoff timer on
+    // buddy-disconnect so a new buddy is welcomed promptly.
+    void resetDiscoveryBackoff() override;
 
     // AT command handling: the .ino constructs the five runtime-boundary adapters
     // over Arduino (WiFiClient/Serial/ESP/Preferences) and hands them in here. We
@@ -156,7 +182,9 @@ public:
     void setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial, IEspAt& esp,
                               IWifiCredentialStore& wifiStore, IMonitorState& monitor,
                               const std::array<uint8_t, 16>& deviceId);
-    void handleTcpAtCommand(const std::string& cmd);
+    // ITcpHostCallbacks: TcpServerManager forwards each received AUTH'd command
+    // line here (frames the reply as "<resp>\r\r>" for the host HELO handshake).
+    void handleTcpAtCommand(const std::string& cmd) override;
     void handleSerialAtCommand(const std::string& cmd);
 
 private:
