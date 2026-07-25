@@ -94,12 +94,11 @@ public:
     std::string broadcastIP() const override {
         if (WiFi.getMode() == WIFI_AP) {
             return "192.168.4.255";
-        } else if (WiFi.getMode() == WIFI_STA) {
-            return std::string(WiFi.localIP().toString().c_str());
-            // Note: This doesn't calculate the actual broadcast IP
-            // For STA mode, should use subnet mask to calculate broadcast address
-            // For now, return local IP as placeholder
         }
+        // STA or other: use the limited broadcast address (received by all hosts
+        // on the local link). The previous code returned WiFi.localIP() as a
+        // placeholder — that sent packets TO THE DEVICE ITSELF, never reaching
+        // any other host. 255.255.255.255 is the standard discovery broadcast.
         return "255.255.255.255";
     }
 };
