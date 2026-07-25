@@ -116,6 +116,7 @@ coverage_exclusions = [
     "**/*.mm",           # Obj-C++ .mm uncountable by cfamily — two-sided headline exclusion
     "**/*Tests*.*",      # test code is not coverage
     "**/*Test*.*",       #   "    "
+    "**/ContentView.swift",  # SwiftUI declarative body — 260/262 uncovered lines are pure body; host-untestable
 ]
 
 # =============================================================================
@@ -142,6 +143,10 @@ exclusions = [
     "firmware/mocks/**",                 # test doubles
     "**/OtaPublicKey.h",                 # generated per-user Ed25519 key (config artifact)
     "firmware/**/Arduino*.h",            # ESP32 Arduino platform veneers (platform-specific adapters, #ifdef ARDUINO gated, untestable on host; declared gap like .mm, two-sided exclusion)
+]
+coverage_exclusions = [
+    "firmware/can-bridge/*.ino",                  # Arduino sketches — call Arduino core (Serial/WiFi/twai/ESP), host-untestable
+    "firmware/can-bridge/HardwareStatusLEDOutput.cpp",  # FastLED hardware dependency — host-untestable
 ]
 
 # =============================================================================

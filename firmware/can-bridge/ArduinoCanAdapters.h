@@ -84,9 +84,9 @@ struct ArduinoTwaiHardware : public ITwaiHardware {
                       CanTimingConfig* tcfg,
                       CanFilterConfig* fcfg) override {
         return ::twai_driver_install(
-            reinterpret_cast<const twai_general_config_t*>(gcfg),
-            reinterpret_cast<const twai_timing_config_t*>(tcfg),
-            reinterpret_cast<const twai_filter_config_t*>(fcfg)
+            static_cast<const twai_general_config_t*>(static_cast<const void*>(gcfg)),
+            static_cast<const twai_timing_config_t*>(static_cast<const void*>(tcfg)),
+            static_cast<const twai_filter_config_t*>(static_cast<const void*>(fcfg))
         );
     }
     int start() override {

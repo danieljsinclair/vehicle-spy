@@ -922,6 +922,7 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-i
 			--exclude-targets VehicleSimTests.xctest \
 			--include-roots vehicle-sim-ios \
 			--exclude-glob '**/*.mm' \
+			$$(python3 scripts/manifest_query.py --mode coverage-excludes vehicle-spy-ios 2>/dev/null | tr ' ' '\n' | grep -v '^$$' | sed 's/^/-exclude-glob /' | tr '\n' ' ') \
 			--xcresult "$$_bundle"; \
 	fi
 
@@ -1030,7 +1031,8 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 		$(FIRMWARE_COVERAGE_LCOV) \
 		--root "$(CURDIR)" \
 		$$(python3 scripts/manifest_query.py --mode src-dir-args vehicle-spy-esp32) \
-		$$(python3 scripts/manifest_query.py --mode exclude-args vehicle-spy-esp32)
+		$$(python3 scripts/manifest_query.py --mode exclude-args vehicle-spy-esp32) \
+		$$(python3 scripts/manifest_query.py --mode coverage-exclude-args vehicle-spy-esp32)
 	@rm -f $(FIRMWARE_COVERAGE_LCOV).tmp
 	@echo "=== [firmware] Converting lcov to Sonar XML ==="
 	@python3 scripts/lcov_to_xml.py \

@@ -311,10 +311,9 @@ static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASS
 WiFiClient& client() { static WiFiClient inst; return inst; }
 struct CanAdapters {
     ArduinoCanDriver canDriver;
-    ArduinoTcpClient tcpClient;
+    ArduinoTcpClient tcpClient{client()};
     ArduinoSerialCan serialCan;
-    esp32_firmware::CanBridgeDeps deps;
-    CanAdapters() : tcpClient{client()}, deps{canDriver, tcpClient, serialCan} {}
+    esp32_firmware::CanBridgeDeps deps{canDriver, tcpClient, serialCan};
 };
 CanAdapters& canAdapters() { static CanAdapters inst; return inst; }
 
@@ -334,11 +333,10 @@ extern FirmwareApp firmwareApp;
 // 4). The monitor-state boundary is no longer adapted here — FirmwareApp
 // implements IMonitorState directly (passed to its own AtCommandDispatcher).
 struct AtAdapters {
-    ArduinoAtTcpClient tcpClient;
+    ArduinoAtTcpClient tcpClient{client()};
     ArduinoAtSerial serial;
-    ArduinoAtEsp esp;
-    ArduinoAtWifiStore wifiStore;
-    AtAdapters() : tcpClient{client()}, esp{Constants::TCP_REBOOT_DELAY_MS}, wifiStore{wifiCredentials()} {}
+    ArduinoAtEsp esp{Constants::TCP_REBOOT_DELAY_MS};
+    ArduinoAtWifiStore wifiStore{wifiCredentials()};
 };
 AtAdapters& atAdapters() { static AtAdapters inst; return inst; }
 
@@ -530,9 +528,9 @@ void setup() {
     twai_filter_config_t fcfg = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
     if (!twaiInit.initialize(
-            reinterpret_cast<esp32_firmware::CanGeneralConfig*>(&gcfg),
-            reinterpret_cast<esp32_firmware::CanTimingConfig*>(&tcfg),
-            reinterpret_cast<esp32_firmware::CanFilterConfig*>(&fcfg))) {
+            static_cast<esp32_firmware::CanGeneralConfig*>(static_cast<void*>(&gcfg)),
+            static_cast<esp32_firmware::CanTimingConfig*>(static_cast<void*>(&tcfg)),
+            static_cast<esp32_firmware::CanFilterConfig*>(static_cast<void*>(&fcfg)))) {
         while (true) delay(1000);  // Hang on failure (preserves original fatal behavior)
     }
 #else

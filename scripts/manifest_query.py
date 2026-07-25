@@ -53,8 +53,8 @@ def main(argv=None) -> int:
     p.add_argument("--manifest", default=None,
                    help="path to coverage-manifest.toml (default: <script-dir>/../coverage-manifest.toml)")
     p.add_argument("--mode", required=True,
-                   choices=("src-dirs", "excludes", "src-roots", "exclude-args",
-                            "src-dir-args"),
+                   choices=("src-dirs", "excludes", "coverage-excludes", "src-roots", "exclude-args",
+                            "src-dir-args", "coverage-exclude-args"),
                    help="what to emit")
     p.add_argument("key", help="project key (e.g. vehicle-spy)")
     args = p.parse_args(argv)
@@ -66,11 +66,16 @@ def main(argv=None) -> int:
     proj = find_project(manifest, args.key)
     sources = proj.get("sources", [])
     excludes = proj.get("exclusions", [])
+    coverage_excludes = proj.get("coverage_exclusions", [])
 
     if args.mode == "src-dirs":
         print(" ".join(sources))
     elif args.mode == "excludes":
         print(" ".join(excludes))
+    elif args.mode == "coverage-excludes":
+        print(" ".join(coverage_excludes))
+    elif args.mode == "coverage-exclude-args":
+        print(" ".join(f"--exclude {e}" for e in coverage_excludes))
     elif args.mode == "src-roots":
         # Repeatable --src-root for lcov_to_xml.py (shell word-split on caller).
         print(" ".join(f"--src-root {s}" for s in sources))
