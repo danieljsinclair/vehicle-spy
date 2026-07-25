@@ -1368,6 +1368,16 @@ $(SUMMARY_FILE): $(wildcard $(TEST_REPORT)) $(wildcard $(FIRMWARE_TEST_REPORT)) 
 		--sonar-report "$(SONAR_ESP32_REPORT)" \
 		--sonar-measures "$(SONAR_ESP32_MEASURES)" \
 		>> $$_tmp; \
+	echo ""; \
+	echo "$(YELLOW)========================================$(NC)"; \
+	echo "$(YELLOW)DECLARED COVERAGE GAPS (excluded from coverage denominator)$(NC)"; \
+	echo "$(YELLOW)========================================$(NC)"; \
+	echo "$(CYAN)iOS:$(NC)    ContentView.swift — SwiftUI declarative body $(YELLOW)(llvm-cov structurally unattributable)$(NC)"; \
+	echo "$(CYAN)esp32:$(NC)  *.ino sketches + HardwareStatusLEDOutput.cpp — Arduino hardware veneer $(YELLOW)(host-untestable)$(NC)"; \
+	echo "$(GREY)NOTE: Coverage % reflects ONLY testable code. The real production-code$(NC)"; \
+	echo "$(GREY)denominator is larger. Goal: grow vanilla/testable code to dilute the$(NC)"; \
+	echo "$(GREY)denominator, then remove these exclusions. Reversible.$(NC)"; \
+	echo "$(YELLOW)========================================$(NC)"; \
 	python3 scripts/coverage_scorecard.py --mm-only --colour >> $$_tmp; \
 	mv $$_tmp $(SUMMARY_FILE)
 
