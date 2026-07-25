@@ -57,6 +57,7 @@
 #include "ArduinoResetAdapters.h"
 #include "ArduinoCanAdapters.h"
 #include "ArduinoAtAdapters.h"
+#include "ArduinoSerialSource.h"
 
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
@@ -65,8 +66,6 @@
 struct TimeAdapters;
 struct CanAdapters;   // cpp:S5421 composite (C5): defined later, returned by canAdapters()
 struct AtAdapters;    // cpp:S5421 composite (C6): defined later, returned by atAdapters()
-struct ArduinoSerialSource;  // defined later; forward-declared so arduino-cli's
-                             // hoisted serialSource() prototype sees the type.
 
 // DEFERRED: this .ino accumulates WiFi/AT/discovery/OTA/StatusLED handlers in one translation unit (SRP). Extract to separate .cpp units when adding the next handler.
 
@@ -97,6 +96,7 @@ using esp32_firmware::ArduinoAtTcpClient;
 using esp32_firmware::ArduinoAtSerial;
 using esp32_firmware::ArduinoAtEsp;
 using esp32_firmware::ArduinoAtWifiStore;
+using esp32_firmware::ArduinoSerialSource;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -394,13 +394,6 @@ static TcpServerManager tcpManager(arduinoTcpServer, statusLed(),
 // each completed line to FirmwareApp + sets the serial-quiet window (the same two
 // side effects the inline loop performed). cpp:S5421: the source + framer are
 // held by a function-local static accessor pair (not namespace globals).
-struct ArduinoSerialSource : public esp32_firmware::ISerialSource {
-    int read() override {
-        // Serial.read() returns -1 when no byte is available — exactly the
-        // ISerialSource empty sentinel the vanilla framer drains on.
-        return Serial.read();
-    }
-};
 ArduinoSerialSource& serialSource() { static ArduinoSerialSource inst; return inst; }
 SerialCommandFramer& serialFramer() {
     static SerialCommandFramer inst(serialSource(), Constants::MAX_SERIAL_CMD_LENGTH);
