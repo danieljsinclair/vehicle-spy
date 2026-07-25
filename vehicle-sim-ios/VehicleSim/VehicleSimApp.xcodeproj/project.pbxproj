@@ -18,7 +18,8 @@
 		T1000011 /* DiscoveryDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000011 /* DiscoveryDecoderTests.swift */; };
 		T1000007 /* ESP32DiscoveryListenerErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000007 /* ESP32DiscoveryListenerErrorTests.swift */; };
 		T1000008 /* ESP32DiscoveryHostAddressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000008 /* ESP32DiscoveryHostAddressTests.swift */; };
-		T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */; };		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
+		T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */; };
+		T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */; };		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
 		B1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002 /* ContentView.swift */; };
 		B1000003 /* VehicleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003 /* VehicleViewModel.swift */; };
 		B1000005 /* VehicleSimWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000005 /* VehicleSimWrapper.mm */; };
@@ -169,7 +170,8 @@
 		T2000011 /* DiscoveryDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryDecoderTests.swift; path = ../VehicleSimTests/DiscoveryDecoderTests.swift; sourceTree = "<group>"; };
 		T2000007 /* ESP32DiscoveryListenerErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryListenerErrorTests.swift; path = ../VehicleSimTests/ESP32DiscoveryListenerErrorTests.swift; sourceTree = "<group>"; };
 		T2000008 /* ESP32DiscoveryHostAddressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryHostAddressTests.swift; path = ../VehicleSimTests/ESP32DiscoveryHostAddressTests.swift; sourceTree = "<group>"; };
-		T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };
+		T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -324,6 +326,7 @@
 			T2000011 /* DiscoveryDecoderTests.swift */,
 			T2000007 /* ESP32DiscoveryListenerErrorTests.swift */,
 			T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */,
+			T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */,
 			);
 			name = VehicleSimTests;
 			sourceTree = "<group>";
@@ -518,6 +521,7 @@
 			T1000011 /* DiscoveryDecoderTests.swift in Sources */,
 			T1000007 /* ESP32DiscoveryListenerErrorTests.swift in Sources */,
 			T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */,
+			T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
