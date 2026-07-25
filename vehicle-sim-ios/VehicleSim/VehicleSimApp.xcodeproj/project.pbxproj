@@ -7,27 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		T1000001 /* DiscoveryPacketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000001 /* DiscoveryPacketTests.swift */; };
-		T1000002 /* DiscoveryVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000002 /* DiscoveryVerifierTests.swift */; };
-		T1000003 /* TCPTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003 /* TCPTransportTests.swift */; };
-		T1000004 /* WiFiSecurityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000004 /* WiFiSecurityPolicyTests.swift */; };
-		T1000005 /* VehicleViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000005 /* VehicleViewModelTests.swift */; };
-		T1000006 /* MockVehicleSimWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000006 /* MockVehicleSimWrapper.swift */; };
-		T1000009 /* VehicleViewModelConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000009 /* VehicleViewModelConnectionTests.swift */; };
-		T1000010 /* ESP32DiscoveryListenerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000010 /* ESP32DiscoveryListenerTests.swift */; };
-		T1000011 /* DiscoveryDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000011 /* DiscoveryDecoderTests.swift */; };
-		T1000007 /* ESP32DiscoveryListenerErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000007 /* ESP32DiscoveryListenerErrorTests.swift */; };
-		T1000008 /* ESP32DiscoveryHostAddressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000008 /* ESP32DiscoveryHostAddressTests.swift */; };
-		T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */; };
-		T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */; };		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
+		88B7D2AE35B4CA44C617AF28 /* VehicleSimAppAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED39D8AAB147FDFF14F8ABA3 /* VehicleSimAppAppTests.swift */; };
+		B1000001 /* VehicleSimAppApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000001 /* VehicleSimAppApp.swift */; };
 		B1000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000002 /* ContentView.swift */; };
 		B1000003 /* VehicleViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000003 /* VehicleViewModel.swift */; };
 		B1000005 /* VehicleSimWrapper.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2000005 /* VehicleSimWrapper.mm */; };
-		B1000040 /* DiscoveryPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000040 /* DiscoveryPacket.swift */; };
-		B1000041 /* DiscoveryVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000041 /* DiscoveryVerifier.swift */; };
-		B1000042 /* ESP32DiscoveryListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000042 /* ESP32DiscoveryListener.swift */; };
-		B1000043 /* WiFiSecurityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000043 /* WiFiSecurityPolicy.swift */; };
-		B1000044 /* DiscoveryDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000044 /* DiscoveryDecoder.swift */; };		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
+		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
 		B1000011 /* TelemetryFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000011 /* TelemetryFormatter.cpp */; };
 		B1000012 /* BLEManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000012 /* BLEManager.cpp */; };
 		B1000013 /* BLEManagerBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000013 /* BLEManagerBase.cpp */; };
@@ -42,6 +27,11 @@
 		B1000025 /* OBD2Transport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000025 /* OBD2Transport.cpp */; };
 		B1000030 /* CoreBluetooth.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B2000030 /* CoreBluetooth.framework */; };
 		B1000032 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2000032 /* Assets.xcassets */; };
+		B1000040 /* DiscoveryPacket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000040 /* DiscoveryPacket.swift */; };
+		B1000041 /* DiscoveryVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000041 /* DiscoveryVerifier.swift */; };
+		B1000042 /* ESP32DiscoveryListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000042 /* ESP32DiscoveryListener.swift */; };
+		B1000043 /* WiFiSecurityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000043 /* WiFiSecurityPolicy.swift */; };
+		B1000044 /* DiscoveryDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000044 /* DiscoveryDecoder.swift */; };
 		B1A00000 /* CANDecoder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00000 /* CANDecoder.cpp */; };
 		B1A00002 /* DBCFileParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00002 /* DBCFileParser.cpp */; };
 		B1A00003 /* DBCSignalDefinition.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00003 /* DBCSignalDefinition.cpp */; };
@@ -63,11 +53,11 @@
 		B1A00018 /* BLESignalSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A00018 /* BLESignalSource.h */; };
 		B1A00019 /* BLESignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00019 /* BLESignalSource.cpp */; };
 		B1A0001A /* IOSDBCContentProvider.mm in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001A /* IOSDBCContentProvider.mm */; settings = {COMPILER_FLAGS = "-fno-objc-arc"; }; };
-		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
-		B1P00021 /* PosixSocket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00021 /* PosixSocket.cpp */; };
 		B1A0001B /* Elm327Session.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001B /* Elm327Session.cpp */; };
 		B1A0001C /* Elm327Session.h in Sources */ = {isa = PBXBuildFile; fileRef = B2A0001C /* Elm327Session.h */; };
-		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };
+		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
+		B1D00002 /* vw_mlb.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00002 /* vw_mlb.dbc */; };
+		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
 		B1P00002 /* RawFrameNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00002 /* RawFrameNormaliser.cpp */; };
 		B1P00003 /* PipelineReplay.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00003 /* PipelineReplay.cpp */; };
 		B1P00004 /* PipelineFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00004 /* PipelineFactory.cpp */; };
@@ -81,11 +71,34 @@
 		B1P00012 /* USBTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00012 /* USBTransport.cpp */; };
 		B1P00013 /* Elm327Normaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00013 /* Elm327Normaliser.cpp */; };
 		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };
+		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };
 		B1P00016 /* SystemClock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00016 /* SystemClock.cpp */; };
 		B1P00017 /* IClock.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00017 /* IClock.h */; };
-		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
-		B1D00002 /* vw_mlb.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00002 /* vw_mlb.dbc */; };
+		B1P00021 /* PosixSocket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00021 /* PosixSocket.cpp */; };
+		T1000001 /* DiscoveryPacketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000001 /* DiscoveryPacketTests.swift */; };
+		T1000002 /* DiscoveryVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000002 /* DiscoveryVerifierTests.swift */; };
+		T1000003 /* TCPTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000003 /* TCPTransportTests.swift */; };
+		T1000004 /* WiFiSecurityPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000004 /* WiFiSecurityPolicyTests.swift */; };
+		T1000005 /* VehicleViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000005 /* VehicleViewModelTests.swift */; };
+		T1000006 /* MockVehicleSimWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000006 /* MockVehicleSimWrapper.swift */; };
+		T1000007 /* ESP32DiscoveryListenerErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000007 /* ESP32DiscoveryListenerErrorTests.swift */; };
+		T1000008 /* ESP32DiscoveryHostAddressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000008 /* ESP32DiscoveryHostAddressTests.swift */; };
+		T1000009 /* VehicleViewModelConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000009 /* VehicleViewModelConnectionTests.swift */; };
+		T1000010 /* ESP32DiscoveryListenerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000010 /* ESP32DiscoveryListenerTests.swift */; };
+		T1000011 /* DiscoveryDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000011 /* DiscoveryDecoderTests.swift */; };
+		T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */; };
+		T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		T9000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B7000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B5000001;
+			remoteInfo = VehicleSimApp;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		B2000001 /* VehicleSimAppApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleSimAppApp.swift; sourceTree = "<group>"; };
@@ -95,11 +108,6 @@
 		B2000005 /* VehicleSimWrapper.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VehicleSimWrapper.mm; sourceTree = "<group>"; };
 		B2000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B2000007 /* VehicleSim-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "VehicleSim-Bridging-Header.h"; sourceTree = "<group>"; };
-		B2000040 /* DiscoveryPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryPacket.swift; sourceTree = "<group>"; };
-		B2000041 /* DiscoveryVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryVerifier.swift; sourceTree = "<group>"; };
-		B2000042 /* ESP32DiscoveryListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32DiscoveryListener.swift; sourceTree = "<group>"; };
-		B2000043 /* WiFiSecurityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSecurityPolicy.swift; sourceTree = "<group>"; };
-		B2000044 /* DiscoveryDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryDecoder.swift; sourceTree = "<group>"; };
 		B2000010 /* VehicleSim.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSim.cpp; path = ../../src/VehicleSim.cpp; sourceTree = "<group>"; };
 		B2000011 /* TelemetryFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetryFormatter.cpp; path = ../../src/presentation/TelemetryFormatter.cpp; sourceTree = "<group>"; };
 		B2000012 /* BLEManager.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManager.cpp; path = ../../src/ble/BLEManager.cpp; sourceTree = "<group>"; };
@@ -115,6 +123,11 @@
 		B2000025 /* OBD2Transport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2Transport.cpp; path = ../../src/ble/OBD2Transport.cpp; sourceTree = "<group>"; };
 		B2000030 /* CoreBluetooth.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreBluetooth.framework; path = System/Library/Frameworks/CoreBluetooth.framework; sourceTree = SDKROOT; };
 		B2000032 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B2000040 /* DiscoveryPacket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryPacket.swift; sourceTree = "<group>"; };
+		B2000041 /* DiscoveryVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryVerifier.swift; sourceTree = "<group>"; };
+		B2000042 /* ESP32DiscoveryListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32DiscoveryListener.swift; sourceTree = "<group>"; };
+		B2000043 /* WiFiSecurityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSecurityPolicy.swift; sourceTree = "<group>"; };
+		B2000044 /* DiscoveryDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryDecoder.swift; sourceTree = "<group>"; };
 		B2000080 /* VehicleSimApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VehicleSimApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2A00000 /* CANDecoder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CANDecoder.cpp; path = ../../src/domain/CANDecoder.cpp; sourceTree = "<group>"; };
 		B2A00002 /* DBCFileParser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DBCFileParser.cpp; path = ../../src/domain/DBCFileParser.cpp; sourceTree = "<group>"; };
@@ -129,23 +142,19 @@
 		B2A0000D /* VehicleSignalFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignalFactory.cpp; path = ../../src/domain/VehicleSignalFactory.cpp; sourceTree = "<group>"; };
 		B2A0000F /* VehicleSignalFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSignalFormatter.cpp; path = ../../src/presentation/VehicleSignalFormatter.cpp; sourceTree = "<group>"; };
 		B2A00011 /* ELM327Transport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ELM327Transport.cpp; path = ../../src/boundary/ELM327Transport.cpp; sourceTree = "<group>"; };
-		B2A0001B /* Elm327Session.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Session.cpp; path = ../../src/ble/Elm327Session.cpp; sourceTree = "<group>"; };
-		B2A0001C /* Elm327Session.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Elm327Session.h; path = ../../include/vehicle-sim/ble/Elm327Session.h; sourceTree = "<group>"; };
 		B2A00012 /* OBD2Protocol.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = OBD2Protocol.cpp; path = ../../src/boundary/OBD2Protocol.cpp; sourceTree = "<group>"; };
-		B2A00014 /* Gear.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Gear.h; path = ../../include/vehicle-sim/domain/Gear.h; sourceTree = "<group>"; };
-		B2A00015 /* ISignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ISignalSource.h; path = ../../include/vehicle-sim/domain/ISignalSource.h; sourceTree = "<group>"; };
-		B2A00016 /* DemoSignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DemoSignalSource.h; path = ../../include/vehicle-sim/domain/DemoSignalSource.h; sourceTree = "<group>"; };
+		B2A00014 /* Gear.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Gear.h; path = "../../include/vehicle-sim/domain/Gear.h"; sourceTree = "<group>"; };
+		B2A00015 /* ISignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ISignalSource.h; path = "../../include/vehicle-sim/domain/ISignalSource.h"; sourceTree = "<group>"; };
+		B2A00016 /* DemoSignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DemoSignalSource.h; path = "../../include/vehicle-sim/domain/DemoSignalSource.h"; sourceTree = "<group>"; };
 		B2A00017 /* DemoSignalSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DemoSignalSource.cpp; path = ../../src/domain/DemoSignalSource.cpp; sourceTree = "<group>"; };
-		B2A00018 /* BLESignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BLESignalSource.h; path = ../../include/vehicle-sim/domain/BLESignalSource.h; sourceTree = "<group>"; };
+		B2A00018 /* BLESignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = BLESignalSource.h; path = "../../include/vehicle-sim/domain/BLESignalSource.h"; sourceTree = "<group>"; };
 		B2A00019 /* BLESignalSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLESignalSource.cpp; path = ../../src/domain/BLESignalSource.cpp; sourceTree = "<group>"; };
 		B2A0001A /* IOSDBCContentProvider.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = IOSDBCContentProvider.mm; path = ../../src/domain/IOSDBCContentProvider.mm; sourceTree = "<group>"; };
+		B2A0001B /* Elm327Session.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Session.cpp; path = ../../src/ble/Elm327Session.cpp; sourceTree = "<group>"; };
+		B2A0001C /* Elm327Session.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Elm327Session.h; path = "../../include/vehicle-sim/ble/Elm327Session.h"; sourceTree = "<group>"; };
 		B2D00001 /* Model3CAN.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = Model3CAN.dbc; path = ../../resources/dbc/Model3CAN.dbc; sourceTree = "<group>"; };
 		B2D00002 /* vw_mlb.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = vw_mlb.dbc; path = ../../resources/dbc/vw_mlb.dbc; sourceTree = "<group>"; };
 		B2P00001 /* TCPTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TCPTransport.cpp; path = ../../src/pipeline/TCPTransport.cpp; sourceTree = "<group>"; };
-		B2P00021 /* PosixSocket.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PosixSocket.cpp; path = ../../src/pipeline/PosixSocket.cpp; sourceTree = "<group>"; };
-		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
-		B2P00016 /* SystemClock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SystemClock.cpp; path = ../../src/util/SystemClock.cpp; sourceTree = "<group>"; };
-		B2P00017 /* IClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IClock.h; path = ../../include/vehicle-sim/util/IClock.h; sourceTree = "<group>"; };
 		B2P00002 /* RawFrameNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawFrameNormaliser.cpp; path = ../../src/pipeline/RawFrameNormaliser.cpp; sourceTree = "<group>"; };
 		B2P00003 /* PipelineReplay.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineReplay.cpp; path = ../../src/pipeline/PipelineReplay.cpp; sourceTree = "<group>"; };
 		B2P00004 /* PipelineFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineFactory.cpp; path = ../../src/pipeline/PipelineFactory.cpp; sourceTree = "<group>"; };
@@ -159,30 +168,26 @@
 		B2P00012 /* USBTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = USBTransport.cpp; path = ../../src/pipeline/USBTransport.cpp; sourceTree = "<group>"; };
 		B2P00013 /* Elm327Normaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Normaliser.cpp; path = ../../src/pipeline/Elm327Normaliser.cpp; sourceTree = "<group>"; };
 		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };
+		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
+		B2P00016 /* SystemClock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SystemClock.cpp; path = ../../src/util/SystemClock.cpp; sourceTree = "<group>"; };
+		B2P00017 /* IClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IClock.h; path = "../../include/vehicle-sim/util/IClock.h"; sourceTree = "<group>"; };
+		B2P00021 /* PosixSocket.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PosixSocket.cpp; path = ../../src/pipeline/PosixSocket.cpp; sourceTree = "<group>"; };
+		ED39D8AAB147FDFF14F8ABA3 /* VehicleSimAppAppTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VehicleSimAppAppTests.swift; path = ../VehicleSimTests/VehicleSimAppAppTests.swift; sourceTree = "<group>"; };
 		T2000001 /* DiscoveryPacketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryPacketTests.swift; path = ../VehicleSimTests/DiscoveryPacketTests.swift; sourceTree = "<group>"; };
 		T2000002 /* DiscoveryVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryVerifierTests.swift; path = ../VehicleSimTests/DiscoveryVerifierTests.swift; sourceTree = "<group>"; };
 		T2000003 /* TCPTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TCPTransportTests.swift; path = ../VehicleSimTests/TCPTransportTests.swift; sourceTree = "<group>"; };
 		T2000004 /* WiFiSecurityPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WiFiSecurityPolicyTests.swift; path = ../VehicleSimTests/WiFiSecurityPolicyTests.swift; sourceTree = "<group>"; };
 		T2000005 /* VehicleViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelTests.swift; path = ../VehicleSimTests/VehicleViewModelTests.swift; sourceTree = "<group>"; };
 		T2000006 /* MockVehicleSimWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MockVehicleSimWrapper.swift; path = ../VehicleSimTests/MockVehicleSimWrapper.swift; sourceTree = "<group>"; };
+		T2000007 /* ESP32DiscoveryListenerErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryListenerErrorTests.swift; path = ../VehicleSimTests/ESP32DiscoveryListenerErrorTests.swift; sourceTree = "<group>"; };
+		T2000008 /* ESP32DiscoveryHostAddressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryHostAddressTests.swift; path = ../VehicleSimTests/ESP32DiscoveryHostAddressTests.swift; sourceTree = "<group>"; };
 		T2000009 /* VehicleViewModelConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelConnectionTests.swift; path = ../VehicleSimTests/VehicleViewModelConnectionTests.swift; sourceTree = "<group>"; };
 		T2000010 /* ESP32DiscoveryListenerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryListenerTests.swift; path = ../VehicleSimTests/ESP32DiscoveryListenerTests.swift; sourceTree = "<group>"; };
 		T2000011 /* DiscoveryDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryDecoderTests.swift; path = ../VehicleSimTests/DiscoveryDecoderTests.swift; sourceTree = "<group>"; };
-		T2000007 /* ESP32DiscoveryListenerErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryListenerErrorTests.swift; path = ../VehicleSimTests/ESP32DiscoveryListenerErrorTests.swift; sourceTree = "<group>"; };
-		T2000008 /* ESP32DiscoveryHostAddressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryHostAddressTests.swift; path = ../VehicleSimTests/ESP32DiscoveryHostAddressTests.swift; sourceTree = "<group>"; };
 		T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };
-		T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; path = ../VehicleSimTests/VehicleViewModelTrustAndDiscoveryLifecycleTests.swift; sourceTree = "<group>"; };
+		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
-/* Begin PBXContainerItemProxy section */
-		T9000001 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = B7000001 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = B5000001;
-			remoteInfo = VehicleSimApp;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B3000001 /* Frameworks */ = {
@@ -215,7 +220,7 @@
 		B4000001 = {
 			isa = PBXGroup;
 			children = (
-				B4000002,
+				B4000002 /*  */,
 				B4000004 /* Core (C++) */,
 				T4000001 /* VehicleSimTests */,
 				B4000003 /* Products */,
@@ -224,7 +229,7 @@
 			);
 			sourceTree = "<group>";
 		};
-		B4000002 = {
+		B4000002 /*  */ = {
 			isa = PBXGroup;
 			children = (
 				B2000001 /* VehicleSimAppApp.swift */,
@@ -234,7 +239,8 @@
 				B2000041 /* DiscoveryVerifier.swift */,
 				B2000042 /* ESP32DiscoveryListener.swift */,
 				B2000043 /* WiFiSecurityPolicy.swift */,
-				B2000044 /* DiscoveryDecoder.swift */,				B2000004 /* VehicleSimWrapper.h */,
+				B2000044 /* DiscoveryDecoder.swift */,
+				B2000004 /* VehicleSimWrapper.h */,
 				B2000005 /* VehicleSimWrapper.mm */,
 				B2000007 /* VehicleSim-Bridging-Header.h */,
 				B2000006 /* Info.plist */,
@@ -311,26 +317,6 @@
 			name = "Core (C++)";
 			sourceTree = "<group>";
 		};
-		T4000001 /* VehicleSimTests */ = {
-			isa = PBXGroup;
-			children = (
-				T2000001 /* DiscoveryPacketTests.swift */,
-				T2000002 /* DiscoveryVerifierTests.swift */,
-				T2000003 /* TCPTransportTests.swift */,
-				T2000004 /* WiFiSecurityPolicyTests.swift */,
-			T2000005 /* VehicleViewModelTests */,
-			T2000006 /* MockVehicleSimWrapper */,
-			T2000009 /* VehicleViewModelConnectionTests.swift */,
-			T2000008 /* ESP32DiscoveryHostAddressTests.swift */,
-			T2000010 /* ESP32DiscoveryListenerTests.swift */,
-			T2000011 /* DiscoveryDecoderTests.swift */,
-			T2000007 /* ESP32DiscoveryListenerErrorTests.swift */,
-			T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */,
-			T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */,
-			);
-			name = VehicleSimTests;
-			sourceTree = "<group>";
-		};
 		B4D00001 /* DBC Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -338,6 +324,27 @@
 				B2D00002 /* vw_mlb.dbc */,
 			);
 			name = "DBC Resources";
+			sourceTree = "<group>";
+		};
+		T4000001 /* VehicleSimTests */ = {
+			isa = PBXGroup;
+			children = (
+				T2000001 /* DiscoveryPacketTests.swift */,
+				T2000002 /* DiscoveryVerifierTests.swift */,
+				T2000003 /* TCPTransportTests.swift */,
+				T2000004 /* WiFiSecurityPolicyTests.swift */,
+				T2000005 /* VehicleViewModelTests.swift */,
+				T2000006 /* MockVehicleSimWrapper.swift */,
+				T2000009 /* VehicleViewModelConnectionTests.swift */,
+				T2000008 /* ESP32DiscoveryHostAddressTests.swift */,
+				T2000010 /* ESP32DiscoveryListenerTests.swift */,
+				T2000011 /* DiscoveryDecoderTests.swift */,
+				T2000007 /* ESP32DiscoveryListenerErrorTests.swift */,
+				T2000012 /* VehicleViewModelDiscoveryLifecycleTests.swift */,
+				T2000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift */,
+				ED39D8AAB147FDFF14F8ABA3 /* VehicleSimAppAppTests.swift */,
+			);
+			name = VehicleSimTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -378,14 +385,6 @@
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
-
-/* Begin PBXTargetDependency section */
-		T9000002 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = B5000001 /* VehicleSimApp */;
-			targetProxy = T9000001 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		B7000001 /* Project object */ = {
@@ -448,7 +447,8 @@
 				B1000041 /* DiscoveryVerifier.swift in Sources */,
 				B1000042 /* ESP32DiscoveryListener.swift in Sources */,
 				B1000043 /* WiFiSecurityPolicy.swift in Sources */,
-				B1000044 /* DiscoveryDecoder.swift in Sources */,				B1000005 /* VehicleSimWrapper.mm in Sources */,
+				B1000044 /* DiscoveryDecoder.swift in Sources */,
+				B1000005 /* VehicleSimWrapper.mm in Sources */,
 				B1000010 /* VehicleSim.cpp in Sources */,
 				B1000011 /* TelemetryFormatter.cpp in Sources */,
 				B1000012 /* BLEManager.cpp in Sources */,
@@ -474,8 +474,8 @@
 				B1A0000C /* VehicleDetector.cpp in Sources */,
 				B1A0000D /* VehicleSignalFactory.cpp in Sources */,
 				B1A0000F /* VehicleSignalFormatter.cpp in Sources */,
-			B1A00011 /* ELM327Transport.cpp in Sources */,
-			B1A00012 /* OBD2Protocol.cpp in Sources */,
+				B1A00011 /* ELM327Transport.cpp in Sources */,
+				B1A00012 /* OBD2Protocol.cpp in Sources */,
 				B1A00014 /* Gear.h in Sources */,
 				B1A00015 /* ISignalSource.h in Sources */,
 				B1A00016 /* DemoSignalSource.h in Sources */,
@@ -502,7 +502,8 @@
 				B1A0001B /* Elm327Session.cpp in Sources */,
 				B1A0001C /* Elm327Session.h in Sources */,
 				B1P00016 /* SystemClock.cpp in Sources */,
-				B1P00017 /* IClock.h in Sources */,			);
+				B1P00017 /* IClock.h in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		T3000002 /* Sources */ = {
@@ -513,19 +514,28 @@
 				T1000002 /* DiscoveryVerifierTests.swift in Sources */,
 				T1000003 /* TCPTransportTests.swift in Sources */,
 				T1000004 /* WiFiSecurityPolicyTests.swift in Sources */,
-			T1000005 /* VehicleViewModelTests.swift in Sources */,
-			T1000006 /* MockVehicleSimWrapper.swift in Sources */,
-			T1000009 /* VehicleViewModelConnectionTests.swift in Sources */,
-			T1000008 /* ESP32DiscoveryHostAddressTests.swift in Sources */,
-			T1000010 /* ESP32DiscoveryListenerTests.swift in Sources */,
-			T1000011 /* DiscoveryDecoderTests.swift in Sources */,
-			T1000007 /* ESP32DiscoveryListenerErrorTests.swift in Sources */,
-			T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */,
-			T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */,
+				T1000005 /* VehicleViewModelTests.swift in Sources */,
+				T1000006 /* MockVehicleSimWrapper.swift in Sources */,
+				T1000009 /* VehicleViewModelConnectionTests.swift in Sources */,
+				T1000008 /* ESP32DiscoveryHostAddressTests.swift in Sources */,
+				T1000010 /* ESP32DiscoveryListenerTests.swift in Sources */,
+				T1000011 /* DiscoveryDecoderTests.swift in Sources */,
+				T1000007 /* ESP32DiscoveryListenerErrorTests.swift in Sources */,
+				T1000012 /* VehicleViewModelDiscoveryLifecycleTests.swift in Sources */,
+				T1000013 /* VehicleViewModelTrustAndDiscoveryLifecycleTests.swift in Sources */,
+				88B7D2AE35B4CA44C617AF28 /* VehicleSimAppAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		T9000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B5000001 /* VehicleSimApp */;
+			targetProxy = T9000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		B8000001 /* Debug */ = {
@@ -561,10 +571,10 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = 2KQ24XG2P4;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -651,10 +661,10 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 2KQ24XG2P4;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -758,9 +768,6 @@
 			};
 			name = Release;
 		};
-/* End XCBuildConfiguration section */
-
-/* Begin XCBuildConfiguration (test target) section */
 		T8000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -832,18 +839,9 @@
 			};
 			name = Release;
 		};
-/* End XCBuildConfiguration (test target) section */
+/* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		T6000001 /* Build configuration list for PBXNativeTarget "VehicleSimTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				T8000001 /* Debug */,
-				T8000002 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		B6000001 /* Build configuration list for PBXNativeTarget "VehicleSimApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -858,6 +856,15 @@
 			buildConfigurations = (
 				B8000003 /* Debug */,
 				B8000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		T6000001 /* Build configuration list for PBXNativeTarget "VehicleSimTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				T8000001 /* Debug */,
+				T8000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
