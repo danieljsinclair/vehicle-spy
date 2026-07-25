@@ -41,7 +41,11 @@ DATA SOURCES -- plain numbers grepped from existing report files:
         The iOS suite (vehicle-spy-ios) runs via ``xcodebuild test`` (no
         greppable ctest log); its counts come from the .xcresult bundle's
         ResultMetrics via ``--xcresult-glob`` (ported from engine-sim-bridge's
-        build_summary). The firmware project has no tests (N/A).
+        build_summary). The firmware project (vehicle-spy-esp32) runs the gtest
+        binary directly (``make firmware-host-tests``); the Makefile captures the
+        binary's stdout into ``firmware/build-verify/test-report.txt``, and this
+        script reads it via ``--firmware-test-log``, parsing the gtest summary
+        line (``[  PASSED  ] N tests.``) for the true per-test count.
 
     Coverage
         LIVE-OR-OMIT from the SonarCloud API via ``--project-key`` (the single
@@ -66,7 +70,7 @@ DATA SOURCES -- plain numbers grepped from existing report files:
 The Makefile's ``summary`` target invokes this script three times: once for
 ``vehicle-spy`` (C++ core: tests + coverage + sonar), once for
 ``vehicle-spy-ios`` (iOS app: tests + coverage + sonar), and once for
-``vehicle-spy-esp32`` (ESP32: sonar only, no tests/coverage). Each
+``vehicle-spy-esp32`` (ESP32 firmware: tests + coverage + sonar). Each
 invocation is independent and the fixed column widths make the lines align
 vertically.
 
@@ -81,7 +85,8 @@ Usage (Makefile summary target calls this three times, once per project):
         [--xcresult-glob GLOB]
 
     build_summary.py --label "[vehicle-spy-esp32]" \\
-        --project-key KEY
+        --project-key KEY \\
+        [--firmware-test-log PATH]
 
 Exit codes: 0 always (a missing file / parse failure is reported in-line,
 never a crash -- this is a display helper, not a build step).
@@ -617,6 +622,11 @@ def main(argv=None):
                    help='Glob for the NEWEST .xcresult bundle (iOS tests); '
                         'testsCount/testsFailedCount are read via xcresulttool. '
                         'When given alongside --test-log the counts are SUMMED.')
+    p.add_argument('--firmware-test-log',
+                   help='Firmware host-test log (gtest binary stdout). Used for '
+                        'vehicle-spy-esp32; the gtest "[  PASSED  ] N tests." '
+                        'summary line is parsed for the true per-test count. '
+                        'When given alongside --test-log the counts are SUMMED.')
     p.add_argument('--project-key',
                    help='SonarCloud component key (e.g. danieljsinclair_vehicle-spy). '
                         'Coverage + sonar OPEN/total are fetched LIVE from the API '
@@ -636,11 +646,14 @@ def main(argv=None):
     try:
         tests = parse_tests(args.test_log)
         xc_tests = parse_xcresult_tests(args.xcresult_glob)
-        if tests is not None and xc_tests is not None:
-            # Sum C++ (gtest log) + iOS (xcresult) into one row.
-            tests = (tests[0] + xc_tests[0], tests[1] + xc_tests[1])
-        elif xc_tests is not None:
-            tests = xc_tests
+        fw_tests = parse_tests(args.firmware_test_log)
+        # Sum all available sources: C++ (gtest log) + iOS (xcresult) +
+        # firmware (gtest log via --firmware-test-log). Each source is
+        # independent; missing sources are None (omitted gracefully).
+        components = [t for t in (tests, xc_tests, fw_tests) if t is not None]
+        if components:
+            tests = (sum(t[0] for t in components), sum(t[1] for t in components))
+        # If no source yielded data, tests stays None -> N/A column.
 
         # Coverage: prefer cached measures, fall back to live API.
         cov = None

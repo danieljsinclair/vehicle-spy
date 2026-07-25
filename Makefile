@@ -914,7 +914,9 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-i
 		rm -f $(BUILD_IOS_DIR)/.xcresult-bundle; \
 	fi
 	@if [ -s $(COVERAGE_JSON_IOS) ] && [ -f $(BUILD_IOS_DIR)/.xcresult-bundle ]; then \
+		set -f; \
 		_bundle=$$(cat $(BUILD_IOS_DIR)/.xcresult-bundle); \
+		_exclude_args=$$(python3 scripts/manifest_query.py --mode coverage-excludes vehicle-spy-ios 2>/dev/null | tr ' ' '\n' | grep -v '^$$' | sed 's/^/--exclude-glob /' | tr '\n' ' '); \
 		python3 scripts/xccov_to_sonar.py \
 			--input $(COVERAGE_JSON_IOS) \
 			--output $(COVERAGE_XML_IOS) \
@@ -922,7 +924,7 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-i
 			--exclude-targets VehicleSimTests.xctest \
 			--include-roots vehicle-sim-ios \
 			--exclude-glob '**/*.mm' \
-			$$(python3 scripts/manifest_query.py --mode coverage-excludes vehicle-spy-ios 2>/dev/null | tr ' ' '\n' | grep -v '^$$' | sed 's/^/-exclude-glob /' | tr '\n' ' ') \
+			$${_exclude_args} \
 			--xcresult "$$_bundle"; \
 	fi
 
@@ -990,10 +992,13 @@ $(FIRMWARE_TEST_REPORT): $(FIRMWARE_TEST_INPUTS)
 	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug
 	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
 	@echo "=== [firmware] Running host tests ==="
-	@# No || true: ctest returns non-zero (8) when tests fail, and the commit
-	@# gate MUST see that. The prior || true masked firmware test failures so
-	@# `make firmware-host-tests` exited 0 while tests FAILED.
-	@ctest --test-dir $(FIRMWARE_BUILD_DIR) --output-on-failure > $(FIRMWARE_TEST_REPORT) 2>&1
+	@# Run the gtest binary directly so the report carries the gtest summary
+	@# line ("[  PASSED  ] N tests.") that build_summary.py parses for the
+	@# firmware test count. ctest wraps the binary and reports only the
+	@# per-case count (e.g. "out of 1"), which hides the 308 individual
+	@# gtest tests from the summary headline. The binary's exit code is
+	@# non-zero when any test fails, so the commit gate still sees red.
+	@$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests > $(FIRMWARE_TEST_REPORT) 2>&1
 
 # coverage-firmware: build with llvm-cov instrumentation, run tests, export lcov.
 # Re-runs only when inputs or the CMakeLists change. The lcov covers
@@ -1312,10 +1317,11 @@ coverage-summary:
 #
 #     [vehicle-spy]         tests: PASS 882/887 | cov: 70.4% 3868/5491 | sonar: open N / total M (no blocker)
 #     [vehicle-spy-ios]     tests: PASS 30/35   | cov: 45.2% 623/1378 | sonar: open N / total M (no blocker)
-#     [vehicle-spy-esp32] tests: N/A         | cov: N/A             | sonar: open N / total M (no blocker)
+#     [vehicle-spy-esp32] tests: PASS N/N   | cov: N/A             | sonar: open N / total M (no blocker)
 #
 # tests  = C++ gtest (from test-report.txt) for vehicle-spy; iOS xcresult
-#           ResultMetrics for vehicle-spy-ios; N/A for firmware.
+#           ResultMetrics for vehicle-spy-ios; gtest binary stdout
+#           (firmware/build-verify/test-report.txt) for vehicle-spy-esp32.
 # cov    = C++ lcov for vehicle-spy; iOS xccov for vehicle-spy-ios; N/A for
 #           firmware. vehicle-spy does NOT include iOS coverage (that lives in
 #           vehicle-spy-ios); the two must not double-count.
@@ -1369,16 +1375,18 @@ $(SUMMARY_FILE): $(wildcard $(TEST_REPORT)) $(wildcard $(FIRMWARE_TEST_REPORT)) 
 		--project-key "$(SONAR_ESP32_PROJECT_KEY)" \
 		--sonar-report "$(SONAR_ESP32_REPORT)" \
 		--sonar-measures "$(SONAR_ESP32_MEASURES)" \
+		--firmware-test-log "$(FIRMWARE_TEST_REPORT)" \
 		>> $$_tmp; \
 	echo ""; \
 	echo "$(YELLOW)========================================$(NC)"; \
 	echo "$(YELLOW)DECLARED COVERAGE GAPS (excluded from coverage denominator)$(NC)"; \
 	echo "$(YELLOW)========================================$(NC)"; \
-	echo "$(CYAN)iOS:$(NC)    ContentView.swift — SwiftUI declarative body $(YELLOW)(llvm-cov structurally unattributable)$(NC)"; \
-	echo "$(CYAN)esp32:$(NC)  *.ino sketches + HardwareStatusLEDOutput.cpp — Arduino hardware veneer $(YELLOW)(host-untestable)$(NC)"; \
-	echo "$(GREY)NOTE: Coverage % reflects ONLY testable code. The real production-code$(NC)"; \
-	echo "$(GREY)denominator is larger. Goal: grow vanilla/testable code to dilute the$(NC)"; \
-	echo "$(GREY)denominator, then remove these exclusions. Reversible.$(NC)"; \
+	echo "$(CYAN)iOS:$(NC)    No exclusions — full denominator (was ContentView.swift)"; \
+	echo "$(CYAN)esp32:$(NC)  No exclusions — full denominator (was *.ino + HardwareStatusLEDOutput.cpp)"; \
+	echo "$(GREY)NOTE: Coverage % now reflects the full production-code denominator.$(NC)"; \
+	echo "$(GREY)Previously excluded structurally-untestable veneer is now counted$(NC)"; \
+	echo "$(GREY)honestly as uncovered. Goal: grow testable code to improve these$(NC)"; \
+	echo "$(GREY)numbers over time. Reversible.$(NC)"; \
 	echo "$(YELLOW)========================================$(NC)"; \
 	python3 scripts/coverage_scorecard.py --mm-only --colour >> $$_tmp; \
 	mv $$_tmp $(SUMMARY_FILE)
