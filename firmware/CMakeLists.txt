@@ -62,6 +62,7 @@ set(VANILLA_SOURCES
     vanilla/SerialCommandFramer.cpp
     vanilla/DeviceTag.cpp
     vanilla/FactoryReset.cpp
+    vanilla/FactoryResetCheck.cpp
 )
 
 # ESP32-specific hardware veneer (GPIO LED driver) — stays in can-bridge/
@@ -108,6 +109,7 @@ add_executable(esp32-firmware-tests
     tests/SerialCommandFramer_test.cpp
     tests/DeviceTag_test.cpp
     tests/FactoryReset_test.cpp
+    tests/FactoryResetCheck_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests

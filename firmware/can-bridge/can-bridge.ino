@@ -50,6 +50,7 @@
 #include "SerialCommandFramer.h"
 #include "DeviceTag.h"
 #include "FactoryReset.h"
+#include "FactoryResetCheck.h"
 
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
@@ -540,39 +541,36 @@ static void onBroadcastDiscovery() {
 // Kept out of global scope (S5421).
 
 // Factory reset: check if GPIO0 (BOOT button) is held at boot.
-// The debounce/threshold logic lives in vanilla (FactoryResetDebouncer) so it
+// The debounce/threshold logic lives in vanilla (FactoryResetCheck) so it
 // is host-testable; this veneer owns the GPIO read + delay (hardware/timing).
+//
+// Arduino adapters for FactoryResetCheck boundaries.
+struct ArduinoResetGpio : public esp32_firmware::IFactoryResetGpio {
+    bool isPressed() override { return digitalRead(Constants::FACTORY_RESET_PIN) == LOW; }
+};
+struct ArduinoResetDelay : public esp32_firmware::IFactoryResetDelay {
+    void delayMs(uint32_t ms) override { delay(ms); }
+};
+struct ArduinoResetLogger : public esp32_firmware::IFactoryResetLogger {
+    void log(const char* msg, bool isConfirmed) override {
+        Serial.printf("%s%s%s\r\n", isConfirmed ? RED : YELLOW, msg, NC);
+    }
+};
+struct ArduinoCredClear : public esp32_firmware::ICredentialClear {
+    void clear() override { firmwareApp.clearCredentials(); }
+};
+
 static bool checkFactoryReset() {
     pinMode(Constants::FACTORY_RESET_PIN, INPUT_PULLUP);
 
-    if (digitalRead(Constants::FACTORY_RESET_PIN) != LOW) {
-        return false;
-    }
+    ArduinoResetGpio gpio;
+    ArduinoResetDelay delayAdapter;
+    ArduinoResetLogger logger;
+    ArduinoCredClear credClear;
 
-    Serial.printf("%sFactory reset: GPIO0 held at boot, waiting %lums to confirm...%s\r\n",
-                    YELLOW, static_cast<unsigned long>(Constants::FACTORY_RESET_HOLD_MS), NC);
-
-    // Delegate debounce logic to vanilla; drive with live GPIO readings.
-    esp32_firmware::FactoryResetDebouncer debouncer(
-        Constants::FACTORY_RESET_HOLD_MS, 100);
-    esp32_firmware::FactoryResetResult result;
-    while (true) {
-        result = debouncer.feed(digitalRead(Constants::FACTORY_RESET_PIN) == LOW);
-        if (result != esp32_firmware::FactoryResetResult::WAITING) {
-            break;
-        }
-        delay(100);
-    }
-
-    if (result == esp32_firmware::FactoryResetResult::CONFIRMED) {
-        Serial.printf("%sFactory reset: clearing WiFi credentials and booting to AP mode%s\r\n",
-                        RED, NC);
-        firmwareApp.clearCredentials();
-        return true;
-    }
-
-    Serial.printf("%sFactory reset: released early, cancelling%s\r\n", YELLOW, NC);
-    return false;
+    esp32_firmware::FactoryResetCheck checker(
+        Constants::FACTORY_RESET_HOLD_MS, 100, gpio, delayAdapter, logger, credClear);
+    return checker.run();
 }
 
 void setup() {
