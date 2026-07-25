@@ -38,7 +38,7 @@ enum ESP32DiscoveryListenerError: Error, LocalizedError {
 // MARK: - Listener
 
 final class ESP32DiscoveryListener {
-    private let verifier: DiscoveryVerifier
+    private let decoder: DiscoveryDecoder
     private let onDiscovered: @Sendable (DiscoveredESP32) -> Void
     private let onError: @Sendable (ESP32DiscoveryListenerError) -> Void
     private let logger = Logger(subsystem: "com.axxiant.vehiclesim", category: "ESP32Discovery")
@@ -65,7 +65,8 @@ final class ESP32DiscoveryListener {
         },
         queue: DispatchQueue = .global(qos: .userInitiated)
     ) {
-        self.verifier = DiscoveryVerifier(publicKey: publicKey)
+        let verifier = DiscoveryVerifier(publicKey: publicKey)
+        self.decoder = DiscoveryDecoder(verifier: verifier)
         self.onDiscovered = onDiscovered
         self.onError = onError
         self.queue = queue
@@ -143,19 +144,8 @@ final class ESP32DiscoveryListener {
 
     private func processPacket(_ data: Data, remoteEndpoint: NWEndpoint) {
         do {
-            let packet = try DiscoveryPacket.parse(data)
-            try verifier.verify(packet)
-
             let address = remoteEndpoint.hostAddressString
-
-            let discovered = DiscoveredESP32(
-                deviceId: packet.deviceId,
-                address: address,
-                port: DiscoveryConstants.broadcastPort,
-                canPort: packet.canPort,
-                timestamp: packet.timestamp,
-                receivedAt: Date()
-            )
+            let discovered = try decoder.decode(data, remoteAddress: address)
 
             DispatchQueue.main.async { [weak self] in
                 self?.onDiscovered(discovered)
