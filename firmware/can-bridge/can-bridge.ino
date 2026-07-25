@@ -54,6 +54,7 @@
 #include "DeviceTag.h"
 #include "FactoryReset.h"
 #include "FactoryResetCheck.h"
+#include "ArduinoResetAdapters.h"
 
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
@@ -82,6 +83,9 @@ using esp32_firmware::ArduinoTcpServer;
 using esp32_firmware::ITcpHostCallbacks;
 using esp32_firmware::SerialCommandFramer;
 using esp32_firmware::LoopHeartbeat;
+using esp32_firmware::ArduinoResetGpio;
+using esp32_firmware::ArduinoResetDelay;
+using esp32_firmware::ArduinoResetLogger;
 
 // ── Named Constants (no magic numbers) ──────────────────────────────────────
 namespace Constants {
@@ -567,25 +571,14 @@ static void onBroadcastDiscovery() {
 // is host-testable; this veneer owns the GPIO read + delay (hardware/timing).
 //
 // Arduino adapters for FactoryResetCheck boundaries.
-struct ArduinoResetGpio : public esp32_firmware::IFactoryResetGpio {
-    bool isPressed() override { return digitalRead(Constants::FACTORY_RESET_PIN) == LOW; }
-};
-struct ArduinoResetDelay : public esp32_firmware::IFactoryResetDelay {
-    void delayMs(uint32_t ms) override { delay(ms); }
-};
-struct ArduinoResetLogger : public esp32_firmware::IFactoryResetLogger {
-    void log(const char* msg, bool isConfirmed) override {
-        Serial.printf("%s%s%s\r\n", isConfirmed ? RED : YELLOW, msg, NC);
-    }
-};
 // No ArduinoCredClear adapter: FirmwareApp implements ICredentialClear directly.
 
 static bool checkFactoryReset() {
     pinMode(Constants::FACTORY_RESET_PIN, INPUT_PULLUP);
 
-    ArduinoResetGpio gpio;
+    ArduinoResetGpio gpio(Constants::FACTORY_RESET_PIN);
     ArduinoResetDelay delayAdapter;
-    ArduinoResetLogger logger;
+    ArduinoResetLogger logger(RED, YELLOW, NC);
 
     // firmwareApp is the ICredentialClear (wipes stored WiFi credentials on a
     // confirmed hold) — no forwarder adapter struct needed.
