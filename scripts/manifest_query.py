@@ -12,6 +12,7 @@ Outputs (mutually exclusive --mode):
     --mode excludes KEY            space-separated exclusion patterns (for COVERAGE_EXCLUDES)
     --mode src-roots KEY           --src-root a --src-root b (for lcov_to_xml.py)
     --mode exclude-args KEY        --exclude a --exclude b (for lcov_add_uninstrumented.py)
+    --mode coverage-exclude-glob-args KEY   --exclude-glob 'a' --exclude-glob 'b' (for xccov_to_sonar.py)
 
 Exit 1 with a message on stderr if the project key is unknown / the manifest is
 unreadable. Exit 0 and a single line on stdout on success.
@@ -54,7 +55,7 @@ def main(argv=None) -> int:
                    help="path to coverage-manifest.toml (default: <script-dir>/../coverage-manifest.toml)")
     p.add_argument("--mode", required=True,
                    choices=("src-dirs", "excludes", "coverage-excludes", "src-roots", "exclude-args",
-                            "src-dir-args", "coverage-exclude-args"),
+                            "src-dir-args", "coverage-exclude-args", "coverage-exclude-glob-args"),
                    help="what to emit")
     p.add_argument("key", help="project key (e.g. vehicle-spy)")
     args = p.parse_args(argv)
@@ -76,6 +77,15 @@ def main(argv=None) -> int:
         print(" ".join(coverage_excludes))
     elif args.mode == "coverage-exclude-args":
         print(" ".join(f"--exclude {e}" for e in coverage_excludes))
+    elif args.mode == "coverage-exclude-glob-args":
+        # Repeatable --exclude-glob pattern for xccov_to_sonar.py. The caller
+        # consumes this via an UNQUOTED shell var under `set -f` (noglob), e.g.
+        #   set -f; _a=$$(python3 ... --mode coverage-exclude-glob-args KEY); cmd $$_a
+        # so patterns like '**/*.mm' reach xccov_to_sonar.py literally without
+        # glob-expansion. We must NOT pre-quote here: shell parameter expansion
+        # does not re-process quotes, so emitting '--exclude-glob 'p'' would
+        # pass the literal quote chars into fnmatch and break matching.
+        print(" ".join(f"--exclude-glob {e}" for e in coverage_excludes))
     elif args.mode == "src-roots":
         # Repeatable --src-root for lcov_to_xml.py (shell word-split on caller).
         print(" ".join(f"--src-root {s}" for s in sources))

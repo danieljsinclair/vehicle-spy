@@ -916,14 +916,13 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-i
 	@if [ -s $(COVERAGE_JSON_IOS) ] && [ -f $(BUILD_IOS_DIR)/.xcresult-bundle ]; then \
 		set -f; \
 		_bundle=$$(cat $(BUILD_IOS_DIR)/.xcresult-bundle); \
-		_exclude_args=$$(python3 scripts/manifest_query.py --mode coverage-excludes vehicle-spy-ios 2>/dev/null | tr ' ' '\n' | grep -v '^$$' | sed 's/^/--exclude-glob /' | tr '\n' ' '); \
+		_exclude_args=$$(python3 scripts/manifest_query.py --mode coverage-exclude-glob-args vehicle-spy-ios 2>/dev/null); \
 		python3 scripts/xccov_to_sonar.py \
 			--input $(COVERAGE_JSON_IOS) \
 			--output $(COVERAGE_XML_IOS) \
 			--project-root $(CURDIR) \
 			--exclude-targets VehicleSimTests.xctest \
 			--include-roots vehicle-sim-ios \
-			--exclude-glob '**/*.mm' \
 			$${_exclude_args} \
 			--xcresult "$$_bundle"; \
 	fi
