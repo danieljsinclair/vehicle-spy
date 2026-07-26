@@ -94,9 +94,18 @@ footer:
 # -- Clean ---------------------------------------------------------------
 
 clean: clean-icons
-	rm -rf build-native build-ios build-cov build-sonar $(FIRMWARE_BUILD)
-	rm -rf ~/Library/Developer/Xcode/DerivedData/VehicleSimApp-*
-	rm -rf vehicle-sim-ios/VehicleSim/build
+	@FAILED=""; \
+	for dir in build-native build-ios build-cov build-sonar $(FIRMWARE_BUILD); do \
+		if ! rm -rf "$$dir" 2>/dev/null; then \
+			echo "WARNING: $$dir could not be removed (file in use?). Run: lsof +D $$dir | head to find the process; kill it; or chflags -R nouchg $$dir && rm -rf $$dir"; \
+			FAILED="$$FAILED $$dir"; \
+		fi; \
+	done; \
+	rm -rf ~/Library/Developer/Xcode/DerivedData/VehicleSimApp-*; \
+	rm -rf vehicle-sim-ios/VehicleSim/build; \
+	if [ -n "$$FAILED" ]; then \
+		echo "Scrub note: could not remove:$$FAILED"; \
+	fi
 
 scrub: clean
 	@echo "Scrubbing all caches..."
