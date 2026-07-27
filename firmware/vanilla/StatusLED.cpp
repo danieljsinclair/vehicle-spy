@@ -246,6 +246,13 @@ StatusLED::Pattern StatusLED::selectLedPattern(int wifiState, bool clientConnect
 
 // ── Set Pattern ───────────────────────────────────────────────────────────────────
 void StatusLED::setPatternInternal(Pattern pattern) {
+    // No-op if pattern is unchanged — avoids spurious Serial log every loop tick
+    // (FirmwareApp::update() calls setPattern(selectLedPattern(...)) every tick).
+    // updateInternal() already change-detects via lastPattern_ for the LED reset;
+    // this guard keeps the debug trace on-change only.
+    if (pattern == currentPattern_) {
+        return;
+    }
     currentPattern_ = pattern;
     // Pattern will reset on next update when change is detected
 #ifdef ARDUINO

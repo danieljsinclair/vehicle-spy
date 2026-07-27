@@ -596,6 +596,32 @@ TEST(StatusLEDTest, PatternSwitching_OffToOn) {
     EXPECT_TRUE(mock.getCurrentState());
 }
 
+// ── TEST: setPattern with same pattern is a no-op (no re-log, no re-reset) ──────────
+// FirmwareApp::update() calls setPattern(selectLedPattern(...)) every loop tick.
+// When the pattern hasn't changed, setPatternInternal must return early so the
+// [LED] debug trace does not flood serial and drown the [STATE] line.
+// The LED itself is unaffected (updateInternal already change-detects via lastPattern_).
+
+TEST(StatusLEDTest, SetPattern_SamePatternTwice_NoExtraOutputActivity) {
+    MockStatusLEDOutput mock;
+    firmware::StatusLED led(&mock);
+
+    led.init();
+    mock.currentTime = 0;
+    led.update(0);
+
+    // Stable state: BOOT active, LED ON, lastPattern_ == BOOT
+    size_t transitionsAfterInit = mock.getTransitionCount();
+
+    // Call setPattern with the SAME pattern that is already current
+    led.setPattern(firmware::StatusLED::Pattern::BOOT);
+    led.update(100);
+
+    // No additional output transitions: the redundant call was a true no-op
+    EXPECT_EQ(mock.getTransitionCount(), transitionsAfterInit)
+        << "Redundant setPattern(same) must not trigger additional output transitions";
+}
+
 // ── TEST: Immediate Pattern Interruption ────────────────────────────────────────────────
 
 TEST(StatusLEDTest, PatternSwitching_ImmediateInterruption) {
