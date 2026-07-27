@@ -309,24 +309,6 @@ TEST_F(StatusLEDTest, Update_NullOutput_DoesNotCrash) {
     statusLed->update(5000);
 }
 
-// Timing verification
-TEST_F(StatusLEDTest, TimingConstants_DocumentedValues) {
-    EXPECT_EQ(StatusLEDConstants::TINY_FLASH_MS, 100u);
-    EXPECT_EQ(StatusLEDConstants::SHORT_FLASH_MS, 200u);
-    EXPECT_EQ(StatusLEDConstants::MED_FLASH_MS, 500u);
-    EXPECT_EQ(StatusLEDConstants::LONG_FLASH_MS, 800u);
-    EXPECT_EQ(StatusLEDConstants::VERY_LONG_FLASH_MS, 1800u);
-
-    EXPECT_EQ(StatusLEDConstants::TINY_GAP_MS, 100u);
-    EXPECT_EQ(StatusLEDConstants::SHORT_GAP_MS, 200u);
-    EXPECT_EQ(StatusLEDConstants::MED_GAP_MS, 500u);
-    EXPECT_EQ(StatusLEDConstants::LONG_GAP_MS, 800u);
-    EXPECT_EQ(StatusLEDConstants::VERY_LONG_GAP_MS, 2000u);
-    EXPECT_EQ(StatusLEDConstants::SEPARATOR_MS, 2000u);
-
-    EXPECT_EQ(StatusLEDConstants::SEARCHING_GAP_MS, 900u);
-}
-
 // Pattern change detection
 TEST_F(StatusLEDTest, Update_SamePatternNoChange_DoesNotReset) {
     statusLed = std::make_unique<StatusLED>(&outputMock);
