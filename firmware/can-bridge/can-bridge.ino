@@ -364,7 +364,7 @@ WiFiServer& tcpServer() { static WiFiServer inst(Constants::TCP_PORT); return in
 static ArduinoTcpServer arduinoTcpServer(tcpServer(), client());
 // authToken is the bare token; the vanilla prepends "AUTH " when comparing
 // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
-static TcpServerManager tcpManager(arduinoTcpServer, statusLed(),
+static TcpServerManager tcpManager(arduinoTcpServer,
                                    std::string(TCP_AUTH_TOKEN),
                                    firmwareApp);
 

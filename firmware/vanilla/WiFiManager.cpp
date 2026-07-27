@@ -177,9 +177,9 @@ struct ConnectedApStateHandler : public IWiFiStateHandler {
 
 // WiFiManager implementation
 
-WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
+WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs,
                          const char* bakedSsid, const char* bakedPass)
-    : wifi_(wifi), prefs_(prefs), statusLed_(statusLed)
+    : wifi_(wifi), prefs_(prefs)
     , bakedSsid_(bakedSsid), bakedPass_(bakedPass) {
     // Initialize state handlers
     disconnectedHandler_ = std::make_unique<DisconnectedStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
@@ -258,7 +258,10 @@ void WiFiManager::onDisconnected(int reason) {
         wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
         ctx_.state = WiFiState::State::CONNECTED_AP;
         ctx_.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
-        statusLed_.setPattern(4);  // AP_MODE
+        // LED pattern is now owned by FirmwareApp via selectLedPattern.
+        // The state transition to CONNECTED_AP will be reflected on the next
+        // FirmwareApp::update() tick (selectLedPattern returns AP_MODE for
+        // CONNECTED_AP when no client is connected).
         return;
     }
 
@@ -340,24 +343,10 @@ void WiFiManager::applyStateTransition(const StateTransition& transition) {
 
     ctx_.state = transition.nextState;
 
-    // Update LED pattern based on WiFi state
-    switch (transition.nextState) {
-        case WiFiState::State::DISCONNECTED:
-            statusLed_.setPattern(0);  // WIFI_SEARCHING
-            break;
-        case WiFiState::State::CONNECTING:
-            statusLed_.setPattern(0);  // WIFI_SEARCHING
-            break;
-        case WiFiState::State::CONNECTED_STA:
-            statusLed_.setPattern(2);  // WIFI_CONNECTED
-            break;
-        case WiFiState::State::CONNECTED_AP:
-            statusLed_.setPattern(4);  // AP_MODE
-            break;
-        case WiFiState::State::RECONNECTING:
-            statusLed_.setPattern(0);  // WIFI_SEARCHING
-            break;
-    }
+    // LED pattern is now owned by FirmwareApp via selectLedPattern(wifiState, clientConnected).
+    // WiFiManager no longer drives setPattern() — this was the first of two parallel
+    // per-loop LED drivers that raced on last-writer-wins. The consolidated driver
+    // (LedPatternSelector) is called once per loop from FirmwareApp::update().
 
     if (transition.setTcpServerRestartFlag) {
         ctx_.tcpServerNeedsRestart = true;

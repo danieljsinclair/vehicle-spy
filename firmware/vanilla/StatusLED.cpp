@@ -214,6 +214,36 @@ const char* StatusLED::getPatternName(Pattern pattern) {
     }
 }
 
+// ── selectLedPattern: pure (wifiState, clientConnected) -> Pattern ─────────────────
+// The SINGLE source of truth for LED pattern selection. Replaces the two
+// parallel per-loop drivers (WiFiManager::applyStateTransition and
+// TcpServerManager::cycle) that raced on setPattern() with last-writer-wins.
+// FirmwareApp calls this once per loop — exactly one writer per tick.
+StatusLED::Pattern StatusLED::selectLedPattern(int wifiState, bool clientConnected) {
+    using Pattern = StatusLED::Pattern;
+
+    // Client connected takes priority over ALL wifi states.
+    if (clientConnected) {
+        return Pattern::CLIENT_CONNECTED;
+    }
+
+    // No client: pattern follows WiFi state.
+    // wifiState is a WiFiState::State ordinal (DISCONNECTED=0, CONNECTING=1,
+    // CONNECTED_STA=2, CONNECTED_AP=3, RECONNECTING=4).
+    switch (wifiState) {
+        case 0:  // DISCONNECTED
+        case 1:  // CONNECTING
+        case 4:  // RECONNECTING
+            return Pattern::WIFI_SEARCHING;
+        case 2:  // CONNECTED_STA
+            return Pattern::WIFI_CONNECTED;
+        case 3:  // CONNECTED_AP
+            return Pattern::AP_MODE;
+        default:
+            return Pattern::WIFI_SEARCHING;  // fail-safe for unknown states
+    }
+}
+
 // ── Set Pattern ───────────────────────────────────────────────────────────────────
 void StatusLED::setPatternInternal(Pattern pattern) {
     currentPattern_ = pattern;

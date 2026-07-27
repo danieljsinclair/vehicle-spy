@@ -30,7 +30,6 @@ namespace esp32_firmware {
 class TcpServerManager {
 public:
     TcpServerManager(ITcpServer& server,
-                     IStatusLED& statusLed,
                      const std::string& authToken,
                      ITcpHostCallbacks& host);
 
@@ -71,7 +70,6 @@ public:
 
 private:
     ITcpServer& server_;
-    IStatusLED& statusLed_;
     const std::string authToken_;
     ITcpHostCallbacks& host_;
 

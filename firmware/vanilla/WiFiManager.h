@@ -120,7 +120,7 @@ public:
     // Callback for TCP server restart notification
     using TcpServerRestartCallback = std::function<void()>;
 
-    WiFiManager(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
+    WiFiManager(IWiFi& wifi, IPreferences& prefs,
                 const char* bakedSsid = nullptr, const char* bakedPass = nullptr);
 
     // Initialize the WiFi state machine
@@ -167,7 +167,6 @@ public:
 private:
     IWiFi& wifi_;
     IPreferences& prefs_;
-    IStatusLED& statusLed_;
     const char* bakedSsid_;
     const char* bakedPass_;
 

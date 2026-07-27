@@ -3,6 +3,7 @@
 #include "DiscoveryManager.h"
 #include "CanBridge.h"
 #include "AtCommandDispatcher.h"
+#include "StatusLED.h"     // firmware::StatusLED::selectLedPattern
 #include <cassert>
 
 namespace esp32_firmware {
@@ -58,7 +59,7 @@ void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
     // which init() defers to setup()-time. Forwards the PASSED-ONLY prefs ref
     // (received by this ctor, passed straight through) — no longer stored as a
     // FirmwareApp member.
-    wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs, statusLed_,
+    wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs,
                                                    bakedSsid_, bakedPass_);
 
     // Create DiscoveryManager (UDP broadcast discovery). Forwards the PASSED-ONLY
@@ -129,8 +130,18 @@ void FirmwareApp::update(uint32_t now) {
     }
 
     // Update WiFi state machine (primary driver)
-    // WiFiManager internally handles state transitions and calls setPattern() on the LED
+    // WiFiManager updates its internal state machine; it no longer drives setPattern().
     wifiManager_->update(now);
+
+    // ── LED pattern: the SINGLE owner per loop ────────────────────────────────
+    // FirmwareApp is the sole caller of setPattern() each tick. selectLedPattern
+    // is a pure function of (wifiState, clientConnected) — this kills the race
+    // between WiFiManager and TcpServerManager that caused last-writer-wins LED
+    // behaviour. clientConnected_ is set by the .ino via setClientConnected()
+    // before this update() call.
+    statusLed_.setPattern(
+        static_cast<int>(firmware::StatusLED::selectLedPattern(
+            static_cast<int>(wifiManager_->getState()), clientConnected_)));
 
     // Drive NTP start from the first loop tick AFTER WiFi reports connected.
     // WiFiManager sets ntpStarted_ (via its NTP-init callback) only when it

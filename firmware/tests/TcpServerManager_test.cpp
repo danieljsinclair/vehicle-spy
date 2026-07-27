@@ -73,28 +73,9 @@ public:
     MOCK_METHOD(int, getWiFiState, (), (const, override));
 };
 
-class MockStatusLED : public IStatusLED {
-public:
-    MOCK_METHOD(void, setPattern, (int pattern), (override));
-    MOCK_METHOD(void, update, (uint32_t now), (override));
-};
-
-// ── Pattern constants (from firmware::StatusLED::Pattern, no magic numbers) ──
-// IStatusLED::setPattern takes a plain int; the manager passes a Pattern enum
-// value. We assert against the declared enum ordinals so the test stays
-// faithful to the contract without hard-coding literals.
-constexpr int kLedClientConnected =
-    static_cast<int>(firmware::StatusLED::Pattern::CLIENT_CONNECTED);
-constexpr int kLedWifiConnected =
-    static_cast<int>(firmware::StatusLED::Pattern::WIFI_CONNECTED);
-
 // WiFiState as int (ITcpHostCallbacks::getWiFiState returns int).
 constexpr int kWifiDisconnected =
     static_cast<int>(WiFiState::State::DISCONNECTED);
-constexpr int kWifiConnectedSta =
-    static_cast<int>(WiFiState::State::CONNECTED_STA);
-constexpr int kWifiConnectedAp =
-    static_cast<int>(WiFiState::State::CONNECTED_AP);
 
 const std::string kAuthToken = "vehicle-sim-2026";
 const std::string kValidAuthLine = "AUTH " + kAuthToken;
@@ -103,9 +84,8 @@ const std::string kValidAuthLine = "AUTH " + kAuthToken;
 class TcpServerManagerTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Loose-by-default so spec-irrelevant calls (e.g. update()) don't fail.
+        // Loose-by-default so spec-irrelevant calls don't fail.
         // Tests add strict EXPECT_CALLs for the behaviour they pin.
-        ON_CALL(led_, update(_)).WillByDefault(Return());
         ON_CALL(host_, getWiFiState()).WillByDefault(Return(kWifiDisconnected));
     }
 
@@ -140,9 +120,8 @@ protected:
     }
 
     MockTcpServer server_;
-    MockStatusLED led_;
     MockTcpHostCallbacks host_;
-    TcpServerManager manager_{server_, led_, kAuthToken, host_};
+    TcpServerManager manager_{server_, kAuthToken, host_};
 };
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -175,16 +154,18 @@ TEST_F(TcpServerManagerTest, IsValidAuthToken_CaseSensitive) {
 
 // ════════════════════════════════════════════════════════════════════════════
 // §2  ACCEPT — accept() yields a client whose first readLine is a valid AUTH.
-//    Expected: println("OK"), setPattern(CLIENT_CONNECTED), setMonitorActive(false).
-//    RED (cycle is a stub).
+//    Expected: println("OK"), setMonitorActive(false).
+//    LED pattern is NOT set here — it is owned by FirmwareApp via
+//    selectLedPattern(wifiState, clientConnected). The .ino's
+//    setClientConnected() + FirmwareApp::update() will show CLIENT_CONNECTED
+//    on the next loop tick.
 // ════════════════════════════════════════════════════════════════════════════
 
-TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_PrintsOkAndClientLedAndClearsMonitor) {
+TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_PrintsOkAndClearsMonitor) {
     MockTcpServerClient& client = queueConnectedClient();
     EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
     EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
     EXPECT_CALL(client, println(std::string("OK")));
-    EXPECT_CALL(led_, setPattern(kLedClientConnected));
     EXPECT_CALL(host_, setMonitorActive(false));
     EXPECT_CALL(server_, accept()).WillOnce([&](void) {
         // Hand back the one queued client.
@@ -197,8 +178,8 @@ TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_PrintsOkAndClientLedAndClears
 
 // ════════════════════════════════════════════════════════════════════════════
 // §3  REJECT — accept() yields a client whose first readLine is INVALID.
-//    Expected: println("ERROR unauthorized"), flush, stop(); NO CLIENT_CONNECTED.
-//    RED (cycle is a stub).
+//    Expected: println("ERROR unauthorized"), flush, stop().
+//    LED pattern is NOT set here — owned by FirmwareApp via selectLedPattern.
 // ════════════════════════════════════════════════════════════════════════════
 
 TEST_F(TcpServerManagerTest, Cycle_AcceptInvalidAuth_PrintsErrorFlushesAndStops) {
@@ -208,8 +189,6 @@ TEST_F(TcpServerManagerTest, Cycle_AcceptInvalidAuth_PrintsErrorFlushesAndStops)
     EXPECT_CALL(client, println(std::string("ERROR unauthorized")));
     EXPECT_CALL(client, flush());
     EXPECT_CALL(client, stop());
-    // Explicitly forbid the accept-success LED transition.
-    EXPECT_CALL(led_, setPattern(kLedClientConnected)).Times(0);
     EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
 
     manager_.cycle(/*nowMs=*/1000);
@@ -266,14 +245,14 @@ TEST_F(TcpServerManagerTest, Cycle_AuthenticatedClientWithCommand_ForwardsToHost
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §6  DISCONNECT + LED revert — client drops while monitor was active.
-//    Expected: setMonitorActive(false), resetDiscoveryBackoff(), and when WiFi
-//    is CONNECTED_STA/CONNECTED_AP → setPattern(WIFI_CONNECTED).
-//    When WiFi is DISCONNECTED → NO WIFI_CONNECTED revert.
-//    RED (cycle is a stub).
+// §6  DISCONNECT cleanup — client drops while monitor was active.
+//    Expected: setMonitorActive(false), resetDiscoveryBackoff().
+//    LED pattern is NOT set here — owned by FirmwareApp via selectLedPattern.
+//    The .ino's setClientConnected() + FirmwareApp::update() will select the
+//    correct wifi-state pattern on the next loop tick.
 // ════════════════════════════════════════════════════════════════════════════
 
-TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileConnectedSta_RevertsWifiLed) {
+TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileConnectedSta_CleansUpMonitor) {
     // Establish an authenticated client first.
     MockTcpServerClient& client = queueConnectedClient();
     EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
@@ -282,17 +261,15 @@ TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileConnectedSta_RevertsWifiLed) 
     EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
     manager_.cycle(/*nowMs=*/1000);
 
-    // Next cycle: client is gone (connected()==false) and WiFi is CONNECTED_STA.
+    // Next cycle: client is gone (connected()==false).
     EXPECT_CALL(client, connected()).WillRepeatedly(Return(false));
-    EXPECT_CALL(host_, getWiFiState()).WillRepeatedly(Return(kWifiConnectedSta));
     EXPECT_CALL(host_, setMonitorActive(false));
     EXPECT_CALL(host_, resetDiscoveryBackoff());
-    EXPECT_CALL(led_, setPattern(kLedWifiConnected));
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
     manager_.cycle(/*nowMs=*/2000);
 }
 
-TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileConnectedAp_RevertsWifiLed) {
+TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileConnectedAp_CleansUpMonitor) {
     MockTcpServerClient& client = queueConnectedClient();
     EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
     EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
@@ -301,15 +278,13 @@ TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileConnectedAp_RevertsWifiLed) {
     manager_.cycle(/*nowMs=*/1000);
 
     EXPECT_CALL(client, connected()).WillRepeatedly(Return(false));
-    EXPECT_CALL(host_, getWiFiState()).WillRepeatedly(Return(kWifiConnectedAp));
     EXPECT_CALL(host_, setMonitorActive(false));
     EXPECT_CALL(host_, resetDiscoveryBackoff());
-    EXPECT_CALL(led_, setPattern(kLedWifiConnected));
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
     manager_.cycle(/*nowMs=*/2000);
 }
 
-TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileWifiDisconnected_NoWifiLedRevert) {
+TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileWifiDisconnected_CleansUpMonitor) {
     MockTcpServerClient& client = queueConnectedClient();
     EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
     EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
@@ -317,19 +292,17 @@ TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileWifiDisconnected_NoWifiLedRev
     EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
     manager_.cycle(/*nowMs=*/1000);
 
-    // Disconnect while WiFi is also DISCONNECTED → no WIFI_CONNECTED revert.
+    // Disconnect while WiFi is also DISCONNECTED — still cleans up monitor.
     EXPECT_CALL(client, connected()).WillRepeatedly(Return(false));
-    EXPECT_CALL(host_, getWiFiState()).WillRepeatedly(Return(kWifiDisconnected));
     EXPECT_CALL(host_, setMonitorActive(false));
     EXPECT_CALL(host_, resetDiscoveryBackoff());
-    EXPECT_CALL(led_, setPattern(kLedWifiConnected)).Times(0);
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
     manager_.cycle(/*nowMs=*/2000);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 // §7  EMPTY-line auth — readLine returns "" on the first line → REJECT path
-//    (§3 behaviour). RED (cycle is a stub).
+//    (§3 behaviour). LED pattern is NOT set here — owned by FirmwareApp.
 // ════════════════════════════════════════════════════════════════════════════
 
 TEST_F(TcpServerManagerTest, Cycle_EmptyFirstLine_RejectsAsUnauthorized) {
@@ -339,23 +312,20 @@ TEST_F(TcpServerManagerTest, Cycle_EmptyFirstLine_RejectsAsUnauthorized) {
     EXPECT_CALL(client, println(std::string("ERROR unauthorized")));
     EXPECT_CALL(client, flush());
     EXPECT_CALL(client, stop());
-    EXPECT_CALL(led_, setPattern(kLedClientConnected)).Times(0);
     EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
     manager_.cycle(/*nowMs=*/1000);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 // §8  NO pending connection — accept() returns nullptr.
-//    Expected: cycle is a no-op (no println, no setPattern, no adoption).
-//    RED (cycle is a stub — though a stub no-op is consistent with this; the
-//    test pins that an empty accept must not spuriously drive any seam).
+//    Expected: cycle is a no-op (no println, no adoption, no monitor change).
+//    LED pattern is NOT set here — owned by FirmwareApp via selectLedPattern.
 // ════════════════════════════════════════════════════════════════════════════
 
 TEST_F(TcpServerManagerTest, Cycle_NoPendingClient_NoSideEffects) {
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
     // No client mock is queued, so println/flush/stop expectations can't fire.
-    // Forbid any LED transition on an idle cycle.
-    EXPECT_CALL(led_, setPattern(_)).Times(0);
+    // Forbid any monitor transition on an idle cycle.
     EXPECT_CALL(host_, setMonitorActive(_)).Times(0);
     manager_.cycle(/*nowMs=*/1000);
 }
@@ -376,7 +346,6 @@ TEST_F(TcpServerManagerTest, Cycle_AcceptBlankLine_RejectsAsUnauthorized) {
     EXPECT_CALL(client, println(std::string("ERROR unauthorized")));
     EXPECT_CALL(client, flush());
     EXPECT_CALL(client, stop());
-    EXPECT_CALL(led_, setPattern(kLedClientConnected)).Times(0);
     EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
 
     manager_.cycle(/*nowMs=*/1000);
@@ -390,10 +359,10 @@ TEST_F(TcpServerManagerTest, Cycle_AcceptBlankLine_RejectsAsUnauthorized) {
 // ════════════════════════════════════════════════════════════════════════════
 
 TEST_F(TcpServerManagerTest, Start_IsNoOp_DoesNotTouchAnySeam) {
-    // start() is intentionally a no-op: no accept/begin/LED/host calls.
+    // start() is intentionally a no-op: no accept/begin/monitor calls.
+    // LED pattern is NOT set here — owned by FirmwareApp via selectLedPattern.
     EXPECT_CALL(server_, accept()).Times(0);
     EXPECT_CALL(server_, begin()).Times(0);
-    EXPECT_CALL(led_, setPattern(_)).Times(0);
     EXPECT_CALL(host_, setMonitorActive(_)).Times(0);
     manager_.start();
 }

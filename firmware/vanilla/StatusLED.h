@@ -87,6 +87,28 @@ public:
     // getPatternSteps precedent above.
     const char* getPatternName(Pattern pattern);
 
+    // ── Pure pattern selector: (wifiState, clientConnected) -> Pattern ───────────
+    // The SINGLE source of truth for LED pattern selection, replacing the two
+    // parallel per-loop drivers (WiFiManager::applyStateTransition and
+    // TcpServerManager::cycle) that raced on setPattern() with last-writer-wins.
+    //
+    // Priority rule (kills the race): when a TCP client is connected, the LED
+    // shows CLIENT_CONNECTED regardless of the WiFi state — the client is the
+    // user's active session and must take visual priority over WiFi searching.
+    //
+    // When no client is connected, the pattern reflects the WiFi state:
+    //   DISCONNECTED   -> WIFI_SEARCHING  (looking for a network)
+    //   CONNECTING     -> WIFI_SEARCHING  (in progress)
+    //   CONNECTED_STA  -> WIFI_CONNECTED  (station mode, ready)
+    //   CONNECTED_AP   -> AP_MODE         (access point mode)
+    //   RECONNECTING   -> WIFI_SEARCHING  (recovering)
+    //   (any other)    -> WIFI_SEARCHING  (fail-safe default)
+    //
+    // wifiState is an int (WiFiState::State ordinal) to keep this method
+    // decoupled from the esp32_firmware namespace — StatusLED lives in the
+    // firmware namespace and should not depend on WiFiManager.h.
+    static Pattern selectLedPattern(int wifiState, bool clientConnected);
+
 private:
     IStatusLEDOutput* output_;     // Hardware interface (DI)
     Pattern currentPattern_;       // Active pattern

@@ -15,7 +15,8 @@
 // WL_* status constants used by the spec:
 //   0 = WL_IDLE_STATUS, 1 = WL_NO_SSID_AVAIL, 3 = WL_CONNECTED, 4 = WL_CONNECT_FAILED
 // WIFI mode constants: 1 = WIFI_STA, 2 = WIFI_AP.
-// LED patterns (StatusLED): 0 = WIFI_SEARCHING, 2 = WIFI_CONNECTED, 4 = AP_MODE.
+// LED pattern selection is now owned by FirmwareApp via StatusLED::selectLedPattern
+// (wifiState, clientConnected) — WiFiManager no longer calls setPattern().
 
 #include <gtest/gtest.h>
 #include "firmware/vanilla/WiFiManager.h"
@@ -35,11 +36,6 @@ constexpr int WL_CONNECT_FAILED = 4;
 
 constexpr int WIFI_STA = 1;
 constexpr int WIFI_AP = 2;
-
-// LED pattern ids (from StatusLED enum, referenced by the spec).
-constexpr int LED_WIFI_SEARCHING = 0;
-constexpr int LED_WIFI_CONNECTED = 2;
-constexpr int LED_AP_MODE = 4;
 
 // ── Fakes ──────────────────────────────────────────────────────────────────────
 class FakeWiFi : public IWiFi {
@@ -122,22 +118,13 @@ public:
     void clear() override { ssid.clear(); pass.clear(); cleared = true; }
 };
 
-class FakeStatusLed : public IStatusLED {
-public:
-    int lastPattern = -1;
-    int setPatternCalls = 0;
-    void setPattern(int p) override { lastPattern = p; ++setPatternCalls; }
-    void update(uint32_t) override {}
-};
-
 struct Harness {
     FakeWiFi wifi;
     FakePreferences prefs;
-    FakeStatusLed led;
     std::unique_ptr<WiFiManager> mgr;
 
     void build(const char* bakedSsid = nullptr, const char* bakedPass = nullptr) {
-        mgr = std::make_unique<WiFiManager>(wifi, prefs, led, bakedSsid, bakedPass);
+        mgr = std::make_unique<WiFiManager>(wifi, prefs, bakedSsid, bakedPass);
     }
 };
 
@@ -599,45 +586,39 @@ TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromNonStaStateLeavesStateUnch
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// §11 applyStateTransition — LED patterns + stay-sentinel no-op
+// §11 applyStateTransition — state transitions + stay-sentinel no-op
+//    LED pattern selection is now owned by FirmwareApp via
+//    StatusLED::selectLedPattern(wifiState, clientConnected). WiFiManager
+//    no longer calls setPattern() — these tests verify state transitions only.
 // ════════════════════════════════════════════════════════════════════════════
 
-TEST(WiFiBehaviorTransitionTest, TransitionToConnectedStaSetsConnectedLedPattern) {
+TEST(WiFiBehaviorTransitionTest, TransitionToConnectedSta) {
     Harness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
-    h.led.setPatternCalls = 0;
     h.mgr->update(1000);  // -> CONNECTED_STA
 
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
-    EXPECT_GE(h.led.setPatternCalls, 1);
-    EXPECT_EQ(h.led.lastPattern, LED_WIFI_CONNECTED);
 }
 
-TEST(WiFiBehaviorTransitionTest, TransitionToConnectedApSetsApModeLedPattern) {
+TEST(WiFiBehaviorTransitionTest, TransitionToConnectedAp) {
     Harness h;
     h.build();  // no creds -> AP
-    h.led.setPatternCalls = 0;
     h.mgr->init();
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
-    EXPECT_GE(h.led.setPatternCalls, 1);
-    EXPECT_EQ(h.led.lastPattern, LED_AP_MODE);
 }
 
-TEST(WiFiBehaviorTransitionTest, TransitionToConnectingSetsSearchingLedPattern) {
+TEST(WiFiBehaviorTransitionTest, TransitionToConnecting) {
     Harness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
-    h.led.setPatternCalls = 0;
     h.mgr->init();  // DISCONNECTED -> CONNECTING
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
-    EXPECT_GE(h.led.setPatternCalls, 1);
-    EXPECT_EQ(h.led.lastPattern, LED_WIFI_SEARCHING);
 }
 
-TEST(WiFiBehaviorTransitionTest, StayingInSameStateDoesNotCallSetPattern) {
+TEST(WiFiBehaviorTransitionTest, StayingInSameStateIsNoOp) {
     Harness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
@@ -645,10 +626,8 @@ TEST(WiFiBehaviorTransitionTest, StayingInSameStateDoesNotCallSetPattern) {
     ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
 
     h.wifi.statusVal = WL_IDLE_STATUS;  // no transition, no timeout, retry not elapsed
-    h.led.setPatternCalls = 0;
     h.mgr->update(1000);  // stays CONNECTING
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
-    EXPECT_EQ(h.led.setPatternCalls, 0);  // stay-sentinel: no setPattern
 }
 
 TEST(WiFiBehaviorTransitionTest, ConnectedStaTransitionFiresNtpAndTcpRestartCallbacks) {

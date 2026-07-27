@@ -1,7 +1,5 @@
 #include "TcpServerManager.h"
-#include "StatusLED.h"  // firmware::StatusLED::Pattern ordinals for LED transitions
 
-#include <algorithm>
 #include <string>
 
 namespace esp32_firmware {
@@ -36,11 +34,9 @@ std::string trim(const std::string& s) {
 } // namespace
 
 TcpServerManager::TcpServerManager(ITcpServer& server,
-                                   IStatusLED& statusLed,
                                    const std::string& authToken,
                                    ITcpHostCallbacks& host)
     : server_(server)
-    , statusLed_(statusLed)
     , authToken_(authToken)
     , host_(host) {
 }
@@ -72,8 +68,9 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         if (isValidAuthToken(firstLine, authToken_)) {
             current_->println("OK");
             current_->flush();
-            statusLed_.setPattern(
-                static_cast<int>(firmware::StatusLED::Pattern::CLIENT_CONNECTED));
+            // LED pattern is now owned by FirmwareApp via selectLedPattern.
+            // The .ino's setClientConnected() + FirmwareApp::update() will show
+            // CLIENT_CONNECTED on the next loop tick (clientConnected=true).
         } else {
             current_->println("ERROR unauthorized");
             current_->flush();
@@ -105,12 +102,10 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         host_.setMonitorActive(false);
         host_.resetDiscoveryBackoff();
 
-        const int wifiState = host_.getWiFiState();
-        if (wifiState == static_cast<int>(WiFiState::State::CONNECTED_STA) ||
-            wifiState == static_cast<int>(WiFiState::State::CONNECTED_AP)) {
-            statusLed_.setPattern(
-                static_cast<int>(firmware::StatusLED::Pattern::WIFI_CONNECTED));
-        }
+        // LED pattern is now owned by FirmwareApp via selectLedPattern.
+        // The .ino's setClientConnected() will report clientConnected=false on
+        // the next loop tick, and FirmwareApp::update() will select the correct
+        // wifi-state pattern (e.g. WIFI_CONNECTED for CONNECTED_STA).
         current_.reset();
     }
 }
