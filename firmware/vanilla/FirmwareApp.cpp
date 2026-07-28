@@ -337,6 +337,9 @@ void FirmwareApp::onClientConnected(const std::string& ip) {
 
 void FirmwareApp::onAuthFailed(const std::string& ip) {
     emitEvent("auth_fail", "ip=" + ip + " reason=bad_token");
+    // Drive LED to ERROR_AUTH_FAILURE for one tick; the next update() call to
+    // selectLedPattern() will revert to the normal pattern automatically.
+    statusLed_.setPattern(static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE));
 }
 
 void FirmwareApp::onClientDisconnected(const std::string& ip, int reason) {

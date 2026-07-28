@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "firmware/vanilla/FirmwareApp.h"
 #include "firmware/vanilla/WiFiReasonCodes.h"
+#include "firmware/vanilla/StatusLED.h"
 
 #include <array>
 #include <string>
@@ -258,6 +259,62 @@ TEST(FirmwareAppTest, UpdateDrivesStatusLedAnimationEveryTick) {
     h.app.update(0);
     h.app.update(100);
     EXPECT_GE(h.led.updateCalls, 2);
+}
+
+// ── auth_fail drives LED to ERROR_AUTH_FAILURE briefly ──────────────────────────
+// §4 of SPEC: auth_fail is an error sequence; the LED must flash ERROR_AUTH_FAILURE.
+// Revert to the normal selectLedPattern result on the next update() tick.
+
+TEST(FirmwareAppTest, AuthFailed_DrivesLedToErrorAuthFailurePattern) {
+    // CONTRACT: onAuthFailed() must drive the LED to ERROR_AUTH_FAILURE immediately,
+    // so the user sees the error sequence (3-short-pulse + 2-tiny-pulse + separator).
+    // Assertion is on the Pattern ENUM, never on raw ms values.
+    AppHarness h;
+    h.app.init();
+    h.app.update(0);  // first tick: LED set to normal pattern (AP_MODE with no creds)
+
+    // Pre-condition: LED is on a normal (non-error) pattern.
+    EXPECT_NE(h.led.lastPattern,
+              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE));
+
+    // Act: simulate a TCP auth failure.
+    h.app.onAuthFailed("192.168.1.50");
+
+    // Assert: LED is now on ERROR_AUTH_FAILURE.
+    EXPECT_EQ(h.led.lastPattern,
+              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
+        << "onAuthFailed must set LED to ERROR_AUTH_FAILURE";
+}
+
+TEST(FirmwareAppTest, AuthFailed_LedRevertsToNormalPatternOnNextUpdate) {
+    // CONTRACT: the ERROR_AUTH_FAILURE flash is brief — the next update() tick
+    // calls selectLedPattern() which reverts the LED to the pattern matching the
+    // current WiFi + client state. No error-override state needed; revert is
+    // automatic via the normal per-tick selectLedPattern call in update().
+    //
+    // We assert only the key contract: the LED is NO LONGER on ERROR_AUTH_FAILURE
+    // after one update() tick. The exact revert target depends on WiFiManager
+    // internals (tested separately); what matters here is that the brief flash
+    // DID revert.
+    AppHarness h;
+    h.app.init();
+    h.app.update(0);  // settle to the normal pattern for the current WiFi state
+
+    // Act: fire auth_fail — LED goes to ERROR_AUTH_FAILURE.
+    h.app.onAuthFailed("192.168.1.50");
+    EXPECT_EQ(h.led.lastPattern,
+              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
+        << "pre-condition: onAuthFailed must set LED to ERROR_AUTH_FAILURE";
+
+    // Act: drive one more update tick.
+    h.app.update(100);
+
+    // Assert: LED has left the ERROR_AUTH_FAILURE pattern — the brief flash
+    // reverted to the normal selectLedPattern result for the current state.
+    EXPECT_NE(h.led.lastPattern,
+              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
+        << "next update() tick must revert LED from ERROR_AUTH_FAILURE to the "
+           "normal selectLedPattern result for the current WiFi+client state";
 }
 
 } // namespace
