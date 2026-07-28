@@ -83,6 +83,12 @@ final class VehicleViewModelTests: XCTestCase {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             XCTAssertEqual(self.viewModel.connectionMode, .wifi)
+            // Real assertion: discovery must actually be active, not just the
+            // mode flag. (Previously this only asserted connectionMode == .wifi,
+            // which is a truism — it passes regardless of whether startESP32Discovery
+            // was called.)
+            XCTAssertTrue(self.viewModel.isESP32DiscoveryActive,
+                          "Switching to WiFi must activate ESP32 discovery")
             expectation.fulfill()
         }
 
@@ -365,7 +371,12 @@ final class VehicleViewModelTests: XCTestCase {
         let expectation = XCTestExpectation(description: "Discovery starts")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            XCTAssertTrue(self.viewModel.isESP32DiscoveryActive || self.viewModel.connectionMode == .wifi)
+            // Real assertion: discovery must be active. (Previously used
+            // `isESP32DiscoveryActive || connectionMode == .wifi`, which is a
+            // truism — the `||` makes it always pass since connectionMode
+            // is always .wifi after setting it.)
+            XCTAssertTrue(self.viewModel.isESP32DiscoveryActive,
+                          "Discovery must be active when switching to WiFi")
             expectation.fulfill()
         }
 
