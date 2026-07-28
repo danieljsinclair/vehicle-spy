@@ -3,9 +3,14 @@
 lcov_add_uninstrumented.py - Add synthetic lcov entries for uninstrumented source files.
 
 This script walks the source directories listed on the command line (one or more
-``--src-dir`` args, each a path relative to ``--root``), finds every
-.cpp/.h/.ino file under them, and appends a synthetic 0%-coverage lcov entry for
-any that are NOT already present in the input lcov report.
+``--src-dir`` args, each a path relative to ``--root``), finds every ``.cpp`` and
+``.ino`` file under them, and appends a synthetic 0%-coverage lcov entry for any
+that are NOT already present in the input lcov report. Declaration-only ``.h``
+headers are deliberately NOT injected (a declaration-only header has zero
+executable lines, so it contributes 0 to both the numerator and denominator of
+coverage — the correct metric definition, not metric-gaming). Headers that DO
+contain inline executable code already appear in the input lcov report straight
+from llvm-cov and are left untouched.
 
 WHY: ``llvm-cov export`` OMITS source files whose functions no test calls (zero
 executed regions) — they get no SF record, even though compiled into the
@@ -40,21 +45,29 @@ from pathlib import Path
 from typing import Set, Dict, List
 
 
-def count_code_lines(filepath: str) -> int:
+def count_code_lines(filepath: str) -> List[int]:
     """
-    Count code lines in a file (non-blank, non-comment).
+    Return the physical line numbers (1-based) of every non-blank, non-comment
+    line in ``filepath``.
+
+    The returned line numbers are the REAL source line numbers — they are
+    emitted verbatim as lcov ``DA:<physLine>,0`` entries so the synthetic record
+    maps onto the actual source layout (a reader can see which statement lines
+    are uncovered) rather than emitting ordinal ``DA:1..N`` that mislabels
+    ``#pragma once`` / ``#include`` / ``namespace`` / ``class {`` as executable.
+
     Simple heuristic: lines that are not empty and not pure comments.
     """
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
     except Exception:
-        return 0
+        return []
 
-    code_lines = 0
+    code_line_nums: List[int] = []
     in_block_comment = False
 
-    for line in lines:
+    for idx, line in enumerate(lines, start=1):
         stripped = line.strip()
 
         # Track C block comments
@@ -74,10 +87,10 @@ def count_code_lines(filepath: str) -> int:
         if not stripped:
             continue
 
-        # Count as code line
-        code_lines += 1
+        # Record as code line
+        code_line_nums.append(idx)
 
-    return code_lines
+    return code_line_nums
 
 
 def extract_lcov_files(lcov_path: str) -> Set[str]:
@@ -113,12 +126,25 @@ def matches_exclusion(rel_path: str, excludes: List[str]) -> bool:
     return False
 
 
-def find_source_files(src_dirs: List[str], excludes: List[str] = None) -> Dict[str, int]:
+def find_source_files(src_dirs: List[str], excludes: List[str] = None) -> Dict[str, List[int]]:
     """
-    Find all source files in source directories and count their code lines.
-    Skips files matching any exclusion pattern (mirrors sonar.exclusions so the
-    lcov completion stays in lock-step with sonar's effective source set — no
-    drift in either direction). Returns dict: filepath -> line_count.
+    Find all source files in source directories and record their code line
+    numbers. Skips files matching any exclusion pattern (mirrors sonar.exclusions
+    so the lcov completion stays in lock-step with sonar's effective source set
+    — no drift in either direction). Returns dict: filepath -> list[line_no].
+
+    Declaration-only ``.h`` headers are NOT injected. Source-based coverage
+    (llvm-cov) already attributes header coverage correctly for headers that
+    contain inline executable code — those get a real ``SF:`` record from
+    llvm-cov and are therefore excluded by ``extract_lcov_files`` below. A
+    declaration-only header has zero executable lines, so it must contribute 0
+    to BOTH the numerator and denominator of coverage — that is the correct
+    metric definition, not hiding untested code (there is no executable logic
+    to hide). Injecting a synthetic 0% record for a declaration-only header
+    only inflates the denominator with phantom "uncovered executable" lines
+    (``#pragma once`` / ``#include`` / ``class{`` marked executable) and
+    depressed the headline. Genuinely-uncovered ``.cpp``/``.ino`` files keep
+    their honest-uncovered injection (see ``generate_lcov_entry``).
     """
     excludes = excludes or []
     source_files = {}
@@ -133,8 +159,9 @@ def find_source_files(src_dirs: List[str], excludes: List[str] = None) -> Dict[s
                 continue
 
             for file in files:
-                # Include .cpp, .h, .ino files
-                if file.endswith(('.cpp', '.h', '.ino')):
+                # Inject synthetic 0% only for .cpp / .ino. Declaration-only
+                # headers (.h) are skipped — see docstring.
+                if file.endswith(('.cpp', '.ino')):
                     filepath = os.path.join(root, file)
                     # Symlinks are path aliases, not canonical source. The esp32
                     # firmware/can-bridge/ tree has 26 symlinks -> ../vanilla/;
@@ -148,23 +175,29 @@ def find_source_files(src_dirs: List[str], excludes: List[str] = None) -> Dict[s
                     rel = os.path.relpath(filepath).replace(os.sep, '/')
                     if matches_exclusion(rel, excludes):
                         continue
-                    line_count = count_code_lines(filepath)
-                    if line_count > 0:
-                        source_files[filepath] = line_count
+                    line_nums = count_code_lines(filepath)
+                    if line_nums:
+                        source_files[filepath] = line_nums
 
     return source_files
 
 
-def generate_lcov_entry(filepath: str, line_count: int) -> str:
-    """Generate synthetic lcov entry for an uninstrumented file."""
+def generate_lcov_entry(filepath: str, line_nums: List[int]) -> str:
+    """Generate synthetic lcov entry for an uninstrumented file.
+
+    ``line_nums`` are the REAL 1-based source line numbers of the file's
+    non-blank, non-comment lines. Each is emitted as ``DA:<physLine>,0`` so the
+    synthetic 0% record maps onto the actual source layout. ``LF:`` is the count
+    of those lines; ``LH:`` is 0 (nothing covered, by construction).
+    """
     entry = [f'SF:{filepath}']
 
-    # Add DA:line,0 for each code line (0 coverage)
-    for line_num in range(1, line_count + 1):
+    # Add DA:line,0 for each real source code line (0 coverage)
+    for line_num in line_nums:
         entry.append(f'DA:{line_num},0')
 
     # Summary fields (all zeros for uninstrumented)
-    entry.append('LF:{}'.format(line_count))  # Lines Found
+    entry.append('LF:{}'.format(len(line_nums)))  # Lines Found
     entry.append('LH:0')  # Lines Hit
     entry.append('end_of_record')
 
@@ -209,11 +242,11 @@ def main():
 
         # Find uninstrumented files (in source but not in lcov)
         uninstrumented = {}
-        for filepath, line_count in source_files.items():
+        for filepath, line_nums in source_files.items():
             # Use relative path for comparison (lcov uses absolute paths)
             abs_path = os.path.abspath(filepath)
             if abs_path not in existing_files:
-                uninstrumented[abs_path] = line_count
+                uninstrumented[abs_path] = line_nums
 
         # Read original lcov
         with open(input_lcov, 'r') as f:
@@ -223,8 +256,8 @@ def main():
         output = lcov_content
         if uninstrumented:
             output += '\n'
-            for filepath, line_count in sorted(uninstrumented.items()):
-                output += generate_lcov_entry(filepath, line_count) + '\n'
+            for filepath, line_nums in sorted(uninstrumented.items()):
+                output += generate_lcov_entry(filepath, line_nums) + '\n'
 
         # Write output
         with open(output_lcov, 'w') as f:
