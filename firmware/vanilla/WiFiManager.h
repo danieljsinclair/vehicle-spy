@@ -14,15 +14,14 @@ namespace esp32_firmware {
 // WiFi state machine
 namespace WiFiState {
     enum class State {
-        DISCONNECTED,
-        CONNECTING,
-        CONNECTED_STA,
-        CONNECTED_AP,
-        RECONNECTING
+        WIFI_DISCONNECTED,
+        WIFI_CONNECTING,
+        WIFI_CONNECTED,
+        WIFI_AP_MODE
     };
 
     struct Context {
-        State state = State::DISCONNECTED;
+        State state = State::WIFI_DISCONNECTED;
         uint32_t lastRetryMs = 0;
         uint32_t connectStartTime = 0;
         int lastDisconnectReason = 0;  // wifi_err_reason_t
@@ -44,7 +43,7 @@ struct StateTransition {
     bool initNtp;
     const char* message;
 
-    StateTransition() : nextState(WiFiState::State::DISCONNECTED),
+    StateTransition() : nextState(WiFiState::State::WIFI_DISCONNECTED),
                        setTcpServerRestartFlag(false), initNtp(false), message(nullptr) {}
 
     explicit StateTransition(WiFiState::State state, bool tcpRestart = false, bool ntp = false, const char* msg = nullptr)
@@ -174,10 +173,9 @@ private:
     NtpInitCallback ntpInitCallback_;
     TcpServerRestartCallback tcpServerRestartCallback_;
 
-    // State handlers
+    // State handlers (RECONNECTING merged into connectingHandler_)
     std::unique_ptr<IWiFiStateHandler> disconnectedHandler_;
     std::unique_ptr<IWiFiStateHandler> connectingHandler_;
-    std::unique_ptr<IWiFiStateHandler> reconnectingHandler_;
     std::unique_ptr<IWiFiStateHandler> connectedStaHandler_;
     std::unique_ptr<IWiFiStateHandler> connectedApHandler_;
 

@@ -185,15 +185,15 @@ TEST(WiFiBehaviorInitialTimeoutTest, AtExactCapBoundaryIsFalse) {
 
 TEST(WiFiBehaviorRetryTest, ConnectingAtExactIntervalBoundaryIsTrue) {
     // now - lastRetry == 5000 -> true (>= boundary).
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::CONNECTING, 5000, 0));
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 5000, 0));
 }
 
 TEST(WiFiBehaviorRetryTest, ConnectingJustBelowIntervalIsFalse) {
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::CONNECTING, 4999, 0));
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 4999, 0));
 }
 
 TEST(WiFiBehaviorRetryTest, ReconnectingAtExactIntervalIsTrue) {
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::RECONNECTING, 5000, 0));
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 5000, 0));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -211,7 +211,7 @@ TEST(WiFiBehaviorDisconnectedTest, StoredNvsBeginsStaAndSetsHostnameAndTransitio
     EXPECT_EQ(h.wifi.lastPass, "pw");
     ASSERT_GE(h.wifi.hostnameSets, 1);
     EXPECT_EQ(h.wifi.lastHostname, WiFiConfig::HOSTNAME);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorDisconnectedTest, StoredNvsButLoadFailsStaysDisconnected) {
@@ -243,7 +243,7 @@ TEST(WiFiBehaviorDisconnectedTest, BakedInBeginsStaWithBakedCreds) {
     EXPECT_EQ(h.wifi.lastPass, "bakedPw");
     ASSERT_GE(h.wifi.hostnameSets, 1);
     EXPECT_EQ(h.wifi.lastHostname, WiFiConfig::HOSTNAME);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorDisconnectedTest, NoneCredentialGoesToApMode) {
@@ -253,7 +253,7 @@ TEST(WiFiBehaviorDisconnectedTest, NoneCredentialGoesToApMode) {
     EXPECT_EQ(h.wifi.mode, WIFI_AP);
     EXPECT_EQ(h.wifi.lastSsid, WiFiConfig::AP_SSID);
     EXPECT_EQ(h.wifi.lastPass, WiFiConfig::AP_PASS);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -265,13 +265,13 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedStoredNvsOverTimeoutFallsBackToAp)
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();  // -> CONNECTING at t=0
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     h.wifi.statusVal = WL_CONNECT_FAILED;  // 4
     h.wifi.softApCalls = 0;
     h.mgr->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1);  // over timeout
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_GE(h.wifi.softApCalls, 1);
     EXPECT_EQ(h.wifi.mode, WIFI_AP);
 }
@@ -280,12 +280,12 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedBakedInOverTimeoutDoesNotFallBackT
     Harness h;
     h.build("bakedNet", "bakedPw");
     h.mgr->init();  // -> CONNECTING
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     h.wifi.statusVal = WL_CONNECT_FAILED;
     h.mgr->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1);
 
-    EXPECT_NE(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_NE(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_EQ(h.wifi.softApCalls, 0);
 }
 
@@ -304,7 +304,7 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedRetryElapsedReBeginsWithStoredCred
     EXPECT_GT(h.wifi.beginCalls, beginsBefore);
     EXPECT_EQ(h.wifi.lastSsid, "net");
     EXPECT_EQ(h.wifi.lastPass, "pw");
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorConnectingTest, ConnectFailedRetryNotElapsedStaysConnectingNoBegin) {
@@ -318,7 +318,7 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedRetryNotElapsedStaysConnectingNoBe
     h.mgr->update(1000);  // well under retry interval
 
     EXPECT_EQ(h.wifi.beginCalls, beginsBefore);  // no new begin
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorConnectingTest, IdleStatusNoTimeoutStaysConnecting) {
@@ -328,7 +328,7 @@ TEST(WiFiBehaviorConnectingTest, IdleStatusNoTimeoutStaysConnecting) {
     h.mgr->init();
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.mgr->update(1000);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
@@ -336,14 +336,14 @@ TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     const uint32_t cap = WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES *
                          WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.mgr->update(cap + 1);
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_GE(h.wifi.softApCalls, 1);
 }
 
@@ -351,14 +351,14 @@ TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutBakedInGoesReconnecting) {
     Harness h;
     h.build("bakedNet", "bakedPw");
     h.mgr->init();
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     const uint32_t cap = WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES *
                          WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.mgr->update(cap + 1);
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -373,13 +373,13 @@ TEST(WiFiBehaviorReconnectingTest, ConnectedStatusTransitionsToConnectedSta) {
     // Drive to CONNECTED_STA then disconnect to RECONNECTING.
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
     h.mgr->onDisconnected(WIFI_REASON_UNSPECIFIED);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     // Now connected again -> CONNECTED_STA.
     h.mgr->update(2000);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 }
 
 TEST(WiFiBehaviorReconnectingTest, RetryElapsedReBeginsWithStoredCreds) {
@@ -390,7 +390,7 @@ TEST(WiFiBehaviorReconnectingTest, RetryElapsedReBeginsWithStoredCreds) {
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
     h.mgr->onDisconnected(WIFI_REASON_UNSPECIFIED);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     const int beginsBefore = h.wifi.beginCalls;
     h.wifi.statusVal = WL_IDLE_STATUS;  // still not connected
@@ -398,7 +398,7 @@ TEST(WiFiBehaviorReconnectingTest, RetryElapsedReBeginsWithStoredCreds) {
 
     EXPECT_GT(h.wifi.beginCalls, beginsBefore);
     EXPECT_EQ(h.wifi.lastSsid, "net");
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorReconnectingTest, RetryNotElapsedStaysReconnectingNoBegin) {
@@ -409,13 +409,13 @@ TEST(WiFiBehaviorReconnectingTest, RetryNotElapsedStaysReconnectingNoBegin) {
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
     h.mgr->onDisconnected(WIFI_REASON_UNSPECIFIED);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     const int beginsBefore = h.wifi.beginCalls;
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.mgr->update(1100);  // < retry interval
     EXPECT_EQ(h.wifi.beginCalls, beginsBefore);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -429,7 +429,7 @@ TEST(WiFiBehaviorConnectedStaTest, LossOfConnectedStatusTransitionsToReconnectin
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 
     // WiFi reports no longer connected (e.g. beacon loss) without an explicit
     // disconnect event. Spec #8: status != WL_CONNECTED -> RECONNECTING,
@@ -437,7 +437,7 @@ TEST(WiFiBehaviorConnectedStaTest, LossOfConnectedStatusTransitionsToReconnectin
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.mgr->update(2000);
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
     EXPECT_TRUE(h.mgr->shouldRestartTcpServer());
 }
 
@@ -448,10 +448,10 @@ TEST(WiFiBehaviorConnectedStaTest, StaysConnectedStaWhenStatusRemainsConnected) 
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 
     h.mgr->update(2000);  // still connected
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -462,13 +462,13 @@ TEST(WiFiBehaviorConnectedApTest, ApModeIsStableWithNoWifiCalls) {
     Harness h;
     h.build();  // no creds -> AP
     h.mgr->init();
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
 
     const int beginsBefore = h.wifi.beginCalls;
     const int softApBefore = h.wifi.softApCalls;
     h.mgr->update(1000);
     h.mgr->update(5000);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_EQ(h.wifi.beginCalls, beginsBefore);
     EXPECT_EQ(h.wifi.softApCalls, softApBefore);
 }
@@ -484,13 +484,13 @@ TEST(WiFiBehaviorOnDisconnectedTest, AuthExpireGoesToReconnecting) {
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 
     // AUTH_EXPIRE is a transient session expiry — recoverable by reconnect, so
     // it must NOT bail to AP mode; instead it re-enters RECONNECTING and re-arms
     // the TCP-server restart flag.
     h.mgr->onDisconnected(WIFI_REASON_AUTH_EXPIRE);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
     EXPECT_TRUE(h.mgr->shouldRestartTcpServer());
     EXPECT_EQ(h.wifi.mode, WIFI_STA);
 }
@@ -509,11 +509,11 @@ TEST(WiFiBehaviorOnDisconnectedTest, RecoverableAuthReasonsGoToReconnecting) {
         h.mgr->init();
         h.wifi.statusVal = WL_CONNECTED;
         h.mgr->update(1000);
-        ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA)
+        ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED)
             << "precondition (reason " << reason << ")";
 
         h.mgr->onDisconnected(reason);
-        EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING)
+        EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING)
             << "recoverable auth reason " << reason << " must go to RECONNECTING";
         EXPECT_TRUE(h.mgr->shouldRestartTcpServer())
             << "recoverable auth reason " << reason << " must re-arm TCP restart flag";
@@ -527,10 +527,10 @@ TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutGoesToApMode) {
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 
     h.mgr->onDisconnected(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_FALSE(h.mgr->shouldRestartTcpServer());
 }
 
@@ -547,11 +547,11 @@ TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresGoToApMode) {
         h.mgr->init();
         h.wifi.statusVal = WL_CONNECTED;
         h.mgr->update(1000);
-        ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA)
+        ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED)
             << "precondition (reason " << reason << ")";
 
         h.mgr->onDisconnected(reason);
-        EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP)
+        EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE)
             << "permanent auth failure " << reason << " must go to AP mode";
         EXPECT_FALSE(h.mgr->shouldRestartTcpServer())
             << "permanent auth failure " << reason
@@ -566,10 +566,10 @@ TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromConnectedStaGoesReconnecti
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 
     h.mgr->onDisconnected(WIFI_REASON_BEACON_TIMEOUT);  // 200, non-auth
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
     EXPECT_TRUE(h.mgr->shouldRestartTcpServer());
 }
 
@@ -578,11 +578,11 @@ TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromNonStaStateLeavesStateUnch
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);  // not STA
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);  // not STA
 
     h.mgr->onDisconnected(WIFI_REASON_BEACON_TIMEOUT);
     // State must not have jumped to AP or RECONNECTING via this path.
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -600,14 +600,14 @@ TEST(WiFiBehaviorTransitionTest, TransitionToConnectedSta) {
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);  // -> CONNECTED_STA
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 }
 
 TEST(WiFiBehaviorTransitionTest, TransitionToConnectedAp) {
     Harness h;
     h.build();  // no creds -> AP
     h.mgr->init();
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
 }
 
 TEST(WiFiBehaviorTransitionTest, TransitionToConnecting) {
@@ -615,7 +615,7 @@ TEST(WiFiBehaviorTransitionTest, TransitionToConnecting) {
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();  // DISCONNECTED -> CONNECTING
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorTransitionTest, StayingInSameStateIsNoOp) {
@@ -623,11 +623,11 @@ TEST(WiFiBehaviorTransitionTest, StayingInSameStateIsNoOp) {
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 
     h.wifi.statusVal = WL_IDLE_STATUS;  // no transition, no timeout, retry not elapsed
     h.mgr->update(1000);  // stays CONNECTING
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiBehaviorTransitionTest, ConnectedStaTransitionFiresNtpAndTcpRestartCallbacks) {
@@ -642,7 +642,7 @@ TEST(WiFiBehaviorTransitionTest, ConnectedStaTransitionFiresNtpAndTcpRestartCall
     h.wifi.statusVal = WL_CONNECTED;
     h.mgr->update(1000);
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::CONNECTED_STA);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
     EXPECT_TRUE(ntpFired);
     EXPECT_TRUE(tcpFired);
 }

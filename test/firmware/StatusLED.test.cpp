@@ -722,7 +722,7 @@ using namespace esp32_firmware;  // For WiFiState::State
 TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiDisconnected) {
     // When a client is connected, CLIENT_CONNECTED pattern wins regardless
     // of WiFi state (this is the race-condition fix).
-    int wifiState = static_cast<int>(WiFiState::State::DISCONNECTED);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
     bool clientConnected = true;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -731,7 +731,7 @@ TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiDisconnected) 
 
 TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnecting) {
     // CLIENT_CONNECTED takes priority over CONNECTING (race symptom fix).
-    int wifiState = static_cast<int>(WiFiState::State::CONNECTING);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
     bool clientConnected = true;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -740,7 +740,7 @@ TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnecting) {
 
 TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnectedSta) {
     // CLIENT_CONNECTED takes priority over CONNECTED_STA (race symptom fix).
-    int wifiState = static_cast<int>(WiFiState::State::CONNECTED_STA);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTED);
     bool clientConnected = true;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -749,7 +749,7 @@ TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnectedSta) 
 
 TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiReconnecting) {
     // CLIENT_CONNECTED takes priority over RECONNECTING (race symptom fix).
-    int wifiState = static_cast<int>(WiFiState::State::RECONNECTING);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
     bool clientConnected = true;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -758,7 +758,7 @@ TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiReconnecting) 
 
 TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnectedAp) {
     // CLIENT_CONNECTED takes priority over CONNECTED_AP (race symptom fix).
-    int wifiState = static_cast<int>(WiFiState::State::CONNECTED_AP);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE);
     bool clientConnected = true;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -767,7 +767,7 @@ TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnectedAp) {
 
 TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiDisconnected_ReturnsWifiSearching) {
     // No client + DISCONNECTED means still searching for WiFi.
-    int wifiState = static_cast<int>(WiFiState::State::DISCONNECTED);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
     bool clientConnected = false;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -776,7 +776,7 @@ TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiDisconnected_ReturnsWifiSearch
 
 TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnecting_ReturnsWifiSearching) {
     // No client + CONNECTING means WiFi is searching/connecting.
-    int wifiState = static_cast<int>(WiFiState::State::CONNECTING);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
     bool clientConnected = false;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -785,7 +785,7 @@ TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnecting_ReturnsWifiSearchin
 
 TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnectedSta_ReturnsWifiConnected) {
     // No client + CONNECTED_STA means solid connected pattern.
-    int wifiState = static_cast<int>(WiFiState::State::CONNECTED_STA);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTED);
     bool clientConnected = false;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -794,7 +794,7 @@ TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnectedSta_ReturnsWifiConnec
 
 TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiReconnecting_ReturnsWifiSearching) {
     // No client + RECONNECTING means WiFi is searching again.
-    int wifiState = static_cast<int>(WiFiState::State::RECONNECTING);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
     bool clientConnected = false;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
@@ -803,7 +803,7 @@ TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiReconnecting_ReturnsWifiSearch
 
 TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnectedAp_ReturnsApMode) {
     // No client + CONNECTED_AP means AP mode pattern.
-    int wifiState = static_cast<int>(WiFiState::State::CONNECTED_AP);
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE);
     bool clientConnected = false;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),

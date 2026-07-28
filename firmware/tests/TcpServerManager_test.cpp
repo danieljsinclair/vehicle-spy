@@ -75,7 +75,7 @@ public:
 
 // WiFiState as int (ITcpHostCallbacks::getWiFiState returns int).
 constexpr int kWifiDisconnected =
-    static_cast<int>(WiFiState::State::DISCONNECTED);
+    static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
 
 const std::string kAuthToken = "vehicle-sim-2026";
 const std::string kValidAuthLine = "AUTH " + kAuthToken;

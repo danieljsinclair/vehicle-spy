@@ -163,7 +163,7 @@ TEST(FirmwareAppTest, InitStartsWithNoStoredCredsLandsInApMode) {
     h.app.init();
     h.app.update(0);  // first tick lazily opens discovery UDP + runs WiFi SM
     // No creds -> WiFiManager DISCONNECTED handler goes to AP mode.
-    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_AP));
+    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
 }
 
 TEST(FirmwareAppTest, InitOpensDiscoveryUdpOnFirstUpdateTickNotDuringInit) {
@@ -231,10 +231,10 @@ TEST(FirmwareAppTest, OnDisconnectedFromConnectedStaFlagsTcpRestart) {
     h.app.init();
     h.wifi.statusVal = 3;
     h.app.update(1000);  // -> CONNECTED_STA
-    ASSERT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_STA));
+    ASSERT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTED));
 
     h.app.onWiFiDisconnected(WIFI_REASON_UNSPECIFIED);
-    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::RECONNECTING));
+    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
     EXPECT_TRUE(h.app.shouldRestartTcpServer());
     h.app.clearTcpServerRestartFlag();
     EXPECT_FALSE(h.app.shouldRestartTcpServer());
@@ -247,7 +247,7 @@ TEST(FirmwareAppTest, OnDisconnectedAuthFailGoesToApMode) {
     h.wifi.statusVal = 3;
     h.app.update(1000);  // -> CONNECTED_STA
     h.app.onWiFiDisconnected(WIFI_REASON_AUTH_FAIL);
-    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_AP));
+    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
 }
 
 // ── LED animation driven each tick ────────────────────────────────────────────

@@ -233,7 +233,7 @@ TEST(WiFiManagerWiringTest, ConnectsWithStoredCredentialsInStaMode) {
     ASSERT_GE(h.wifi.beginCalls, 1);
     EXPECT_EQ(h.wifi.lastSsid, "manht2");
     EXPECT_EQ(h.wifi.lastPass, "luckyshoe478");
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTING));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
 }
 
 // ── Stage 4: NTP sync trigger on connect ─────────────────────────────────────
@@ -259,7 +259,7 @@ TEST(WiFiManagerWiringTest, NtpSyncStartsWhenWifiReachesConnectedSta) {
 
     h.wifi.statusVal = WL_CONNECTED;
     h.app->update(1000);  // -> CONNECTED_STA, NTP-init callback fires
-    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_STA));
+    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTED));
     EXPECT_GE(h.sntp.initCalls, 1);
 }
 
@@ -270,7 +270,7 @@ TEST(WiFiManagerWiringTest, NtpSyncDoesNotStartInApMode) {
     // no stored creds, no baked creds -> AP fallback
     h.app->init();
     h.app->update(0);
-    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_AP));
+    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
     EXPECT_EQ(h.sntp.initCalls, 0);
 }
 
@@ -291,7 +291,7 @@ TEST(WiFiManagerWiringTest, FallsBackToApModeAfterConnectTimeoutWithStoredCreds)
     h.wifi.statusVal = WL_CONNECT_FAILED;
     h.app->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1);
 
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_AP));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
     EXPECT_EQ(h.wifi.mode, WIFI_AP);
     EXPECT_GE(h.wifi.softApCalls, 1);
     EXPECT_EQ(h.wifi.lastSsid, WiFiConfig::AP_SSID);
@@ -314,7 +314,7 @@ TEST(WiFiManagerWiringTest, IdleStatusPastConnectTimeoutStaysConnectingNotAp) {
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.app->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1);
 
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTING));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
     EXPECT_EQ(h.wifi.softApCalls, 0);
 }
 
@@ -333,7 +333,7 @@ TEST(WiFiManagerWiringTest, BakedInCredsDoNotFallBackToApOnTimeout) {
 
     // Spec §6: baked-in over connect-timeout does NOT fall back to AP — it stays
     // CONNECTING (keeps retrying). AP fallback on connect-timeout is STORED_NVS-only.
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTING));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
     EXPECT_EQ(h.wifi.softApCalls, 0);
 }
 
@@ -349,11 +349,11 @@ TEST(WiFiManagerWiringTest, RetriesBeginWithStoredCredsAfterDisconnectInterval) 
     h.app->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.app->update(1000);
-    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_STA));
+    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTED));
 
     const int beginsBeforeDisconnect = h.wifi.beginCalls;
     h.app->onWiFiDisconnected(WIFI_REASON_UNSPECIFIED);
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::RECONNECTING));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
     EXPECT_TRUE(h.app->shouldRestartTcpServer());
 
     // Mirror real hardware: the disconnect event fires BECAUSE the link dropped,
@@ -393,7 +393,7 @@ TEST(WiFiManagerWiringTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     h.wifi.statusVal = WL_IDLE_STATUS;  // never connects
     h.app->update(cap + 1);
 
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_AP));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
     EXPECT_GE(h.wifi.softApCalls, 1);
 }
 
@@ -408,10 +408,10 @@ TEST(WiFiManagerWiringTest, AuthFailureDisconnectFallsToApMode) {
     h.app->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.app->update(1000);
-    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_STA));
+    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTED));
 
     h.app->onWiFiDisconnected(WIFI_REASON_AUTH_FAIL);
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::CONNECTED_AP));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
     EXPECT_FALSE(h.app->shouldRestartTcpServer());  // AP fallback does not restart TCP
 }
 

@@ -29,14 +29,14 @@ TEST(LoopHeartbeatTest, SuppressesBeforeInterval) {
 TEST(LoopHeartbeatTest, FiresAfterInterval) {
     LoopHeartbeat hb(5000);
     EXPECT_TRUE(hb.tick(5000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=5000ms wifi=DISCONNECTED monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=5000ms wifi=WIFI_DISCONNECTED monitor=idle\r\n");
 }
 
 // Contract: exact boundary (now == lastTick + interval) fires.
 TEST(LoopHeartbeatTest, FiresAtExactBoundary) {
     LoopHeartbeat hb(1000);
     EXPECT_TRUE(hb.tick(1000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=DISCONNECTED monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED monitor=idle\r\n");
 }
 
 // Contract: consecutive ticks within the same interval all return false
@@ -53,11 +53,10 @@ TEST(LoopHeartbeatTest, MapsAllWiFiStates) {
     LoopHeartbeat hb(1000);
     struct Case { int state; const char* expected; };
     Case cases[] = {
-        {0, "DISCONNECTED"},
-        {1, "CONNECTING"},
-        {2, "CONNECTED_STA"},
-        {3, "CONNECTED_AP"},
-        {4, "RECONNECTING"},
+        {0, "WIFI_DISCONNECTED"},
+        {1, "WIFI_CONNECTING"},
+        {2, "WIFI_CONNECTED"},
+        {3, "WIFI_AP_MODE"},
     };
     for (size_t i = 0; i < std::size(cases); ++i) {
         // Advance past the interval each iteration so lastTickMs_ keeps up.
@@ -93,14 +92,14 @@ TEST(LoopHeartbeatTest, MonitorInactiveProducesIdle) {
 TEST(LoopHeartbeatTest, UptimeMatchesNowMs) {
     LoopHeartbeat hb(1000);
     ASSERT_TRUE(hb.tick(12345, 2, true));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=12345ms wifi=CONNECTED_STA monitor=ACTIVE\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=12345ms wifi=WIFI_CONNECTED monitor=ACTIVE\r\n");
 }
 
 // Contract: output always ends with \r\n.
 TEST(LoopHeartbeatTest, OutputEndsWithCrLf) {
     LoopHeartbeat hb(1000);
     ASSERT_TRUE(hb.tick(1000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=DISCONNECTED monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED monitor=idle\r\n");
 }
 
 } // namespace

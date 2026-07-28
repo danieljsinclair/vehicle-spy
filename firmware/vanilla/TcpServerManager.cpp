@@ -105,7 +105,7 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
         // The .ino's setClientConnected() will report clientConnected=false on
         // the next loop tick, and FirmwareApp::update() will select the correct
-        // wifi-state pattern (e.g. WIFI_CONNECTED for CONNECTED_STA).
+        // wifi-state pattern (e.g. WIFI_CONNECTED for WIFI_CONNECTED).
         current_.reset();
     }
 }

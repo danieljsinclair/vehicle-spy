@@ -124,7 +124,7 @@ public:
 
     // Get current WiFi state (for debugging/testing)
     // ITcpHostCallbacks: read by TcpServerManager for the LED-revert-on-disconnect
-    // decision (only revert to WIFI_CONNECTED when WiFi is CONNECTED_STA/AP).
+    // decision (only revert to WIFI_CONNECTED when WiFi is WIFI_CONNECTED/WIFI_AP_MODE).
     int getWiFiState() const override;
 
     // Check if TCP server needs restart (after WiFi reconnect)

@@ -444,8 +444,8 @@ static void restartTcpServerIfNeeded() {
 
 // ── FirmwareApp Callback Handlers ──────────────────────────────────────────────────
 // Bridge FirmwareApp signals to .ino-side hardware effects (TCP/Discovery/OTA).
-// The TCP-restart flag itself is owned by WiFiManager (set on the CONNECTED_STA /
-// RECONNECTING transition); this callback is a post-transition firmware-effect
+// The TCP-restart flag itself is owned by WiFiManager (set on the WIFI_CONNECTED /
+// WIFI_CONNECTING transition); this callback is a post-transition firmware-effect
 // hook. The actual WiFiServer end/begin runs in loop() via
 // restartTcpServerIfNeeded(), which reads firmwareApp.shouldRestartTcpServer().
 static void onRestartTcpServer() {
@@ -506,7 +506,7 @@ void setup() {
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
     // Bridge Arduino WiFi STA-disconnect events straight to FirmwareApp, which owns
     // the WiFi state machine (WiFiManager::onDisconnected handles auth-failure → AP
-    // fallback and non-auth → RECONNECTING). The 2-param lambda matches WiFiEventCb
+    // fallback and non-auth → WIFI_CONNECTING). The 2-param lambda matches WiFiEventCb
     // (WiFi.onEvent overload for WiFiEvent_t); info.wifi_sta_disconnected.reason
     // carries the disconnect cause code.
     WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {

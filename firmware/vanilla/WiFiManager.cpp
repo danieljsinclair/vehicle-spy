@@ -28,7 +28,7 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
                     wifi_.begin(storedSsid.c_str(), storedPass.c_str());
                     ctx.connectStartTime = now;
                     ctx.lastRetryMs = now;
-                    return StateTransition(WiFiState::State::CONNECTING);
+                    return StateTransition(WiFiState::State::WIFI_CONNECTING);
                 }
                 break;
             }
@@ -39,7 +39,7 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
                     wifi_.begin(bakedSsid_, bakedPass_);
                     ctx.connectStartTime = now;
                     ctx.lastRetryMs = now;
-                    return StateTransition(WiFiState::State::CONNECTING);
+                    return StateTransition(WiFiState::State::WIFI_CONNECTING);
                 }
                 break;
             }
@@ -48,11 +48,11 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
                 // No credentials at all - go to AP mode
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::CONNECTED_AP);
+                return StateTransition(WiFiState::State::WIFI_AP_MODE);
             }
         }
 
-        return StateTransition(ctx.state);  // Stay DISCONNECTED
+        return StateTransition(ctx.state);  // Stay WIFI_DISCONNECTED
     }
 };
 
@@ -70,7 +70,7 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
         uint32_t connectDuration = now - ctx.connectStartTime;
 
         if (status == 3) {  // WL_CONNECTED
-            return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
+            return StateTransition(WiFiState::State::WIFI_CONNECTED, true, true);
         }
 
         if (status == 4 || status == 1) {  // WL_CONNECT_FAILED || WL_NO_SSID_AVAIL
@@ -79,10 +79,10 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
             if (shouldFallbackToApMode(source, connectDuration)) {
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::CONNECTED_AP);
+                return StateTransition(WiFiState::State::WIFI_AP_MODE);
             }
 
-            if (shouldRetryWiFi(WiFiState::State::CONNECTING, now, ctx.lastRetryMs)) {
+            if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs)) {
                 std::string storedSsid;
                 std::string storedPass;
                 bool hasStored = (source == CredentialSource::STORED_NVS) &&
@@ -96,54 +96,47 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
                 }
                 ctx.lastRetryMs = now;
             }
+        } else if (status == 0 && !isInitialConnectTimeout(connectDuration)) {
+            // WL_IDLE_STATUS — RECONNECTING merged into WIFI_CONNECTING.
+            // After onDisconnected resets lastRetryMs to 0, the first tick in
+            // WIFI_CONNECTING with WL_IDLE_STATUS re-arms begin() so the stack
+            // re-associates. lastRetryMs is then armed to prevent rapid re-entry.
+            // The !isInitialConnectTimeout guard ensures the initial-connect
+            // timeout path (fallback to AP / continue for BAKED_IN) is reachable.
+            if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs)) {
+                CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
+                std::string storedSsid;
+                std::string storedPass;
+                bool hasStored = (source == CredentialSource::STORED_NVS) &&
+                                loadCredentialsImpl(prefs_, storedSsid, storedPass);
+
+                if (hasStored) {
+                    wifi_.begin(storedSsid.c_str(), storedPass.c_str());
+                } else if (bakedSsid_ && bakedPass_) {
+                    wifi_.begin(bakedSsid_, bakedPass_);
+                }
+                ctx.lastRetryMs = now;
+            }
         } else if (isInitialConnectTimeout(connectDuration)) {
             CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
 
             if (source == CredentialSource::STORED_NVS) {
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::CONNECTED_AP);
+                return StateTransition(WiFiState::State::WIFI_AP_MODE);
             } else if (source == CredentialSource::NONE) {
                 // No credentials at all - go to AP mode
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::CONNECTED_AP);
+                return StateTransition(WiFiState::State::WIFI_AP_MODE);
             } else {
                 // BAKED_IN credentials - keep trying (they should work)
-                return StateTransition(WiFiState::State::RECONNECTING);
+                // RECONNECTING merged into WIFI_CONNECTING; retry loop continues here
+                return StateTransition(WiFiState::State::WIFI_CONNECTING);
             }
         }
 
         return StateTransition(ctx.state);  // Stay in CONNECTING
-    }
-};
-
-struct ReconnectingStateHandler : public IWiFiStateHandler {
-    IWiFi& wifi_;
-    IPreferences& prefs_;
-    const char* bakedSsid_;
-    const char* bakedPass_;
-
-    ReconnectingStateHandler(IWiFi& wifi, IPreferences& prefs, const char* bakedSsid, const char* bakedPass)
-        : wifi_(wifi), prefs_(prefs), bakedSsid_(bakedSsid), bakedPass_(bakedPass) {}
-
-    StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        if (wifi_.status() == 3) {  // WL_CONNECTED
-            return StateTransition(WiFiState::State::CONNECTED_STA, true, true);
-        }
-
-        if (shouldRetryWiFi(WiFiState::State::RECONNECTING, now, ctx.lastRetryMs)) {
-            std::string storedSsid;
-            std::string storedPass;
-            if (loadCredentialsImpl(prefs_, storedSsid, storedPass)) {
-                wifi_.begin(storedSsid.c_str(), storedPass.c_str());
-            } else if (bakedSsid_ && bakedPass_) {
-                wifi_.begin(bakedSsid_, bakedPass_);
-            }
-            ctx.lastRetryMs = now;
-        }
-
-        return StateTransition(ctx.state);  // Stay in RECONNECTING
     }
 };
 
@@ -152,15 +145,14 @@ struct ConnectedStaStateHandler : public IWiFiStateHandler {
 
     explicit ConnectedStaStateHandler(IWiFi& wifi) : wifi_(wifi) {}
 
-    // Spec section 8: a dropped STA connection while CONNECTED_STA must transition
-    // to RECONNECTING (tcpRestart=true, ntp=false). Mirrors the inline .ino handler
-    // that checked WiFiClass::status() != WL_CONNECTED — restored here (the vanilla
-    // version previously stayed in CONNECTED_STA forever, missing drops the WiFi
-    // event callback did not surface on the state-machine tick).
+    // Spec §1: a dropped STA connection while WIFI_CONNECTED transitions to
+    // WIFI_CONNECTING (tcpRestart=true, ntp=false). RECONNECTING was merged into
+    // WIFI_CONNECTING, so the per-tick self-heal lands in WIFI_CONNECTING and
+    // the retry loop (shouldRetryWiFi / WIFI_CONNECTING) re-arms on the next tick.
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         (void)now;
         if (wifi_.status() != 3) {  // WL_CONNECTED
-            return StateTransition(WiFiState::State::RECONNECTING, true, false);
+            return StateTransition(WiFiState::State::WIFI_CONNECTING, true, false);
         }
         return StateTransition(ctx.state);
     }
@@ -181,16 +173,15 @@ WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs,
                          const char* bakedSsid, const char* bakedPass)
     : wifi_(wifi), prefs_(prefs)
     , bakedSsid_(bakedSsid), bakedPass_(bakedPass) {
-    // Initialize state handlers
+    // Initialize state handlers (RECONNECTING merged into connectingHandler_)
     disconnectedHandler_ = std::make_unique<DisconnectedStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
     connectingHandler_ = std::make_unique<ConnectingStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
-    reconnectingHandler_ = std::make_unique<ReconnectingStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
     connectedStaHandler_ = std::make_unique<ConnectedStaStateHandler>(wifi_);
     connectedApHandler_ = std::make_unique<ConnectedApStateHandler>();
 }
 
 void WiFiManager::init() {
-    ctx_.state = WiFiState::State::DISCONNECTED;
+    ctx_.state = WiFiState::State::WIFI_DISCONNECTED;
     update(0);  // Initial state machine tick
 }
 
@@ -238,7 +229,7 @@ void WiFiManager::onDisconnected(int reason) {
     // Permanent, unrecoverable STA auth failures: the SSID/PSK combination was
     // cryptographically refused, so retrying the SAME credentials is
     // guaranteed-futile. Transition straight to AP mode (do NOT re-enter the
-    // RECONNECTING connect cycle). This covers only the auth failures that
+    // WIFI_CONNECTING connect cycle). This covers only the auth failures that
     // indicate a *wrong credential* rather than a transient link flap:
     //   - AUTH_FAIL (202): bad PSK
     //   - 802_1X_AUTH_FAILED (21): enterprise auth rejected
@@ -247,8 +238,8 @@ void WiFiManager::onDisconnected(int reason) {
     //
     // Transient session/assoc lifecycle reasons that are RECOVERABLE by a fresh
     // reconnect — AUTH_EXPIRE(1), AUTH_LEAVE(2), NOT_AUTHED(5), NOT_ASSOCED(6),
-    // ASSOC_NOT_AUTHED(8) — deliberately fall through to the RECONNECTING branch
-    // below so the stack re-associates instead of abandoning STA for AP mode.
+    // ASSOC_NOT_AUTHED(8) — fall through to WIFI_CONNECTING below so the stack
+    // re-associates instead of abandoning STA for AP mode.
     if (reason == WIFI_REASON_AUTH_FAIL ||
         reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
         reason == WIFI_REASON_802_1X_AUTH_FAILED ||
@@ -256,17 +247,17 @@ void WiFiManager::onDisconnected(int reason) {
         wifi_.disconnect(false, true);
         wifi_.setMode(2);  // WIFI_AP
         wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-        ctx_.state = WiFiState::State::CONNECTED_AP;
+        ctx_.state = WiFiState::State::WIFI_AP_MODE;
         ctx_.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
-        // The state transition to CONNECTED_AP will be reflected on the next
+        // The state transition to WIFI_AP_MODE will be reflected on the next
         // FirmwareApp::update() tick (selectLedPattern returns AP_MODE for
-        // CONNECTED_AP when no client is connected).
+        // WIFI_AP_MODE when no client is connected).
         return;
     }
 
-    if (ctx_.state == WiFiState::State::CONNECTED_STA) {
-        ctx_.state = WiFiState::State::RECONNECTING;
+    if (ctx_.state == WiFiState::State::WIFI_CONNECTED) {
+        ctx_.state = WiFiState::State::WIFI_CONNECTING;
         ctx_.tcpServerNeedsRestart = true;
         ctx_.lastRetryMs = 0;  // Will be set on next update
     }
@@ -274,11 +265,10 @@ void WiFiManager::onDisconnected(int reason) {
 
 const char* WiFiManager::stateName(WiFiState::State state) {
     switch (state) {
-        case WiFiState::State::DISCONNECTED: return "DISCONNECTED";
-        case WiFiState::State::CONNECTING: return "CONNECTING";
-        case WiFiState::State::CONNECTED_STA: return "CONNECTED_STA";
-        case WiFiState::State::CONNECTED_AP: return "CONNECTED_AP";
-        case WiFiState::State::RECONNECTING: return "RECONNECTING";
+        case WiFiState::State::WIFI_DISCONNECTED: return "WIFI_DISCONNECTED";
+        case WiFiState::State::WIFI_CONNECTING: return "WIFI_CONNECTING";
+        case WiFiState::State::WIFI_CONNECTED: return "WIFI_CONNECTED";
+        case WiFiState::State::WIFI_AP_MODE: return "WIFI_AP_MODE";
         default: return "UNKNOWN";
     }
 }
@@ -312,9 +302,9 @@ bool isInitialConnectTimeout(uint32_t connectDurationMs) {
 }
 
 bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry) {
-    if (state != WiFiState::State::DISCONNECTED &&
-        state != WiFiState::State::CONNECTING &&
-        state != WiFiState::State::RECONNECTING) {
+    // WIFI_CONNECTING covers both first-connect and reconnect (RECONNECTING merged).
+    if (state != WiFiState::State::WIFI_DISCONNECTED &&
+        state != WiFiState::State::WIFI_CONNECTING) {
         return false;
     }
     return (now - lastRetry) >= WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
@@ -364,11 +354,10 @@ void WiFiManager::applyStateTransition(const StateTransition& transition) {
 
 IWiFiStateHandler* WiFiManager::getStateHandler(WiFiState::State state) {
     switch (state) {
-        case WiFiState::State::DISCONNECTED: return disconnectedHandler_.get();
-        case WiFiState::State::CONNECTING: return connectingHandler_.get();
-        case WiFiState::State::RECONNECTING: return reconnectingHandler_.get();
-        case WiFiState::State::CONNECTED_STA: return connectedStaHandler_.get();
-        case WiFiState::State::CONNECTED_AP: return connectedApHandler_.get();
+        case WiFiState::State::WIFI_DISCONNECTED: return disconnectedHandler_.get();
+        case WiFiState::State::WIFI_CONNECTING: return connectingHandler_.get();
+        case WiFiState::State::WIFI_CONNECTED: return connectedStaHandler_.get();
+        case WiFiState::State::WIFI_AP_MODE: return connectedApHandler_.get();
         default: return disconnectedHandler_.get();
     }
 }

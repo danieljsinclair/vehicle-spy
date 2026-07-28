@@ -119,13 +119,13 @@ TEST(WiFiPureTest, IsInitialConnectTimeout) {
 
 TEST(WiFiPureTest, ShouldRetryWiFiOnlyForTransientStates) {
     // Connected states never retry.
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::CONNECTED_STA, 10000, 0));
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::CONNECTED_AP, 10000, 0));
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTED, 10000, 0));
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_AP_MODE, 10000, 0));
     // Transient states retry after interval.
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::DISCONNECTED, 1000, 0));  // < 5000
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::DISCONNECTED, 6000, 0));    // >= 5000
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::CONNECTING, 6000, 0));
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::RECONNECTING, 6000, 0));
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_DISCONNECTED, 1000, 0));  // < 5000
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_DISCONNECTED, 6000, 0));    // >= 5000
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 6000, 0));
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 6000, 0));
 }
 
 TEST(WiFiPureTest, LoadCredentialsImplReturnsStored) {
@@ -184,14 +184,14 @@ TEST(WiFiStateMachineTest, ConstructionStartsDisconnected) {
     FakeWiFi wifi; FakePreferences prefs;
     WiFiManager mgr(wifi, prefs);
     // Before the first tick, the manager is in DISCONNECTED.
-    EXPECT_EQ(mgr.getState(), WiFiState::State::DISCONNECTED);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_DISCONNECTED);
 }
 
 TEST(WiFiStateMachineTest, InitWithNoCredentialsLandsInApMode) {
     FakeWiFi wifi; FakePreferences prefs;  // empty -> no creds
     WiFiManager mgr(wifi, prefs);
     mgr.init();  // first tick runs DISCONNECTED handler -> AP mode (no creds)
-    EXPECT_EQ(mgr.getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_EQ(wifi.mode, 2);  // WIFI_AP
 }
 
@@ -203,7 +203,7 @@ TEST(WiFiStateMachineTest, DisconnectedWithStoredCredsBeginsStaConnecting) {
     EXPECT_EQ(wifi.mode, 1);  // WIFI_STA
     EXPECT_EQ(wifi.lastSsid, "net");
     EXPECT_EQ(wifi.lastPass, "pw");
-    EXPECT_EQ(mgr.getState(), WiFiState::State::CONNECTING);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
 TEST(WiFiStateMachineTest, DisconnectedWithNoCredsGoesToApMode) {
@@ -212,7 +212,7 @@ TEST(WiFiStateMachineTest, DisconnectedWithNoCredsGoesToApMode) {
     mgr.init();
     EXPECT_EQ(wifi.mode, 2);  // WIFI_AP
     EXPECT_EQ(wifi.lastSsid, WiFiConfig::AP_SSID);
-    EXPECT_EQ(mgr.getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
 }
 
 TEST(WiFiStateMachineTest, ConnectingTransitionsToConnectedStaOnConnectedStatus) {
@@ -225,7 +225,7 @@ TEST(WiFiStateMachineTest, ConnectingTransitionsToConnectedStaOnConnectedStatus)
 
     wifi.statusVal = 3;  // WL_CONNECTED
     mgr.update(1);
-    EXPECT_EQ(mgr.getState(), WiFiState::State::CONNECTED_STA);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_CONNECTED);
     EXPECT_TRUE(ntpCalled);  // initNtp flag on CONNECTED_STA
 }
 
@@ -234,7 +234,7 @@ TEST(WiFiStateMachineTest, OnDisconnectedAuthFailGoesToApImmediately) {
     WiFiManager mgr(wifi, prefs);
     mgr.init();
     mgr.onDisconnected(WIFI_REASON_AUTH_FAIL);
-    EXPECT_EQ(mgr.getState(), WiFiState::State::CONNECTED_AP);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_FALSE(mgr.shouldRestartTcpServer());
 }
 
@@ -249,10 +249,10 @@ TEST(WiFiStateMachineTest, OnDisconnectedFromStaGoesToReconnectingAndFlagsTcpRes
     mgr.init();
     wifi.statusVal = 3;
     mgr.update(1);
-    ASSERT_EQ(mgr.getState(), WiFiState::State::CONNECTED_STA);
+    ASSERT_EQ(mgr.getState(), WiFiState::State::WIFI_CONNECTED);
 
     mgr.onDisconnected(WIFI_REASON_UNSPECIFIED);
-    EXPECT_EQ(mgr.getState(), WiFiState::State::RECONNECTING);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_CONNECTING);
     EXPECT_TRUE(mgr.shouldRestartTcpServer());
 }
 
@@ -271,11 +271,11 @@ TEST(WiFiStateMachineTest, ShouldRestartTcpServerFlagCanBeCleared) {
 }
 
 TEST(WiFiStateMachineTest, StateNameRoundTripsAllStates) {
-    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::DISCONNECTED), "DISCONNECTED");
-    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::CONNECTING), "CONNECTING");
-    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::CONNECTED_STA), "CONNECTED_STA");
-    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::CONNECTED_AP), "CONNECTED_AP");
-    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::RECONNECTING), "RECONNECTING");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_DISCONNECTED), "WIFI_DISCONNECTED");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTING), "WIFI_CONNECTING");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTED), "WIFI_CONNECTED");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE), "WIFI_AP_MODE");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTING), "WIFI_CONNECTING");
 }
 
 TEST(WiFiStateMachineTest, TcpRestartCallbackFiresOnSetFlagTransition) {
