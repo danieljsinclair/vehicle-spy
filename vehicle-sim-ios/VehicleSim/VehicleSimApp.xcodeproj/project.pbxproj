@@ -92,6 +92,7 @@
 	T1000015 /* DiscoveryPacketReceptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000015 /* DiscoveryPacketReceptionTests.swift */; };
 	T1000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift */; };
 		T1000017 /* VehicleViewModelModeFlipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000017 /* VehicleViewModelModeFlipTests.swift */; };
+		T1000018 /* VehicleViewModelReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000018 /* VehicleViewModelReconnectTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -194,6 +195,7 @@
 		T2000015 /* DiscoveryPacketReceptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryPacketReceptionTests.swift; path = ../VehicleSimTests/DiscoveryPacketReceptionTests.swift; sourceTree = "<group>"; };
 		T2000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryListenerStateAndReceiveTests.swift; path = ../VehicleSimTests/ESP32DiscoveryListenerStateAndReceiveTests.swift; sourceTree = "<group>"; };
 		T2000017 /* VehicleViewModelModeFlipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelModeFlipTests.swift; path = ../VehicleSimTests/VehicleViewModelModeFlipTests.swift; sourceTree = "<group>"; };
+		T2000018 /* VehicleViewModelReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelReconnectTests.swift; path = ../VehicleSimTests/VehicleViewModelReconnectTests.swift; sourceTree = "<group>"; };
 		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -539,6 +541,7 @@
 				T1000015 /* DiscoveryPacketReceptionTests.swift in Sources */,
 				T1000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift in Sources */,
 				T1000017 /* VehicleViewModelModeFlipTests.swift in Sources */,
+				T1000018 /* VehicleViewModelReconnectTests.swift in Sources */,
 				88B7D2AE35B4CA44C617AF28 /* VehicleSimAppAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

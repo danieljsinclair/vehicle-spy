@@ -33,6 +33,11 @@ final class MockVehicleSimWrapper: NSObject, VehicleSimWrapperProtocol {
     func connect(toDevice address: String, deviceName: String, vehicleType: String) -> Bool {
         connectToDeviceCalled = true
         connectToDeviceParams = (address, deviceName, vehicleType)
+        // Mirror real wrapper behavior: a successful connect starts the
+        // signal source, so isConnectionAlive becomes true.
+        if connectToDeviceResult {
+            isConnectionAliveValue = true
+        }
         return connectToDeviceResult
     }
 
@@ -92,6 +97,7 @@ final class MockVehicleSimWrapper: NSObject, VehicleSimWrapperProtocol {
     // MARK: - State
     var connectionStateValue: MockConnectionState = .disconnected
     var isBluetoothReadyValue = false
+    var isConnectionAliveValue = false
     var connectedDeviceNameValue: String?
     var connectedDeviceAddressValue: String?
     var detectionInfoValue = ""
@@ -101,6 +107,7 @@ final class MockVehicleSimWrapper: NSObject, VehicleSimWrapperProtocol {
 
     var connectionState: MockConnectionState { connectionStateValue }
     var isBluetoothReady: Bool { isBluetoothReadyValue }
+    var isConnectionAlive: Bool { isConnectionAliveValue }
     var connectedDeviceName: String? { connectedDeviceNameValue }
     var connectedDeviceAddress: String? { connectedDeviceAddressValue }
     var detectionInfo: String { detectionInfoValue }
@@ -134,6 +141,7 @@ final class MockVehicleSimWrapper: NSObject, VehicleSimWrapperProtocol {
         steeringAngleDegValue = nil
         connectionStateValue = .disconnected
         isBluetoothReadyValue = false
+        isConnectionAliveValue = false
         connectedDeviceNameValue = nil
         connectedDeviceAddressValue = nil
         detectionInfoValue = ""

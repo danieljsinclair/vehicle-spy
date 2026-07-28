@@ -68,6 +68,14 @@ public:
         return latestSignal_.value_or(VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 0}));
     }
 
+    /// Returns true if the pipeline thread is still alive and reading from
+    /// the transport. When the transport exhausts (peer close, network drop),
+    /// the worker sets running_ = false and this returns false — allowing
+    /// the ViewModel to detect a silent TCP drop.
+    bool isRunning() const noexcept {
+        return running_.load();
+    }
+
     void start() override {
         if (running_.exchange(true)) {
             return; // already running
@@ -566,6 +574,28 @@ private:
     }
 
     return ConnectionStateConnecting;
+}
+
+- (BOOL)isConnectionAlive {
+    // BLE: alive if the BLE manager reports a live connection.
+    if (_bleManager && _bleManager->isConnected()) {
+        return YES;
+    }
+
+    // TCP: downcast to TCPSignalSource (defined in this translation unit)
+    // and check its internal running_ flag. When the transport exhausts
+    // (peer close, network drop), the pipeline thread sets running_ = false,
+    // which this method surfaces so the ViewModel can detect a silent drop.
+    if (auto* tcpSource = dynamic_cast<TCPSignalSource*>(_signalSource.get())) {
+        return tcpSource->isRunning() ? YES : NO;
+    }
+
+    // Demo source: always alive while _signalSource exists.
+    if (_signalSource) {
+        return YES;
+    }
+
+    return NO;
 }
 
 - (BOOL)isBluetoothReady {

@@ -71,6 +71,9 @@ class VehicleViewModel: ObservableObject {
     private var updateTimer: Timer?
     private var discoveryListener: ESP32DiscoveryListener?
     private var discoveryRetryTimer: Timer?
+    private var reconnectTimer: Timer?
+    private var reconnectAttempt: Int = 0
+    private var lastConnectedAddress: String?
     private var cancellables = Set<AnyCancellable>()
     private let connectionWorkQueue: OperationQueue = {
         let q = OperationQueue()
@@ -125,6 +128,7 @@ class VehicleViewModel: ObservableObject {
 
     deinit {
         stopUpdates()
+        stopReconnectLoop()
         wrapper?.stop()
         stopESP32Discovery()
     }
@@ -138,6 +142,11 @@ class VehicleViewModel: ObservableObject {
         // Stop any active connection when switching modes
         if connectionState != .disconnected {
             disconnect()
+        }
+
+        // Cancel any pending reconnect loop when leaving WiFi mode.
+        if connectionMode != .wifi {
+            stopReconnectLoop()
         }
 
         switch connectionMode {
@@ -179,6 +188,7 @@ class VehicleViewModel: ObservableObject {
         connectedDeviceAddress = nil
         connectionStatus = "Disconnected" + clientTag
         stopUpdates()
+        stopReconnectLoop()
 
         throttlePercent = nil
         speed = nil
@@ -256,6 +266,7 @@ class VehicleViewModel: ObservableObject {
         connectedDeviceAddress = nil
         connectionStatus = "Disconnected" + clientTag
         stopUpdates()
+        stopReconnectLoop()
 
         // Resume discovery after disconnect if in WiFi mode
         if connectionMode == .wifi {
@@ -270,6 +281,131 @@ class VehicleViewModel: ObservableObject {
         motorTorqueNm = nil
         gearSelector = nil
         steeringAngleDeg = nil
+    }
+
+    // MARK: - Connection Drop Detection + Persistent Reconnect
+
+    /// Called by the polling timer. When in WiFi mode and connected, checks
+    /// whether the underlying transport is still alive. If the connection
+    /// has dropped (e.g. ESP32 rebooted, WiFi lost), transitions to
+    /// `.disconnected` and starts the persistent reconnect loop.
+    private func checkConnectionLiveness() {
+        guard connectionMode == .wifi,
+              connectionState == .connected,
+              let wrapper = wrapper else { return }
+
+        if !wrapper.isConnectionAlive {
+            // Connection dropped — stop polling, clean up, and reconnect.
+            stopUpdates()
+            wrapper.stop()
+            connectionState = .disconnected
+            connectedDeviceName = nil
+            connectedDeviceAddress = nil
+            connectionStatus = "Connection lost — reconnecting..." + clientTag
+            throttlePercent = nil
+            speed = nil
+            acceleration = nil
+            brakePercent = nil
+            motorRpm = nil
+            motorTorqueNm = nil
+            gearSelector = nil
+            steeringAngleDeg = nil
+            startReconnectLoop()
+        }
+    }
+
+    /// Starts a persistent reconnect loop with backoff. The loop tries the
+    /// remembered device's last IP first, then falls back to discovery.
+    /// Cancels on: successful reconnect (.connected), or leaving WiFi mode.
+    private func startReconnectLoop() {
+        stopReconnectLoop()
+        reconnectAttempt = 0
+        scheduleReconnect()
+    }
+
+    private func stopReconnectLoop() {
+        reconnectTimer?.invalidate()
+        reconnectTimer = nil
+        reconnectAttempt = 0
+    }
+
+    /// Schedules the next reconnect attempt with exponential backoff.
+    /// Backoff: 1s, 2s, 4s, 8s, 16s, 30s (capped at 30s).
+    private func scheduleReconnect() {
+        // Cancel if we left WiFi mode or reconnected.
+        guard connectionMode == .wifi,
+              connectionState != .connected else {
+            reconnectTimer = nil
+            return
+        }
+
+        let backoff = min(pow(2.0, Double(reconnectAttempt)), 30.0)
+        reconnectAttempt += 1
+
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: backoff, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+
+            // Re-check cancellation conditions before attempting.
+            guard self.connectionMode == .wifi,
+                  self.connectionState != .connected else {
+                self.reconnectTimer = nil
+                return
+            }
+
+            self.attemptReconnect()
+        }
+    }
+
+    /// Attempts a single reconnect. Tries the remembered device's last IP
+    /// first; if that fails or there's no remembered address, falls back to
+    /// discovery-based auto-connect.
+    private func attemptReconnect() {
+        guard let wrapper = wrapper else { return }
+
+        // Strategy 1: try the last connected address directly.
+        if let lastAddress = lastConnectedAddress {
+            connectionStatus = "Reconnecting to \(lastAddress)..." + clientTag
+
+            connectionWorkQueue.addOperation { [weak self] in
+                guard let self = self else { return }
+
+                let success = wrapper.connect(toDevice: "tcp:\(lastAddress)",
+                                              deviceName: "ESP32 CAN Bridge",
+                                              vehicleType: self.selectedVehicle)
+
+                if success {
+                    DispatchQueue.main.async {
+                        self.connectionState = .connected
+                        self.connectedDeviceName = "ESP32 CAN Bridge"
+                        self.connectedDeviceAddress = lastAddress
+                        let deviceIdHex = self.autoConnectedESP32?.deviceId.map { String(format: "%02X", $0) }.joined() ?? ""
+                        if !deviceIdHex.isEmpty {
+                            self.connectionStatus = "Connected to ESP32" + self.clientTag + " [" + self.esp32TagPrefix + ":" + deviceIdHex + "]"
+                        } else {
+                            self.connectionStatus = "Connected to ESP32" + self.clientTag
+                        }
+                        self.startPolling()
+                        self.stopReconnectLoop()
+                    }
+                    return
+                }
+
+                // Direct reconnect failed — fall through to discovery and
+                // schedule the next backoff retry.
+                DispatchQueue.main.async {
+                    self.connectionStatus = "Reconnect failed — discovering..." + self.clientTag
+                    self.startESP32Discovery()
+                    self.scheduleReconnect()
+                }
+            }
+            return
+        }
+
+        // Strategy 2: no remembered address — start discovery and let
+        // the onDiscovered callback auto-connect when a device appears.
+        connectionStatus = "Discovering ESP32..." + clientTag
+        startESP32Discovery()
+        scheduleReconnect()
     }
 
     // MARK: - Vehicle Switching
@@ -520,6 +656,8 @@ class VehicleViewModel: ObservableObject {
                         self.connectionState = .connected
                         self.connectedDeviceName = "ESP32 CAN Bridge"
                         self.connectedDeviceAddress = "\(currentAddress):\(currentPort)"
+                        // Remember the last connected address for quick reconnect on drop.
+                        self.lastConnectedAddress = "\(currentAddress):\(currentPort)"
                         let deviceIdHex = targetDevice.deviceId.map { String(format: "%02X", $0) }.joined()
                         if !deviceIdHex.isEmpty {
                             self.connectionStatus = "Connected to ESP32" + self.clientTag + " [" + self.esp32TagPrefix + ":" + deviceIdHex + "]"
@@ -631,6 +769,7 @@ class VehicleViewModel: ObservableObject {
         stopUpdates()
         updateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.updateTelemetry()
+            self?.checkConnectionLiveness()
         }
     }
 

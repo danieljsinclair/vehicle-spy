@@ -50,6 +50,7 @@ typedef NS_ENUM(NSInteger, ConnectionState) {
 // MARK: - State
 @property (nonatomic, readonly) ConnectionState connectionState;
 @property (nonatomic, readonly) BOOL isBluetoothReady;
+@property (nonatomic, readonly) BOOL isConnectionAlive;
 @property (nonatomic, readonly, nullable) NSString *connectedDeviceName;
 @property (nonatomic, readonly, nullable) NSString *connectedDeviceAddress;
 @property (nonatomic, readonly) NSString *detectionInfo;
