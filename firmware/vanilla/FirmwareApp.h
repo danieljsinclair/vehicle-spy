@@ -141,14 +141,14 @@ public:
 
     // ── Observability getters (called by .ino for LoopHeartbeat enrichment) ─────
     // Remote IP of the currently-adopted TCP client, or empty string when none.
-    std::string getClientIp() const { return clientIp_; }
+    std::string getClientIp() const { return observability_.clientIp; }
 
     // Current discovery broadcast cadence as a human string (e.g. "500ms", "10s").
     // Computed from DiscoveryManager's backoff state + the supplied nowMs.
     std::string getDiscoveryCadence(uint32_t nowMs) const;
 
     // Last LED pattern set by FirmwareApp::update() (mirrors selectLedPattern).
-    int getCurrentLedPattern() const { return lastLedPattern_; }
+    int getCurrentLedPattern() const { return observability_.lastLedPattern; }
 
     // Check if TCP server needs restart (after WiFi reconnect)
     bool shouldRestartTcpServer() const;
@@ -234,7 +234,6 @@ private:
     // Discovery UDP socket is opened on the first update() tick (not during init()),
     // so the hardware-touching udp_.begin() never runs on the boot path before the
     // WiFi netif is up. Set true once DiscoveryManager::init() has run.
-    bool discoveryStarted_;
 
     // NTP sync is deferred until WiFi is connected (no socket/hardware work at
     // boot — mirrors the DiscoveryManager deferral). Set true once NtpTimeSync has
@@ -244,13 +243,10 @@ private:
     // Discovery control flags injected from the .ino (build toggle + live client
     // state). Defaults (enabled / no client) match the prior hardcoded-inline
     // behavior so existing tests and the default build stay green.
-    bool discoveryEnabled_ = true;
-    bool clientConnected_ = false;
 
     // Last interval at which we emitted a discovery_broadcast [EVENT]. Used to
     // throttle the event to once per cadence-tier change rather than every
     // broadcast (which floods at the 500ms rapid tier).
-    uint32_t lastBroadcastEventIntervalMs_ = 0;
 
     // Serial quiet-window (millis()-based ms). Set from the .ino via
     // setSerialQuietUntilMs(); read by processCanFrames(). Promoted from a
@@ -259,23 +255,32 @@ private:
 
     // ── Serial observability state ────────────────────────────────────────────
     // Centralized event logger (set via setEventLogger before the first update()).
-    IEventLogger* eventLogger_ = nullptr;
 
     // Remote IP of the currently-adopted TCP client (set by TcpServerManager
     // callbacks; read by LoopHeartbeat via getClientIp()).
-    std::string clientIp_;
 
     // Last LED pattern value passed to statusLed_.setPattern() (mirrors the
     // selectLedPattern result so getCurrentLedPattern() can expose it).
-    int lastLedPattern_ = 0;
 
     // Previous WiFi state for transition detection in update(). Initialized to
     // WIFI_DISCONNECTED so the first real connected transition fires wifi_connected.
     int previousWifiState_ = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
 
-    // Last WiFi disconnect reason (captured by onWiFiDisconnected for the
-    // wifi_drop event detail; reset on reconnect).
-    int lastDisconnectReason_ = 0;
+    // ── Bundled state (cpp:S1820: keep field count under 20) ──────────────────
+    struct DiscoveryState {
+        bool started = false;
+        bool enabled = true;
+        bool clientConnected = false;
+        uint32_t lastBroadcastEventIntervalMs = 0;
+    };
+    struct ObservabilityState {
+        IEventLogger* logger = nullptr;
+        std::string clientIp;
+        int lastLedPattern = 0;
+        int lastDisconnectReason = 0;
+    };
+    DiscoveryState discovery_;
+    ObservabilityState observability_;
 
     // Helper methods
     // constructManagers() builds the owned manager objects from the PASSED-ONLY

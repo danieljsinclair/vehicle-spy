@@ -58,7 +58,7 @@
 #include "ArduinoCanAdapters.h"
 #include "ArduinoAtAdapters.h"
 #include "ArduinoSerialSource.h"
-
+struct SerialEventLogger;  // Forward decl for arduino auto-prototype of serialEventLogger()
 // Forward declaration (cpp:S5421 composite): TimeAdapters is defined later in
 // this TU and returned by reference from the timeAdapters() accessor; this
 // satisfies Arduino's auto-generated function prototypes (hoisted above the
@@ -476,7 +476,10 @@ struct SerialEventLogger : public esp32_firmware::IEventLogger {
         Serial.print(line.c_str());
     }
 };
-static SerialEventLogger serialEventLogger;
+SerialEventLogger& serialEventLogger() {
+    static SerialEventLogger inst;
+    return inst;
+}
 
 // Factory reset: check if GPIO0 (BOOT button) is held at boot.
 // The debounce/threshold logic lives in vanilla (FactoryResetCheck) so it
@@ -516,7 +519,7 @@ void setup() {
         .restartTcpServer = onRestartTcpServer,
         .broadcastDiscovery = onBroadcastDiscovery
     });
-    firmwareApp.setEventLogger(serialEventLogger);
+    firmwareApp.setEventLogger(serialEventLogger());
 
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
     // Bridge Arduino WiFi STA-disconnect events straight to FirmwareApp, which owns

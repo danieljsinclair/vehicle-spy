@@ -39,8 +39,8 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
 // Helper: emit a [EVENT] line through the centralized logger (no-op if no logger
 // is injected — safe for tests that don't care about observability).
 void FirmwareApp::emitEvent(const char* eventType, const std::string& detail) {
-    if (eventLogger_) {
-        eventLogger_->logEvent(eventType, detail);
+    if (observability_.logger) {
+        observability_.logger->logEvent(eventType, detail);
     }
 }
 
@@ -57,7 +57,7 @@ void FirmwareApp::init() {
     setupCallbacks();
 
     initialized_ = true;
-    discoveryStarted_ = false;
+    discovery_.started = false;
     ntpStarted_ = false;
     // Capture post-init WiFi state so the first update() transition is accurate
     // (avoids a spurious wifi_connected event if the state machine advanced
@@ -112,8 +112,8 @@ void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
                              ? (ctx.lastBroadcastMs - ctx.connectTimeMs)
                              : 0;
         uint32_t intervalMs = DiscoveryManager::discoveryIntervalMs(ageMs);
-        if (intervalMs != lastBroadcastEventIntervalMs_) {
-            lastBroadcastEventIntervalMs_ = intervalMs;
+        if (intervalMs != discovery_.lastBroadcastEventIntervalMs) {
+            discovery_.lastBroadcastEventIntervalMs = intervalMs;
             std::string cadence = (intervalMs >= 1000)
                 ? std::to_string(intervalMs / 1000) + "s"
                 : std::to_string(intervalMs) + "ms";
@@ -153,12 +153,12 @@ void FirmwareApp::update(uint32_t now) {
     // Lazily open the UDP discovery socket on the first loop tick. This defers the
     // hardware-touching udp_.begin() out of the synchronous boot path (init()), where
     // the WiFi netif is not yet up, into loop() where WiFi.begin() has taken effect.
-    // Gated by discoveryEnabled_ so the build-time VEHICLE_SIM_ENABLE_DISCOVERY=0
+    // Gated by discovery_.enabled so the build-time VEHICLE_SIM_ENABLE_DISCOVERY=0
     // toggle keeps the socket closed (no hardware/UDP work) — the .ino sets this
     // from the macro in setup().
-    if (!discoveryStarted_ && discoveryManager_ && discoveryEnabled_) {
+    if (!discovery_.started && discoveryManager_ && discovery_.enabled) {
         discoveryManager_->init();
-        discoveryStarted_ = true;
+        discovery_.started = true;
     }
 
     // Track previous WiFi state before update() to detect transitions.
@@ -175,11 +175,11 @@ void FirmwareApp::update(uint32_t now) {
             // WiFi just connected: emit event with local IP.
             std::string ip = wifi_.localIP();
             emitEvent("wifi_connected", "ip=" + ip);
-            lastDisconnectReason_ = 0;
+            observability_.lastDisconnectReason = 0;
         } else if (prevWifiState == static_cast<int>(WiFiState::State::WIFI_CONNECTED)
                    && curWifiState != static_cast<int>(WiFiState::State::WIFI_CONNECTED)) {
             // Dropped from connected state: emit event with last known reason.
-            emitEvent("wifi_drop", "reason=" + std::to_string(lastDisconnectReason_));
+            emitEvent("wifi_drop", "reason=" + std::to_string(observability_.lastDisconnectReason));
         }
         previousWifiState_ = curWifiState;
     }
@@ -188,11 +188,11 @@ void FirmwareApp::update(uint32_t now) {
     // FirmwareApp is the sole caller of setPattern() each tick. selectLedPattern
     // is a pure function of (wifiState, clientConnected) — this kills the race
     // between WiFiManager and TcpServerManager that caused last-writer-wins LED
-    // behaviour. clientConnected_ is set by the .ino via setClientConnected()
+    // behaviour. discovery_.clientConnected is set by the .ino via setClientConnected()
     // before this update() call.
-    lastLedPattern_ = static_cast<int>(firmware::StatusLED::selectLedPattern(
-        static_cast<int>(wifiManager_->getState()), clientConnected_));
-    statusLed_.setPattern(lastLedPattern_);
+    observability_.lastLedPattern = static_cast<int>(firmware::StatusLED::selectLedPattern(
+        static_cast<int>(wifiManager_->getState()), discovery_.clientConnected));
+    statusLed_.setPattern(observability_.lastLedPattern);
 
     // Drive NTP start from the first loop tick AFTER WiFi reports connected.
     // WiFiManager sets ntpStarted_ (via its NTP-init callback) only when it
@@ -207,8 +207,8 @@ void FirmwareApp::update(uint32_t now) {
     // DiscoveryManager already knows whether to broadcast (it checks haveClient and
     // the WiFi mode internally); it opens/uses the UDP socket only after
     // discoveryManager_->init() ran above. When discovery is disabled this is a no-op.
-    if (discoveryManager_ && discoveryEnabled_) {
-        discoveryManager_->update(now, clientConnected_);
+    if (discoveryManager_ && discovery_.enabled) {
+        discoveryManager_->update(now, discovery_.clientConnected);
     }
 
     // Update LED pattern animation every tick
@@ -218,11 +218,11 @@ void FirmwareApp::update(uint32_t now) {
 }
 
 void FirmwareApp::setDiscoveryEnabled(bool enabled) {
-    discoveryEnabled_ = enabled;
+    discovery_.enabled = enabled;
 }
 
 void FirmwareApp::setClientConnected(bool connected) {
-    clientConnected_ = connected;
+    discovery_.clientConnected = connected;
 }
 
 void FirmwareApp::resetDiscoveryBackoff() {
@@ -231,7 +231,7 @@ void FirmwareApp::resetDiscoveryBackoff() {
 }
 
 void FirmwareApp::onWiFiDisconnected(int reason) {
-    lastDisconnectReason_ = reason;
+    observability_.lastDisconnectReason = reason;
     assert(wifiManager_ && "FirmwareApp::onWiFiDisconnected called before init()");
     wifiManager_->onDisconnected(reason);
     emitEvent("wifi_drop", "reason=" + std::to_string(reason));
@@ -332,11 +332,11 @@ void FirmwareApp::handleSerialAtCommand(const std::string& cmd) {
 // ── Serial observability: centralized IEventLogger ────────────────────────────
 
 void FirmwareApp::setEventLogger(IEventLogger& logger) {
-    eventLogger_ = &logger;
+    observability_.logger = &logger;
 }
 
 void FirmwareApp::onClientConnected(const std::string& ip) {
-    clientIp_ = ip;
+    observability_.clientIp = ip;
     emitEvent("client_connected", "ip=" + ip);
 }
 
@@ -348,12 +348,12 @@ void FirmwareApp::onAuthFailed(const std::string& ip) {
 }
 
 void FirmwareApp::onClientDisconnected(const std::string& ip, int reason) {
-    clientIp_.clear();
+    observability_.clientIp.clear();
     emitEvent("client_disconnected", "ip=" + ip + " reason=" + std::to_string(reason));
 }
 
 std::string FirmwareApp::getDiscoveryCadence(uint32_t nowMs) const {
-    if (!discoveryManager_ || !discoveryEnabled_ || !discoveryStarted_) {
+    if (!discoveryManager_ || !discovery_.enabled || !discovery_.started) {
         return "none";
     }
     const DiscoveryContext& ctx = discoveryManager_->getContext();
