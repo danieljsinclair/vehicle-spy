@@ -22,6 +22,7 @@
 #include "AtCommandDispatcher.h"  // owns AtCommandDispatcher + the ITcpClientAt/ISerialAt/IEspAt/IWifiCredentialStore/IMonitorState AT boundaries
 #include "ITcpServer.h"           // ITcpHostCallbacks (TcpServerManager delegation seam)
 #include "FactoryResetCheck.h"    // ICredentialClear (factory-reset credential boundary)
+#include "ISerialEventLogger.h"   // IEventLogger (centralized observability)
 
 namespace esp32_firmware {
 
@@ -122,10 +123,32 @@ public:
     // Set firmware-side callbacks
     void setCallbacks(const FirmwareCallbacks& callbacks);
 
+    // Set the centralized event logger (injected once, used for all [EVENT] and
+    // [STATE] emissions). The .ino supplies a SerialEventLogger; tests inject a mock.
+    void setEventLogger(IEventLogger& logger);
+
     // Get current WiFi state (for debugging/testing)
     // ITcpHostCallbacks: read by TcpServerManager for the LED-revert-on-disconnect
     // decision (only revert to WIFI_CONNECTED when WiFi is WIFI_CONNECTED/WIFI_AP_MODE).
     int getWiFiState() const override;
+
+    // ── ITcpHostCallbacks: serial observability callbacks ──────────────────────
+    // Called by TcpServerManager at client lifecycle transitions. FirmwareApp
+    // routes these to its owned IEventLogger (centralized observability).
+    void onClientConnected(const std::string& ip) override;
+    void onAuthFailed(const std::string& ip) override;
+    void onClientDisconnected(const std::string& ip, int reason) override;
+
+    // ── Observability getters (called by .ino for LoopHeartbeat enrichment) ─────
+    // Remote IP of the currently-adopted TCP client, or empty string when none.
+    std::string getClientIp() const { return clientIp_; }
+
+    // Current discovery broadcast cadence as a human string (e.g. "500ms", "10s").
+    // Computed from DiscoveryManager's backoff state + the supplied nowMs.
+    std::string getDiscoveryCadence(uint32_t nowMs) const;
+
+    // Last LED pattern set by FirmwareApp::update() (mirrors selectLedPattern).
+    int getCurrentLedPattern() const { return lastLedPattern_; }
 
     // Check if TCP server needs restart (after WiFi reconnect)
     bool shouldRestartTcpServer() const;
@@ -229,6 +252,26 @@ private:
     // mutable .ino global to clear cpp:S5421 (global variables should be const).
     uint32_t serialQuietUntilMs_ = 0;
 
+    // ── Serial observability state ────────────────────────────────────────────
+    // Centralized event logger (set via setEventLogger before the first update()).
+    IEventLogger* eventLogger_ = nullptr;
+
+    // Remote IP of the currently-adopted TCP client (set by TcpServerManager
+    // callbacks; read by LoopHeartbeat via getClientIp()).
+    std::string clientIp_;
+
+    // Last LED pattern value passed to statusLed_.setPattern() (mirrors the
+    // selectLedPattern result so getCurrentLedPattern() can expose it).
+    int lastLedPattern_ = 0;
+
+    // Previous WiFi state for transition detection in update(). Initialized to
+    // WIFI_DISCONNECTED so the first real connected transition fires wifi_connected.
+    int previousWifiState_ = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
+
+    // Last WiFi disconnect reason (captured by onWiFiDisconnected for the
+    // wifi_drop event detail; reset on reconnect).
+    int lastDisconnectReason_ = 0;
+
     // Helper methods
     // constructManagers() builds the owned manager objects from the PASSED-ONLY
     // interface refs and is called from the ctor (where those refs are in scope).
@@ -238,6 +281,10 @@ private:
                            IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime& time,
                            ISntp& sntp, ITimeNtp& timeNtp);
     void setupCallbacks();
+
+    // Emit a single [EVENT] line through the centralized logger (no-op if no
+    // logger is injected). detail is the pre-formatted key=value payload.
+    void emitEvent(const char* eventType, const std::string& detail);
 };
 
 } // namespace esp32_firmware

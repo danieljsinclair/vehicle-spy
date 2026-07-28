@@ -36,6 +36,11 @@ public:
 
     // Flush any buffered output to the client.
     virtual void flush() = 0;
+
+    // Remote IP address of the connected peer as a string ("ipv4" or "ipv6").
+    // Empty string when not connected. Used by TcpServerManager to capture the
+    // client IP at accept time for observability events and state snapshots.
+    virtual std::string remoteIP() const = 0;
 };
 
 // ── TCP Server Interface (hardware abstraction for testability) ───────────────
@@ -80,6 +85,13 @@ public:
 
     // Current WiFi state model value (esp32_firmware::WiFiState::State as int).
     virtual int getWiFiState() const = 0;
+
+    // ── Serial observability callbacks (FirmwareApp owns the single IEventLogger) ─
+    // TcpServerManager calls these at client lifecycle transitions; FirmwareApp
+    // routes them to its owned IEventLogger. No logger is injected into the manager.
+    virtual void onClientConnected(const std::string& ip) = 0;
+    virtual void onAuthFailed(const std::string& ip) = 0;
+    virtual void onClientDisconnected(const std::string& ip, int reason) = 0;
 };
 
 } // namespace esp32_firmware

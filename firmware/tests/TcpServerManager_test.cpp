@@ -46,6 +46,7 @@ public:
     MOCK_METHOD(std::string, readLine, (char delimiter), (override));
     MOCK_METHOD(void, println, (const std::string& line), (override));
     MOCK_METHOD(void, flush, (), (override));
+    MOCK_METHOD(std::string, remoteIP, (), (const, override));
 };
 
 class MockTcpServer : public ITcpServer {
@@ -71,6 +72,9 @@ public:
     MOCK_METHOD(void, setMonitorActive, (bool active), (override));
     MOCK_METHOD(void, resetDiscoveryBackoff, (), (override));
     MOCK_METHOD(int, getWiFiState, (), (const, override));
+    MOCK_METHOD(void, onClientConnected, (const std::string& ip), (override));
+    MOCK_METHOD(void, onAuthFailed, (const std::string& ip), (override));
+    MOCK_METHOD(void, onClientDisconnected, (const std::string& ip, int reason), (override));
 };
 
 // WiFiState as int (ITcpHostCallbacks::getWiFiState returns int).

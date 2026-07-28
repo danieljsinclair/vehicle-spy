@@ -59,6 +59,9 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         if (current_) {
             current_->stop();
         }
+        // Capture the remote IP at accept time (before auth outcome is known)
+        // so it is available for observability events regardless of result.
+        clientIp_ = next->remoteIP();
         current_ = std::move(next);
         host_.setMonitorActive(false);
 
@@ -71,11 +74,14 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
             // LED pattern is now owned by FirmwareApp via selectLedPattern.
             // The .ino's setClientConnected() + FirmwareApp::update() will show
             // CLIENT_CONNECTED on the next loop tick (clientConnected=true).
+            host_.onClientConnected(clientIp_);
         } else {
             current_->println("ERROR unauthorized");
             current_->flush();
             current_->stop();
+            host_.onAuthFailed(clientIp_);
             current_.reset();
+            clientIp_.clear();
         }
         return;
     }
@@ -101,12 +107,14 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
     if (current_) {
         host_.setMonitorActive(false);
         host_.resetDiscoveryBackoff();
+        host_.onClientDisconnected(clientIp_, 0);
 
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
         // The .ino's setClientConnected() will report clientConnected=false on
         // the next loop tick, and FirmwareApp::update() will select the correct
         // wifi-state pattern (e.g. WIFI_CONNECTED for WIFI_CONNECTED).
         current_.reset();
+        clientIp_.clear();
     }
 }
 

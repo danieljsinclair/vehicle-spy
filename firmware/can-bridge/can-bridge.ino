@@ -464,6 +464,20 @@ static void onBroadcastDiscovery() {
 // and copied into FirmwareApp via setCallbacks() (which stores its own copy).
 // Kept out of global scope (S5421).
 
+// ── Serial Event Logger (centralized observability) ──────────────────────────
+// IEventLogger implementation that writes [EVENT] and [STATE] lines to Serial.
+// FirmwareApp owns a pointer to this instance and emits ALL observability lines
+// through it (no per-manager logger injection).
+struct SerialEventLogger : public esp32_firmware::IEventLogger {
+    void logEvent(const char* eventType, const std::string& detail) override {
+        Serial.printf("[EVENT] %-20s %s\r\n", eventType, detail.c_str());
+    }
+    void logState(const std::string& line) override {
+        Serial.print(line.c_str());
+    }
+};
+static SerialEventLogger serialEventLogger;
+
 // Factory reset: check if GPIO0 (BOOT button) is held at boot.
 // The debounce/threshold logic lives in vanilla (FactoryResetCheck) so it
 // is host-testable; this veneer owns the GPIO read + delay (hardware/timing).
@@ -502,6 +516,7 @@ void setup() {
         .restartTcpServer = onRestartTcpServer,
         .broadcastDiscovery = onBroadcastDiscovery
     });
+    firmwareApp.setEventLogger(serialEventLogger);
 
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
     // Bridge Arduino WiFi STA-disconnect events straight to FirmwareApp, which owns
@@ -592,9 +607,14 @@ void setup() {
 
 void loop() {
     // 5-second heartbeat: delegate to vanilla LoopHeartbeat which formats the
-    // state snapshot. The exact text and severity are preserved.
+    // enriched state snapshot (client IP, discovery cadence, LED pattern).
     static LoopHeartbeat heartbeat(Constants::HEARTBEAT_INTERVAL_MS);
-    if (heartbeat.tick(millis(), firmwareApp.getWiFiState(), firmwareApp.isMonitorActive())) {
+    if (heartbeat.tick(millis(),
+                       firmwareApp.getWiFiState(),
+                       firmwareApp.isMonitorActive(),
+                       firmwareApp.getClientIp(),
+                       firmwareApp.getDiscoveryCadence(millis()),
+                       firmwareApp.getCurrentLedPattern())) {
         Serial.print(heartbeat.snapshot().c_str());
     }
 

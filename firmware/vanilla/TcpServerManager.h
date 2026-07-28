@@ -61,6 +61,12 @@ public:
     // admits time-based extensions without an ABI churn).
     void cycle(uint32_t nowMs);
 
+    // ── Observability accessors ───────────────────────────────────────────────
+    // Remote IP of the currently-adopted client, or empty string when no client.
+    // Captured at accept() time (before auth outcome is known) so the IP is
+    // available for [EVENT] emission regardless of auth result.
+    std::string getClientIp() const { return clientIp_; }
+
     // ── Lifecycle hooks ──────────────────────────────────────────────────────
     // start()/stop() are reserved for setup/shutdown + IP-change bring-down.
     // Currently no-op: the listening socket's begin/end are hardware side
@@ -75,6 +81,10 @@ private:
 
     // The single adopted client (nullptr when none / after reject or drop).
     std::unique_ptr<ITcpServerClient> current_;
+
+    // Remote IP captured at accept() time (before auth outcome is known).
+    // Empty string when no client is adopted.
+    std::string clientIp_;
 };
 
 } // namespace esp32_firmware

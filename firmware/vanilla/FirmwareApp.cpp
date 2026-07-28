@@ -4,7 +4,9 @@
 #include "CanBridge.h"
 #include "AtCommandDispatcher.h"
 #include "StatusLED.h"     // firmware::StatusLED::selectLedPattern
+#include "ISerialEventLogger.h"
 #include <cassert>
+#include <string>
 
 namespace esp32_firmware {
 
@@ -19,7 +21,8 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     , canBridgeDeps_(canBridgeDeps)
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
-    , initialized_(false) {
+    , initialized_(false)
+    , previousWifiState_(static_cast<int>(WiFiState::State::WIFI_DISCONNECTED)) {
     // Construct the owned managers here (ctor scope), where the PASSED-ONLY
     // interface refs (sntp/timeNtp/udp/wifiDiscovery/time/deviceId/prefs) are still
     // in scope. Construction ONLY wires injected refs into each manager's
@@ -31,6 +34,14 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     // refs are forwarded straight into the owning manager's constructor instead of
     // being stored as FirmwareApp members.
     constructManagers(deviceId, prefs, udp, wifiDiscovery, time, sntp, timeNtp);
+}
+
+// Helper: emit a [EVENT] line through the centralized logger (no-op if no logger
+// is injected — safe for tests that don't care about observability).
+void FirmwareApp::emitEvent(const char* eventType, const std::string& detail) {
+    if (eventLogger_) {
+        eventLogger_->logEvent(eventType, detail);
+    }
 }
 
 FirmwareApp::~FirmwareApp() = default;
@@ -48,6 +59,10 @@ void FirmwareApp::init() {
     initialized_ = true;
     discoveryStarted_ = false;
     ntpStarted_ = false;
+    // Capture post-init WiFi state so the first update() transition is accurate
+    // (avoids a spurious wifi_connected event if the state machine advanced
+    // during init() before the first loop tick).
+    previousWifiState_ = static_cast<int>(wifiManager_->getState());
 }
 
 void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
@@ -88,6 +103,18 @@ void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
         if (callbacks_.broadcastDiscovery) {
             callbacks_.broadcastDiscovery();
         }
+        // Emit [EVENT] discovery_broadcast with current cadence + count.
+        // lastBroadcastMs was just set by update() before broadcast() was called.
+        const DiscoveryContext& ctx = discoveryManager_->getContext();
+        uint32_t ageMs = (ctx.lastBroadcastMs > ctx.connectTimeMs)
+                             ? (ctx.lastBroadcastMs - ctx.connectTimeMs)
+                             : 0;
+        uint32_t intervalMs = DiscoveryManager::discoveryIntervalMs(ageMs);
+        std::string cadence = (intervalMs >= 1000)
+            ? std::to_string(intervalMs / 1000) + "s"
+            : std::to_string(intervalMs) + "ms";
+        emitEvent("discovery_broadcast",
+                  "cadence=" + cadence + " n=" + std::to_string(discoveryManager_->broadcastCount()));
     });
 
     // CanBridge: construction only wires the injected ICanDriver/ITcpClient/
@@ -129,9 +156,28 @@ void FirmwareApp::update(uint32_t now) {
         discoveryStarted_ = true;
     }
 
+    // Track previous WiFi state before update() to detect transitions.
+    const int prevWifiState = previousWifiState_;
+
     // Update WiFi state machine (primary driver)
     // WiFiManager updates its internal state machine; it no longer drives setPattern().
     wifiManager_->update(now);
+
+    // Detect WiFi state transitions for observability.
+    const int curWifiState = static_cast<int>(wifiManager_->getState());
+    if (prevWifiState != curWifiState) {
+        if (curWifiState == static_cast<int>(WiFiState::State::WIFI_CONNECTED)) {
+            // WiFi just connected: emit event with local IP.
+            std::string ip = wifi_.localIP();
+            emitEvent("wifi_connected", "ip=" + ip);
+            lastDisconnectReason_ = 0;
+        } else if (prevWifiState == static_cast<int>(WiFiState::State::WIFI_CONNECTED)
+                   && curWifiState != static_cast<int>(WiFiState::State::WIFI_CONNECTED)) {
+            // Dropped from connected state: emit event with last known reason.
+            emitEvent("wifi_drop", "reason=" + std::to_string(lastDisconnectReason_));
+        }
+        previousWifiState_ = curWifiState;
+    }
 
     // ── LED pattern: the SINGLE owner per loop ────────────────────────────────
     // FirmwareApp is the sole caller of setPattern() each tick. selectLedPattern
@@ -139,9 +185,9 @@ void FirmwareApp::update(uint32_t now) {
     // between WiFiManager and TcpServerManager that caused last-writer-wins LED
     // behaviour. clientConnected_ is set by the .ino via setClientConnected()
     // before this update() call.
-    statusLed_.setPattern(
-        static_cast<int>(firmware::StatusLED::selectLedPattern(
-            static_cast<int>(wifiManager_->getState()), clientConnected_)));
+    lastLedPattern_ = static_cast<int>(firmware::StatusLED::selectLedPattern(
+        static_cast<int>(wifiManager_->getState()), clientConnected_));
+    statusLed_.setPattern(lastLedPattern_);
 
     // Drive NTP start from the first loop tick AFTER WiFi reports connected.
     // WiFiManager sets ntpStarted_ (via its NTP-init callback) only when it
@@ -180,8 +226,10 @@ void FirmwareApp::resetDiscoveryBackoff() {
 }
 
 void FirmwareApp::onWiFiDisconnected(int reason) {
+    lastDisconnectReason_ = reason;
     assert(wifiManager_ && "FirmwareApp::onWiFiDisconnected called before init()");
     wifiManager_->onDisconnected(reason);
+    emitEvent("wifi_drop", "reason=" + std::to_string(reason));
 }
 
 bool FirmwareApp::factoryReset() {
@@ -274,6 +322,39 @@ void FirmwareApp::handleTcpAtCommand(const std::string& cmd) {
 void FirmwareApp::handleSerialAtCommand(const std::string& cmd) {
     assert(atDispatcher_ && "FirmwareApp::handleSerialAtCommand called before setAtCommandAdapters()");
     atDispatcher_->handleSerialCommand(cmd);
+}
+
+// ── Serial observability: centralized IEventLogger ────────────────────────────
+
+void FirmwareApp::setEventLogger(IEventLogger& logger) {
+    eventLogger_ = &logger;
+}
+
+void FirmwareApp::onClientConnected(const std::string& ip) {
+    clientIp_ = ip;
+    emitEvent("client_connected", "ip=" + ip);
+}
+
+void FirmwareApp::onAuthFailed(const std::string& ip) {
+    emitEvent("auth_fail", "ip=" + ip + " reason=bad_token");
+}
+
+void FirmwareApp::onClientDisconnected(const std::string& ip, int reason) {
+    clientIp_.clear();
+    emitEvent("client_disconnected", "ip=" + ip + " reason=" + std::to_string(reason));
+}
+
+std::string FirmwareApp::getDiscoveryCadence(uint32_t nowMs) const {
+    if (!discoveryManager_ || !discoveryEnabled_ || !discoveryStarted_) {
+        return "none";
+    }
+    const DiscoveryContext& ctx = discoveryManager_->getContext();
+    uint32_t ageMs = (nowMs > ctx.connectTimeMs) ? (nowMs - ctx.connectTimeMs) : 0;
+    uint32_t intervalMs = DiscoveryManager::discoveryIntervalMs(ageMs);
+    if (intervalMs >= 1000) {
+        return std::to_string(intervalMs / 1000) + "s";
+    }
+    return std::to_string(intervalMs) + "ms";
 }
 
 } // namespace esp32_firmware

@@ -64,6 +64,15 @@ public:
 
     void flush() override { client_.flush(); }
 
+    std::string remoteIP() const override {
+        // WiFiClient::remoteIP() returns an IPAddress; toString() yields "ipv4"
+        // or "ipv6". Returns empty string when the client is not connected.
+        if (!static_cast<bool>(client_) || !client_.connected()) {
+            return {};
+        }
+        return std::string(client_.remoteIP().toString().c_str());
+    }
+
 private:
     WiFiClient& client_;
 };

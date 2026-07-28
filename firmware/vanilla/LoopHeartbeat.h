@@ -25,7 +25,13 @@ public:
 
     // Advance the heartbeat. Returns true if the interval has elapsed since
     // the last tick (snapshot() is now valid), false otherwise.
-    bool tick(uint32_t nowMs, int wifiState, bool monitorActive);
+    // clientIp: remote IP of the connected TCP client, or empty for none.
+    // discoveryCadence: current discovery broadcast cadence (e.g. "500ms", "10s").
+    // ledPattern: current LED pattern enum value.
+    // Defaults preserve the pre-observability signature for existing callers.
+    bool tick(uint32_t nowMs, int wifiState, bool monitorActive,
+              const std::string& clientIp = "", const std::string& discoveryCadence = "none",
+              int ledPattern = 0);
 
     // Access the last formatted snapshot line. Valid only after tick() returned
     // true on the most recent call.
