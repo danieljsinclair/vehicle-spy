@@ -233,10 +233,7 @@ struct ContentView: View {
                         esp32: esp32,
                         isAutoConnected: viewModel.autoConnectedESP32?.address == esp32.address,
                         isConnected: viewModel.connectionState == .connected
-                            && viewModel.connectedDeviceAddress == esp32.canEndpointDescription,
-                        verificationState: viewModel.wifiSecurityPolicy.verificationState(for: esp32.deviceId),
-                        onConnect: { viewModel.connectToESP32(esp32) },
-                        onTrust: { viewModel.trustESP32(esp32) }
+                            && viewModel.connectedDeviceAddress == esp32.canEndpointDescription
                     )
                 }
             }
@@ -349,16 +346,21 @@ private struct ESP32DeviceRow: View {
     let esp32: DiscoveredESP32
     let isAutoConnected: Bool
     let isConnected: Bool
-    let verificationState: DeviceVerificationState
-    let onConnect: () -> Void
-    let onTrust: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("ESP32")
                     .fontWeight(.medium)
-                verificationBadge
+                // Yellow "untrusted" badge — green "Trusted" is deferred to
+                // when Ed25519 discovery signing is added (SPEC §6).
+                Text("UNTRUSTED")
+                    .font(.caption2)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.yellow.opacity(0.3))
+                    .foregroundColor(.primary)
+                    .cornerRadius(3)
                 if isAutoConnected {
                     Text("AUTO")
                         .font(.caption2)
@@ -375,72 +377,16 @@ private struct ESP32DeviceRow: View {
                         .padding(.vertical, 1)
                         .background(Color.blue.opacity(0.2))
                         .cornerRadius(3)
-                } else if verificationState == .rejected {
-                    Text("REJECTED")
-                        .font(.caption2)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(Color.red.opacity(0.2))
-                        .cornerRadius(3)
                 }
             }
             Text(esp32.canEndpointDescription)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundColor(.secondary)
-            HStack {
-                Text("Discovered: \(esp32.receivedAt, formatter: timeFormatter)")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                Spacer()
-                if !isConnected && verificationState == .unverified {
-                    Button("Trust", action: onTrust)
-                        .font(.caption)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-                if !isConnected && (verificationState == .verified || verificationState == .userTrusted) {
-                    Button("Connect", action: onConnect)
-                        .font(.caption)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                }
-            }
+            Text("Discovered: \(esp32.receivedAt, formatter: timeFormatter)")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
         .padding(.vertical, 2)
-    }
-
-    @ViewBuilder
-    private var verificationBadge: some View {
-        switch verificationState {
-        case .verified:
-            Text("VERIFIED")
-                .font(.caption2)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(Color.green.opacity(0.2))
-                .cornerRadius(3)
-        case .rejected:
-            Text("UNTRUSTED")
-                .font(.caption2)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(Color.red.opacity(0.2))
-                .cornerRadius(3)
-        case .userTrusted:
-            Text("TRUSTED")
-                .font(.caption2)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(Color.orange.opacity(0.2))
-                .cornerRadius(3)
-        case .unverified:
-            Text("?")
-                .font(.caption2)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(Color.yellow.opacity(0.2))
-                .cornerRadius(3)
-        }
     }
 }
 

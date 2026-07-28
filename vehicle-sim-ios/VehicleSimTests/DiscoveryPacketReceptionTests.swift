@@ -273,11 +273,15 @@ final class DiscoveryPacketReceptionTests: XCTestCase {
     /// synchronous state transition on the background queue, not observable as
     /// a stable intermediate state from the main thread).
     func testAutoConnectOnFirstVerifiedDiscovery_ConnectionStateBecomesConnected() throws {
+        // Clear UserDefaults BEFORE creating the view model so lastConnectedDeviceId
+        // is not loaded from a prior test's stored value.
+        UserDefaults.standard.removeObject(forKey: "connectionMode")
+        UserDefaults.standard.removeObject(forKey: "lastConnectedDeviceId")
+
         let mockWrapper = MockVehicleSimWrapper()
         mockWrapper.connectToDeviceResult = true  // wrapper.connect succeeds immediately
         let viewModel = VehicleViewModel(wrapper: mockWrapper)
 
-        UserDefaults.standard.removeObject(forKey: "connectionMode")
         viewModel.connectionMode = .wifi
 
         // Permissive policy so allowConnection doesn't throw (device is

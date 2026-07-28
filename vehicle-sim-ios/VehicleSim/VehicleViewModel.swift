@@ -40,6 +40,11 @@ class VehicleViewModel: ObservableObject {
     @Published var esp32DiscoveryError: String?
     @Published var autoConnectedESP32: DiscoveredESP32?
 
+    // MARK: - Remembered Device
+    /// The last-connected device's 16-byte deviceId, persisted in UserDefaults.
+    /// On launch, if this device is discovered, auto-reconnect to it preferentially.
+    private var lastConnectedDeviceId: Data?
+
     // MARK: - WiFi Security
     @Published var wifiSecurityPolicy: WiFiSecurityPolicy = WiFiSecurityPolicy()
     @Published var wifiSecurityError: String?
@@ -102,6 +107,7 @@ class VehicleViewModel: ObservableObject {
         let savedMode = UserDefaults.standard.string(forKey: "connectionMode") ?? ""
         self.connectionMode = ConnectionMode(rawValue: savedMode) ?? .ble
         self.wrapper = wrapper ?? VehicleSimWrapper()
+        self.lastConnectedDeviceId = UserDefaults.standard.data(forKey: "lastConnectedDeviceId")
 
         // Subscribe to app lifecycle notifications
         NotificationCenter.default.publisher(for: .resumeDiscovery)
@@ -297,7 +303,14 @@ class VehicleViewModel: ObservableObject {
     // MARK: - ESP32 Discovery (WiFi mode)
 
     func startESP32Discovery() {
-        guard !isESP32DiscoveryActive else { return }
+        // Explicitly stop any existing listener before creating a new one.
+        // This fixes the mode-flip state-restart bug: if isESP32DiscoveryActive
+        // is stale (true but listener is nil or cancelled), the old guard
+        // `guard !isESP32DiscoveryActive else { return }` would skip re-creation.
+        // By always stopping first, we guarantee a clean slate.
+        if discoveryListener != nil || isESP32DiscoveryActive {
+            stopESP32Discovery()
+        }
 
         discoveredESP32s = []
         esp32DiscoveryError = nil
@@ -321,19 +334,25 @@ class VehicleViewModel: ObservableObject {
                     self.discoveredESP32s.append(discovered)
                 }
 
-                // Auto-connect on first verified discovery if in WiFi mode and not already connected
+                // Auto-connect on discovery if in WiFi mode and not already connected.
+                // No trust gate — connect immediately per SPEC §6 (unsigned is fine for now).
+                //
+                // Preference: if a remembered deviceId exists (from a prior session),
+                // only auto-connect when the remembered device is discovered. If no
+                // remembered device exists, auto-connect to the first discovered device.
                 if self.connectionMode == .wifi
                     && self.connectionState == .disconnected
                     && self.autoConnectedESP32 == nil
                 {
-                    // Check security policy before auto-connecting
-                    do {
-                        try self.wifiSecurityPolicy.allowConnection(discovered: discovered)
+                    let isRememberedDevice = self.lastConnectedDeviceId != nil
+                        && discovered.deviceId == self.lastConnectedDeviceId
+                    let hasNoRememberedDevice = self.lastConnectedDeviceId == nil
+
+                    if isRememberedDevice || hasNoRememberedDevice {
                         self.autoConnect(to: discovered)
-                    } catch {
-                        // Device not verified -- do not auto-connect
-                        self.wifiSecurityError = error.localizedDescription
                     }
+                    // If there IS a remembered device but this discovery doesn't match it,
+                    // we wait — the remembered device may appear on the next broadcast.
                 }
             },
             onError: { [weak self] error in
@@ -451,7 +470,7 @@ class VehicleViewModel: ObservableObject {
         }
     }
 
-    private func autoConnect(to esp32: DiscoveredESP32) {
+    func autoConnect(to esp32: DiscoveredESP32) {
         autoConnectedESP32 = esp32
         initiateESP32Connection(esp32)
     }
@@ -508,6 +527,9 @@ class VehicleViewModel: ObservableObject {
                             self.connectionStatus = "Connected to ESP32" + self.clientTag
                         }
                         self.autoConnectedESP32 = targetDevice
+                        // Remember the device's 16-byte deviceId for auto-reconnect on next session.
+                        self.lastConnectedDeviceId = targetDevice.deviceId
+                        UserDefaults.standard.set(targetDevice.deviceId, forKey: "lastConnectedDeviceId")
                         self.startPolling()
                         // Discovery remains stopped when successfully connected
                     }
