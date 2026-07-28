@@ -138,18 +138,20 @@ TEST(DiscoveryPacketTest, SignatureFieldZeroedWhenUnsigned) {
 
 // ── discoveryIntervalMs backoff schedule ───────────────────────────────────────
 
-TEST(DiscoveryIntervalTest, FastWithinFirstMinute) {
+TEST(DiscoveryIntervalTest, RapidWithinFirstTwoMinutes) {
     EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(0),
               DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(59999),
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(90000),
+              DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(119999),
               DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
 }
 
-TEST(DiscoveryIntervalTest, OneToFiveMinutes) {
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(60000),
-              DiscoveryConfig::DISCOVERY_INTERVAL_1_5_MIN_MS);
+TEST(DiscoveryIntervalTest, TwoToFiveMinutes) {
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(120000),
+              DiscoveryConfig::DISCOVERY_INTERVAL_2_5_MIN_MS);
     EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(299999),
-              DiscoveryConfig::DISCOVERY_INTERVAL_1_5_MIN_MS);
+              DiscoveryConfig::DISCOVERY_INTERVAL_2_5_MIN_MS);
 }
 
 TEST(DiscoveryIntervalTest, FiveToTenMinutes) {
@@ -159,22 +161,10 @@ TEST(DiscoveryIntervalTest, FiveToTenMinutes) {
               DiscoveryConfig::DISCOVERY_INTERVAL_5_10_MIN_MS);
 }
 
-TEST(DiscoveryIntervalTest, TenToFifteenMinutes) {
+TEST(DiscoveryIntervalTest, BeyondTenMinutesHardCap) {
     EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(600000),
-              DiscoveryConfig::DISCOVERY_INTERVAL_10_15_MIN_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(899999),
-              DiscoveryConfig::DISCOVERY_INTERVAL_10_15_MIN_MS);
-}
-
-TEST(DiscoveryIntervalTest, FifteenToThirtyMinutes) {
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(900000),
-              DiscoveryConfig::DISCOVERY_INTERVAL_15_30_MIN_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(1799999),
-              DiscoveryConfig::DISCOVERY_INTERVAL_15_30_MIN_MS);
-}
-
-TEST(DiscoveryIntervalTest, BeyondThirtyMinutesSlow) {
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(1800000),
+              DiscoveryConfig::DISCOVERY_INTERVAL_SLOW_MS);
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(720000),
               DiscoveryConfig::DISCOVERY_INTERVAL_SLOW_MS);
     EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(999999999),
               DiscoveryConfig::DISCOVERY_INTERVAL_SLOW_MS);

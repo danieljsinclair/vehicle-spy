@@ -247,6 +247,11 @@ private:
     bool discoveryEnabled_ = true;
     bool clientConnected_ = false;
 
+    // Last interval at which we emitted a discovery_broadcast [EVENT]. Used to
+    // throttle the event to once per cadence-tier change rather than every
+    // broadcast (which floods at the 500ms rapid tier).
+    uint32_t lastBroadcastEventIntervalMs_ = 0;
+
     // Serial quiet-window (millis()-based ms). Set from the .ino via
     // setSerialQuietUntilMs(); read by processCanFrames(). Promoted from a
     // mutable .ino global to clear cpp:S5421 (global variables should be const).

@@ -112,17 +112,20 @@ TEST_F(DiscoveryManagerTest, Init_StartsUDP) {
     EXPECT_EQ(udpMock.beginPort, DiscoveryConfig::DISCOVERY_PORT);
 }
 
-TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_FastPeriod) {
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(0), DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(30000), DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(59999), DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
+TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_RapidPeriod_0_2Min) {
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(0),
+              DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(90000),
+              DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(119999),
+              DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS);
 }
 
-TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_1_5MinPeriod) {
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_1_MIN_MS),
-              DiscoveryConfig::DISCOVERY_INTERVAL_1_5_MIN_MS);
+TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_2_5MinPeriod) {
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_2_MIN_MS),
+              DiscoveryConfig::DISCOVERY_INTERVAL_2_5_MIN_MS);
     EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_5_MIN_MS - 1),
-              DiscoveryConfig::DISCOVERY_INTERVAL_1_5_MIN_MS);
+              DiscoveryConfig::DISCOVERY_INTERVAL_2_5_MIN_MS);
 }
 
 TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_5_10MinPeriod) {
@@ -132,24 +135,10 @@ TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_5_10MinPeriod) {
               DiscoveryConfig::DISCOVERY_INTERVAL_5_10_MIN_MS);
 }
 
-TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_10_15MinPeriod) {
+TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_SlowPeriod_GreaterThan10Min) {
     EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_10_MIN_MS),
-              DiscoveryConfig::DISCOVERY_INTERVAL_10_15_MIN_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_15_MIN_MS - 1),
-              DiscoveryConfig::DISCOVERY_INTERVAL_10_15_MIN_MS);
-}
-
-TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_15_30MinPeriod) {
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_15_MIN_MS),
-              DiscoveryConfig::DISCOVERY_INTERVAL_15_30_MIN_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_30_MIN_MS - 1),
-              DiscoveryConfig::DISCOVERY_INTERVAL_15_30_MIN_MS);
-}
-
-TEST_F(DiscoveryManagerTest, DiscoveryIntervalMs_SlowPeriod) {
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_30_MIN_MS),
               DiscoveryConfig::DISCOVERY_INTERVAL_SLOW_MS);
-    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(DiscoveryConfig::DISCOVERY_AGE_30_MIN_MS + 100000),
+    EXPECT_EQ(DiscoveryManager::discoveryIntervalMs(720000),
               DiscoveryConfig::DISCOVERY_INTERVAL_SLOW_MS);
 }
 

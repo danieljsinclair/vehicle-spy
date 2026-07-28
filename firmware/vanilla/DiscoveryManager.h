@@ -17,19 +17,15 @@ struct DiscoveryConfig {
     static constexpr uint32_t TCP_PORT = 3333;
     static constexpr uint16_t OTA_HTTP_PORT = 80;
 
-    // Backoff schedule
+    // Backoff schedule (0-2min rapid, 2-5min 10s, 5-10min 30s, >10min 60s hard cap)
     static constexpr uint32_t DISCOVERY_INTERVAL_FAST_MS = 500;
-    static constexpr uint32_t DISCOVERY_INTERVAL_1_5_MIN_MS = 3000;
-    static constexpr uint32_t DISCOVERY_INTERVAL_5_10_MIN_MS = 6000;
-    static constexpr uint32_t DISCOVERY_INTERVAL_10_15_MIN_MS = 10000;
-    static constexpr uint32_t DISCOVERY_INTERVAL_15_30_MIN_MS = 30000;
+    static constexpr uint32_t DISCOVERY_INTERVAL_2_5_MIN_MS = 10000;
+    static constexpr uint32_t DISCOVERY_INTERVAL_5_10_MIN_MS = 30000;
     static constexpr uint32_t DISCOVERY_INTERVAL_SLOW_MS = 60000;
 
-    static constexpr uint32_t DISCOVERY_AGE_1_MIN_MS = 60000;
+    static constexpr uint32_t DISCOVERY_AGE_2_MIN_MS = 120000;
     static constexpr uint32_t DISCOVERY_AGE_5_MIN_MS = 300000;
     static constexpr uint32_t DISCOVERY_AGE_10_MIN_MS = 600000;
-    static constexpr uint32_t DISCOVERY_AGE_15_MIN_MS = 900000;
-    static constexpr uint32_t DISCOVERY_AGE_30_MIN_MS = 1800000;
 };
 
 // Discovery state

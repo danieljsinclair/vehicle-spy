@@ -103,18 +103,23 @@ void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
         if (callbacks_.broadcastDiscovery) {
             callbacks_.broadcastDiscovery();
         }
-        // Emit [EVENT] discovery_broadcast with current cadence + count.
-        // lastBroadcastMs was just set by update() before broadcast() was called.
+        // Emit [EVENT] discovery_broadcast only when the cadence tier changes.
+        // The per-tick [STATE] line already shows disc=<cadence>, so per-broadcast
+        // events are redundant at the rapid 500ms tier. Throttling to tier-change
+        // keeps the serial log informative without flooding it.
         const DiscoveryContext& ctx = discoveryManager_->getContext();
         uint32_t ageMs = (ctx.lastBroadcastMs > ctx.connectTimeMs)
                              ? (ctx.lastBroadcastMs - ctx.connectTimeMs)
                              : 0;
         uint32_t intervalMs = DiscoveryManager::discoveryIntervalMs(ageMs);
-        std::string cadence = (intervalMs >= 1000)
-            ? std::to_string(intervalMs / 1000) + "s"
-            : std::to_string(intervalMs) + "ms";
-        emitEvent("discovery_broadcast",
-                  "cadence=" + cadence + " n=" + std::to_string(discoveryManager_->broadcastCount()));
+        if (intervalMs != lastBroadcastEventIntervalMs_) {
+            lastBroadcastEventIntervalMs_ = intervalMs;
+            std::string cadence = (intervalMs >= 1000)
+                ? std::to_string(intervalMs / 1000) + "s"
+                : std::to_string(intervalMs) + "ms";
+            emitEvent("discovery_broadcast",
+                      "cadence=" + cadence + " n=" + std::to_string(discoveryManager_->broadcastCount()));
+        }
     });
 
     // CanBridge: construction only wires the injected ICanDriver/ITcpClient/

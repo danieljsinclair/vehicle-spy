@@ -125,20 +125,47 @@ TEST_F(FirmwareAppSerialObservabilityTest, ClientDisconnected_EmitsEventWithIpAn
 // §6  [EVENT] discovery_broadcast — emitted when DiscoveryManager sends a packet
 // ══════════════════════════════════════════════════════════════════════════════
 
-TEST_F(FirmwareAppSerialObservabilityTest, DiscoveryBroadcast_EmitsEventWithCadenceAndCount) {
+TEST_F(FirmwareAppSerialObservabilityTest, DiscoveryBroadcast_EmitsEventOnFirstTierOnly) {
     initWithLogger();
 
-    // Drive update() ticks to trigger a discovery broadcast (initial cadence
-    // is 500ms, so a tick at t=1000 should fire).
+    // Drive update() ticks to trigger discovery broadcasts. The first broadcast
+    // in a cadence tier emits discovery_broadcast; subsequent broadcasts in the
+    // same tier are throttled (no per-broadcast flood at 500ms rapid cadence).
     EXPECT_CALL(udpMock, begin(_)).Times(AtLeast(1));
     EXPECT_CALL(udpMock, beginPacket(_, _)).Times(AtLeast(1));
     EXPECT_CALL(udpMock, write(_, _)).Times(AtLeast(1));
     EXPECT_CALL(udpMock, endPacket()).Times(AtLeast(1));
 
+    // First broadcast in rapid tier (500ms) emits the event.
     EXPECT_CALL(eventLoggerMock,
                 logEvent("discovery_broadcast", HasSubstr("cadence=")));
     firmwareApp->update(0);
     firmwareApp->update(1000);
+
+    // Subsequent broadcast in the same rapid tier does NOT re-emit.
+    EXPECT_CALL(eventLoggerMock, logEvent("discovery_broadcast", _)).Times(0);
+    firmwareApp->update(1600);
+}
+
+TEST_F(FirmwareAppSerialObservabilityTest, DiscoveryBroadcast_EmitsOnTierChange) {
+    initWithLogger();
+
+    // First broadcast at rapid tier (age < 2min) emits the event.
+    EXPECT_CALL(eventLoggerMock,
+                logEvent("discovery_broadcast", HasSubstr("cadence=500ms")));
+    firmwareApp->update(0);
+    firmwareApp->update(1000);
+
+    // Advance past the 2min boundary (next tier = 10s). A broadcast after the
+    // tier change should emit a new discovery_broadcast event.
+    EXPECT_CALL(eventLoggerMock,
+                logEvent("discovery_broadcast", HasSubstr("cadence=10s")));
+    // Directly drive DiscoveryManager to a post-2min age. The fast interval is
+    // 500ms, so we need to advance enough for at least one broadcast to fire
+    // after the tier boundary (connectTime was set at init, now ~0; age 130000
+    // is past 2min; interval is 10s so we need now - connectTime >= 10s for
+    // the broadcast gate to fire). Use a large enough delta.
+    firmwareApp->update(15000);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

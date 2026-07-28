@@ -88,16 +88,12 @@ void DiscoveryManager::broadcast() {
 // Testable pure functions
 
 uint32_t DiscoveryManager::discoveryIntervalMs(uint32_t ageMs) {
-    if (ageMs < DiscoveryConfig::DISCOVERY_AGE_1_MIN_MS) {
+    if (ageMs < DiscoveryConfig::DISCOVERY_AGE_2_MIN_MS) {
         return DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS;
     } else if (ageMs < DiscoveryConfig::DISCOVERY_AGE_5_MIN_MS) {
-        return DiscoveryConfig::DISCOVERY_INTERVAL_1_5_MIN_MS;
+        return DiscoveryConfig::DISCOVERY_INTERVAL_2_5_MIN_MS;
     } else if (ageMs < DiscoveryConfig::DISCOVERY_AGE_10_MIN_MS) {
         return DiscoveryConfig::DISCOVERY_INTERVAL_5_10_MIN_MS;
-    } else if (ageMs < DiscoveryConfig::DISCOVERY_AGE_15_MIN_MS) {
-        return DiscoveryConfig::DISCOVERY_INTERVAL_10_15_MIN_MS;
-    } else if (ageMs < DiscoveryConfig::DISCOVERY_AGE_30_MIN_MS) {
-        return DiscoveryConfig::DISCOVERY_INTERVAL_15_30_MIN_MS;
     } else {
         return DiscoveryConfig::DISCOVERY_INTERVAL_SLOW_MS;
     }
