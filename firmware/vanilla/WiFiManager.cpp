@@ -245,8 +245,10 @@ void WiFiManager::onDisconnected(int reason) {
     //
     // Transient session/assoc lifecycle reasons that are RECOVERABLE by a fresh
     // reconnect — AUTH_EXPIRE(2), AUTH_LEAVE(3), BEACON_TIMEOUT(200),
-    // ASSOC_EXPIRE(4), reason=0/4/204 etc. — fall through to WIFI_CONNECTING
-    // below so the stack re-associates instead of abandoning STA for AP mode.
+    // ASSOC_EXPIRE(4), CIPHER_SUITE_REJECTED(24), reason=0/4/204 etc. — fall
+    // through to WIFI_CONNECTING below so the stack re-associates instead of
+    // abandoning STA for AP mode. CIPHER_SUITE_REJECTED is recoverable: the
+    // router may change its cipher config (reboot/firmware update), so retry STA.
     if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
         reason == WIFI_REASON_802_1X_AUTH_FAILED ||
         reason == WIFI_REASON_AUTH_FAIL) {

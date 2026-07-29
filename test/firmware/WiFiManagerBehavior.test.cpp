@@ -534,12 +534,14 @@ TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutGoesToApMode) {
     EXPECT_FALSE(h.mgr->shouldRestartTcpServer());
 }
 
-// The four permanent, unrecoverable auth failures (AUTH_FAIL=202,
-// 802_1X_AUTH_FAILED=21, CIPHER_SUITE_REJECTED=22, 4WAY_HANDSHAKE_TIMEOUT=13)
-// must each bail straight to AP mode with the TCP restart flag cleared.
+// The three permanent, unrecoverable auth failures (AUTH_FAIL=202,
+// 802_1X_AUTH_FAILED=23, 4WAY_HANDSHAKE_TIMEOUT=15) must each bail straight to
+// AP mode with the TCP restart flag cleared. CIPHER_SUITE_REJECTED(24) is NOT
+// here — it is a cipher-negotiation/config mismatch, not a credential rejection,
+// so it is recoverable (the router may change config) and stays in the
+// recoverable STA-retry set (see RecoverableAuthDisconnect_ReconnectsAndReArmsTcpFlag).
 TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresGoToApMode) {
     for (int reason : {WIFI_REASON_AUTH_FAIL, WIFI_REASON_802_1X_AUTH_FAILED,
-                       WIFI_REASON_CIPHER_SUITE_REJECTED,
                        WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT}) {
         Harness h;
         h.prefs.ssid = "net"; h.prefs.pass = "pw";
