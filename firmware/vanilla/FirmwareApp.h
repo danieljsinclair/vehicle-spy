@@ -21,6 +21,7 @@
 #include "CanBridge.h"
 #include "AtCommandDispatcher.h"  // owns AtCommandDispatcher + the ITcpClientAt/ISerialAt/IEspAt/IWifiCredentialStore/IMonitorState AT boundaries
 #include "ITcpServer.h"           // ITcpHostCallbacks (TcpServerManager delegation seam)
+#include "IClientConnectionSource.h" // IClientConnectionSource (client connection seam)
 #include "FactoryResetCheck.h"    // ICredentialClear (factory-reset credential boundary)
 #include "ISerialEventLogger.h"   // IEventLogger (centralized observability)
 
@@ -75,12 +76,16 @@ public:
     // - timeNtp: time interface for NTP sync (ArduinoTimeNtp or mock)
     // - deviceId: 16-byte device ID for discovery packets
     // - canBridgeDeps: adapters wiring CanBridge to hardware (CAN/TCP/Serial)
+    // - clientConnectionSource: queries whether a TCP client is adopted by
+    //   TcpServerManager (eliminates the global-WiFiClient desync that fed
+    //   selectLedPattern with stale connection state)
     // - bakedSsid/bakedPass: optional compile-time WiFi credentials
     FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
                 IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
                 ISntp& sntp, ITimeNtp& timeNtp,
                 const std::array<uint8_t, 16>& deviceId,
                 const CanBridgeDeps& canBridgeDeps,
+                IClientConnectionSource& clientConnectionSource,
                 const char* bakedSsid = nullptr, const char* bakedPass = nullptr);
 
     ~FirmwareApp();
@@ -187,7 +192,6 @@ public:
     // performs the send via the injected ArduinoUdp adapter); the broadcast
     // callback remains a post-send firmware-effect hook (e.g. LED pulse).
     void setDiscoveryEnabled(bool enabled);
-    void setClientConnected(bool connected);
     // ITcpHostCallbacks: TcpServerManager resets the discovery backoff timer on
     // buddy-disconnect so a new buddy is welcomed promptly.
     void resetDiscoveryBackoff() override;
@@ -215,6 +219,7 @@ private:
     IWiFi& wifi_;
     IStatusLED& statusLed_;
     CanBridgeDeps canBridgeDeps_;
+    IClientConnectionSource& clientConnectionSource_;
     const char* bakedSsid_;
     const char* bakedPass_;
 
@@ -270,7 +275,6 @@ private:
     struct DiscoveryState {
         bool started = false;
         bool enabled = true;
-        bool clientConnected = false;
         uint32_t lastBroadcastEventIntervalMs = 0;
     };
     struct ObservabilityState {

@@ -6,10 +6,12 @@
 //
 // accept() does the .ino-global sync: WiFiServer::accept() returns a WiFiClient
 // by value; if it's a real connection, the adapter assigns it into the .ino's
-// global `client` (the single connection truth source that ArduinoTcpClient +
-// firmwareApp.setClientConnected read) and returns an ArduinoTcpServerClient
-// wrapping that global by reference. This keeps the manager's lifecycle and the
-// .ino's connection-state readers in sync (one underlying socket, one truth).
+// global `client` (the single connection truth source that ArduinoTcpClient
+// reads) and returns an ArduinoTcpServerClient wrapping that global by
+// reference. This keeps the manager's lifecycle and the .ino's connection-state
+// readers in sync (one underlying socket, one truth). FirmwareApp queries the
+// client-adoption state via IClientConnectionSource (TcpManagerConnectionSource
+// over TcpServerManager::hasClient()), not via the global WiFiClient.
 //
 // Production implementation used in the .ino. Host tests use the mock in
 // TcpServerManager_test.cpp. Only #included by can-bridge.ino (device-only), so
@@ -39,9 +41,10 @@ public:
         if (!next) {
             return nullptr;  // no pending connection
         }
-        // Adopt into the global slot so ArduinoTcpClient/setClientConnected see
-        // the new connection. If an old socket is still here, assigning replaces
-        // it (the prior WiFiClient destructor closes it).
+        // Adopt into the global slot so ArduinoTcpClient sees the new connection.
+        // If an old socket is still here, assigning replaces it (the prior
+        // WiFiClient destructor closes it). FirmwareApp queries the adoption
+        // state via IClientConnectionSource (TcpServerManager::hasClient()).
         client_ = next;
         return std::make_unique<ArduinoTcpServerClient>(client_);
     }

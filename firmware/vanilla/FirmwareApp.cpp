@@ -15,10 +15,12 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
                          ISntp& sntp, ITimeNtp& timeNtp,
                          const std::array<uint8_t, 16>& deviceId,
                          const CanBridgeDeps& canBridgeDeps,
+                         IClientConnectionSource& clientConnectionSource,
                          const char* bakedSsid, const char* bakedPass)
     : wifi_(wifi)
     , statusLed_(statusLed)
     , canBridgeDeps_(canBridgeDeps)
+    , clientConnectionSource_(clientConnectionSource)
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
     , initialized_(false)
@@ -188,10 +190,13 @@ void FirmwareApp::update(uint32_t now) {
     // FirmwareApp is the sole caller of setPattern() each tick. selectLedPattern
     // is a pure function of (wifiState, clientConnected) — this kills the race
     // between WiFiManager and TcpServerManager that caused last-writer-wins LED
-    // behaviour. discovery_.clientConnected is set by the .ino via setClientConnected()
-    // before this update() call.
+    // behaviour. clientConnectionSource_ queries TcpServerManager::hasClient()
+    // (the manager's own view of whether a client is adopted), eliminating the
+    // desync where the global WiFiClient reported disconnected while the manager
+    // still held a client.
+    const bool clientConnected = clientConnectionSource_.isClientConnected();
     observability_.lastLedPattern = static_cast<int>(firmware::StatusLED::selectLedPattern(
-        static_cast<int>(wifiManager_->getState()), discovery_.clientConnected));
+        static_cast<int>(wifiManager_->getState()), clientConnected));
     statusLed_.setPattern(observability_.lastLedPattern);
 
     // Drive NTP start from the first loop tick AFTER WiFi reports connected.
@@ -208,7 +213,7 @@ void FirmwareApp::update(uint32_t now) {
     // the WiFi mode internally); it opens/uses the UDP socket only after
     // discoveryManager_->init() ran above. When discovery is disabled this is a no-op.
     if (discoveryManager_ && discovery_.enabled) {
-        discoveryManager_->update(now, discovery_.clientConnected);
+        discoveryManager_->update(now, clientConnected);
     }
 
     // Update LED pattern animation every tick
@@ -219,10 +224,6 @@ void FirmwareApp::update(uint32_t now) {
 
 void FirmwareApp::setDiscoveryEnabled(bool enabled) {
     discovery_.enabled = enabled;
-}
-
-void FirmwareApp::setClientConnected(bool connected) {
-    discovery_.clientConnected = connected;
 }
 
 void FirmwareApp::resetDiscoveryBackoff() {

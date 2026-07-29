@@ -67,6 +67,12 @@ public:
     // available for [EVENT] emission regardless of auth result.
     std::string getClientIp() const { return clientIp_; }
 
+    // True if a client is currently adopted (current_ is non-null). This is the
+    // manager's own view of connection state — used by IClientConnectionSource
+    // to feed selectLedPattern, eliminating the desync where the global
+    // WiFiClient reports disconnected while the manager still holds a client.
+    bool hasClient() const { return current_ != nullptr; }
+
     // ── Lifecycle hooks ──────────────────────────────────────────────────────
     // start()/stop() are reserved for setup/shutdown + IP-change bring-down.
     // Currently no-op: the listening socket's begin/end are hardware side

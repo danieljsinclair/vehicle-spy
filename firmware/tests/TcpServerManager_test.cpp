@@ -160,9 +160,9 @@ TEST_F(TcpServerManagerTest, IsValidAuthToken_CaseSensitive) {
 // §2  ACCEPT — accept() yields a client whose first readLine is a valid AUTH.
 //    Expected: println("OK"), setMonitorActive(false).
 //    LED pattern is NOT set here — it is owned by FirmwareApp via
-//    selectLedPattern(wifiState, clientConnected). The .ino's
-//    setClientConnected() + FirmwareApp::update() will show CLIENT_CONNECTED
-//    on the next loop tick.
+//    selectLedPattern(wifiState, clientConnected). FirmwareApp::update()
+//    queries IClientConnectionSource (TcpServerManager::hasClient()) and will
+//    show CLIENT_CONNECTED on the next loop tick.
 // ════════════════════════════════════════════════════════════════════════════
 
 TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_PrintsOkAndClearsMonitor) {
@@ -252,8 +252,9 @@ TEST_F(TcpServerManagerTest, Cycle_AuthenticatedClientWithCommand_ForwardsToHost
 // §6  DISCONNECT cleanup — client drops while monitor was active.
 //    Expected: setMonitorActive(false), resetDiscoveryBackoff().
 //    LED pattern is NOT set here — owned by FirmwareApp via selectLedPattern.
-//    The .ino's setClientConnected() + FirmwareApp::update() will select the
-//    correct wifi-state pattern on the next loop tick.
+//    IClientConnectionSource (TcpServerManager::hasClient()) will report
+//    clientConnected=false, and FirmwareApp::update() will select the correct
+//    wifi-state pattern on the next loop tick.
 // ════════════════════════════════════════════════════════════════════════════
 
 TEST_F(TcpServerManagerTest, Cycle_ClientDropsWhileConnectedSta_CleansUpMonitor) {

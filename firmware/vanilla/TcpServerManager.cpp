@@ -72,8 +72,9 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
             current_->println("OK");
             current_->flush();
             // LED pattern is now owned by FirmwareApp via selectLedPattern.
-            // The .ino's setClientConnected() + FirmwareApp::update() will show
-            // CLIENT_CONNECTED on the next loop tick (clientConnected=true).
+            // FirmwareApp::update() queries IClientConnectionSource (backed by
+            // TcpServerManager::hasClient()) and will show CLIENT_CONNECTED on
+            // the next loop tick (clientConnected=true).
             host_.onClientConnected(clientIp_);
         } else {
             current_->println("ERROR unauthorized");
@@ -110,9 +111,10 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         host_.onClientDisconnected(clientIp_, 0);
 
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
-        // The .ino's setClientConnected() will report clientConnected=false on
-        // the next loop tick, and FirmwareApp::update() will select the correct
-        // wifi-state pattern (e.g. WIFI_CONNECTED for WIFI_CONNECTED).
+        // IClientConnectionSource (backed by TcpServerManager::hasClient())
+        // will report clientConnected=false on the next loop tick, and
+        // FirmwareApp::update() will select the correct wifi-state pattern
+        // (e.g. WIFI_CONNECTED for WIFI_CONNECTED).
         current_.reset();
         clientIp_.clear();
     }

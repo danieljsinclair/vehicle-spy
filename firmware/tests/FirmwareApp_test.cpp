@@ -6,6 +6,7 @@
 // can reuse them.
 
 #include "FirmwareApp_test_fixture.h"
+#include "vanilla/StatusLED.h"     // firmware::StatusLED::Pattern
 
 using namespace esp32_firmware;
 using namespace esp32_firmware::firmwareapp_test;
@@ -20,7 +21,8 @@ TEST_F(FirmwareAppTest, Ctor_DoesNotThrow) {
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
-                       testDeviceId, canDeps);
+                       testDeviceId, canDeps,
+                       clientConnSourceMock);
     });
 }
 
@@ -30,7 +32,8 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_DoesNotThrow) {
         FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
-                       testDeviceId, canDeps, "test-ssid", "test-pass");
+                       testDeviceId, canDeps,
+                       clientConnSourceMock, "test-ssid", "test-pass");
     });
 }
 
@@ -198,8 +201,8 @@ TEST_F(FirmwareAppTest, Update_ClientConnected_StillBroadcasts) {
     // discoverable. Previously: suppress entirely when haveClient. That hid the
     // device once any client connected AND masked a stuck-haveClient state where
     // discovery silently stopped. The time-based backoff slows the cadence; no
-    // full suppress. (setClientConnected still feeds the live state for future
-    // backed-off-when-connected refinement.)
+    // full suppress. The client connection state is now queried via
+    // IClientConnectionSource (injected mock) instead of setClientConnected().
     firmwareApp->setCallbacks(callbackSpies);
     firmwareApp->init();
     EXPECT_CALL(udpMock, begin(_)).Times(AtLeast(1));  // socket opens on first tick
@@ -207,7 +210,8 @@ TEST_F(FirmwareAppTest, Update_ClientConnected_StillBroadcasts) {
     EXPECT_CALL(udpMock, write(_, _)).Times(AtLeast(1));
     EXPECT_CALL(udpMock, endPacket()).Times(AtLeast(1));
 
-    firmwareApp->setClientConnected(true);
+    // Inject "client connected" via the IClientConnectionSource seam.
+    ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(true));
     firmwareApp->update(0);
     firmwareApp->update(1000);
 
@@ -323,7 +327,8 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_HasStoredReturnsFalse) {
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
-                   testDeviceId, canDeps, "baked-ssid", "baked-pass");
+                   testDeviceId, canDeps,
+                   clientConnSourceMock, "baked-ssid", "baked-pass");
     app.init();
 
     EXPECT_FALSE(app.hasStoredCredentials());
@@ -334,7 +339,8 @@ TEST_F(FirmwareAppTest, StoreCredentials_OverridesBaked_WhenStored) {
     FirmwareApp app(wifiMock, prefsMock, statusLedMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
-                   testDeviceId, canDeps, "baked-ssid", "baked-pass");
+                   testDeviceId, canDeps,
+                   clientConnSourceMock, "baked-ssid", "baked-pass");
     app.init();
 
     app.storeCredentials("stored-ssid", "stored-pass");
@@ -704,4 +710,79 @@ TEST_F(FirmwareAppTest, AtCommand_Atreboot_NoExtraClientFlushBeforeRestart) {
     EXPECT_EQ(esp.restartCalls, 1);
     EXPECT_EQ(tcp.flushCalls, 1);
     EXPECT_EQ(tcp.lastPrinted, "REBOOT\r\r>");
+}
+
+// ============================================================================
+// CLIENT WIRING INVESTIGATION (Commit 5: #3)
+//
+// Proves that FirmwareApp queries IClientConnectionSource::isClientConnected()
+// (not the global WiFiClient's connected()) and feeds the result into
+// StatusLED::selectLedPattern(wifiState, clientConnected).
+//
+// The divergence: the .ino previously called setClientConnected() from the
+// global WiFiClient's connected() state. When TcpServerManager stops the old
+// client (on a new arrival or auth-fail), the global WiFiClient reports
+// disconnected even though the manager may still hold an adopted client —
+// feeding false into selectLedPattern → LED out + [STATE] no client.
+//
+// The fix: FirmwareApp now queries IClientConnectionSource (injected), which
+// the .ino backs with TcpManagerConnectionSource over TcpServerManager::hasClient().
+// ============================================================================
+
+TEST_F(FirmwareAppTest, ClientWiring_ClientConnected_ReachesSelectLedPattern) {
+    // CONTRACT: when IClientConnectionSource reports isClientConnected()==true,
+    // selectLedPattern receives clientConnected=true → CLIENT_CONNECTED pattern
+    // (regardless of WiFi state, per the priority rule).
+    firmwareApp->init();
+
+    // Simulate WiFi connected (so we're not in WIFI_SEARCHING).
+    wifiMock.simulateConnectSuccess();
+
+    // Inject "client connected" via the IClientConnectionSource seam.
+    ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(true));
+
+    // Expect setPattern to be called with CLIENT_CONNECTED (priority over WiFi state).
+    EXPECT_CALL(statusLedMock, setPattern(
+        static_cast<int>(firmware::StatusLED::Pattern::CLIENT_CONNECTED)))
+        .Times(1);
+
+    firmwareApp->update(5000);
+}
+
+TEST_F(FirmwareAppTest, ClientWiring_ClientDisconnected_ReachesSelectLedPattern) {
+    // CONTRACT: when IClientConnectionSource reports isClientConnected()==false,
+    // selectLedPattern receives clientConnected=false → pattern reflects WiFi state
+    // (WIFI_CONNECTED when WiFi is connected).
+    firmwareApp->init();
+
+    wifiMock.simulateConnectSuccess();
+
+    // Inject "no client connected" via the IClientConnectionSource seam.
+    ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(false));
+
+    // WiFi is connected, no client → WIFI_CONNECTED pattern.
+    EXPECT_CALL(statusLedMock, setPattern(
+        static_cast<int>(firmware::StatusLED::Pattern::WIFI_CONNECTED)))
+        .Times(1);
+
+    firmwareApp->update(5000);
+}
+
+TEST_F(FirmwareAppTest, ClientWiring_ClientConnectedOverridesWifiSearching) {
+    // CONTRACT: client-connected takes PRIORITY over WiFi state. Even when WiFi
+    // is DISCONNECTED (WIFI_SEARCHING), a connected client shows CLIENT_CONNECTED.
+    // This is the core divergence fix: the old global-WiFiClient path could report
+    // disconnected while the manager still held a client, dropping the LED to
+    // WIFI_SEARCHING erroneously.
+    firmwareApp->init();
+
+    // WiFi is NOT connected (disconnected at boot).
+    ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(true));
+
+    // Client connected + WiFi disconnected → CLIENT_CONNECTED (priority rule).
+    EXPECT_CALL(statusLedMock, setPattern(
+        static_cast<int>(firmware::StatusLED::Pattern::CLIENT_CONNECTED)))
+        .Times(1);
+
+    firmwareApp->update(1000);
 }

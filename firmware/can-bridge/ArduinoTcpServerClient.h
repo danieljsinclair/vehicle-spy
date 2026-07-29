@@ -5,10 +5,11 @@
 // ITcpServerClient interface used by TcpServerManager.
 //
 // The adapter holds a REFERENCE to the .ino's global WiFiClient (the single
-// connection truth source) so that ArduinoTcpClient + firmwareApp.setClientConnected
-// — which read the same global — stay in sync with the manager's lifecycle.
-// The manager owns the adapter (unique_ptr); it does NOT own the underlying
-// WiFiClient (the global does).
+// connection truth source) so that ArduinoTcpClient — which reads the same
+// global — stays in sync with the manager's lifecycle. The manager owns the
+// adapter (unique_ptr); it does NOT own the underlying WiFiClient (the global
+// does). FirmwareApp queries the client-adoption state via
+// IClientConnectionSource (TcpServerManager::hasClient()), not via this global.
 //
 // Production implementation used in the .ino. Host tests use the mock in
 // TcpServerManager_test.cpp. Only available when building for Arduino.

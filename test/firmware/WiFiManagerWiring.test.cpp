@@ -29,6 +29,7 @@
 
 #include <gtest/gtest.h>
 #include "firmware/vanilla/FirmwareApp.h"
+#include "firmware/vanilla/IClientConnectionSource.h"
 #include "firmware/vanilla/WiFiReasonCodes.h"
 
 #include <array>
@@ -117,6 +118,15 @@ public:
     void update(uint32_t) override {}
 };
 
+// Fake IClientConnectionSource: always reports no client connected.
+// The Stage-4 WiFi wiring tests do not exercise the TCP client path; they
+// only need FirmwareApp to construct and drive WiFiManager.
+class FakeClientConnectionSource : public IClientConnectionSource {
+public:
+    bool connected = false;
+    bool isClientConnected() const override { return connected; }
+};
+
 class FakeWiFiDiscovery : public IWiFiDiscovery {
 public:
     int mode = WIFI_STA;
@@ -199,6 +209,7 @@ struct WiringHarness {
     FakeWiFi wifi;
     FakePreferences prefs;
     FakeStatusLed led;
+    FakeClientConnectionSource clientConnSource;
     FakeWiFiDiscovery wifiDisc;
     FakeUdp udp;
     FakeTime time;
@@ -213,6 +224,7 @@ struct WiringHarness {
         app = std::make_unique<FirmwareApp>(
             wifi, prefs, led, wifiDisc, udp, time, sntp, timeNtp,
             kDeviceId, CanBridgeDeps{canDriver, tcpClient, serialCan},
+            clientConnSource,
             bakedSsid, bakedPass);
     }
 };

@@ -44,6 +44,7 @@
 // backed by firmwareApp. Inline TCP loop deleted (was loop() L634-696).
 #include "ITcpServer.h"
 #include "TcpServerManager.h"
+#include "TcpManagerConnectionSource.h"
 #include "ArduinoTcpServer.h"
 // ── SerialCommandFramer (Phase 2 extraction) ─────────────────────────────────────────
 // Vanilla serial line-framer (host-tested, 10 tests). Owns the CR/LF framing,
@@ -80,6 +81,7 @@ using esp32_firmware::ArduinoSntp;
 using esp32_firmware::ArduinoTimeNtp;
 using esp32_firmware::FirmwareApp;
 using esp32_firmware::TcpServerManager;
+using esp32_firmware::TcpManagerConnectionSource;
 using esp32_firmware::ArduinoTcpServer;
 using esp32_firmware::ITcpHostCallbacks;
 using esp32_firmware::SerialCommandFramer;
@@ -349,6 +351,7 @@ FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(),
                               timeAdapters().sntp, timeAdapters().timeNtp,
                               discoveryDeviceId(),
                               canAdapters().deps,
+                              clientConnectionSource(),
                               BAKED_SSID, BAKED_PASS);
 
 // cpp:S5421: was `static WiFiServer tcpServer(Constants::TCP_PORT);`. Function-
@@ -361,12 +364,32 @@ WiFiServer& tcpServer() { static WiFiServer inst(Constants::TCP_PORT); return in
 // FirmwareApp itself implements ITcpHostCallbacks, so the 4 out-of-SRP behaviours
 // (command dispatch, monitor flag, discovery backoff, WiFi state) are reached
 // directly — no forwarder adapter struct needed.
-static ArduinoTcpServer arduinoTcpServer(tcpServer(), client());
-// authToken is the bare token; the vanilla prepends "AUTH " when comparing
-// (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
-static TcpServerManager tcpManager(arduinoTcpServer,
-                                   std::string(TCP_AUTH_TOKEN),
-                                   firmwareApp);
+//
+// tcpManager() and clientConnectionSource() are function-local statics to break
+// the circular dependency: firmwareApp needs clientConnectionSource, which needs
+// tcpManager, which needs firmwareApp. The references are stored but NOT
+// dereferenced during construction (TcpServerManager only stores the ITcpHostCallbacks
+// ref; TcpManagerConnectionSource only stores the TcpServerManager ref). By the
+// time isClientConnected() is called in loop(), firmwareApp is fully constructed.
+ArduinoTcpServer& arduinoTcpServer() {
+    static ArduinoTcpServer inst(tcpServer(), client());
+    return inst;
+}
+TcpServerManager& tcpManager() {
+    // authToken is the bare token; the vanilla prepends "AUTH " when comparing
+    // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
+    static TcpServerManager inst(arduinoTcpServer(),
+                                 std::string(TCP_AUTH_TOKEN),
+                                 firmwareApp);
+    return inst;
+}
+// clientConnectionSource() wraps tcpManager() so FirmwareApp can query the
+// manager's own view of client adoption (eliminating the global-WiFiClient
+// desync that fed selectLedPattern with stale connection state).
+TcpManagerConnectionSource& clientConnectionSource() {
+    static TcpManagerConnectionSource inst(tcpManager());
+    return inst;
+}
 
 // ── NTP Sync ─────────────────────────────────────────────────────────────────────
 // NTP time is now owned entirely by FirmwareApp (owns NtpTimeSync + ArduinoSntp/
@@ -622,10 +645,11 @@ void loop() {
     }
 
     // ── Update FirmwareApp (drives WiFiManager + StatusLED + Discovery) ────────────
-    // Tell FirmwareApp the live TCP-client state so DiscoveryManager can suppress
-    // broadcasts while a buddy is connected. FirmwareApp.update() calls
-    // WiFiManager.update(), statusLed.update(), and DiscoveryManager.update().
-    firmwareApp.setClientConnected(client() && client().connected());
+    // FirmwareApp.update() calls WiFiManager.update(), statusLed.update(), and
+    // DiscoveryManager.update(). The live TCP-client state is queried via
+    // clientConnectionSource() (backed by TcpServerManager::hasClient()) inside
+    // update() — no longer fed from the global WiFiClient's connected() which
+    // desyncs from the manager's adopted-client view.
     firmwareApp.update(millis());
 
     // NOTE: statusLed.update() and discovery broadcast are now driven by
@@ -652,7 +676,7 @@ void loop() {
     // the single connection truth source (ArduinoTcpServer::accept assigns into
     // it), so
     // setClientConnected / ArduinoTcpClient above remain in sync.
-    tcpManager.cycle(static_cast<uint32_t>(millis()));
+    tcpManager().cycle(static_cast<uint32_t>(millis()));
 
     drainSerialATCommands();
 

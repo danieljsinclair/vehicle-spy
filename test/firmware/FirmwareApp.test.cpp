@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "firmware/vanilla/FirmwareApp.h"
+#include "firmware/vanilla/IClientConnectionSource.h"
 #include "firmware/vanilla/WiFiReasonCodes.h"
 #include "firmware/vanilla/StatusLED.h"
 
@@ -60,6 +61,13 @@ public:
     int updateCalls = 0;
     void setPattern(int p) override { lastPattern = p; }
     void update(uint32_t) override { ++updateCalls; }
+};
+
+// Fake IClientConnectionSource: always reports no client connected.
+class FakeClientConnectionSource : public IClientConnectionSource {
+public:
+    bool connected = false;
+    bool isClientConnected() const override { return connected; }
 };
 
 class FakeWiFiDiscovery : public IWiFiDiscovery {
@@ -140,6 +148,7 @@ struct AppHarness {
     FakeWiFi wifi;
     FakePreferences prefs;
     FakeStatusLed led;
+    FakeClientConnectionSource clientConnSource;
     FakeWiFiDiscovery wifiDisc;
     FakeUdp udp;
     FakeTime time;
@@ -152,7 +161,8 @@ struct AppHarness {
 
     AppHarness()
         : app(wifi, prefs, led, wifiDisc, udp, time, sntp, timeNtp, kDeviceId,
-              CanBridgeDeps{canDriver, tcpClient, serialCan}) {}
+              CanBridgeDeps{canDriver, tcpClient, serialCan},
+              clientConnSource) {}
 };
 
 // ── Init / lifecycle ─────────────────────────────────────────────────────────

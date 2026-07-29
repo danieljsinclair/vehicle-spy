@@ -16,6 +16,7 @@
 #include <sys/time.h>
 #include "vanilla/FirmwareApp.h"
 #include "vanilla/CanBridge.h"
+#include "vanilla/IClientConnectionSource.h"
 #include "mocks/WiFiMock.h"
 #include "mocks/PreferencesMock.h"
 #include "mocks/ArduinoMock.h"
@@ -37,6 +38,12 @@ class MockStatusLED : public IStatusLED {
 public:
     MOCK_METHOD(void, setPattern, (int pattern), (override));
     MOCK_METHOD(void, update, (uint32_t now), (override));
+};
+
+// Mock IClientConnectionSource for testing
+class MockClientConnectionSource : public IClientConnectionSource {
+public:
+    MOCK_METHOD(bool, isClientConnected, (), (const, override));
 };
 
 // Mock IUdp for DiscoveryManager testing
@@ -140,6 +147,7 @@ protected:
     WiFiMock wifiMock;
     PreferencesMock prefsMock;
     NiceMock<MockStatusLED> statusLedMock;
+    NiceMock<MockClientConnectionSource> clientConnSourceMock;
     NiceMock<MockUdp> udpMock;
     NiceMock<MockTime> timeMock;
     NiceMock<MockSntp> sntpMock;
@@ -210,6 +218,7 @@ protected:
             sntpMock, timeNtpMock,
             testDeviceId,
             canDeps,
+            clientConnSourceMock,
             bakedSsid, bakedPass
         );
     }
