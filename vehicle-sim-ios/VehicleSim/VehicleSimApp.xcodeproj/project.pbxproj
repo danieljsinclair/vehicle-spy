@@ -32,6 +32,10 @@
 		B1000042 /* ESP32DiscoveryListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000042 /* ESP32DiscoveryListener.swift */; };
 		B1000043 /* WiFiSecurityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000043 /* WiFiSecurityPolicy.swift */; };
 		B1000044 /* DiscoveryDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000044 /* DiscoveryDecoder.swift */; };
+
+		B1000045 /* DiscoveryListening.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000045 /* DiscoveryListening.swift */; };
+		B1000046 /* NWPathDiscoveryListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000046 /* NWPathDiscoveryListener.swift */; };
+		B1000047 /* ConnectionLivenessProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2000047 /* ConnectionLivenessProbe.swift */; };
 		B1A00000 /* CANDecoder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00000 /* CANDecoder.cpp */; };
 		B1A00002 /* DBCFileParser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00002 /* DBCFileParser.cpp */; };
 		B1A00003 /* DBCSignalDefinition.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2A00003 /* DBCSignalDefinition.cpp */; };
@@ -93,6 +97,7 @@
 	T1000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift */; };
 		T1000017 /* VehicleViewModelModeFlipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000017 /* VehicleViewModelModeFlipTests.swift */; };
 		T1000018 /* VehicleViewModelReconnectTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000018 /* VehicleViewModelReconnectTests.swift */; };
+		T1000019 /* FakeClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000019 /* FakeClock.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -133,6 +138,10 @@
 		B2000042 /* ESP32DiscoveryListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ESP32DiscoveryListener.swift; sourceTree = "<group>"; };
 		B2000043 /* WiFiSecurityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WiFiSecurityPolicy.swift; sourceTree = "<group>"; };
 		B2000044 /* DiscoveryDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryDecoder.swift; sourceTree = "<group>"; };
+
+		B2000045 /* DiscoveryListening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiscoveryListening.swift; sourceTree = "<group>"; };
+		B2000046 /* NWPathDiscoveryListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NWPathDiscoveryListener.swift; sourceTree = "<group>"; };
+		B2000047 /* ConnectionLivenessProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionLivenessProbe.swift; sourceTree = "<group>"; };
 		B2000080 /* VehicleSimApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VehicleSimApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B2A00000 /* CANDecoder.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CANDecoder.cpp; path = ../../src/domain/CANDecoder.cpp; sourceTree = "<group>"; };
 		B2A00002 /* DBCFileParser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DBCFileParser.cpp; path = ../../src/domain/DBCFileParser.cpp; sourceTree = "<group>"; };
@@ -196,6 +205,7 @@
 		T2000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryListenerStateAndReceiveTests.swift; path = ../VehicleSimTests/ESP32DiscoveryListenerStateAndReceiveTests.swift; sourceTree = "<group>"; };
 		T2000017 /* VehicleViewModelModeFlipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelModeFlipTests.swift; path = ../VehicleSimTests/VehicleViewModelModeFlipTests.swift; sourceTree = "<group>"; };
 		T2000018 /* VehicleViewModelReconnectTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelReconnectTests.swift; path = ../VehicleSimTests/VehicleViewModelReconnectTests.swift; sourceTree = "<group>"; };
+		T2000019 /* FakeClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FakeClock.swift; path = ../VehicleSimTests/FakeClock.swift; sourceTree = "<group>"; };
 		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -250,6 +260,9 @@
 				B2000042 /* ESP32DiscoveryListener.swift */,
 				B2000043 /* WiFiSecurityPolicy.swift */,
 				B2000044 /* DiscoveryDecoder.swift */,
+				B2000045 /* DiscoveryListening.swift */,
+				B2000046 /* NWPathDiscoveryListener.swift */,
+				B2000047 /* ConnectionLivenessProbe.swift */,
 				B2000004 /* VehicleSimWrapper.h */,
 				B2000005 /* VehicleSimWrapper.mm */,
 				B2000007 /* VehicleSim-Bridging-Header.h */,
@@ -462,6 +475,9 @@
 				B1000042 /* ESP32DiscoveryListener.swift in Sources */,
 				B1000043 /* WiFiSecurityPolicy.swift in Sources */,
 				B1000044 /* DiscoveryDecoder.swift in Sources */,
+				B1000045 /* DiscoveryListening.swift in Sources */,
+				B1000046 /* NWPathDiscoveryListener.swift in Sources */,
+				B1000047 /* ConnectionLivenessProbe.swift in Sources */,
 				B1000005 /* VehicleSimWrapper.mm in Sources */,
 				B1000010 /* VehicleSim.cpp in Sources */,
 				B1000011 /* TelemetryFormatter.cpp in Sources */,
@@ -542,6 +558,7 @@
 				T1000016 /* ESP32DiscoveryListenerStateAndReceiveTests.swift in Sources */,
 				T1000017 /* VehicleViewModelModeFlipTests.swift in Sources */,
 				T1000018 /* VehicleViewModelReconnectTests.swift in Sources */,
+				T1000019 /* FakeClock.swift in Sources */,
 				88B7D2AE35B4CA44C617AF28 /* VehicleSimAppAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
