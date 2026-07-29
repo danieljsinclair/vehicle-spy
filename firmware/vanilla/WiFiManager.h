@@ -27,6 +27,9 @@ namespace WiFiState {
         int lastDisconnectReason = 0;  // wifi_err_reason_t
         bool tcpServerNeedsRestart = false;
         int escalatedToApReason = 0;  // wifi_err_reason_t that triggered AP fallback (0 = not escalated)
+        std::string lastConnectedIp;    // STA IP captured at the last WIFI_CONNECTED entry (empty before first connect)
+        bool reconnectPending = false;   // true after a drop, until the re-connect IP check resolves
+        uint32_t disconnectStartMs = 0;  // timestamp of the most recent drop (for outage-duration safety check)
     };
 }
 
@@ -109,6 +112,7 @@ struct WiFiConfig {
     static constexpr const char* NVS_WIFI_SSID = "ssid";
     static constexpr const char* NVS_WIFI_PASS = "pass";
     static constexpr const char* HOSTNAME = "esp32-can";
+    static constexpr uint32_t LONG_OUTAGE_MS = 30000;  // safety: restart TCP server after this disconnect duration even if IP is unchanged
 };
 
 // WiFiManager - orchestrates WiFi state machine and credentials
@@ -190,5 +194,6 @@ bool shouldFallbackToApMode(CredentialSource source, uint32_t connectDurationMs)
 bool isInitialConnectTimeout(uint32_t connectDurationMs);
 bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry);
 bool loadCredentialsImpl(IPreferences& prefs, std::string& ssid, std::string& pass);
+bool shouldRestartTcpServerForReconnect(const std::string& newIp, const std::string& lastConnectedIp, uint32_t outageMs);
 
 } // namespace esp32_firmware

@@ -70,7 +70,13 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
         uint32_t connectDuration = now - ctx.connectStartTime;
 
         if (status == 3) {  // WL_CONNECTED
-            return StateTransition(WiFiState::State::WIFI_CONNECTED, true, true);
+            // IP-aware tcpRestart: only restart the TCP server when the STA IP
+            // changed, it's the first-ever connect, or the outage exceeded the
+            // safety threshold. Same IP after a brief blip → keep the socket.
+            uint32_t outageMs = (ctx.disconnectStartMs > 0) ? (now - ctx.disconnectStartMs) : 0;
+            bool restartTcp = shouldRestartTcpServerForReconnect(wifi_.localIP(), ctx.lastConnectedIp, outageMs);
+            ctx.reconnectPending = false;
+            return StateTransition(WiFiState::State::WIFI_CONNECTED, restartTcp, true);
         }
 
         if (status == 4 || status == 1) {  // WL_CONNECT_FAILED || WL_NO_SSID_AVAIL
@@ -146,13 +152,15 @@ struct ConnectedStaStateHandler : public IWiFiStateHandler {
     explicit ConnectedStaStateHandler(IWiFi& wifi) : wifi_(wifi) {}
 
     // Spec §1: a dropped STA connection while WIFI_CONNECTED transitions to
-    // WIFI_CONNECTING (tcpRestart=true, ntp=false). RECONNECTING was merged into
-    // WIFI_CONNECTING, so the per-tick self-heal lands in WIFI_CONNECTING and
-    // the retry loop (shouldRetryWiFi / WIFI_CONNECTING) re-arms on the next tick.
+    // WIFI_CONNECTING. The tcpRestart decision is deferred to the re-connect
+    // (ConnectingStateHandler) where the new IP is known — see
+    // shouldRestartTcpServerForReconnect. Here we only record that a reconnect
+    // is pending and stamp the drop time for the outage-duration safety check.
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
-        (void)now;
         if (wifi_.status() != 3) {  // WL_CONNECTED
-            return StateTransition(WiFiState::State::WIFI_CONNECTING, true, false);
+            ctx.reconnectPending = true;
+            ctx.disconnectStartMs = now;
+            return StateTransition(WiFiState::State::WIFI_CONNECTING, false, false);
         }
         return StateTransition(ctx.state);
     }
@@ -324,10 +332,29 @@ bool loadCredentialsImpl(IPreferences& prefs, std::string& ssid, std::string& pa
     return false;
 }
 
+bool shouldRestartTcpServerForReconnect(const std::string& newIp, const std::string& lastConnectedIp, uint32_t outageMs) {
+    // Restart the TCP server when:
+    //   - first-ever connect (no lastConnectedIp recorded yet), or
+    //   - the new STA IP differs from the last-known IP (e.g. DHCP gave a new lease), or
+    //   - the disconnect lasted longer than LONG_OUTAGE_MS (socket likely stale).
+    // Same IP after a brief blip → the listening socket may have survived → keep it
+    // (faster recovery, maintains connectivity).
+    return lastConnectedIp.empty() || newIp != lastConnectedIp || outageMs > WiFiConfig::LONG_OUTAGE_MS;
+}
+
 void WiFiManager::applyStateTransition(const StateTransition& transition) {
     // Treat "stay in current state" as idempotent no-op (regardless of which state)
     if (transition.nextState == ctx_.state) {
         return;  // No transition - stay sentinel
+    }
+
+    // Capture the STA IP at the single authoritative entry point into WIFI_CONNECTED.
+    // This is the last-known IP for the next reconnect's IP-aware tcpRestart check.
+    // Checked BEFORE the state assignment so the "entering CONNECTED" condition is
+    // evaluated against the pre-transition state.
+    if (transition.nextState == WiFiState::State::WIFI_CONNECTED &&
+        ctx_.state != WiFiState::State::WIFI_CONNECTED) {
+        ctx_.lastConnectedIp = wifi_.localIP();
     }
 
     ctx_.state = transition.nextState;

@@ -61,7 +61,7 @@ public:
 
     std::string localIP() const override {
         if (mode_ == Mode::WIFI_STA && status_ == Status::WL_CONNECTED) {
-            return "192.168.1.100";
+            return injectedLocalIp_;
         }
         return "0.0.0.0";
     }
@@ -174,6 +174,7 @@ public:
     }
 
     void setStatus(Status s) { status_ = s; }
+    void setLocalIP(const std::string& ip) { injectedLocalIp_ = ip; }
     Mode getModeEnum() const { return mode_; }
     const std::string& getCurrentSsid() const { return currentSsid_; }
     const std::string& getCurrentPass() const { return currentPass_; }
@@ -191,6 +192,7 @@ public:
         eventCallbacks_.clear();
         connectStartTimeMs_ = 0;
         currentMillis_ = 0;
+        injectedLocalIp_ = "192.168.1.100";
     }
 
 private:
@@ -204,6 +206,7 @@ private:
     std::map<int, std::function<void(int, WifiEventInfo*)>> eventCallbacks_;
     uint32_t connectStartTimeMs_ = 0;
     uint32_t currentMillis_ = 0;
+    std::string injectedLocalIp_ = "192.168.1.100";
 };
 
 } // namespace esp32_firmware

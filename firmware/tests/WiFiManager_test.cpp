@@ -482,7 +482,10 @@ TEST_F(WiFiManagerTest, Connecting_NotConnectedAfterInterval_RetriesStoredCreden
 TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToConnecting) {
     // ConnectedStaStateHandler body: a STA drop observed on the state-machine
     // tick (status() != WL_CONNECTED while in WIFI_CONNECTED) transitions to
-    // WIFI_CONNECTING with the tcp-restart flag. Distinct from onDisconnected()
+    // WIFI_CONNECTING. The tcpRestart decision is DEFERRED to the re-connect
+    // (ConnectingStateHandler) where the new IP is known — see
+    // shouldRestartTcpServerForReconnect. Here only reconnectPending is armed
+    // and disconnectStartMs is stamped. Distinct from onDisconnected()
     // (event-callback driven): this is the per-tick self-heal that catches
     // drops the WiFi event callback did not surface. RECONNECTING was merged
     // into WIFI_CONNECTING (spec §1).
@@ -497,12 +500,24 @@ TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToConnecting) 
     wifiManager->update(100);
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
 
+    // Clear the first-connect restart flag (simulating can-bridge.ino having
+    // processed it) so we can observe the drop path in isolation.
+    wifiManager->clearTcpServerRestartFlag();
+    ASSERT_FALSE(wifiManager->shouldRestartTcpServer());
+
     // The STA link drops between ticks — the next update() observes it.
     wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
     wifiManager->update(200);
 
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
-    EXPECT_TRUE(wifiManager->shouldRestartTcpServer());
+    // tcpRestart is deferred — the flag must NOT be armed at drop time.
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
+        << "drop path must defer tcpRestart (IP unknown until re-connect)";
+    // reconnectPending + disconnectStartMs must be recorded for the re-connect.
+    EXPECT_TRUE(wifiManager->getContext().reconnectPending)
+        << "drop path must arm reconnectPending";
+    EXPECT_EQ(wifiManager->getContext().disconnectStartMs, 200u)
+        << "disconnectStartMs must be stamped at drop time";
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -633,4 +648,215 @@ TEST_F(WiFiManagerTest, routerRebootRetriesSta_AssocExpireReason4) {
         << "transient drop must keep the TCP restart flag armed (link rebuild)";
     EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 0)
         << "transient reason must NOT set escalatedToApReason";
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Commit 7: #5 WiFi resilient reconnect — IP-aware tcpRestart
+//
+// USER GOAL: less-aggressive reconnect. Don't tear down the TCP server on every
+// WiFi blip — only restart it when the IP actually CHANGED. Prioritize (a)
+// quickest recovery + (b) maintain connectivity (survive a brief disconnect,
+// don't drop connections unnecessarily).
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_F(WiFiManagerTest, testFirstConnectRestartsTcpServer) {
+    // Cold start: lastConnectedIp is empty → first WIFI_CONNECTED must set
+    // tcpRestart=true (binds the listening socket for the first time).
+    // This characterizes the preserved cold-start behavior.
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    // Drive to WIFI_CONNECTED via the normal connect path.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // First connect: lastConnectedIp was empty → shouldRestartTcpServerForReconnect
+    // returns true → tcpServerNeedsRestart must be set.
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "first-ever connect must restart TCP server (bind socket)";
+    EXPECT_EQ(wifiManager->getContext().lastConnectedIp, std::string("192.168.1.100"))
+        << "lastConnectedIp must be captured on first connect";
+}
+
+TEST_F(WiFiManagerTest, testReconnectSameIpKeepsTcpServer) {
+    // Same IP after a brief drop → tcpRestart does NOT fire (socket survives,
+    // fastest recovery, maintains connectivity).
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    // Drive to WIFI_CONNECTED.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Clear the flag (simulating can-bridge.ino having processed it).
+    wifiManager->clearTcpServerRestartFlag();
+    ASSERT_FALSE(wifiManager->shouldRestartTcpServer());
+
+    // Simulate a per-tick drop (ConnectedStaStateHandler detects status != WL_CONNECTED).
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(200);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    // Drop path: tcpRestart=false, reconnectPending=true.
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
+        << "same-IP drop must NOT set tcpRestart (deferred to re-connect)";
+
+    // Re-connect with the SAME IP (brief blip, 1ms outage — well within LONG_OUTAGE_MS).
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(201);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Same IP + short outage → shouldRestartTcpServerForReconnect returns false.
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
+        << "same-IP reconnect after brief blip must NOT restart TCP server";
+}
+
+TEST_F(WiFiManagerTest, testReconnectDifferentIpRestartsTcpServer) {
+    // Different IP after a drop → tcpRestart FIRES (new DHCP lease, must rebind).
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    // Drive to WIFI_CONNECTED.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Clear the flag.
+    wifiManager->clearTcpServerRestartFlag();
+    ASSERT_FALSE(wifiManager->shouldRestartTcpServer());
+
+    // Simulate a per-tick drop.
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(200);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer());
+
+    // Re-connect with a DIFFERENT IP.
+    wifiMock.setLocalIP("192.168.1.105");
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(201);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Different IP → shouldRestartTcpServerForReconnect returns true.
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "different-IP reconnect must restart TCP server (new lease)";
+}
+
+TEST_F(WiFiManagerTest, testReconnectAfterLongDropRestartsTcpServer) {
+    // Same IP but outage > LONG_OUTAGE_MS → restart as a safety net
+    // (socket likely stale after a long outage).
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    // Drive to WIFI_CONNECTED.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Clear the flag.
+    wifiManager->clearTcpServerRestartFlag();
+    ASSERT_FALSE(wifiManager->shouldRestartTcpServer());
+
+    // Simulate a per-tick drop.
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(200);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer());
+
+    // Re-connect with the SAME IP but after a long outage (> 30s).
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(200 + WiFiConfig::LONG_OUTAGE_MS + 1);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Same IP + long outage → shouldRestartTcpServerForReconnect returns true (safety).
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "same-IP reconnect after long outage must restart TCP server (safety)";
+}
+
+TEST_F(WiFiManagerTest, testShouldRestartTcpServerForReconnect_PureHelper) {
+    // Direct unit test of the pure helper across the 2x2 matrix
+    // (empty/filled lastIp × same/different newIp) + the long-outage branch.
+    // No fixture needed — fast, deterministic.
+
+    // First-ever connect: lastConnectedIp empty → always restart.
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "", 0));
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("0.0.0.0", "", 0));
+
+    // Same IP, short outage → no restart (boundary: LONG_OUTAGE_MS is NOT long).
+    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100", 0));
+    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100", 1000));
+    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
+        WiFiConfig::LONG_OUTAGE_MS - 1));
+    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
+        WiFiConfig::LONG_OUTAGE_MS));
+
+    // Different IP → always restart (regardless of outage).
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.105", "192.168.1.100", 0));
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.105", "192.168.1.100", 1000));
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.105", "192.168.1.100",
+        WiFiConfig::LONG_OUTAGE_MS + 1));
+
+    // Same IP, long outage → restart (safety).
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
+        WiFiConfig::LONG_OUTAGE_MS + 1));
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
+        WiFiConfig::LONG_OUTAGE_MS + 1000));
+}
+
+TEST_F(WiFiManagerTest, testUserFacingSerialDoesNotLeakRestartDetail) {
+    // On a same-IP reconnect, the WiFiManager must NOT set tcpServerNeedsRestart
+    // (so can-bridge.ino won't emit any "Restarting TCP server" / "IP change"
+    // serial line — the [STATE]/[EVENT] stream already conveys the reconnect).
+    // On a different-IP reconnect, the flag IS set (the restart is real) but
+    // the serial message is omitted/relabeled in can-bridge.ino.
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    // Drive to WIFI_CONNECTED.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // --- Same-IP reconnect: flag must NOT be set (no serial leak) ---
+    wifiManager->clearTcpServerRestartFlag();
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(200);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(201);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
+        << "same-IP reconnect must not arm tcpServerNeedsRestart (no serial leak)";
+
+    // --- Different-IP reconnect: flag IS set (restart is real, message omitted) ---
+    wifiManager->clearTcpServerRestartFlag();
+    wifiMock.setLocalIP("192.168.1.200");
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(300);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(301);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "different-IP reconnect must arm tcpServerNeedsRestart (restart is real)";
 }

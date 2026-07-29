@@ -452,15 +452,20 @@ static void drainSerialATCommands() {
 // WiFiServer end/begin + client cleanup (hardware-side effects stay in the .ino).
 static void restartTcpServerIfNeeded() {
     if (firmwareApp.shouldRestartTcpServer()) {
-        Serial.printf("%sRestarting TCP server on IP change%s\r\n", YELLOW, NC);
+        // The TCP server restart is real (end/begin), but the user-facing
+        // serial message is intentionally omitted: the [STATE]/[EVENT] stream
+        // (emitted by FirmwareApp on WIFI_CONNECTED) already conveys the
+        // reconnect. The old "Restarting TCP server on IP change" message
+        // was misleading — the IP usually did NOT change (same DHCP lease
+        // after a brief blip). The restart reason (old vs new IP) is an
+        // internal-model detail, not a user-facing diagnostic.
         tcpServer().end();
         tcpServer().begin();
         firmwareApp.clearTcpServerRestartFlag();
 
-        // Disconnect any existing client since IP changed
+        // Disconnect any existing client since the listening socket was rebound.
         if (client().connected()) {
             client().stop();
-            Serial.println("TCP: disconnected client due to IP change");
         }
     }
 }
