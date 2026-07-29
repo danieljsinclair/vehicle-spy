@@ -10,6 +10,18 @@ enum ConnectionMode: String, CaseIterable, Codable {
 }
 
 class VehicleViewModel: ObservableObject {
+    // MARK: - Injectable Dependencies
+
+    /// Clock abstraction for millisecond time reads. Production uses `WallVMClock`
+    /// (real system clock); tests inject `FakeVMClock` for deterministic time
+    /// advancement without real-time waits.
+    private let vmClock: VMClock
+
+    /// Connection liveness probe. Production uses `HeartbeatLiveness`
+    /// (records heartbeat timestamps, considers stale after 1s). Injected for
+    /// testability; `checkConnectionLiveness` will adopt it in a future commit.
+    private let livenessProbe: ConnectionLivenessProbe
+
     // MARK: - Signal Values
     @Published var throttlePercent: Double? = nil
     @Published var speed: Double? = nil
@@ -71,7 +83,15 @@ class VehicleViewModel: ObservableObject {
     private var updateTimer: Timer?
     private var discoveryListener: ESP32DiscoveryListener?
     private var discoveryRetryTimer: Timer?
-    private var reconnectTimer: Timer?
+    /// Clock-driven reconnect scheduling: the next wall-clock time (ms) at which
+    /// a reconnect attempt should fire. Checked by `reconnectCheckTimer`.
+    /// `nil` when no reconnect is scheduled.
+    private var nextReconnectFireTimeMs: UInt64?
+
+    /// Frequent timer that polls `vmClock` to determine whether the backoff
+    /// window has elapsed. Replaces `Timer.scheduledTimer(withTimeInterval:)`
+    /// so tests can advance `FakeVMClock` to trigger reconnects deterministically.
+    private var reconnectCheckTimer: Timer?
     private var reconnectAttempt: Int = 0
     private var lastConnectedAddress: String?
     private var cancellables = Set<AnyCancellable>()
@@ -106,7 +126,13 @@ class VehicleViewModel: ObservableObject {
 
     // MARK: - Lifecycle
 
-    init(wrapper: VehicleSimWrapperProtocol? = nil) {
+    init(
+        wrapper: VehicleSimWrapperProtocol? = nil,
+        vmClock: VMClock = WallVMClock(),
+        livenessProbe: ConnectionLivenessProbe = HeartbeatLiveness(timeoutMs: 1000)
+    ) {
+        self.vmClock = vmClock
+        self.livenessProbe = livenessProbe
         let savedMode = UserDefaults.standard.string(forKey: "connectionMode") ?? ""
         self.connectionMode = ConnectionMode(rawValue: savedMode) ?? .ble
         self.wrapper = wrapper ?? VehicleSimWrapper()
@@ -324,36 +350,55 @@ class VehicleViewModel: ObservableObject {
     }
 
     private func stopReconnectLoop() {
-        reconnectTimer?.invalidate()
-        reconnectTimer = nil
+        reconnectCheckTimer?.invalidate()
+        reconnectCheckTimer = nil
+        nextReconnectFireTimeMs = nil
         reconnectAttempt = 0
     }
 
     /// Schedules the next reconnect attempt with exponential backoff.
     /// Backoff: 1s, 2s, 4s, 8s, 16s, 30s (capped at 30s).
+    ///
+    /// Uses `vmClock` for timing so tests can advance `FakeVMClock` to trigger
+    /// the reconnect without real-time waits. A frequent `reconnectCheckTimer`
+    /// polls the clock and fires `attemptReconnect()` when the backoff window
+    /// has elapsed.
     private func scheduleReconnect() {
         // Cancel if we left WiFi mode or reconnected.
         guard connectionMode == .wifi,
               connectionState != .connected else {
-            reconnectTimer = nil
+            nextReconnectFireTimeMs = nil
+            reconnectCheckTimer?.invalidate()
+            reconnectCheckTimer = nil
             return
         }
 
         let backoff = min(pow(2.0, Double(reconnectAttempt)), 30.0)
         reconnectAttempt += 1
 
-        reconnectTimer = Timer.scheduledTimer(withTimeInterval: backoff, repeats: false) { [weak self] _ in
+        nextReconnectFireTimeMs = vmClock.nowMs() + UInt64(backoff * 1000)
+
+        // Start a frequent check timer that polls the VMClock. This fires every
+        // 50ms of real time but the actual reconnect decision is driven by the
+        // clock value, so tests can advance FakeVMClock to trigger it.
+        reconnectCheckTimer?.invalidate()
+        reconnectCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             guard let self = self else { return }
-
-            // Re-check cancellation conditions before attempting.
-            guard self.connectionMode == .wifi,
-                  self.connectionState != .connected else {
-                self.reconnectTimer = nil
-                return
-            }
-
-            self.attemptReconnect()
+            self.checkPendingReconnect()
         }
+    }
+
+    /// Called by `reconnectCheckTimer` on each tick. If the clock has advanced
+    /// past `nextReconnectFireTimeMs`, fires the reconnect attempt.
+    private func checkPendingReconnect() {
+        guard let fireTime = nextReconnectFireTimeMs else { return }
+        guard vmClock.nowMs() >= fireTime else { return }
+
+        // Backoff window elapsed — attempt reconnect.
+        nextReconnectFireTimeMs = nil
+        reconnectCheckTimer?.invalidate()
+        reconnectCheckTimer = nil
+        attemptReconnect()
     }
 
     /// Attempts a single reconnect. Tries the remembered device's last IP

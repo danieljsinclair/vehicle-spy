@@ -1,4 +1,5 @@
 import Foundation
+@testable import VehicleSim
 
 // MARK: - FakeClock
 
@@ -22,26 +23,13 @@ final class FakeClock {
     }
 }
 
-// MARK: - VMClock
-
-/// Protocol abstracting millisecond wall-clock reads so production code can be
-/// tested with `FakeVMClock` instead of real time.
-protocol VMClock {
-    func nowMs() -> UInt64
-}
-
-// MARK: - WallVMClock
-
-/// Production `VMClock` backed by the real system clock.
-struct WallVMClock: VMClock {
-    func nowMs() -> UInt64 {
-        UInt64(Date().timeIntervalSince1970 * 1000)
-    }
-}
-
 // MARK: - FakeVMClock
 
-/// Test `VMClock` backed by `FakeClock`'s deterministic counter.
+/// Test `VMClock` backed by a deterministic counter.
+///
+/// `FakeVMClock` implements the `VMClock` protocol (defined in the production
+/// `VehicleSim` module) so it can be injected into `VehicleViewModel` in tests.
+/// Time only advances when the test calls `advance(_:)`.
 final class FakeVMClock: VMClock {
     private(set) var now: UInt64 = 0
 

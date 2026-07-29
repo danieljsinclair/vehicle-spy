@@ -1,5 +1,22 @@
 import Foundation
 
+// MARK: - VMClock
+
+/// Protocol abstracting millisecond wall-clock reads so production code can be
+/// tested with `FakeVMClock` instead of real time.
+protocol VMClock {
+    func nowMs() -> UInt64
+}
+
+// MARK: - WallVMClock
+
+/// Production `VMClock` backed by the real system clock.
+struct WallVMClock: VMClock {
+    func nowMs() -> UInt64 {
+        UInt64(Date().timeIntervalSince1970 * 1000)
+    }
+}
+
 // MARK: - ConnectionLivenessProbe
 
 /// Protocol abstracting connection liveness checks so `VehicleViewModel` can

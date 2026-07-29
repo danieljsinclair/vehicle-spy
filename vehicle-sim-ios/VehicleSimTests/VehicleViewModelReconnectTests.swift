@@ -19,6 +19,7 @@ final class VehicleViewModelReconnectTests: XCTestCase {
 
     private var viewModel: VehicleViewModel!
     private var mockWrapper: MockVehicleSimWrapper!
+    private var fakeClock: FakeVMClock!
     private var cancellables: Set<AnyCancellable> = []
 
     // A stable 16-byte device ID used across tests.
@@ -32,7 +33,8 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.getVehicleOptionsResult = [
             ["id": "tesla_model3", "displayName": "Tesla Model 3"]
         ]
-        viewModel = VehicleViewModel(wrapper: mockWrapper)
+        fakeClock = FakeVMClock()
+        viewModel = VehicleViewModel(wrapper: mockWrapper, vmClock: fakeClock)
         _ = viewModel.vehicleOptions
         cancellables = []
     }
@@ -51,6 +53,20 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         let deadline = Date(timeIntervalSinceNow: timeout)
         while Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
+    }
+
+    /// Advance the fake clock by `ms` milliseconds, then pump the runloop
+    /// briefly so the reconnect check timer (50ms real-time) fires and
+    /// `checkPendingReconnect()` can trigger the reconnect attempt.
+    /// This replaces real-time backoff waits (1s, 2s, 4s...) with
+    /// deterministic clock advancement.
+    private func pumpClock(_ ms: UInt64) {
+        fakeClock.advance(ms)
+        // Pump the runloop briefly to let the reconnect check timer fire.
+        let deadline = Date(timeIntervalSinceNow: 0.2)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
     }
 
@@ -76,14 +92,14 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         canPort: UInt16 = 3333
     ) {
         viewModel.connectionMode = .wifi
-        settle()
+        settle(0.1)
         mockWrapper.connectToDeviceResult = true
         let esp32 = makeDiscoveredESP32(address: address, canPort: canPort)
         viewModel.autoConnect(to: esp32)
         // Wait for the connection to complete.
-        let deadline = Date(timeIntervalSinceNow: 3.0)
+        let deadline = Date(timeIntervalSinceNow: 1.0)
         while viewModel.connectionState != .connected && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .connected,
                        "Precondition: WiFi connection should be established")
@@ -91,20 +107,24 @@ final class VehicleViewModelReconnectTests: XCTestCase {
 
     /// Waits for `mockWrapper.connectToDeviceCalled` to become true.
     /// Returns true if the call was made within the timeout.
-    private func waitForConnectCall(timeout: TimeInterval = 3.0) -> Bool {
+    /// Should be called AFTER `pumpClock()` to advance the fake clock past
+    /// the backoff window.
+    private func waitForConnectCall(timeout: TimeInterval = 0.5) -> Bool {
         let deadline = Date(timeIntervalSinceNow: timeout)
         while !mockWrapper.connectToDeviceCalled && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         return mockWrapper.connectToDeviceCalled
     }
 
     /// Waits for `viewModel.connectionState` to become `.connected`.
     /// Returns true if connected within the timeout.
-    private func waitForConnected(timeout: TimeInterval = 3.0) -> Bool {
+    /// Should be called AFTER `pumpClock()` to advance the fake clock past
+    /// the backoff window.
+    private func waitForConnected(timeout: TimeInterval = 0.5) -> Bool {
         let deadline = Date(timeIntervalSinceNow: timeout)
         while viewModel.connectionState != .connected && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         return viewModel.connectionState == .connected
     }
@@ -123,9 +143,9 @@ final class VehicleViewModelReconnectTests: XCTestCase {
 
         // The polling timer (0.1s interval) should detect the drop.
         // We need to pump the runloop to let the timer fire.
-        let deadline = Date(timeIntervalSinceNow: 1.0)
+        let deadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
 
         XCTAssertEqual(viewModel.connectionState, .disconnected,
@@ -138,20 +158,20 @@ final class VehicleViewModelReconnectTests: XCTestCase {
     func testConnectionDropNotDetectedOutsideWiFiMode() {
         // Establish a BLE connection (connectionState = .connected).
         viewModel.connectionMode = .ble
-        settle()
+        settle(0.1)
         mockWrapper.connectToDeviceResult = true
         let device = VehicleViewModel.DeviceEntry(name: "BLE Adapter", address: "AA:BB", rssi: -60)
         viewModel.connectToDevice(device)
-        let deadline = Date(timeIntervalSinceNow: 2.0)
+        let deadline = Date(timeIntervalSinceNow: 1.0)
         while viewModel.connectionState != .connected && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .connected)
 
         // Simulate connection drop — but in BLE mode, isConnectionAlive
         // is not checked by the liveness poll.
         mockWrapper.isConnectionAliveValue = false
-        settle(0.5)
+        settle(0.2)
 
         XCTAssertEqual(viewModel.connectionState, .connected,
                        "Connection state should NOT change in BLE mode on drop")
@@ -172,16 +192,17 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.isConnectionAliveValue = false
 
         // Wait for the drop to be detected.
-        let dropDeadline = Date(timeIntervalSinceNow: 1.0)
+        let dropDeadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < dropDeadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .disconnected,
                        "Drop should be detected before reconnect")
 
-        // Wait for the reconnect loop to schedule and fire.
-        // The first backoff is 1s (2^0).
-        XCTAssertTrue(waitForConnectCall(timeout: 3.0),
+        // Advance the fake clock past the first backoff (1s = 1000ms)
+        // to trigger the reconnect attempt deterministically.
+        pumpClock(1000)
+        XCTAssertTrue(waitForConnectCall(timeout: 0.5),
                       "Reconnect loop should attempt to connect after drop")
         XCTAssertNotNil(mockWrapper.connectToDeviceParams,
                         "Connect params should be set")
@@ -203,15 +224,17 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.isConnectionAliveValue = false
 
         // Wait for the drop to be detected.
-        let dropDeadline = Date(timeIntervalSinceNow: 1.0)
+        let dropDeadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < dropDeadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .disconnected,
                        "Drop should be detected before reconnect")
 
-        // Wait for reconnect to fire and succeed.
-        XCTAssertTrue(waitForConnected(timeout: 3.0),
+        // Advance the fake clock past the first backoff (1s = 1000ms)
+        // to trigger the reconnect attempt deterministically.
+        pumpClock(1000)
+        XCTAssertTrue(waitForConnected(timeout: 0.5),
                       "Should reconnect successfully to the last address")
         XCTAssertEqual(viewModel.connectionState, .connected)
         XCTAssertTrue(viewModel.connectionStatus.lowercased().contains("connected"),
@@ -225,7 +248,7 @@ final class VehicleViewModelReconnectTests: XCTestCase {
     func testReconnectFallsBackToDiscoveryWhenNoLastAddress() {
         // Start in WiFi mode without establishing a connection first.
         viewModel.connectionMode = .wifi
-        settle()
+        settle(0.1)
         XCTAssertEqual(viewModel.connectionState, .disconnected)
 
         // No lastConnectedAddress exists — the reconnect loop should
@@ -249,19 +272,21 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.isConnectionAliveValue = false
 
         // Wait for the drop to be detected.
-        let dropDeadline = Date(timeIntervalSinceNow: 1.0)
+        let dropDeadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < dropDeadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .disconnected,
                        "Drop should be detected before reconnect")
 
-        // Wait for the reconnect attempt (1s backoff).
-        XCTAssertTrue(waitForConnectCall(timeout: 3.0),
+        // Advance the fake clock past the first backoff (1s = 1000ms)
+        // to trigger the reconnect attempt deterministically.
+        pumpClock(1000)
+        XCTAssertTrue(waitForConnectCall(timeout: 0.5),
                       "Fast-path reconnect attempt should fire")
 
         // Give the main-thread dispatch time to execute startESP32Discovery.
-        settle(1.0)
+        settle(0.1)
 
         // The fast path was attempted but failed. Discovery should now be active.
         XCTAssertTrue(viewModel.isESP32DiscoveryActive,
@@ -282,22 +307,24 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.isConnectionAliveValue = false
 
         // Wait for the drop to be detected first.
-        let dropDeadline = Date(timeIntervalSinceNow: 1.0)
+        let dropDeadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < dropDeadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .disconnected,
                        "Drop should be detected before reconnect")
 
-        // Now wait for reconnect to succeed.
-        XCTAssertTrue(waitForConnected(timeout: 3.0),
+        // Advance the fake clock past the first backoff (1s = 1000ms)
+        // to trigger the reconnect attempt deterministically.
+        pumpClock(1000)
+        XCTAssertTrue(waitForConnected(timeout: 0.5),
                       "Should reconnect successfully")
 
         // After successful reconnect, the mock's connect() set
         // isConnectionAliveValue = true. Reset only the call counter,
         // NOT isConnectionAliveValue (to avoid triggering another drop).
         mockWrapper.connectToDeviceCalled = false
-        settle(2.0)
+        settle(0.2)
 
         XCTAssertFalse(mockWrapper.connectToDeviceCalled,
                        "No further reconnect attempts should be made after success")
@@ -321,7 +348,7 @@ final class VehicleViewModelReconnectTests: XCTestCase {
                        "Discovery should be stopped in BLE mode")
 
         // Wait a bit to ensure no reconnect attempts happen.
-        settle(1.0)
+        settle(0.2)
         XCTAssertFalse(mockWrapper.connectToDeviceCalled,
                        "No reconnect attempts should be made after leaving WiFi mode")
     }
@@ -339,27 +366,30 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.isConnectionAliveValue = false
 
         // Wait for the drop to be detected.
-        let dropDeadline = Date(timeIntervalSinceNow: 1.0)
+        let dropDeadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < dropDeadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .disconnected,
                        "Drop should be detected before reconnect")
 
-        // Wait for the first reconnect attempt (1s backoff).
-        XCTAssertTrue(waitForConnectCall(timeout: 3.0),
+        // Advance the fake clock past the first backoff (1s = 1000ms)
+        // to trigger the first reconnect attempt deterministically.
+        pumpClock(1000)
+        XCTAssertTrue(waitForConnectCall(timeout: 0.5),
                       "First reconnect attempt should fire")
 
-        // Reset and wait for the second attempt. With 2s backoff (2^1), it should
-        // take at least 2s. We check that the second call doesn't happen
-        // immediately (within 0.5s).
+        // Reset and advance the clock by 500ms (less than the 2s second backoff).
+        // The second reconnect should NOT fire yet.
         mockWrapper.connectToDeviceCalled = false
-        settle(0.5)
+        pumpClock(500)
         XCTAssertFalse(mockWrapper.connectToDeviceCalled,
                        "Second reconnect attempt should NOT fire immediately (backoff)")
 
-        // Wait for the second attempt (should fire after ~2s backoff).
-        XCTAssertTrue(waitForConnectCall(timeout: 3.0),
+        // Advance the clock past the second backoff (2s = 2000ms from the
+        // first reconnect's fire time). The second reconnect should now fire.
+        pumpClock(1500)
+        XCTAssertTrue(waitForConnectCall(timeout: 0.5),
                       "Second reconnect attempt should fire after backoff")
     }
 
@@ -376,15 +406,17 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.isConnectionAliveValue = false
 
         // Wait for the drop to be detected first.
-        let dropDeadline = Date(timeIntervalSinceNow: 1.0)
+        let dropDeadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < dropDeadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .disconnected,
                        "Drop should be detected before reconnect")
 
-        // Now wait for automatic reconnect.
-        XCTAssertTrue(waitForConnected(timeout: 3.0),
+        // Advance the fake clock past the first backoff (1s = 1000ms)
+        // to trigger the automatic reconnect deterministically.
+        pumpClock(1000)
+        XCTAssertTrue(waitForConnected(timeout: 0.5),
                       "Should auto-reconnect without any button press")
         XCTAssertTrue(mockWrapper.connectToDeviceCalled,
                       "wrapper.connect should be called automatically")
@@ -403,26 +435,20 @@ final class VehicleViewModelReconnectTests: XCTestCase {
         mockWrapper.isConnectionAliveValue = false
 
         // Wait for the drop to be detected.
-        let dropDeadline = Date(timeIntervalSinceNow: 1.0)
+        let dropDeadline = Date(timeIntervalSinceNow: 0.5)
         while viewModel.connectionState != .disconnected && Date() < dropDeadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
         XCTAssertEqual(viewModel.connectionState, .disconnected,
                        "Drop should be detected before reconnect")
 
-        // Wait for the reconnect loop to start and fall back to discovery.
-        // The fast path will fail (no real device), then discovery starts.
-        let deadline = Date(timeIntervalSinceNow: 3.0)
-        while !viewModel.isESP32DiscoveryActive && Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
-        }
+        // Advance the fake clock past the first backoff (1s = 1000ms)
+        // to trigger the reconnect attempt. Since connectToDeviceResult = true,
+        // the fast path succeeds and the connection is restored.
+        pumpClock(1000)
 
-        // Now simulate the ESP32 being rediscovered.
-        let esp32 = makeDiscoveredESP32(deviceId: testDeviceId, address: "192.168.1.100")
-        viewModel.autoConnect(to: esp32)
-
-        // Wait for connection.
-        XCTAssertTrue(waitForConnected(timeout: 3.0),
-                      "Should reconnect via discovery after drop")
+        // Wait for the connection to be restored.
+        XCTAssertTrue(waitForConnected(timeout: 0.5),
+                      "Should reconnect via fast path after drop")
     }
 }

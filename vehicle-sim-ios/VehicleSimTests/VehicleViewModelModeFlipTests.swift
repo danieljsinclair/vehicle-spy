@@ -22,6 +22,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
 
     private var viewModel: VehicleViewModel!
     private var mockWrapper: MockVehicleSimWrapper!
+    private var fakeClock: FakeVMClock!
 
     // A stable 16-byte device ID used across tests.
     private let testDeviceId = Data((0..<16).map { UInt8($0) })
@@ -31,7 +32,8 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "connectionMode")
         UserDefaults.standard.removeObject(forKey: "lastConnectedDeviceId")
         mockWrapper = MockVehicleSimWrapper()
-        viewModel = VehicleViewModel(wrapper: mockWrapper)
+        fakeClock = FakeVMClock()
+        viewModel = VehicleViewModel(wrapper: mockWrapper, vmClock: fakeClock)
     }
 
     override func tearDown() {
@@ -60,10 +62,10 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
         )
     }
 
-    private func settle(_ timeout: TimeInterval = 0.3) {
+    private func settle(_ timeout: TimeInterval = 0.1) {
         let deadline = Date(timeIntervalSinceNow: timeout)
         while Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
     }
 
@@ -157,7 +159,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
 
         viewModel.autoConnect(to: esp32)
 
-        wait(for: [expectation], timeout: 5.0)
+        wait(for: [expectation], timeout: 2.0)
         timer.invalidate()
 
         XCTAssertEqual(viewModel.connectionState, .connected,
@@ -186,7 +188,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
 
         viewModel.autoConnect(to: esp32)
 
-        wait(for: [expectation], timeout: 5.0)
+        wait(for: [expectation], timeout: 2.0)
         timer.invalidate()
 
         XCTAssertEqual(viewModel.connectionState, .connected,
@@ -215,7 +217,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
 
         viewModel.autoConnect(to: esp32)
 
-        wait(for: [expectation], timeout: 5.0)
+        wait(for: [expectation], timeout: 2.0)
         timer.invalidate()
 
         let stored = UserDefaults.standard.data(forKey: "lastConnectedDeviceId")
@@ -244,7 +246,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
         }
 
         viewModel.autoConnect(to: esp32)
-        wait(for: [expectation1], timeout: 5.0)
+        wait(for: [expectation1], timeout: 2.0)
         timer1.invalidate()
         XCTAssertEqual(viewModel.connectionState, .connected)
 
@@ -253,7 +255,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
         XCTAssertEqual(viewModel.connectionState, .disconnected)
 
         // Session 2: new view model instance — should remember the device.
-        let newVM = VehicleViewModel(wrapper: mockWrapper)
+        let newVM = VehicleViewModel(wrapper: mockWrapper, vmClock: fakeClock)
         newVM.connectionMode = .wifi
         settle()
 
@@ -286,7 +288,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
 
         viewModel.autoConnect(to: firstDiscovered)
 
-        wait(for: [expectation], timeout: 5.0)
+        wait(for: [expectation], timeout: 2.0)
         timer.invalidate()
 
         XCTAssertEqual(viewModel.connectionState, .connected,
@@ -322,7 +324,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
 
         viewModel.autoConnect(to: rememberedDevice)
 
-        wait(for: [expectation], timeout: 5.0)
+        wait(for: [expectation], timeout: 2.0)
         timer.invalidate()
 
         XCTAssertEqual(viewModel.connectionState, .connected)
@@ -387,7 +389,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
             let sema = DispatchSemaphore(value: 0)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.wait(for: [readyExpectation], timeout: 3.0)
+                self.wait(for: [readyExpectation], timeout: 2.0)
                 sema.signal()
             }
             sema.wait()
@@ -422,7 +424,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
         UserDefaults.standard.set(rememberedId, forKey: "lastConnectedDeviceId")
 
         // Create a fresh VM so it loads the remembered deviceId from UserDefaults.
-        let vm = VehicleViewModel(wrapper: mockWrapper)
+        let vm = VehicleViewModel(wrapper: mockWrapper, vmClock: fakeClock)
         mockWrapper.connectToDeviceResult = true
         vm.connectionMode = .wifi
         settle()
@@ -463,7 +465,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
         UserDefaults.standard.set(rememberedId, forKey: "lastConnectedDeviceId")
 
         // Create a fresh VM so it loads the remembered deviceId from UserDefaults.
-        let vm = VehicleViewModel(wrapper: mockWrapper)
+        let vm = VehicleViewModel(wrapper: mockWrapper, vmClock: fakeClock)
         mockWrapper.connectToDeviceResult = true
         vm.connectionMode = .wifi
         settle()
@@ -486,7 +488,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
             while vm.connectionState != .connected {}
             DispatchQueue.main.async { connected.fulfill() }
         }
-        wait(for: [connected], timeout: 4.0)
+        wait(for: [connected], timeout: 2.0)
 
         vm.stopESP32Discovery()
 
@@ -530,7 +532,7 @@ final class VehicleViewModelModeFlipTests: XCTestCase {
             while self.viewModel.connectionState != .connected {}
             DispatchQueue.main.async { connected.fulfill() }
         }
-        wait(for: [connected], timeout: 4.0)
+        wait(for: [connected], timeout: 2.0)
 
         viewModel.stopESP32Discovery()
 
