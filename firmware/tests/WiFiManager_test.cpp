@@ -504,3 +504,133 @@ TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToConnecting) 
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
     EXPECT_TRUE(wifiManager->shouldRestartTcpServer());
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Commit 6: #4 WiFi retry + AP serial event — auth→AP gate tests
+//
+// USER POLICY (strict): AP mode ONLY for definitive auth failure (wrong
+// password — the credentials are definitively rejected; it can NEVER work).
+// EVERYTHING else → STA retry FOREVER (router reboot, AUTH_EXPIRE, SSID
+// temporarily gone — all transient, all might recover).
+//
+// Definitive auth reasons (→ AP mode):
+//   - 4WAY_HANDSHAKE_TIMEOUT (15): handshake never completed (bad PSK-class)
+//   - 802_1X_AUTH_FAILED (23): enterprise auth rejected
+//   - AUTH_FAIL (202): bad PSK
+//
+// Transient reasons (→ STA retry forever):
+//   - AUTH_EXPIRE (2), AUTH_LEAVE (3), ASSOC_EXPIRE (4), BEACON_TIMEOUT (200),
+//     reason=0/4/204 etc.
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_F(WiFiManagerTest, wrongPasswordGoesToAp_4WayHandshakeTimeout) {
+    // 4WAY_HANDSHAKE_TIMEOUT (15) is a definitive auth failure: the PSK was
+    // cryptographically refused. Must transition to AP mode immediately,
+    // NOT retry STA forever.
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    wifiManager->onDisconnected(15);  // WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
+        << "AP mode transition must clear the TCP restart flag";
+    EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 15)
+        << "escalatedToApReason must record the definitive-auth reason";
+}
+
+TEST_F(WiFiManagerTest, authFailGoesToAp_AuthFail202) {
+    // AUTH_FAIL (202) is a definitive auth failure: bad PSK. Must transition
+    // to AP mode immediately, NOT retry STA forever.
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    wifiManager->onDisconnected(202);  // WIFI_REASON_AUTH_FAIL
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
+        << "AP mode transition must clear the TCP restart flag";
+    EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 202)
+        << "escalatedToApReason must record the definitive-auth reason";
+}
+
+TEST_F(WiFiManagerTest, authExpireRetriesStaForever_Reason2StaysConnecting) {
+    // AUTH_EXPIRE (2) is a TRANSIENT session-lifecycle reason: the auth
+    // session timed out, but the credentials are still valid. Must NOT
+    // transition to AP mode — must retry STA forever (re-enter CONNECTING).
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    wifiManager->onDisconnected(2);  // WIFI_REASON_AUTH_EXPIRE
+
+    // Must stay in CONNECTING (retry), NOT AP mode.
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "transient drop must keep the TCP restart flag armed (link rebuild)";
+    EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 0)
+        << "transient reason must NOT set escalatedToApReason";
+
+    // Advance past the retry interval and verify the retry loop continues
+    // (stays CONNECTING, does NOT bail to AP mode). This pins "retry forever".
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "AUTH_EXPIRE must retry STA forever, not escalate to AP";
+
+    // Advance past another retry interval — still retrying.
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS * 2 + 1);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "AUTH_EXPIRE must keep retrying STA across multiple intervals";
+}
+
+TEST_F(WiFiManagerTest, routerRebootRetriesSta_AssocExpireReason4) {
+    // ASSOC_EXPIRE (4) is a TRANSIENT reason: the router rebooted or the
+    // association expired. Must NOT transition to AP mode — must retry STA.
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, "baked-ssid", "baked-pass");
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    wifiManager->onDisconnected(4);  // WIFI_REASON_ASSOC_EXPIRE
+
+    // Must stay in CONNECTING (retry), NOT AP mode.
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "transient drop must keep the TCP restart flag armed (link rebuild)";
+    EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 0)
+        << "transient reason must NOT set escalatedToApReason";
+}

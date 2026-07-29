@@ -11,6 +11,7 @@
 
 #include "FirmwareApp_test_fixture.h"
 #include "ISerialEventLogger.h"
+#include "LoopHeartbeat.h"
 
 using ::testing::_;
 using ::testing::StrEq;
@@ -56,6 +57,9 @@ protected:
 
 TEST_F(FirmwareAppSerialObservabilityTest, WiFi_ConnectingToConnected_EmitsWifiConnectedWithIp) {
     initWithLogger();
+    // Disable discovery so its broadcast event doesn't interfere with the
+    // wifi_connected event expectation on the same update tick.
+    firmwareApp->setDiscoveryEnabled(false);
 
     // Use STA mode so localIP() returns a real address.
     wifiMock.setMode(1);  // WIFI_STA
@@ -156,23 +160,21 @@ TEST_F(FirmwareAppSerialObservabilityTest, DiscoveryBroadcast_EmitsOnTierChange)
     firmwareApp->update(0);
     firmwareApp->update(1000);
 
-    // Advance past the 2min boundary (next tier = 10s). A broadcast after the
-    // tier change should emit a new discovery_broadcast event.
+    // Advance past the 2min boundary (120000ms) into the next tier (10s).
+    // A broadcast after the tier change should emit a new discovery_broadcast
+    // event with the new cadence. The broadcast gate fires when
+    // now - lastBroadcastMs >= intervalMs; with a 10s interval we need to
+    // advance past 120000 + 10000 = 130000ms.
     EXPECT_CALL(eventLoggerMock,
                 logEvent("discovery_broadcast", HasSubstr("cadence=10s")));
-    // Directly drive DiscoveryManager to a post-2min age. The fast interval is
-    // 500ms, so we need to advance enough for at least one broadcast to fire
-    // after the tier boundary (connectTime was set at init, now ~0; age 130000
-    // is past 2min; interval is 10s so we need now - connectTime >= 10s for
-    // the broadcast gate to fire). Use a large enough delta.
-    firmwareApp->update(15000);
+    firmwareApp->update(130000);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // §7  [STATE] enrichment — LoopHeartbeat includes client, disc, led fields
 // ══════════════════════════════════════════════════════════════════════════════
 
-TEST(FirmwareAppSerialObservabilityTest, StateLine_IncludesEnrichedFields) {
+TEST_F(FirmwareAppSerialObservabilityTest, StateLine_IncludesEnrichedFields) {
     LoopHeartbeat heartbeat(1000);
 
     // Simulate a tick with enriched fields from FirmwareApp getters.
@@ -191,7 +193,7 @@ TEST(FirmwareAppSerialObservabilityTest, StateLine_IncludesEnrichedFields) {
     EXPECT_THAT(snap, HasSubstr("monitor=idle"));
 }
 
-TEST(FirmwareAppSerialObservabilityTest, StateLine_ClientNone_WhenNoClient) {
+TEST_F(FirmwareAppSerialObservabilityTest, StateLine_ClientNone_WhenNoClient) {
     LoopHeartbeat heartbeat(1000);
 
     ASSERT_TRUE(heartbeat.tick(1000,
@@ -223,6 +225,62 @@ TEST_F(FirmwareAppSerialObservabilityTest, NoLoggerInjected_EmitsDoNotCrash) {
         app->onClientDisconnected("192.168.1.50", 1);
         app->onWiFiDisconnected(4);
     });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// §9  [EVENT] wifi_ap_fallback — emitted when WiFi escalates to AP mode
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsSerialEvent_WithReason) {
+    // CONTRACT: when a definitive auth failure (e.g. 4WAY_HANDSHAKE_TIMEOUT=15)
+    // drives the WiFi state machine from WIFI_CONNECTED to WIFI_AP_MODE,
+    // FirmwareApp must emit [EVENT] wifi_ap_fallback reason=<n> via the
+    // injected IEventLogger. The reason is sourced from WiFiManager's
+    // ctx.escalatedToApReason field (set in onDisconnected).
+    initWithLogger();
+
+    // Use STA mode so localIP() returns a real address and the connect
+    // transition is observable.
+    wifiMock.setMode(1);  // WIFI_STA
+
+    // Establish WIFI_CONNECTED so we have a real STA state to drop from.
+    wifiMock.simulateConnectSuccess();
+    firmwareApp->update(5000);
+    ASSERT_EQ(firmwareApp->getWiFiState(),
+              static_cast<int>(WiFiState::State::WIFI_CONNECTED));
+
+    // Definitive auth failure → AP mode. FirmwareApp::onWiFiDisconnected
+    // delegates to WiFiManager::onDisconnected (which sets
+    // escalatedToApReason=15 and transitions to AP), then update() detects
+    // the state transition and emits wifi_ap_fallback. onWiFiDisconnected
+    // also emits a wifi_drop event (once directly, once from the state
+    // transition detection in update()).
+    EXPECT_CALL(eventLoggerMock,
+                logEvent("wifi_drop", HasSubstr("reason=15"))).Times(2);
+    EXPECT_CALL(eventLoggerMock,
+                logEvent("wifi_ap_fallback", HasSubstr("reason=15")));
+    firmwareApp->onWiFiDisconnected(15);  // 4WAY_HANDSHAKE_TIMEOUT
+    firmwareApp->update(6000);
+}
+
+TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsCorrectReason_AuthFail202) {
+    // CONTRACT: the wifi_ap_fallback event must carry the EXACT reason code
+    // that triggered the AP escalation (not a hardcoded value). Verifies
+    // reason 202 (AUTH_FAIL) is emitted correctly.
+    initWithLogger();
+
+    wifiMock.setMode(1);  // WIFI_STA
+    wifiMock.simulateConnectSuccess();
+    firmwareApp->update(5000);
+    ASSERT_EQ(firmwareApp->getWiFiState(),
+              static_cast<int>(WiFiState::State::WIFI_CONNECTED));
+
+    EXPECT_CALL(eventLoggerMock,
+                logEvent("wifi_drop", HasSubstr("reason=202"))).Times(2);
+    EXPECT_CALL(eventLoggerMock,
+                logEvent("wifi_ap_fallback", HasSubstr("reason=202")));
+    firmwareApp->onWiFiDisconnected(202);  // AUTH_FAIL
+    firmwareApp->update(6000);
 }
 
 } // namespace

@@ -26,6 +26,7 @@ namespace WiFiState {
         uint32_t connectStartTime = 0;
         int lastDisconnectReason = 0;  // wifi_err_reason_t
         bool tcpServerNeedsRestart = false;
+        int escalatedToApReason = 0;  // wifi_err_reason_t that triggered AP fallback (0 = not escalated)
     };
 }
 

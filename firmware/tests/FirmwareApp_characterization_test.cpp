@@ -94,10 +94,10 @@ TEST_F(FirmwareAppTest, CredentialFailure_DoesNotReconnect_SettlesInApMode) {
     // rejection (bad SSID/PSK) MUST NOT re-enter the connect cycle against the
     // same credentials — retrying a refused SSID/PSK is guaranteed-futile. From a
     // CONNECTED_STA state, the disconnect must settle in AP mode and leave the
-    // TCP-restart flag CLEARED (no STA connection to serve). Pins the four
-    // unrecoverable auth failures (AUTH_FAIL=202, 4WAY_HANDSHAKE_TIMEOUT=15,
-    // 802_1X_AUTH_FAILED=23, CIPHER_SUITE_REJECTED=24 — real ESP-IDF codes), so a
-    // god-struct split cannot silently drop any of them back into RECONNECTING.
+    // TCP-restart flag CLEARED (no STA connection to serve). Pins the three
+    // definitive auth failures (AUTH_FAIL=202, 4WAY_HANDSHAKE_TIMEOUT=15,
+    // 802_1X_AUTH_FAILED=23 — real ESP-IDF codes), so a god-struct split cannot
+    // silently drop any of them back into RECONNECTING.
     //
     // Each reason is exercised from a fresh CONNECTED_STA precondition (a new
     // FirmwareApp per reason, initialized exactly once), because once the app is
@@ -105,7 +105,7 @@ TEST_F(FirmwareAppTest, CredentialFailure_DoesNotReconnect_SettlesInApMode) {
     // machine — that is real behavior, not a setup the test should fight.
     // Time is driven by a FakeClock advanced explicitly (no realtime waits), so
     // the whole loop completes in ~0ms.
-    for (int reason : {202, 15, 23, 24}) {
+    for (int reason : {202, 15, 23}) {
         firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
         firmwareApp->init();
         firmwareApp->setCallbacks(callbackSpies);
@@ -130,13 +130,14 @@ TEST_F(FirmwareAppTest, CredentialFailure_DoesNotReconnect_SettlesInApMode) {
 TEST_F(FirmwareAppTest, RecoverableAuthDisconnect_ReconnectsAndReArmsTcpFlag) {
     // CONTRACT (refactor-safety net for cpp:S1820): transient session/assoc
     // lifecycle drops (AUTH_EXPIRE=2, AUTH_LEAVE=3, NOT_AUTHED=6, NOT_ASSOCED=7,
-    // ASSOC_NOT_AUTHED=9 — real ESP-IDF codes) are RECOVERABLE — they are not wrong-credential rejections,
-    // so the stack must re-associate rather than abandon STA for AP mode. From a
-    // CONNECTED_STA state the disconnect must settle in RECONNECTING and KEEP the
-    // TCP-restart flag armed (a drop occurred, the link must be rebuilt). Pins all
-    // five recoverable reasons so a god-struct split cannot silently promote any of
+    // ASSOC_NOT_AUTHED=9, CIPHER_SUITE_REJECTED=24 — real ESP-IDF codes) are
+    // RECOVERABLE — they are not wrong-credential rejections, so the stack must
+    // re-associate rather than abandon STA for AP mode. From a CONNECTED_STA
+    // state the disconnect must settle in RECONNECTING and KEEP the TCP-restart
+    // flag armed (a drop occurred, the link must be rebuilt). Pins all six
+    // recoverable reasons so a god-struct split cannot silently promote any of
     // them into the unrecoverable AP-mode set.
-    for (int reason : {2, 3, 6, 7, 9}) {
+    for (int reason : {2, 3, 6, 7, 9, 24}) {
         firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
         firmwareApp->init();
         firmwareApp->setCallbacks(callbackSpies);

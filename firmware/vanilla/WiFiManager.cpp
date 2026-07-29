@@ -226,29 +226,28 @@ bool WiFiManager::clearCredentials() {
 void WiFiManager::onDisconnected(int reason) {
     ctx_.lastDisconnectReason = reason;
 
-    // Permanent, unrecoverable STA auth failures: the SSID/PSK combination was
-    // cryptographically refused, so retrying the SAME credentials is
-    // guaranteed-futile. Transition straight to AP mode (do NOT re-enter the
-    // WIFI_CONNECTING connect cycle). This covers only the auth failures that
-    // indicate a *wrong credential* rather than a transient link flap:
-    //   - AUTH_FAIL (202): bad PSK
-    //   - 802_1X_AUTH_FAILED (21): enterprise auth rejected
-    //   - CIPHER_SUITE_REJECTED (22): crypto negotiation impossible
+    // Definitive auth failure: the SSID/PSK combination was cryptographically
+    // refused, so retrying the SAME credentials is guaranteed-futile. Transition
+    // straight to AP mode (do NOT re-enter the WIFI_CONNECTING connect cycle).
+    // ONLY these reason codes indicate a wrong credential — everything else is
+    // transient and must retry STA forever:
     //   - 4WAY_HANDSHAKE_TIMEOUT (15): handshake never completed (bad PSK-class)
+    //   - 802_1X_AUTH_FAILED (23): enterprise auth rejected
+    //   - AUTH_FAIL (202): bad PSK
     //
     // Transient session/assoc lifecycle reasons that are RECOVERABLE by a fresh
-    // reconnect — AUTH_EXPIRE(1), AUTH_LEAVE(2), NOT_AUTHED(5), NOT_ASSOCED(6),
-    // ASSOC_NOT_AUTHED(8) — fall through to WIFI_CONNECTING below so the stack
-    // re-associates instead of abandoning STA for AP mode.
-    if (reason == WIFI_REASON_AUTH_FAIL ||
-        reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+    // reconnect — AUTH_EXPIRE(2), AUTH_LEAVE(3), BEACON_TIMEOUT(200),
+    // ASSOC_EXPIRE(4), reason=0/4/204 etc. — fall through to WIFI_CONNECTING
+    // below so the stack re-associates instead of abandoning STA for AP mode.
+    if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
         reason == WIFI_REASON_802_1X_AUTH_FAILED ||
-        reason == WIFI_REASON_CIPHER_SUITE_REJECTED) {
+        reason == WIFI_REASON_AUTH_FAIL) {
         wifi_.disconnect(false, true);
         wifi_.setMode(2);  // WIFI_AP
         wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
         ctx_.state = WiFiState::State::WIFI_AP_MODE;
         ctx_.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
+        ctx_.escalatedToApReason = reason;   // Record the definitive-auth reason
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
         // The state transition to WIFI_AP_MODE will be reflected on the next
         // FirmwareApp::update() tick (selectLedPattern returns AP_MODE for

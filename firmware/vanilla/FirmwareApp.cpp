@@ -183,6 +183,14 @@ void FirmwareApp::update(uint32_t now) {
             // Dropped from connected state: emit event with last known reason.
             emitEvent("wifi_drop", "reason=" + std::to_string(observability_.lastDisconnectReason));
         }
+        if (curWifiState == static_cast<int>(WiFiState::State::WIFI_AP_MODE)
+            && prevWifiState != static_cast<int>(WiFiState::State::WIFI_AP_MODE)) {
+            // Escalated to AP mode (definitive auth failure): emit event with
+            // the reason code that triggered the escalation (set by
+            // WiFiManager::onDisconnected into ctx.escalatedToApReason).
+            int apReason = wifiManager_->getContext().escalatedToApReason;
+            emitEvent("wifi_ap_fallback", "reason=" + std::to_string(apReason));
+        }
         previousWifiState_ = curWifiState;
     }
 
