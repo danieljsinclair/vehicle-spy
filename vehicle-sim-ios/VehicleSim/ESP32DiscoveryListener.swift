@@ -56,6 +56,7 @@ final class ESP32DiscoveryListener {
     private let lock = NSLock()
     private var listenerStorage: DiscoveryListening
     private var isListeningStorage = false
+    private var cancelSemaphore: DispatchSemaphore?
 
     private var listener: DiscoveryListening {
         lock.withLock { listenerStorage }
@@ -82,6 +83,12 @@ final class ESP32DiscoveryListener {
     }
 
     func start() throws {
+        // Fresh semaphore for this start/stop cycle. stop() waits on this
+        // semaphore until the underlying listener reports .cancelled, ensuring
+        // the UDP port is fully released before the next start() can rebind
+        // (NWError 48: "Address already in use").
+        lock.withLock { cancelSemaphore = DispatchSemaphore(value: 0) }
+
         try listener.startListening(
             onState: { [weak self] state in
                 guard let self else { return }
@@ -104,6 +111,8 @@ final class ESP32DiscoveryListener {
                     self.onError(.listenerFailed(nsError))
                 case .cancelled:
                     self.lock.withLock { self.isListeningStorage = false }
+                    // Signal stop() that teardown is complete.
+                    self.cancelSemaphore?.signal()
                 default:
                     break
                 }
@@ -115,13 +124,33 @@ final class ESP32DiscoveryListener {
         )
     }
 
-    func stop() {
+    /// Stop listening. When `waitForCancelled` is true (the default), this
+    /// method blocks until the underlying listener reaches `.cancelled`,
+    /// ensuring the UDP port is fully released before the next `start()`
+    /// can rebind (NWError 48: "Address already in use").
+    ///
+    /// `deinit` calls `stop(waitForCancelled: false)` to avoid blocking
+    /// during deallocation — the `onState` handler's `[weak self]` would
+    /// be nil, so the semaphore would never be signaled.
+    func stop(waitForCancelled: Bool = true) {
         listener.cancelListening()
+
+        if waitForCancelled {
+            // Only wait if the listener was started and is not already cancelled.
+            let semaphore = lock.withLock { cancelSemaphore }
+            let state = listener.state
+            if semaphore != nil && state != .cancelled {
+                // 5s timeout is a safety net; in production the .cancelled state
+                // arrives promptly via NWListener's stateUpdateHandler.
+                _ = semaphore?.wait(timeout: .now() + 5.0)
+            }
+        }
+
         lock.withLock { isListeningStorage = false }
     }
 
     deinit {
-        stop()
+        stop(waitForCancelled: false)
     }
 
     // MARK: - Private
