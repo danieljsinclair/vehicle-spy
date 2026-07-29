@@ -100,6 +100,7 @@
 		T1000019 /* FakeClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000019 /* FakeClock.swift */; };
 		T1000020 /* FakeDiscoveryListener.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000020 /* FakeDiscoveryListener.swift */; };
 		T1000021 /* ESP32DiscoveryListenerCancelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000021 /* ESP32DiscoveryListenerCancelTests.swift */; };
+		T1000022 /* VehicleViewModelHeartbeatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000022 /* VehicleViewModelHeartbeatTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -210,6 +211,7 @@
 		T2000019 /* FakeClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FakeClock.swift; path = ../VehicleSimTests/FakeClock.swift; sourceTree = "<group>"; };
 		T2000020 /* FakeDiscoveryListener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FakeDiscoveryListener.swift; path = ../VehicleSimTests/FakeDiscoveryListener.swift; sourceTree = "<group>"; };
 		T2000021 /* ESP32DiscoveryListenerCancelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ESP32DiscoveryListenerCancelTests.swift; path = ../VehicleSimTests/ESP32DiscoveryListenerCancelTests.swift; sourceTree = "<group>"; };
+		T2000022 /* VehicleViewModelHeartbeatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleViewModelHeartbeatTests.swift; path = ../VehicleSimTests/VehicleViewModelHeartbeatTests.swift; sourceTree = "<group>"; };
 		T2000080 /* VehicleSimTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VehicleSimTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -565,6 +567,7 @@
 				T1000019 /* FakeClock.swift in Sources */,
 				T1000020 /* FakeDiscoveryListener.swift in Sources */,
 				T1000021 /* ESP32DiscoveryListenerCancelTests.swift in Sources */,
+				T1000022 /* VehicleViewModelHeartbeatTests.swift in Sources */,
 				88B7D2AE35B4CA44C617AF28 /* VehicleSimAppAppTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

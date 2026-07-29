@@ -19,7 +19,9 @@ class VehicleViewModel: ObservableObject {
 
     /// Connection liveness probe. Production uses `HeartbeatLiveness`
     /// (records heartbeat timestamps, considers stale after 1s). Injected for
-    /// testability; `checkConnectionLiveness` will adopt it in a future commit.
+    /// testability. `updateTelemetry` records heartbeats when fresh signal
+    /// data arrives; `checkConnectionLiveness` disconnects when the heartbeat
+    /// is stale (catches silent ESP32 drops where the TCP transport stays alive).
     private let livenessProbe: ConnectionLivenessProbe
 
     // MARK: - Signal Values
@@ -320,7 +322,16 @@ class VehicleViewModel: ObservableObject {
               connectionState == .connected,
               let wrapper = wrapper else { return }
 
-        if !wrapper.isConnectionAlive {
+        // Two independent disconnect triggers:
+        // 1. Transport-exhausted: !wrapper.isConnectionAlive — fast path for
+        //    hard TCP drops (ESP32 rebooted, WiFi lost).
+        // 2. Heartbeat-stale: livenessProbe.isConnectionStale — catches silent
+        //    ESP32 vanishing (TCP transport stays alive but no signal data
+        //    flows for >1s).
+        let isTransportDead = !wrapper.isConnectionAlive
+        let isHeartbeatStale = livenessProbe.isConnectionStale(nowMs: vmClock.nowMs())
+
+        if isTransportDead || isHeartbeatStale {
             // Connection dropped — stop polling, clean up, and reconnect.
             stopUpdates()
             wrapper.stop()
@@ -812,6 +823,10 @@ class VehicleViewModel: ObservableObject {
 
     private func startPolling() {
         stopUpdates()
+        // Record an initial heartbeat so the connection is not immediately
+        // considered stale on the first polling tick before any signal data
+        // has been received from the ESP32.
+        livenessProbe.recordHeartbeat(nowMs: vmClock.nowMs())
         updateTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.updateTelemetry()
             self?.checkConnectionLiveness()
@@ -834,6 +849,14 @@ class VehicleViewModel: ObservableObject {
         motorTorqueNm = wrapper.motorTorqueNm?.doubleValue
         gearSelector = wrapper.gearSelector
         steeringAngleDeg = wrapper.steeringAngleDeg?.doubleValue
+
+        // Record a heartbeat when fresh signal data arrives. The liveness
+        // probe uses this to detect a silent ESP32 drop: if no heartbeat
+        // is recorded within the timeout (1s), the connection is considered
+        // stale even if the TCP transport reports itself as alive.
+        if wrapper.isReceivingData {
+            livenessProbe.recordHeartbeat(nowMs: vmClock.nowMs())
+        }
     }
 
     // MARK: - Helpers
