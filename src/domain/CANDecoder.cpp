@@ -1,9 +1,11 @@
 #include "vehicle-sim/domain/CANDecoder.h"
 
+#include <cstddef>
+
 namespace vehicle_sim::domain {
 
 std::optional<double> CANDecoder::extractSignal(
-    const std::vector<uint8_t>& frame,
+    const std::vector<std::byte>& frame,
     std::size_t startBit,
     std::size_t bitLength,
     double scale,
@@ -14,8 +16,7 @@ std::optional<double> CANDecoder::extractSignal(
         return std::nullopt;
     }
 
-    const std::size_t lastBit = startBit + bitLength - 1;
-    if (lastBit >= frame.size() * 8) {
+    if (const std::size_t lastBit = startBit + bitLength - 1; lastBit >= frame.size() * 8) {
         return std::nullopt;
     }
 
@@ -32,7 +33,7 @@ std::optional<double> CANDecoder::extractSignal(
 }
 
 std::uint64_t CANDecoder::extractRawBits(
-    const std::vector<uint8_t>& frame,
+    const std::vector<std::byte>& frame,
     std::size_t startBit,
     std::size_t bitLength
 ) noexcept {
@@ -43,7 +44,7 @@ std::uint64_t CANDecoder::extractRawBits(
         const std::size_t byteIdx = bitPos / 8;
         const std::size_t bitIdx = bitPos % 8;
 
-        if (frame[byteIdx] & (1u << bitIdx)) {
+        if ((frame[byteIdx] & (std::byte{1} << bitIdx)) != std::byte{0}) {
             result |= (1ULL << i);
         }
     }
@@ -59,8 +60,7 @@ std::int64_t CANDecoder::toSigned(
         return static_cast<std::int64_t>(raw);
     }
 
-    const std::uint64_t signBit = 1ULL << (bitLength - 1);
-    if (raw & signBit) {
+    if (const std::uint64_t signBit = 1ULL << (bitLength - 1); raw & signBit) {
         // Two's complement: extend sign
         raw |= ~((1ULL << bitLength) - 1);
         return static_cast<std::int64_t>(raw);

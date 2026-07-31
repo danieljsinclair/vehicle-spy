@@ -7,8 +7,6 @@ namespace vehicle_sim::domain {
 
 BLESignalSource::BLESignalSource(BLEManager* bleManager) noexcept
     : bleManager_(bleManager)
-    , latestSignal_(0)
-    , connected_(false)
 {
 }
 
@@ -17,7 +15,7 @@ BLESignalSource::~BLESignalSource() {
 }
 
 VehicleSignal BLESignalSource::latestSignal() const noexcept {
-    std::lock_guard<std::mutex> lock(signalMutex_);
+    std::scoped_lock lock(signalMutex_);
     return latestSignal_;
 }
 
@@ -43,17 +41,18 @@ void BLESignalSource::onDataReceived(const std::vector<std::uint8_t>& data) {
     if (data.size() < 2) return;
 
     // Extract CAN ID (little-endian from BLE)
-    std::uint16_t canId = static_cast<std::uint16_t>(data[0]) | (static_cast<std::uint16_t>(data[1]) << 8);
+    auto canId = static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[0]) | (static_cast<std::uint16_t>(data[1]) << 8));
 
     // Store frame data (bytes 2-9)
     std::vector<std::uint8_t> frameData(data.begin() + 2, data.end());
 
     {
-        std::lock_guard<std::mutex> lock(signalMutex_);
+        std::scoped_lock lock(signalMutex_);
         accumulatedFrames_[canId] = frameData;
 
-        // TODO: Use DBCTranslationService to translate accumulated frames
-        // For now, store raw data - actual translation will be added later
+        // MARKER: use DBCTranslationService to translate accumulated frames —
+        // tracked separately. For now, store raw data; actual translation will
+        // be added later.
     }
 }
 

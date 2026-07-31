@@ -62,19 +62,6 @@ protected:
     static constexpr std::uint8_t PID_ACCELERATOR_POS_P = 0x5C;
     static constexpr std::uint8_t PID_BRAKE_PRESSURE = 0xA4;
 
-    // State accumulated across multiple PID responses
-    mutable std::mutex state_mutex_;
-
-    // Last-known values (updated when matching PID is seen)
-    mutable double lastThrottle_ = 0.0;
-    mutable double lastSpeed_ = 0.0;
-    mutable double lastAcceleration_ = 0.0;
-    mutable double lastBrake_ = 0.0;
-    mutable std::uint64_t lastTimestamp_ = 0;
-
-    // Current raw data being processed (subclass hook access)
-    mutable const std::vector<uint8_t>* currentData_ = nullptr;
-
     /**
      * Extract a value from OBD2 response data for the given PID.
      * Override this in subclasses to provide custom decoding per PID.
@@ -88,19 +75,32 @@ protected:
         const std::vector<std::uint8_t>& data
     ) const noexcept;
 
-    /**
-     * Update state after extracting a PID value.
-     * Override to customize which VehicleSignal field each PID updates.
-     *
-     * Default: stores value directly by field name matched to PID.
-     * Subclasses can override to implement custom mapping.
-     *
-     * @param pid The PID that was extracted
-     * @param value The numeric value extracted
-     */
-    virtual void updateSignalField(std::uint8_t pid, double value) const noexcept;
-
     [[nodiscard]] std::uint64_t getCurrentTimestamp() const noexcept;
+
+private:
+    // State accumulated across multiple PID responses. All access is channelled
+    // through applyUpdateAndSnapshot(), which holds state_mutex_ across the
+    // read/modify/snapshot, so every mutation and read of these fields happens
+    // under that single lock.
+    mutable std::mutex state_mutex_;
+    mutable double lastThrottle_ = 0.0;
+    mutable double lastSpeed_ = 0.0;
+    mutable double lastAcceleration_ = 0.0;
+    mutable double lastBrake_ = 0.0;
+    mutable std::uint64_t lastTimestamp_ = 0;
+
+    // The single locked critical section. Acquires state_mutex_ at entry, routes
+    // the extracted value to its last-known field, stamps the timestamp, and
+    // snapshots the accumulated state into a VehicleSignal — all under one
+    // acquisition so the emitted signal is atomic. The field writes are lexically
+    // inside this function, so every mutation of the last-known state is
+    // provably under state_mutex_. Called by translate() WITHOUT pre-holding the
+    // lock (state_mutex_ is non-recursive). Returns the snapshot.
+    [[nodiscard]] VehicleSignal applyUpdateAndSnapshot(
+        std::uint8_t pid,
+        double value,
+        std::uint64_t effectiveTimestamp
+    ) const noexcept;
 };
 
 } // namespace vehicle_sim::domain

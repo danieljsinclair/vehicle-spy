@@ -17,7 +17,7 @@ namespace vehicle_sim::domain {
  */
 class VehicleConfigResolver {
 public:
-    VehicleConfigResolver(DBCTranslationService& service) noexcept;
+    explicit VehicleConfigResolver(DBCTranslationService& service) noexcept;
 
     /**
      * Resolve vehicle configuration for the given type

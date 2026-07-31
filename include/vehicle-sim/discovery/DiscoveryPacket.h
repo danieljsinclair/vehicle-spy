@@ -31,8 +31,7 @@
 #include <vector>
 #include <string_view>
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
 // ── Constants (single source of truth) ───────────────────────────────────
 
@@ -46,11 +45,13 @@ inline constexpr size_t DEVICE_ID_LEN = 16;
 inline constexpr size_t NONCE_LEN = 8;
 inline constexpr size_t SIGNATURE_LEN = 64;  // Ed25519
 
-// Header: magic(4) + version(1) + type(1) + deviceId(16) + nonce(8) +
-//         timestamp(8) + canPort(2) + otaPort(2) = 42
+// Header wire format (42 bytes total): 4-byte magic, 1-byte version, 1-byte
+// type, 16-byte deviceId, 8-byte nonce, 8-byte timestamp, then 2-byte canPort
+// and 2-byte otaPort.
 inline constexpr size_t HEADER_LEN = 42;
 
-// Total packet: header(42) + signature(64) = 106
+// A complete packet is the 42-byte header followed by the 64-byte Ed25519
+// signature (106 bytes total).
 inline constexpr size_t PACKET_LEN = HEADER_LEN + SIGNATURE_LEN;  // 106
 
 // UDP port for discovery broadcasts — ESP32 sends, CLI/iOS listen
@@ -92,7 +93,6 @@ bool parse(const uint8_t* data, size_t len, DiscoveryPacket& out);
 // Parse from a byte vector.
 bool parse(const std::vector<uint8_t>& data, DiscoveryPacket& out);
 
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery
 
 #endif // VEHICLE_SIM_DISCOVERY_PACKET_H

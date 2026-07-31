@@ -4,28 +4,29 @@
 #include <string>
 #include <functional>
 #include "vehicle-sim/domain/VehicleSignal.h"
+#include "vehicle-sim/domain/IVehicleSimulator.h"
 
 namespace vehicle_sim {
 
-class VehicleSimulator {
+class VehicleSimulator final : public domain::IVehicleSimulator {
 public:
     VehicleSimulator();
-    ~VehicleSimulator();
+    ~VehicleSimulator() override;
 
     // Initialize the simulator with configuration
-    bool initialize(const std::string& config_file = "");
+    bool initialize(const std::string& config_file = "") const override;
 
     // Start data capture and processing
-    bool start();
+    bool start() override;
 
     // Stop all capture and processing
-    void stop();
+    void stop() override;
 
     // Main update loop - animates simulation values
-    void update();
+    void update() override;
 
     // Get the latest typed signal (single source of truth)
-    [[nodiscard]] domain::VehicleSignal getLatestSignal() const;
+    [[nodiscard]] domain::VehicleSignal getLatestSignal() const override;
 
     // Get current telemetry data as JSON (CLI backward compat)
     std::string getTelemetry() const;
@@ -36,7 +37,7 @@ public:
 
     // Non-blocking query interface
     bool hasNewData() const;
-    std::string getLatestTelemetry();
+    std::string getLatestTelemetry() const;
 
 private:
     class Impl;

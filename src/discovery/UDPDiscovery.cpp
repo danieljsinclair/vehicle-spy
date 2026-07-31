@@ -1,42 +1,50 @@
 #include "vehicle-sim/discovery/UDPDiscovery.h"
 
+#include "vehicle-sim/discovery/PosixDiscoverySocket.h"
+
 #include <iostream>
+#include <array>
 #include <cstring>
 #include <algorithm>
 #include <ctime>
-#include <cerrno>
-#include <atomic>
+#include <memory>
+#include <string>
 
-// Platform-specific socket headers
-#ifdef __APPLE__
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <poll.h>
-#include <errno.h>
-#endif
+namespace vehicle_sim::discovery {
 
-namespace vehicle_sim {
-namespace discovery {
+// The injected StopToken (set by the signal handler via SignalStopBroker,
+// polled by poll()) is used instead of EINTR because macOS's SA_RESTART causes
+// poll() to auto-restart after signals, never returning EINTR. It is checked
+// each 100ms iteration, ensuring Ctrl-C responds within ~100ms.
 
-// Global stop flag for discovery poll (set by signal handler, polled by poll())
-// Using a flag instead of EINTR because macOS's SA_RESTART causes poll() to
-// auto-restart after signals, never returning EINTR. The flag is checked each
-// 100ms iteration, ensuring Ctrl-C responds within ~100ms.
-namespace {
-    std::atomic<bool> g_discoveryStopRequested{false};
-}  // namespace
-
-// Get current Unix epoch seconds
 static uint64_t nowEpoch() {
     return static_cast<uint64_t>(std::time(nullptr));
 }
 
+// Format an IPv4 address (host byte order, 32-bit) as dotted-quad. Equivalent
+// to inet_ntoa(in_addr{s_addr=htonl(addr)}) for every IPv4 value, with no POSIX
+// dependency — used so the IDiscoverySocket seam can report addresses as plain
+// integers while UDPDiscovery still produces the same address string it did
+// when it called inet_ntoa directly.
+static std::string ipv4DottedQuad(uint32_t addrHostOrder) {
+    return std::to_string((addrHostOrder >> 24) & 0xFFu) + "." +
+           std::to_string((addrHostOrder >> 16) & 0xFFu) + "." +
+           std::to_string((addrHostOrder >> 8) & 0xFFu) + "." +
+           std::to_string(addrHostOrder & 0xFFu);
+}
+
 class UDPDiscovery::Impl {
 public:
-    int sockfd = -1;
+    explicit Impl(std::unique_ptr<IDiscoverySocket> socket)
+        : socket_(std::move(socket)) {
+        if (!socket_) {
+            socket_ = std::make_unique<PosixDiscoverySocket>();
+        }
+    }
+
+    // Raw UDP socket (production = PosixDiscoverySocket; tests inject a fake).
+    // Impl is a PIMPL internal; encapsulation is at the UDPDiscovery boundary.
+    std::unique_ptr<IDiscoverySocket> socket_;
     bool listening = false;
     std::array<uint8_t, ED25519_PUBLIC_KEY_LEN> publicKey{};
     bool hasPublicKey = false;
@@ -45,38 +53,24 @@ public:
     std::vector<DiscoveredDevice> pending;
     // Track already-seen addresses for deduplication
     std::vector<std::string> seenAddresses;
+    // Cooperative stop signal (injected; shared with the caller's signal handler
+    // via SignalStopBroker). Polled each iteration so Ctrl+C ends poll() promptly.
+    std::shared_ptr<pipeline::StopToken> stop_ = std::make_shared<pipeline::StopToken>();
 
     bool start() {
-        if (sockfd >= 0) {
+        if (listening) {
             return true;  // already started
         }
 
-        sockfd = ::socket(AF_INET, SOCK_DGRAM, 0);
-        if (sockfd < 0) {
-            std::cerr << "UDPDiscovery: socket() failed: " << strerror(errno) << "\n";
+        if (!socket_->bind(DISCOVERY_PORT)) {
             return false;
         }
 
-        // Allow address reuse
-        int reuse = 1;
-        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-#ifdef SO_REUSEPORT
-        ::setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
-#endif
-
-        // Bind to the discovery port
-        struct sockaddr_in addr;
-        std::memset(&addr, 0, sizeof(addr));
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
-        addr.sin_port = htons(DISCOVERY_PORT);
-
-        if (::bind(sockfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-            std::cerr << "UDPDiscovery: bind() failed on port " << DISCOVERY_PORT
-                      << ": " << strerror(errno) << "\n";
-            ::close(sockfd);
-            sockfd = -1;
-            return false;
+        if (!socket_->setNonBlocking()) {
+            // The original Impl treated a failed fcntl as non-fatal (it only
+            // applied the non-blocking flag if F_GETFL succeeded; a failure left
+            // the socket blocking but still bound/listening). Preserve that: do
+            // not fail start() here.
         }
 
         listening = true;
@@ -84,10 +78,7 @@ public:
     }
 
     void stop() {
-        if (sockfd >= 0) {
-            ::close(sockfd);
-            sockfd = -1;
-        }
+        socket_->close();
         listening = false;
     }
 
@@ -97,25 +88,21 @@ public:
 
     // Try to receive and process one packet. Returns true if a valid device was found.
     bool tryReceive() {
-        if (sockfd < 0) return false;
+        std::array<uint8_t, PACKET_LEN * 2> buf;  // allow some extra space
+        uint32_t fromAddrHost = 0;
 
-        uint8_t buf[PACKET_LEN * 2];  // allow some extra space
-        struct sockaddr_in fromAddr;
-        socklen_t fromLen = sizeof(fromAddr);
-
-        ssize_t n = ::recvfrom(sockfd, buf, sizeof(buf), 0,
-                               reinterpret_cast<struct sockaddr*>(&fromAddr), &fromLen);
+        ssize_t n = socket_->recvFrom(buf.data(), buf.size(), &fromAddrHost);
         if (n < 0) {
             return false;
         }
 
         // Debug: log packet reception
         std::cerr << "UDPDiscovery: received " << n << " bytes from "
-                  << inet_ntoa(fromAddr.sin_addr) << "\n";
+                  << ipv4DottedQuad(fromAddrHost) << "\n";
 
         // Parse the packet
         DiscoveryPacket packet;
-        if (!parse(buf, static_cast<size_t>(n), packet)) {
+        if (!parse(buf.data(), static_cast<size_t>(n), packet)) {
             std::cerr << "UDPDiscovery: failed to parse packet (wrong size or magic)\n";
             return false;
         }
@@ -123,7 +110,7 @@ public:
         // Debug: log timestamp for diagnosis
         uint64_t now = nowEpoch();
         std::cerr << "UDPDiscovery: packet timestamp=" << packet.timestamp
-                  << ", now=" << now << ", deviceId=";
+                  << ", now=" << now << ", deviceId:";
         for (auto b : packet.deviceId) std::cerr << std::hex << (int)b;
         std::cerr << std::dec << "\n";
 
@@ -139,8 +126,8 @@ public:
         // where the signature provides the authenticity guarantee.
         // For discovery, we accept any valid packet format regardless of timestamp.
 
-        // Extract the IP address
-        std::string addrStr(inet_ntoa(fromAddr.sin_addr));
+        // Extract the IP address string (equivalent to the former inet_ntoa call).
+        std::string addrStr = ipv4DottedQuad(fromAddrHost);
 
         // Build the discovered device
         DiscoveredDevice device;
@@ -164,37 +151,38 @@ public:
     std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout) {
         std::vector<DiscoveredDevice> result;
 
-        if (sockfd < 0) {
-            return result;
-        }
-
         // Clear previously seen addresses for this poll cycle
         seenAddresses.clear();
 
-        // Use poll() to wait for data with a timeout
-        struct pollfd pfd;
-        pfd.fd = sockfd;
-        pfd.events = POLLIN;
-
-        int remainingMs = static_cast<int>(timeout.count());
+        auto remainingMs = static_cast<int>(timeout.count());
         auto start = std::chrono::steady_clock::now();
 
         while (remainingMs > 0) {
-            // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
-            if (g_discoveryStopRequested.load()) {
-                break;
-            }
-
-            int ret = ::poll(&pfd, 1, std::min(remainingMs, 100));  // poll in 100ms chunks
-            if (ret < 0) {
-                if (errno == EINTR) break;  // SIGINT/SIGTERM: stop the poll immediately
-                continue;                   // other transient error: keep going
-            }
-            if (ret > 0 && (pfd.revents & POLLIN)) {
-                // Drain all available packets
-                while (tryReceive()) {
-                    // keep draining
+            // One poll iteration; returns whether the loop should keep going.
+            // Both early-exit paths (stop flag, EINTR) funnel through Stop so
+            // there is a single break in the loop.
+            auto iteration = [&]() {
+                // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
+                if (stop_->stopRequested()) {
+                    return false;
                 }
+
+                int ret = socket_->pollReadable(std::min(remainingMs, 100));  // poll in 100ms chunks
+                if (ret < 0) {
+                    if (errno == EINTR) return false;  // SIGINT/SIGTERM: stop the poll immediately
+                    return true;                        // other transient error: keep going
+                }
+                if (ret > 0) {
+                    // Drain all available packets
+                    while (tryReceive()) {
+                        // keep draining
+                    }
+                }
+                return true;
+            };
+
+            if (!iteration()) {
+                break;
             }
 
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -203,7 +191,7 @@ public:
         }
 
         // Collect pending devices, deduplicating by address
-        for (auto& device : pending) {
+        for (const auto& device : pending) {
             if (std::find(seenAddresses.begin(), seenAddresses.end(), device.address)
                 == seenAddresses.end()) {
                 seenAddresses.push_back(device.address);
@@ -224,17 +212,29 @@ public:
         maxClockSkew = seconds;
     }
 
-    void setDeviceCallback(DeviceCallback cb) {
+    void setDeviceCallback(const DeviceCallback& cb) {
         callback = cb;
     }
 };
 
-UDPDiscovery::UDPDiscovery() : impl_(new Impl()) {}
+UDPDiscovery::UDPDiscovery() : impl_(std::make_unique<Impl>(nullptr)) {}
 
-UDPDiscovery::~UDPDiscovery() {
-    stop();
-    delete impl_;
+UDPDiscovery::UDPDiscovery(std::shared_ptr<pipeline::StopToken> stop)
+    : impl_(std::make_unique<Impl>(nullptr)) {
+    if (stop) {
+        impl_->stop_ = std::move(stop);
+    }
 }
+
+UDPDiscovery::UDPDiscovery(std::unique_ptr<IDiscoverySocket> socket,
+                           std::shared_ptr<pipeline::StopToken> stop)
+    : impl_(std::make_unique<Impl>(std::move(socket))) {
+    if (stop) {
+        impl_->stop_ = std::move(stop);
+    }
+}
+
+UDPDiscovery::~UDPDiscovery() = default;
 
 bool UDPDiscovery::start() {
     return impl_->start();
@@ -260,17 +260,8 @@ void UDPDiscovery::setMaxClockSkew(uint64_t seconds) {
     impl_->setMaxClockSkew(seconds);
 }
 
-void UDPDiscovery::setDeviceCallback(DeviceCallback cb) {
+void UDPDiscovery::setDeviceCallback(const DeviceCallback& cb) {
     impl_->setDeviceCallback(cb);
 }
 
-void UDPDiscovery::requestStop() noexcept {
-    g_discoveryStopRequested.store(true);
-}
-
-void UDPDiscovery::resetStop() noexcept {
-    g_discoveryStopRequested.store(false);
-}
-
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery

@@ -37,123 +37,127 @@ enum ESP32DiscoveryListenerError: Error, LocalizedError {
 
 // MARK: - Listener
 
+/// Thin coordinator around `DiscoveryListening`.
+///
+/// `ESP32DiscoveryListener` owns the decode/verify pipeline (DiscoveryDecoder)
+/// and the higher-level callbacks (onDiscovered, onError). The underlying UDP
+/// listener lifecycle is delegated to an injected `DiscoveryListening`
+/// (default: `NWPathDiscoveryListener`), which wraps `NWListener`.
+///
+/// This extraction is behavior-preserving: the state transitions, packet
+/// handling, and error propagation are identical to the previous inline
+/// implementation.
 final class ESP32DiscoveryListener {
-    private let verifier: DiscoveryVerifier
+    private let decoder: DiscoveryDecoder
     private let onDiscovered: @Sendable (DiscoveredESP32) -> Void
     private let onError: @Sendable (ESP32DiscoveryListenerError) -> Void
     private let logger = Logger(subsystem: "com.axxiant.vehiclesim", category: "ESP32Discovery")
-    private let queue: DispatchQueue
 
     private let lock = NSLock()
-    private var _listener: NWListener?
-    private var _isListening = false
+    private var listenerStorage: DiscoveryListening
+    private var isListeningStorage = false
+    private var cancelSemaphore: DispatchSemaphore?
 
-    private var listener: NWListener? {
-        get { lock.withLock { _listener } }
-        set { lock.withLock { _listener = newValue } }
+    private var listener: DiscoveryListening {
+        lock.withLock { listenerStorage }
     }
 
     var isListening: Bool {
-        lock.withLock { _isListening }
+        lock.withLock { isListeningStorage }
     }
 
     init(
         publicKey: Curve25519.Signing.PublicKey? = nil,
         onDiscovered: @escaping @Sendable (DiscoveredESP32) -> Void,
-        onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in },
-        queue: DispatchQueue = .global(qos: .userInitiated)
+        onError: @escaping @Sendable (ESP32DiscoveryListenerError) -> Void = { _ in
+            // no-op: default error handler. Callers that don't supply an onError intentionally ignore discovery errors.
+        },
+        queue: DispatchQueue = .global(qos: .userInitiated),
+        listener: DiscoveryListening? = nil
     ) {
-        self.verifier = DiscoveryVerifier(publicKey: publicKey)
+        let verifier = DiscoveryVerifier(publicKey: publicKey)
+        self.decoder = DiscoveryDecoder(verifier: verifier)
         self.onDiscovered = onDiscovered
         self.onError = onError
-        self.queue = queue
+        self.listenerStorage = listener ?? NWPathDiscoveryListener(queue: queue)
     }
 
     func start() throws {
-        let parameters = NWParameters.udp
-        parameters.allowLocalEndpointReuse = true
+        // Fresh semaphore for this start/stop cycle. stop() waits on this
+        // semaphore until the underlying listener reports .cancelled, ensuring
+        // the UDP port is fully released before the next start() can rebind
+        // (NWError 48: "Address already in use").
+        lock.withLock { cancelSemaphore = DispatchSemaphore(value: 0) }
 
-        guard let port = NWEndpoint.Port(rawValue: DiscoveryConstants.broadcastPort) else {
-            throw ESP32DiscoveryListenerError.invalidPublicKey
-        }
+        try listener.startListening(
+            onState: { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .ready:
+                    self.logger.info("Discovery listener ready on port \(DiscoveryConstants.broadcastPort)")
+                    self.lock.withLock { self.isListeningStorage = true }
+                case .failed:
+                    self.lock.withLock { self.isListeningStorage = false }
+                    // The NWPathDiscoveryListener does not propagate the underlying
+                    // NWError; mirror the original behavior by surfacing a generic
+                    // listener-failed error. The original code forwarded the NWError
+                    // directly; NWPathDiscoveryListener's onState only carries the
+                    // enum state, so we wrap with a descriptive NSError.
+                    let nsError = NSError(
+                        domain: "NWPathDiscoveryListener",
+                        code: 0,
+                        userInfo: [NSLocalizedDescriptionKey: "Discovery listener failed"]
+                    )
+                    self.onError(.listenerFailed(nsError))
+                case .cancelled:
+                    self.lock.withLock { self.isListeningStorage = false }
+                    // Signal stop() that teardown is complete.
+                    self.cancelSemaphore?.signal()
+                default:
+                    break
+                }
+            },
+            onPacket: { [weak self] data, address in
+                guard let self else { return }
+                self.processPacket(data, remoteAddress: address)
+            }
+        )
+    }
 
-        let newListener = try NWListener(using: parameters, on: port)
+    /// Stop listening. When `waitForCancelled` is true (the default), this
+    /// method blocks until the underlying listener reaches `.cancelled`,
+    /// ensuring the UDP port is fully released before the next `start()`
+    /// can rebind (NWError 48: "Address already in use").
+    ///
+    /// `deinit` calls `stop(waitForCancelled: false)` to avoid blocking
+    /// during deallocation — the `onState` handler's `[weak self]` would
+    /// be nil, so the semaphore would never be signaled.
+    func stop(waitForCancelled: Bool = true) {
+        listener.cancelListening()
 
-        newListener.newConnectionHandler = { [weak self] connection in
-            guard let self else { return }
-            self.handleConnection(connection)
-        }
-
-        newListener.stateUpdateHandler = { [weak self] state in
-            guard let self else { return }
-            switch state {
-            case .ready:
-                self.logger.info("Discovery listener ready on port \(DiscoveryConstants.broadcastPort)")
-                self.lock.withLock { self._isListening = true }
-            case .failed(let error):
-                self.logger.error("Discovery listener failed: \(error.localizedDescription)")
-                self.lock.withLock { self._isListening = false }
-                self.onError(.listenerFailed(error))
-            case .cancelled:
-                self.lock.withLock { self._isListening = false }
-            default:
-                break
+        if waitForCancelled {
+            // Only wait if the listener was started and is not already cancelled.
+            let semaphore = lock.withLock { cancelSemaphore }
+            let state = listener.state
+            if semaphore != nil && state != .cancelled {
+                // 5s timeout is a safety net; in production the .cancelled state
+                // arrives promptly via NWListener's stateUpdateHandler.
+                _ = semaphore?.wait(timeout: .now() + 5.0)
             }
         }
 
-        newListener.start(queue: queue)
-        self.listener = newListener
-    }
-
-    func stop() {
-        listener?.cancel()
-        listener = nil
-        lock.withLock { _isListening = false }
+        lock.withLock { isListeningStorage = false }
     }
 
     deinit {
-        stop()
+        stop(waitForCancelled: false)
     }
 
     // MARK: - Private
 
-    private func handleConnection(_ connection: NWConnection) {
-        connection.start(queue: queue)
-
-        connection.receiveMessage { [weak self] data, _, isComplete, error in
-            guard let self else { return }
-
-            if let error {
-                self.logger.debug("UDP receive error: \(error.localizedDescription)")
-                connection.cancel()
-                return
-            }
-
-            if let data, !data.isEmpty {
-                self.processPacket(data, remoteEndpoint: connection.endpoint)
-            }
-
-            if !isComplete {
-                connection.cancel()
-            }
-        }
-    }
-
-    private func processPacket(_ data: Data, remoteEndpoint: NWEndpoint) {
+    private func processPacket(_ data: Data, remoteAddress: String) {
         do {
-            let packet = try DiscoveryPacket.parse(data)
-            try verifier.verify(packet)
-
-            let address = remoteEndpoint.hostAddressString
-
-            let discovered = DiscoveredESP32(
-                deviceId: packet.deviceId,
-                address: address,
-                port: DiscoveryConstants.broadcastPort,
-                canPort: packet.canPort,
-                timestamp: packet.timestamp,
-                receivedAt: Date()
-            )
+            let discovered = try decoder.decode(data, remoteAddress: remoteAddress)
 
             DispatchQueue.main.async { [weak self] in
                 self?.onDiscovered(discovered)
@@ -166,21 +170,29 @@ final class ESP32DiscoveryListener {
 
 // MARK: - NWEndpoint host address
 
-private extension NWEndpoint {
+// Internal (not private) so the host-resolution logic is reachable from
+// @testable unit tests; it is still module-internal (not public) so the
+// surface area exposed to consumers is unchanged.
+extension NWEndpoint {
     var hostAddressString: String {
-        switch self {
-        case .hostPort(let host, _):
-            switch host {
-            case .ipv4(let addr):
+        // Expressed as if/else (not switch) per swift:S1301 — only one handled case.
+        // The outer `if case .hostPort` matches the only endpoint shape we can resolve a
+        // host from; the trailing `else` covers every other NWEndpoint case AND any
+        // @unknown case added in a later SDK (future-proofed fallback to "unknown").
+        if case .hostPort(let host, _) = self {
+            // Equivalent to a switch over host (.ipv4/.ipv6/.name + @unknown default),
+            // expressed as if/else. The final else is the future-proofed fallback for any
+            // @unknown case added to NWEndpoint.Host in a later SDK.
+            if case .ipv4(let addr) = host {
                 return addr.debugDescription
-            case .ipv6(let addr):
+            } else if case .ipv6(let addr) = host {
                 return addr.debugDescription
-            case .name(let name, _):
+            } else if case .name(let name, _) = host {
                 return name
-            @unknown default:
+            } else {
                 return "unknown"
             }
-        default:
+        } else {
             return "unknown"
         }
     }

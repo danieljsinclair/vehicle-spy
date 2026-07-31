@@ -3,6 +3,7 @@
 #include <vector>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <cstdint>
 #include "BLEDeviceInfo.h"
 
@@ -26,7 +27,7 @@ public:
     virtual std::vector<BLEDeviceInfo> scanForDevices(int timeout_seconds) = 0;
 
     // Connect to a specific device by address (MAC on Linux, UUID on iOS)
-    virtual bool connect(const std::string& device_identifier) = 0;
+    virtual bool connect(std::string_view device_identifier) = 0;
 
     // Disconnect from current device
     virtual void disconnect() = 0;

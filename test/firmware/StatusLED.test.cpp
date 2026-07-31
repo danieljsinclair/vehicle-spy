@@ -288,7 +288,7 @@ TEST(StatusLEDTest, OtaInProgressPattern_ShortFlashShortGap) {
     EXPECT_TRUE(mock.getCurrentState()) << "Should cycle back ON";
 }
 
-// ── TEST: AUTH_FAILURE Pattern (ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR) ────────────
+// ── TEST: ERROR_AUTH_FAILURE Pattern (ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR) ────────────
 
 TEST(StatusLEDTest, AuthFailurePattern_Error3PulsePlus2TinyPlusSeparator) {
     MockStatusLEDOutput mock;
@@ -297,7 +297,7 @@ TEST(StatusLEDTest, AuthFailurePattern_Error3PulsePlus2TinyPlusSeparator) {
     led.init();
     mock.currentTime = 0;
 
-    led.setPattern(firmware::StatusLED::Pattern::AUTH_FAILURE);
+    led.setPattern(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE);
     led.update(0);
 
     // ERROR_3_PULSE: 3× (SHORT_FLASH ON, SHORT_GAP OFF)
@@ -489,7 +489,7 @@ TEST(StatusLEDTest, AllErrorPatternsStartWithError3Pulse) {
     firmware::StatusLED led(&mock);
 
     std::vector<firmware::StatusLED::Pattern> errorPatterns = {
-        firmware::StatusLED::Pattern::AUTH_FAILURE,
+        firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE,
         firmware::StatusLED::Pattern::ERROR_RECOVERABLE,
         firmware::StatusLED::Pattern::ERROR_NO_NTP_SERVICE,
         firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE
@@ -526,19 +526,19 @@ TEST(StatusLEDTest, AllErrorPatternsStartWithError3Pulse) {
 
 TEST(StatusLEDTest, ErrorPatternsDistinguishableByLength) {
     // Error patterns should be distinguishable by their total length after ERROR_3_PULSE
-    // AUTH_FAILURE: 6 + 4 + 1 = 11 steps
+    // ERROR_AUTH_FAILURE: 6 + 4 + 1 = 11 steps
     // ERROR_RECOVERABLE: 6 + 6 + 1 = 13 steps
     // ERROR_NO_NTP_SERVICE: 6 + 2 + 1 = 9 steps
     // FATAL_UNRECOVERABLE: 6 + 6 + 6 + 1 = 19 steps
 
     using namespace firmware;
 
-    auto [authSteps, authCount] = StatusLED::getPatternSteps(StatusLED::Pattern::AUTH_FAILURE);
+    auto [authSteps, authCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_AUTH_FAILURE);
     auto [recovSteps, recovCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_RECOVERABLE);
     auto [ntpSteps, ntpCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
     auto [fatalSteps, fatalCount] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE);
 
-    EXPECT_EQ(authCount, 11) << "AUTH_FAILURE should have 11 steps";
+    EXPECT_EQ(authCount, 11) << "ERROR_AUTH_FAILURE should have 11 steps";
     EXPECT_EQ(recovCount, 13) << "ERROR_RECOVERABLE should have 13 steps";
     EXPECT_EQ(ntpCount, 9) << "ERROR_NO_NTP_SERVICE should have 9 steps";
     EXPECT_EQ(fatalCount, 19) << "FATAL_UNRECOVERABLE should have 19 steps";
@@ -594,6 +594,32 @@ TEST(StatusLEDTest, PatternSwitching_OffToOn) {
     led.setPattern(firmware::StatusLED::Pattern::CLIENT_CONNECTED);
     led.update(100);
     EXPECT_TRUE(mock.getCurrentState());
+}
+
+// ── TEST: setPattern with same pattern is a no-op (no re-log, no re-reset) ──────────
+// FirmwareApp::update() calls setPattern(selectLedPattern(...)) every loop tick.
+// When the pattern hasn't changed, setPatternInternal must return early so the
+// [LED] debug trace does not flood serial and drown the [STATE] line.
+// The LED itself is unaffected (updateInternal already change-detects via lastPattern_).
+
+TEST(StatusLEDTest, SetPattern_SamePatternTwice_NoExtraOutputActivity) {
+    MockStatusLEDOutput mock;
+    firmware::StatusLED led(&mock);
+
+    led.init();
+    mock.currentTime = 0;
+    led.update(0);
+
+    // Stable state: BOOT active, LED ON, lastPattern_ == BOOT
+    size_t transitionsAfterInit = mock.getTransitionCount();
+
+    // Call setPattern with the SAME pattern that is already current
+    led.setPattern(firmware::StatusLED::Pattern::BOOT);
+    led.update(100);
+
+    // No additional output transitions: the redundant call was a true no-op
+    EXPECT_EQ(mock.getTransitionCount(), transitionsAfterInit)
+        << "Redundant setPattern(same) must not trigger additional output transitions";
 }
 
 // ── TEST: Immediate Pattern Interruption ────────────────────────────────────────────────
@@ -681,4 +707,114 @@ TEST(StatusLEDTest, PatternCyclesContinuously) {
         EXPECT_FALSE(mock.getCurrentState()) << "Cycle " << cycle << " should be OFF";
         mock.advanceTime(500, led);
     }
+}
+
+// ── TEST: LED Pattern Selection Pure Function (wifiState, clientConnected) → Pattern ────────
+// These tests verify the single-source-of-truth for LED pattern selection.
+// CLIENT_CONNECTED takes priority over all WiFi states (race-condition fix).
+
+#include "WiFiManager.h"  // For WiFiState::State
+
+using namespace esp32_firmware;  // For WiFiState::State
+
+// GREEN: selectLedPattern() is now implemented as a static method on StatusLED.
+
+TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiDisconnected) {
+    // When a client is connected, CLIENT_CONNECTED pattern wins regardless
+    // of WiFi state (this is the race-condition fix).
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
+    bool clientConnected = true;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::CLIENT_CONNECTED);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnecting) {
+    // CLIENT_CONNECTED takes priority over CONNECTING (race symptom fix).
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
+    bool clientConnected = true;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::CLIENT_CONNECTED);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnectedSta) {
+    // CLIENT_CONNECTED takes priority over CONNECTED_STA (race symptom fix).
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTED);
+    bool clientConnected = true;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::CLIENT_CONNECTED);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiReconnecting) {
+    // CLIENT_CONNECTED takes priority over RECONNECTING (race symptom fix).
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
+    bool clientConnected = true;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::CLIENT_CONNECTED);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnectedAp) {
+    // CLIENT_CONNECTED takes priority over CONNECTED_AP (race symptom fix).
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE);
+    bool clientConnected = true;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::CLIENT_CONNECTED);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiDisconnected_ReturnsWifiSearching) {
+    // No client + DISCONNECTED means still searching for WiFi.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::WIFI_SEARCHING);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnecting_ReturnsWifiSearching) {
+    // No client + CONNECTING means WiFi is searching/connecting.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::WIFI_SEARCHING);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnectedSta_ReturnsWifiConnected) {
+    // No client + CONNECTED_STA means solid connected pattern.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTED);
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::WIFI_CONNECTED);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiReconnecting_ReturnsWifiSearching) {
+    // No client + RECONNECTING means WiFi is searching again.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_CONNECTING);
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::WIFI_SEARCHING);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnectedAp_ReturnsApMode) {
+    // No client + CONNECTED_AP means AP mode pattern.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE);
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::AP_MODE);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_InvalidWifiState_ReturnsWifiSearching) {
+    // Unknown/invalid wifi state defaults to searching (fail-safe behavior).
+    int wifiState = 999;  // Out-of-range state
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::WIFI_SEARCHING);
 }

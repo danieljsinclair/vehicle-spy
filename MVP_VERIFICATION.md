@@ -112,5 +112,5 @@ The core data acquisition and processing pipeline is production-ready for integr
 
 **Verified by**: Build Verification (team-lead delegate)
 **Date**: 2026-04-07
-**Test Executable**: /Users/danielsinclair/vscode/escli.refac7/vehicle-sim/build/test/vehicle-sim-tests
+**Test Executable**: ~/vscode/escli.refac7/vehicle-sim/build/test/vehicle-sim-tests
 **Build Command**: `cmake --build build && ctest`

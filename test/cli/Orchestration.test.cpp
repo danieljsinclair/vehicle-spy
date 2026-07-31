@@ -108,13 +108,6 @@ TEST_F(OrchestrationTest, ResolveVehicleContext_AudiVehicleReturnsCANProtocol) {
     EXPECT_EQ(context.config->vehicleName, "Audi MLB Evo");
 }
 
-TEST_F(OrchestrationTest, ResolveVehicleContext_InvalidVehicleThrows) {
-    EXPECT_THROW(
-        (void)resolveVehicleContext("nonexistent_vehicle", *service_),
-        std::runtime_error
-    );
-}
-
 TEST_F(OrchestrationTest, ResolveVehicleContext_ErrorMessageIncludesAvailableVehicles) {
     try {
         (void)resolveVehicleContext("nonexistent_vehicle", *service_);

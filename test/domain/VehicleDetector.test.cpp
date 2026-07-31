@@ -103,6 +103,87 @@ TEST(VehicleDetector, ExtractVINFromResponse_EmptyResponse) {
 }
 
 // ================================================
+// feedVINResponse — multi-frame / header / rejection contract
+// (BLIND coverage locking VIN assembly for the S5566 index-loop refactor)
+// ================================================
+
+// OBD2 mode 0x09 PID 0x02 responses carry a 0x49/0x02 mode+PID echo followed
+// by a frame index, then the VIN bytes (0x49 = 0x09+0x40 positive-response).
+// Leading zero-pad bytes between the index and the real VIN characters must be
+// skipped so the assembled VIN contains only the printable VIN content.
+
+TEST(VehicleDetector, FeedVINResponse_MultiFrameWithHeaderAssemblesSeventeenCharVin) {
+    // A VIN split across two 0x49/0x02 frames, each with the 3-byte header and
+    // leading zero padding before the real characters. Frames must concatenate
+    // (skipping headers + pad bytes) into the full 17-char VIN.
+    VehicleDetector detector;
+    // Frame 1: header 49 02 01, then two pad bytes, then first 9 VIN chars.
+    std::vector<uint8_t> frame1 = {
+        0x49, 0x02, 0x01, 0x00, 0x00,
+        '5', 'Y', 'J', '3', 'S', '2', 'D', 'X', 'M'};
+    // Frame 2: header 49 02 02, then one pad byte, then remaining 8 VIN chars.
+    std::vector<uint8_t> frame2 = {
+        0x49, 0x02, 0x02, 0x00,
+        'H', '1', '0', '5', '7', '6', '3', '2'};
+
+    EXPECT_TRUE(detector.feedVINResponse(frame1));
+    EXPECT_TRUE(detector.feedVINResponse(frame2));
+
+    auto result = detector.getResult();
+    EXPECT_EQ(result.vin, "5YJ3S2DXMH1057632");
+    EXPECT_EQ(result.vin.size(), 17u);
+}
+
+TEST(VehicleDetector, FeedVINResponse_HeaderFrameWithOnlyPadBytesAddsNothing) {
+    // A 0x49/0x02 frame (size >= 8) whose payload after the 3-byte header is all
+    // zero-pad bytes contributes nothing to the VIN. The previously-assembled
+    // partial VIN must be preserved unchanged. (Frames must be >= 8 bytes to be
+    // recognised as the 0x49/0x02 header branch.)
+    VehicleDetector detector;
+    // Frame 1: header + 4 pad + 'W','B','A','X'  (8 payload bytes after header)
+    std::vector<uint8_t> frameWithChars = {
+        0x49, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 'W', 'B', 'A', 'X'};
+    // Frame 2: header + 5 zero pad bytes only.
+    std::vector<uint8_t> frameAllPad = {
+        0x49, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    ASSERT_TRUE(detector.feedVINResponse(frameWithChars));
+    ASSERT_TRUE(detector.feedVINResponse(frameAllPad));
+
+    EXPECT_EQ(detector.getResult().vin, "WBAX");
+}
+
+TEST(VehicleDetector, FeedVINResponse_NonHeaderResponseExtractsNonZeroBytes) {
+    // A response that does NOT match the 0x49/0x02 header (but is non-empty)
+    // still extracts its non-zero bytes as VIN content.
+    VehicleDetector detector;
+    // No 0x49/0x02 header; embedded zeros must be skipped.
+    std::vector<uint8_t> response = {'A', 0x00, 'B', 0x00, 'C'};
+    EXPECT_TRUE(detector.feedVINResponse(response));
+    EXPECT_EQ(detector.getResult().vin, "ABC");
+}
+
+TEST(VehicleDetector, FeedVINResponse_EmptyResponseRejected) {
+    // An empty response carries no VIN information and must be rejected.
+    VehicleDetector detector;
+    EXPECT_FALSE(detector.feedVINResponse({}));
+    EXPECT_TRUE(detector.getResult().vin.empty());
+}
+
+TEST(VehicleDetector, FeedVINResponse_TruncatesToSeventeenCharacters) {
+    // A VIN response longer than 17 characters must be clamped to exactly 17.
+    VehicleDetector detector;
+    std::vector<uint8_t> longResponse = {
+        0x49, 0x02, 0x01, 0x00,
+        '1', 'H', 'G', 'C', 'M', '8', '2', '6', '3', '3',
+        'A', '0', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
+    EXPECT_TRUE(detector.feedVINResponse(longResponse));
+    auto vin = detector.getResult().vin;
+    EXPECT_EQ(vin.size(), 17u);
+    EXPECT_EQ(vin, "1HGCM82633A001234");
+}
+
+// ================================================
 // Fuel Type Tests
 // ================================================
 

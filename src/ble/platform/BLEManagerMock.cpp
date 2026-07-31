@@ -3,12 +3,9 @@
 
 namespace vehicle_sim {
 
-BLEManagerMock::BLEManagerMock()
-    : connected_(false) {
-}
+BLEManagerMock::BLEManagerMock() = default;
 
-BLEManagerMock::~BLEManagerMock() {
-}
+BLEManagerMock::~BLEManagerMock() = default;
 
 std::vector<BLEDeviceInfo> BLEManagerMock::scanForDevices(int /*timeout_seconds*/) {
     // If mock devices not set, return default Tesla mock
@@ -30,9 +27,9 @@ std::vector<BLEDeviceInfo> BLEManagerMock::scanForDevices(int /*timeout_seconds*
     return mock_devices_;
 }
 
-bool BLEManagerMock::connect(const std::string& device_identifier) {
+bool BLEManagerMock::connect(std::string_view device_identifier) {
     connected_ = true;
-    connected_device_id_ = device_identifier;
+    connected_device_id_ = std::string(device_identifier);
     return true;
 }
 
@@ -62,7 +59,7 @@ std::string BLEManagerMock::getConnectedDeviceId() const {
     return connected_device_id_;
 }
 
-void BLEManagerMock::simulateIncomingData(const std::vector<uint8_t>& data) {
+void BLEManagerMock::simulateIncomingData(const std::vector<uint8_t>& data) const {
     if (data_callback_ && connected_) {
         data_callback_(data);
     }

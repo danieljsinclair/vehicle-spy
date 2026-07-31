@@ -1,4 +1,5 @@
 #include "vehicle-sim/domain/VehicleDetector.h"
+#include <algorithm>
 #include <cctype>
 #include <sstream>
 
@@ -14,17 +15,16 @@ const std::unordered_map<uint16_t, VehicleFingerprint> VehicleDetector::canIdReg
     {0x100, {VehicleMake::Audi,   "audi_mlb_evo", "Audi MLB signals"}},
 };
 
-VehicleDetector::VehicleDetector(int /*accumulationWindowMs*/)
-    : startTime_(std::chrono::steady_clock::now()) {}
+VehicleDetector::VehicleDetector(int /*accumulationWindowMs*/) {}
 
 // --- Passive CAN ID Observation ---
 
 void VehicleDetector::observeFrame(const std::vector<std::uint8_t>& frame) {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
     addFrame(frame);
 
     if (frame.size() == 10) {
-        uint16_t canId = frame[0] | (static_cast<uint16_t>(frame[1]) << 8);
+        auto canId = static_cast<uint16_t>(static_cast<uint16_t>(frame[0]) | (static_cast<uint16_t>(frame[1]) << 8));
         feedCANFrame(canId);
     } else if (frame.size() >= 2 && frame.size() <= 10) {
         feedOBD2Frame(frame);
@@ -165,7 +165,7 @@ std::string VehicleDetector::buildEvidenceSummary(
 // --- Result Building (single source of truth) ---
 
 VehicleDetectionResult VehicleDetector::getResult() const {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
 
     VehicleDetectionResult result;
     result.vin = vin_;
@@ -212,19 +212,18 @@ std::vector<std::uint8_t> VehicleDetector::buildFuelTypeQuery() {
 }
 
 bool VehicleDetector::feedVINResponse(const std::vector<std::uint8_t>& response) {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
     addFrame(response);
 
     std::string newPart;
     if (response.size() >= 8 && response[0] == 0x49 && response[1] == 0x02) {
         size_t start = 3;
         while (start < response.size() && response[start] == 0x00) start++;
-        for (size_t i = start; i < response.size(); ++i) {
-            if (response[i] != 0x00) newPart += static_cast<char>(response[i]);
-        }
+        std::for_each(response.begin() + start, response.end(),
+                      [&](std::uint8_t b) { if (b != 0x00) newPart += static_cast<char>(b); });
     } else if (response.size() >= 1) {
-        for (size_t i = 0; i < response.size(); ++i) {
-            if (response[i] != 0x00) newPart += static_cast<char>(response[i]);
+        for (auto b : response) {
+            if (b != 0x00) newPart += static_cast<char>(b);
         }
     } else {
         return false;
@@ -237,7 +236,7 @@ bool VehicleDetector::feedVINResponse(const std::vector<std::uint8_t>& response)
 }
 
 bool VehicleDetector::feedFuelTypeResponse(const std::vector<std::uint8_t>& response) {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
     addFrame(response);
 
     if (response.size() < 3) return false;
@@ -258,18 +257,18 @@ void VehicleDetector::addFrame(const std::vector<std::uint8_t>& data) {
 }
 
 std::vector<VehicleDetector::RawFrame> VehicleDetector::getRecentFrames(int maxCount) const {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
     if (maxCount >= static_cast<int>(frameHistory_.size())) return frameHistory_;
     return {frameHistory_.end() - maxCount, frameHistory_.end()};
 }
 
 std::chrono::steady_clock::time_point VehicleDetector::lastFrameTime() const {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
     return frameHistory_.empty() ? std::chrono::steady_clock::time_point{} : frameHistory_.back().timestamp;
 }
 
 bool VehicleDetector::isReceivingData() const {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
     if (frameHistory_.empty()) return false;
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - frameHistory_.back().timestamp);
@@ -292,12 +291,11 @@ VehicleMake VehicleDetector::decodeWMI(const std::string& wmi) {
     if (upper == "WDB" || upper == "WDC") return VehicleMake::MercedesBenz;
 
     bool validFormat = std::isalnum(upper[0]) && std::isalnum(upper[1]) && std::isalnum(upper[2]);
-    bool knownRegion = (upper[0] >= '1' && upper[0] <= '5') ||
-                       (upper[0] >= 'A' && upper[0] <= 'H') ||
-                       (upper[0] >= 'J' && upper[0] <= 'R') ||
-                       (upper[0] >= 'S' && upper[0] <= 'Z');
-
-    if (validFormat && knownRegion) return VehicleMake::Generic;
+    if (bool knownRegion = (upper[0] >= '1' && upper[0] <= '5') ||
+                           (upper[0] >= 'A' && upper[0] <= 'H') ||
+                           (upper[0] >= 'J' && upper[0] <= 'R') ||
+                           (upper[0] >= 'S' && upper[0] <= 'Z');
+        validFormat && knownRegion) return VehicleMake::Generic;
     return VehicleMake::Unknown;
 }
 
@@ -326,7 +324,7 @@ std::string VehicleDetector::extractVINFromResponse(const std::vector<std::uint8
 }
 
 void VehicleDetector::reset() {
-    std::lock_guard<std::mutex> lock(stateMutex_);
+    std::scoped_lock lock(stateMutex_);
     canIdCounts_.clear();
     obd2ResponseCount_ = 0;
     vin_.clear();
@@ -335,7 +333,7 @@ void VehicleDetector::reset() {
     startTime_ = std::chrono::steady_clock::now();
 }
 
-void VehicleDetector::completeDetection() {
+void VehicleDetector::completeDetection() const {
     // VIN + fuel type detection is handled via getResult() combining all evidence
 }
 

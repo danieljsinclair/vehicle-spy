@@ -6,7 +6,6 @@ namespace vehicle_sim::ble {
 
 OBD2Transport::OBD2Transport(std::unique_ptr<BLEPlatform> platform)
     : platform_(std::move(platform))
-    , connected_(false)
 {
     platform_->setDataReceivedCallback([this](const std::vector<std::uint8_t>& data) {
         this->processIncomingData(data);
@@ -14,11 +13,11 @@ OBD2Transport::OBD2Transport(std::unique_ptr<BLEPlatform> platform)
 }
 
 OBD2Transport::~OBD2Transport() {
-    disconnect();
+    OBD2Transport::disconnect();
 }
 
 bool OBD2Transport::connect(const std::string& address) {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    std::scoped_lock lock(state_mutex_);
 
     if (connected_) {
         return true;
@@ -29,7 +28,7 @@ bool OBD2Transport::connect(const std::string& address) {
 }
 
 void OBD2Transport::disconnect() {
-    std::lock_guard<std::mutex> state_lock(state_mutex_);
+    std::scoped_lock state_lock(state_mutex_);
 
     if (!connected_) {
         return;
@@ -39,23 +38,23 @@ void OBD2Transport::disconnect() {
     connected_ = false;
 
     {
-        std::lock_guard<std::mutex> buffer_lock(buffer_mutex_);
+        std::scoped_lock buffer_lock(buffer_mutex_);
         receive_buffer_.clear();
     }
 
     {
-        std::lock_guard<std::mutex> callback_lock(callback_mutex_);
+        std::scoped_lock callback_lock(callback_mutex_);
         notification_callback_ = nullptr;
     }
 }
 
 bool OBD2Transport::isConnected() const {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    std::scoped_lock lock(state_mutex_);
     return connected_ && platform_->isConnected();
 }
 
 std::optional<std::vector<std::uint8_t>> OBD2Transport::readData() {
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    std::scoped_lock lock(buffer_mutex_);
 
     if (receive_buffer_.empty()) {
         return std::nullopt;
@@ -73,7 +72,7 @@ std::optional<std::vector<std::uint8_t>> OBD2Transport::readData() {
 }
 
 void OBD2Transport::send(const std::vector<std::uint8_t>& data) {
-    std::lock_guard<std::mutex> lock(state_mutex_);
+    std::scoped_lock lock(state_mutex_);
 
     if (!connected_) {
         return;
@@ -85,18 +84,18 @@ void OBD2Transport::send(const std::vector<std::uint8_t>& data) {
 void OBD2Transport::subscribeToNotifications(
     std::function<void(const std::vector<std::uint8_t>&)> callback
 ) {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
+    std::scoped_lock lock(callback_mutex_);
     notification_callback_ = std::move(callback);
 }
 
 void OBD2Transport::unsubscribe() {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
+    std::scoped_lock lock(callback_mutex_);
     notification_callback_ = nullptr;
 }
 
 void OBD2Transport::processIncomingData(const std::vector<std::uint8_t>& data) {
     {
-        std::lock_guard<std::mutex> lock(buffer_mutex_);
+        std::scoped_lock lock(buffer_mutex_);
         receive_buffer_.insert(receive_buffer_.end(), data.begin(), data.end());
     }
 
@@ -104,7 +103,7 @@ void OBD2Transport::processIncomingData(const std::vector<std::uint8_t>& data) {
 }
 
 void OBD2Transport::extractCleanResponses() {
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    std::scoped_lock lock(buffer_mutex_);
 
     // ELM327 terminates responses with '\r>' or '\r\r>'.
     // We look for the prompt character '>' (0x3E) to find response boundaries.
@@ -137,7 +136,7 @@ void OBD2Transport::extractCleanResponses() {
 }
 
 void OBD2Transport::forwardResponse(const std::vector<std::uint8_t>& response) {
-    std::lock_guard<std::mutex> lock(callback_mutex_);
+    std::scoped_lock lock(callback_mutex_);
 
     if (notification_callback_) {
         notification_callback_(response);

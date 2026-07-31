@@ -228,3 +228,34 @@ TEST(ELM327Transport, ParseCANFrame_WithBusInit_ReturnsNullopt)
     auto result = ELM327Transport::parseCANFrame("BUS INIT");
     EXPECT_FALSE(result.has_value());
 }
+
+// ================================================
+// Test Suite 5: parseCANFrame token-count / type-prefix contracts (S3776 net)
+// Locks the frame-shape rules a refactor must preserve: exactly 8 data bytes,
+// and a 10-token line's first token is only accepted as a type prefix when it
+// falls in the 0x600-0x6FF monitor-mode range. Each test asserts input ->
+// output (nullopt), never internals.
+// ================================================
+
+TEST(ELM327Transport, ParseCANFrame_NotEightDataBytes_ReturnsNullopt)
+{
+    // A CAN monitor line must carry exactly 8 data bytes. Seven (too few) and
+    // nine (too many) are both rejected -> nullopt.
+    auto sevenBytes = ELM327Transport::parseCANFrame(
+        "264 01 02 03 04 05 06 07");
+    EXPECT_FALSE(sevenBytes.has_value());
+
+    auto nineBytes = ELM327Transport::parseCANFrame(
+        "264 01 02 03 04 05 06 07 08 09");
+    EXPECT_FALSE(nineBytes.has_value());
+}
+
+TEST(ELM327Transport, ParseCANFrame_TenTokens_TypeOutOfRange_ReturnsNullopt)
+{
+    // A 10-token line is only valid if its first token is a type prefix in the
+    // 0x600-0x6FF range. A first token below that range (0x5FF) is not a valid
+    // type prefix -> nullopt.
+    auto result = ELM327Transport::parseCANFrame(
+        "5FF 264 01 02 03 04 05 06 07 08");
+    EXPECT_FALSE(result.has_value());
+}

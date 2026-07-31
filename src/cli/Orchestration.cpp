@@ -10,7 +10,7 @@ void printBanner() {
 
 bool handleEarlyExit(
     const CliOptions& opts,
-    domain::DBCTranslationService& translationService
+    const domain::DBCTranslationService& translationService
 ) {
     if (!opts.error_message.empty()) {
         return true;
@@ -23,6 +23,11 @@ bool handleEarlyExit(
 
     if (opts.list_signals) {
         printSupportedSignals(std::cout, translationService);
+        return true;
+    }
+
+    if (opts.led_diag) {
+        printLedHelp(std::cout);
         return true;
     }
 

@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
 #include "vehicle-sim/domain/SignalSourceFactory.h"
 #include "vehicle-sim/domain/DemoSignalSource.h"
+#include "vehicle-sim/domain/SimulationSignalSource.h"
 #include "vehicle-sim/domain/ISignalSource.h"
+#include "vehicle-sim/domain/VehicleSignal.h"
+#include <chrono>
+#include <thread>
 
 using namespace vehicle_sim::domain;
 
@@ -65,4 +69,30 @@ TEST(SignalSourceFactoryTest, ReturnedSourceImplementsISignalSource) {
         (void)signal;  // Suppress unused warning
         basePtr->stop();
     });
+}
+
+// Factory wires a live VehicleSimulator into a SimulationSignalSource and
+// returns it as a working ISignalSource. Beyond the type, this asserts the
+// factory-built source actually polls: after start(), latestSignal() surfaces
+// a live (timestamp > 0) signal from the simulator before stop(). Catches a
+// mis-wired factory (e.g. null/placeholder simulator) that a type cast alone
+// would miss.
+TEST(SignalSourceFactoryTest, CreateSimulationSource_ReturnsWorkingSimulationSignalSource) {
+    auto source = SignalSourceFactory::create("simulation", 1);
+
+    ASSERT_NE(source, nullptr) << "Factory should return non-null source for 'simulation'";
+    EXPECT_NE(dynamic_cast<SimulationSignalSource*>(source.get()), nullptr)
+        << "Factory should return SimulationSignalSource for 'simulation' type";
+
+    source->start();
+    VehicleSignal observed{VehicleSignal::Params{.timestampUtcMs = 0}};
+    for (int i = 0; i < 200; ++i) {
+        observed = source->latestSignal();
+        if (observed.getTimestampUtcMs() > 0) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    source->stop();
+
+    EXPECT_GT(observed.getTimestampUtcMs(), 0ULL)
+        << "factory-built simulation source never surfaced a live signal";
 }

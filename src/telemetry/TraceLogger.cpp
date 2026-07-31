@@ -1,5 +1,6 @@
 #include "vehicle-sim/telemetry/TraceLogger.h"
 #include "vehicle-sim/domain/Gear.h"
+#include "vehicle-sim/domain/VehicleSimExceptions.h"
 
 #include <sstream>
 #include <iomanip>
@@ -7,12 +8,12 @@
 
 namespace vehicle_sim::telemetry {
 
-TraceLogger::TraceLogger(std::string filePath, std::string vehicleId)
+TraceLogger::TraceLogger(const std::string& filePath, std::string vehicleId)
     : file_(filePath)
     , vehicleId_(std::move(vehicleId))
 {
     if (!file_) {
-        throw std::runtime_error("Failed to open trace file: " + filePath);
+        throw domain::TelemetryFileException(filePath);
     }
     writeHeader();
 }
@@ -48,16 +49,16 @@ void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
     // hv_voltage, hv_current, torque, gear). timestamp and vehicle_id are NOT
     // counted — only DBC-translated signals.
     int populatedCount = 0;
-    if (signal.getThrottlePercent())  ++populatedCount;
-    if (signal.getSpeedKmh())         ++populatedCount;
-    if (signal.getAccelerationG())    ++populatedCount;
-    if (signal.getBrakePercent())     ++populatedCount;
-    if (signal.getSteeringAngleDeg()) ++populatedCount;
-    if (signal.getMotorRpm())         ++populatedCount;
-    if (signal.getMotorHvVoltage())   ++populatedCount;
-    if (signal.getMotorHvCurrent())   ++populatedCount;
-    if (signal.getMotorTorqueNm())    ++populatedCount;
-    if (gear)                         ++populatedCount;
+    if (signal.getThrottlePercent().has_value())  ++populatedCount;
+    if (signal.getSpeedKmh().has_value())         ++populatedCount;
+    if (signal.getAccelerationG().has_value())    ++populatedCount;
+    if (signal.getBrakePercent().has_value())     ++populatedCount;
+    if (signal.getSteeringAngleDeg().has_value()) ++populatedCount;
+    if (signal.getMotorRpm().has_value())         ++populatedCount;
+    if (signal.getMotorHvVoltage().has_value())   ++populatedCount;
+    if (signal.getMotorHvCurrent().has_value())   ++populatedCount;
+    if (signal.getMotorTorqueNm().has_value())    ++populatedCount;
+    if (gear.has_value())                         ++populatedCount;
 
     file_ << signal.getTimestampUtcMs() << ","
           << vehicleId_ << ","
@@ -70,13 +71,13 @@ void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
           << formatOptional(signal.getMotorHvVoltage()) << ","
           << formatOptional(signal.getMotorHvCurrent()) << ","
           << formatOptional(signal.getMotorTorqueNm()) << ","
-          << (gear ? domain::Gear::labelOr(*gear, std::to_string(*gear)) : "") << ","
+          << (gear.has_value() ? domain::Gear::labelOr(*gear, std::to_string(*gear)) : "") << ","
           << populatedCount
           << "\n";
     file_.flush();
 }
 
-std::string TraceLogger::formatOptional(std::optional<double> value) {
+std::string TraceLogger::formatOptional(std::optional<double> value) const {
     if (!value.has_value()) {
         return "";
     }
@@ -85,7 +86,7 @@ std::string TraceLogger::formatOptional(std::optional<double> value) {
     return oss.str();
 }
 
-std::string TraceLogger::formatOptional(std::optional<std::int32_t> value) {
+std::string TraceLogger::formatOptional(std::optional<std::int32_t> value) const {
     if (!value.has_value()) {
         return "";
     }

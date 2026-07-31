@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -68,8 +70,19 @@ public:
     [[nodiscard]] const std::string& lastError() const noexcept;
 
 private:
-    bool sendAll(const uint8_t* data, size_t len) noexcept;
-    std::string recvResponse(int timeoutMs) noexcept;
+    // Result of one select/recv iteration in recvResponse(): keep polling,
+    // stop (terminal but keep partial), or return partial response now.
+    enum class RecvIter { KeepGoing, Stop, ReturnPartial };
+
+    bool sendAll(const uint8_t* data, size_t len) const noexcept;
+    std::string recvResponse(int timeoutMs) const noexcept;
+    // One select/recv iteration. `fd_` is the socket; the rest is the
+    // recvResponse() local state threaded by reference. Returns the loop
+    // disposition so recvResponse() has a single break path.
+    RecvIter recvIteration(std::chrono::steady_clock::time_point deadline,
+                           std::array<char, 4096>& buf,
+                           std::string& out,
+                           bool& headersComplete) const noexcept;
     static std::string base64Encode(const std::string& input);
     static std::string buildMultipartBody(const std::vector<uint8_t>& signature,
                                           const std::vector<uint8_t>& firmware,

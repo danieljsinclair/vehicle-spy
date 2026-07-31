@@ -41,50 +41,52 @@ DATA SOURCES -- plain numbers grepped from existing report files:
         The iOS suite (vehicle-spy-ios) runs via ``xcodebuild test`` (no
         greppable ctest log); its counts come from the .xcresult bundle's
         ResultMetrics via ``--xcresult-glob`` (ported from engine-sim-bridge's
-        build_summary). The firmware project has no tests (N/A).
+        build_summary). The firmware project (vehicle-spy-esp32) runs the gtest
+        binary directly (``make firmware-host-tests``); the Makefile captures the
+        binary's stdout into ``firmware/build-verify/test-report.txt``, and this
+        script reads it via ``--firmware-test-log``, parsing the gtest summary
+        line (``[  PASSED  ] N tests.``) for the true per-test count.
 
     Coverage
-        C++ core coverage (vehicle-spy) from the lcov export
-        (``build-cov/lcov.info``); iOS coverage (vehicle-spy-ios) from the
-        xccov export (``build-ios/coverage.json``). Each is read via
-        ``--local-cov`` + ``--local-type lcov|xccov``. The preferred source is
-        the cached SonarCloud ``sonar-measures.json`` (``--cov-measures``); local
-        files are the fallback when no token/report exists. The firmware
-        project has no coverage (no firmware unit tests).
+        LIVE-OR-OMIT from the SonarCloud API via ``--project-key`` (the single
+        source of truth). A successful fetch THIS run is the ONLY way a
+        coverage number appears; on ANY fetch failure (no token, network
+        error, non-200, bad JSON) the field is OMITTED (``cov: N/A``). There
+        is deliberately NO local-export fallback here: local lcov/xccov are a
+        DIFFERENT basis that disagrees with the dashboard, and showing them in
+        the headline would let a divergent number appear. The local-vs-live
+        comparison lives in ``make coverage-summary`` (coverage_block.py).
 
     Sonar open/total
-        The cached ``sonar-report.json`` (the ``/api/issues/search?statuses=OPEN``
-        response the sonar-summary target curls). ``open`` is derived from the
-        ``impactSeverities`` facet when present (the dashboard's own
-        server-side count), else from the per-issue impacts/legacy severity.
-        ``total`` is ``open + removed``; ``removed`` comes from a separate
-        removed-facet report (``--removed-facet``). When that file is absent
-        ``total`` falls back to ``open`` and a GREY ``(open-only)`` marker
-        notes the fallback.
+        LIVE-OR-OMIT from the SonarCloud API via ``--project-key`` (``/api/
+        issues/search?statuses=OPEN``). On fetch failure the field is OMITTED
+        entirely. ``open`` is derived from the ``impactSeverities`` facet when
+        present (the dashboard's own server-side count), else from the
+        per-issue impacts/legacy severity. ``total`` is ``open + removed``;
+        ``removed`` comes from a live ``resolutions=REMOVED`` query. When that
+        second fetch is unavailable ``total`` falls back to ``open`` and a GREY
+        ``(open-only)`` marker notes the fallback.
 
 The Makefile's ``summary`` target invokes this script three times: once for
 ``vehicle-spy`` (C++ core: tests + coverage + sonar), once for
 ``vehicle-spy-ios`` (iOS app: tests + coverage + sonar), and once for
-``vehicle-spy-esp32`` (ESP32: sonar only, no tests/coverage). Each
+``vehicle-spy-esp32`` (ESP32 firmware: tests + coverage + sonar). Each
 invocation is independent and the fixed column widths make the lines align
 vertically.
 
 Usage (Makefile summary target calls this three times, once per project):
 
     build_summary.py --label "[vehicle-spy]" \\
-        [--test-log PATH] \\
-        [--sonar-report PATH] [--removed-facet PATH] \\
-        [--cov-measures PATH]
-        [--local-cov PATH --local-type lcov|xccov]  (repeatable)
+        --project-key KEY \\
+        [--test-log PATH]
 
     build_summary.py --label "[vehicle-spy-ios]" \\
-        [--xcresult-glob GLOB] \\
-        [--sonar-report PATH] [--removed-facet PATH] \\
-        [--cov-measures PATH]
-        [--local-cov PATH --local-type xccov]
+        --project-key KEY \\
+        [--xcresult-glob GLOB]
 
     build_summary.py --label "[vehicle-spy-esp32]" \\
-        [--sonar-report PATH] [--removed-facet PATH]
+        --project-key KEY \\
+        [--firmware-test-log PATH]
 
 Exit codes: 0 always (a missing file / parse failure is reported in-line,
 never a crash -- this is a display helper, not a build step).
@@ -277,7 +279,7 @@ def parse_xcresult_tests(glob_pattern):
 
 # ---------------------------------------------------------------------------
 # Coverage (plumbing retained; vehicle-spy has no coverage source yet so the
-# field omits gracefully until --cov-measures / --local-cov is wired in)
+# field omits gracefully when --project-key live fetch fails)
 # ---------------------------------------------------------------------------
 def _coverage_colour(pct):
     """Return the ANSI colour for a coverage percentage (matches coverage_block)."""
@@ -292,147 +294,35 @@ def _coverage_colour(pct):
     return RED
 
 
-def _measures_coverage(path):
-    """Read (covered, total, pct) from a cached sonar-measures.json, or None."""
-    if not path or not os.path.isfile(path):
-        return None
-    try:
-        with open(path) as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return None
-    measures = {}
-    for m in (data.get('component', {}) or {}).get('measures', []) or []:
-        if m.get('metric'):
-            measures[m['metric']] = m.get('value')
-    if 'coverage' not in measures:
-        return None
-    try:
-        pct = float(measures['coverage'])
-    except (TypeError, ValueError):
-        return None
-    try:
-        total = int(float(measures.get('lines_to_cover', 0) or 0))
-        uncovered = int(float(measures.get('uncovered_lines', 0) or 0))
-        covered = total - uncovered
-    except (TypeError, ValueError):
-        covered, total = None, None
-    return covered, total, pct
+def _live_coverage(project_key):
+    """Fetch (covered, total, pct) LIVE from SonarCloud, or None.
 
-
-def _lcov_coverage(path):
-    """Aggregate (covered, total, pct) over /src/ lcov records (fallback: all)."""
-    if not path or not os.path.isfile(path):
-        return None
-    records = []
-    current = None
-    lf = 0
-    lh = 0
-    try:
-        with open(path) as handle:
-            for line in handle:
-                line = line.rstrip('\n')
-                if line.startswith('SF:'):
-                    current = line[3:]
-                    lf = 0
-                    lh = 0
-                elif line.startswith('LF:'):
-                    try:
-                        lf = int(line[3:])
-                    except ValueError:
-                        lf = 0
-                elif line.startswith('LH:'):
-                    try:
-                        lh = int(line[3:])
-                    except ValueError:
-                        lh = 0
-                elif line.startswith('end_of_record') and current is not None:
-                    records.append((current, lf, lh))
-                    current = None
-    except OSError:
-        return None
-    if not records:
-        return None
-    src = [r for r in records if '/src/' in r[0]]
-    scope = src if src else records
-    total = sum(r[1] for r in scope)
-    hit = sum(r[2] for r in scope)
-    pct = (100.0 * hit / total) if total else 0.0
-    return hit, total, pct
-
-
-def _xccov_coverage(path):
-    """Aggregate (covered, total, pct) from an xccov JSON report.
-
-    Sums ``coveredLines``/``executableLines`` across all targets (the xccov
-    ``--report --json`` top-level aggregates + per-target). Returns None when
-    the file is absent/unparseable or has no executable lines.
+    Delegates to the shared ``sonar_live`` module — the SINGLE source of truth.
+    No persistent cache is read, so the headline coverage can never be stale.
     """
-    if not path or not os.path.isfile(path):
+    if not project_key:
         return None
-    try:
-        with open(path) as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
+    from sonar_live import fetch_measures
+    m = fetch_measures(project_key)
+    if m is None:
         return None
-    covered = 0
-    total = 0
-    # Per-target sums (the most reliable: top-level aggregates can be absent).
-    for target in data.get('targets', []) or []:
-        try:
-            total += int(target.get('executableLines', 0) or 0)
-            covered += int(target.get('coveredLines', 0) or 0)
-        except (TypeError, ValueError):
-            continue
-    if total == 0:
-        # Fall back to top-level aggregates if present.
-        try:
-            total = int(data.get('executableLines', 0) or 0)
-            covered = int(data.get('coveredLines', 0) or 0)
-        except (TypeError, ValueError):
-            return None
-    if total == 0:
-        return None
-    pct = 100.0 * covered / total
-    return covered, total, pct
+    return m['covered'], m['lines_to_cover'], m['coverage']
 
 
-def local_coverage(path, local_type):
-    """Return (covered, total, pct) for the local source, or None if unavailable."""
-    if not path or local_type == 'none':
-        return None
-    if local_type == 'lcov':
-        return _lcov_coverage(path)
-    if local_type == 'xccov':
-        return _xccov_coverage(path)
-    return None
+def coverage_for(project_key):
+    """Return LIVE (covered, total, pct) for the headline, or None.
 
-
-def coverage_for(cov_measures_path, local_cov_pairs):
-    """Coverage from cached SonarCloud measures, else summed local sources.
-
-    ``local_cov_pairs`` is a list of (path, type). When multiple local sources
-    are given (C++ lcov + iOS xccov) their covered/total are SUMMED and the pct
-    recomputed over the union. None when no source yields data.
+    The headline is LIVE-OR-OMIT by design: a successful fetch THIS run is the
+    ONLY way a coverage number appears. On ANY failure (no token, network
+    error, non-200, bad JSON) this returns None and the emitter shows
+    ``cov: N/A``. There is NO fallback to a persistent cache or to a local
+    coverage export — those are a DIFFERENT basis (the converted lcov/xccov,
+    shown in ``make coverage-summary``'s local-vs-live comparison) and showing
+    them in the headline would let a stale-or-divergent number appear. Local
+    exports are fresh but they disagree with the dashboard, so the headline
+    refuses to substitute them.
     """
-    cov = _measures_coverage(cov_measures_path)
-    if cov is not None:
-        return cov
-    covered = 0
-    total = 0
-    found = False
-    for path, local_type in local_cov_pairs:
-        one = local_coverage(path, local_type)
-        if one is None:
-            continue
-        found = True
-        c, t, _ = one
-        covered += c or 0
-        total += t or 0
-    if not found or total == 0:
-        return None
-    pct = 100.0 * covered / total
-    return covered, total, pct
+    return _live_coverage(project_key)
 
 
 # ---------------------------------------------------------------------------
@@ -470,60 +360,156 @@ def _impact_severity_facet(data):
     return None
 
 
-def _removed_count(removed_facet_path):
-    """Return the REMOVED issue count from a cached removed-facet report, or 0."""
-    if not removed_facet_path or not os.path.isfile(removed_facet_path):
-        return 0
-    try:
-        with open(removed_facet_path) as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return 0
-    facet = _impact_severity_facet(data)
-    return sum(facet.values()) if facet else 0
+# Severity ranking (mirrors sonar_summary.py).
+IMPACT_ORDER = ["BLOCKER", "HIGH", "MEDIUM", "LOW", "INFO"]
+IMPACT_RANK = {sev: len(IMPACT_ORDER) - i for i, sev in enumerate(IMPACT_ORDER)}
 
 
-def parse_sonar(report_path, removed_facet_path=None):
-    """Return (open, total, blocker_count, removed) from cached reports, or None.
+def highest_impact_severity(issue):
+    """Return the highest-impact severity for an issue, or None."""
+    impacts = issue.get("impacts") or []
+    best = None
+    best_rank = -1
+    for imp in impacts:
+        sev = imp.get("severity") if isinstance(imp, dict) else None
+        rank = IMPACT_RANK.get(sev, -1)
+        if sev is not None and rank > best_rank:
+            best = sev
+            best_rank = rank
+    return best
 
-    ``open`` + ``blocker_count`` come from the OPEN report's
-    ``impactSeverities`` facet when present (the dashboard's own server-side
-    count), else from per-issue impacts/legacy severity. ``total`` is
-    ``open + removed``. ``removed`` is None when the removed-facet file is
-    absent/unparseable (open-only fallback) so the emitter can annotate it.
+
+def count_by_impact(issues):
+    """Count issues once each by their highest-impact severity."""
+    counts = {sev: 0 for sev in IMPACT_ORDER}
+    for issue in issues:
+        sev = highest_impact_severity(issue)
+        if sev in counts:
+            counts[sev] += 1
+    return counts
+
+
+def _open_counts(data):
+    """Derive (open_count, blocker_count) from a parsed OPEN issues/search report.
+
+    Uses the ``impactSeverities`` facet when present (the dashboard's own
+    server-side count), else falls back to per-issue impacts/legacy severity.
     """
-    if not report_path or not os.path.isfile(report_path):
-        return None
-    try:
-        with open(report_path) as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return None
-
     facet = _impact_severity_facet(data)
     if facet is not None:
-        open_count = sum(facet.values())
-        blocker_count = facet.get('BLOCKER', 0) or 0
-    else:
-        issues = data.get('issues') or []
-        open_count = len(issues)
-        blocker_count = 0
-        for issue in issues:
-            impacts = issue.get('impacts') or []
-            issue_is_blocker = any(
-                isinstance(imp, dict) and imp.get('severity') == 'BLOCKER'
-                for imp in impacts)
-            if not issue_is_blocker and issue.get('severity') == 'BLOCKER':
-                issue_is_blocker = True
-            if issue_is_blocker:
-                blocker_count += 1
+        return sum(facet.values()), (facet.get('BLOCKER', 0) or 0)
+    issues = data.get('issues') or []
+    blocker_count = 0
+    for issue in issues:
+        impacts = issue.get('impacts') or []
+        issue_is_blocker = any(
+            isinstance(imp, dict) and imp.get('severity') == 'BLOCKER'
+            for imp in impacts)
+        if not issue_is_blocker and issue.get('severity') == 'BLOCKER':
+            issue_is_blocker = True
+        if issue_is_blocker:
+            blocker_count += 1
+    return len(issues), blocker_count
 
-    removed_present = bool(removed_facet_path) and os.path.isfile(
-        removed_facet_path or '')
-    removed = _removed_count(removed_facet_path) if removed_present else None
+
+def parse_sonar_live(project_key):
+    """Return (open, total, blocker_count, removed) fetched LIVE, or None.
+
+    Delegates to the shared ``sonar_live`` module — the SINGLE source of truth.
+    Fetches the OPEN and REMOVED issues/search reports fresh per run, so the
+    headline sonar numbers can never be stale. ``total`` is ``open + removed``.
+    ``removed`` is None when the REMOVED fetch is unavailable (open-only
+    fallback) so the emitter can annotate it.
+
+    LIVE-OR-OMIT (correctness): a BAD / nonexistent component key MUST return
+    None, never a fabricated 0. The problem: ``/api/issues/search`` returns a
+    byte-identical 200 with ``total: 0`` + an all-zero facet for a key that
+    DOES NOT EXIST — indistinguishable from a genuine clean project (verified
+    empirically against danieljsinclair_vehicle-spy-ios vs a fake key). So
+    counting issues alone cannot prove the key is real. We gate on
+    ``fetch_measures`` instead: the ``/api/measures/component`` endpoint ERRORS
+    (returns None) for a nonexistent key while it resolves any real component
+    (clean projects carry a coverage measure). If the key does not resolve
+    there is no project — OMIT rather than show a fake "open 0 (clean)".
+    """
+    if not project_key:
+        return None
+    from sonar_live import fetch_measures, fetch_open_report, fetch_removed_report
+    # Key-existence gate: a bad key has no measures. Without this, the issues
+    # endpoint's all-zero response would fabricate a green "open 0 (clean)".
+    if fetch_measures(project_key) is None:
+        return None
+    open_data = fetch_open_report(project_key)
+    if open_data is None:
+        return None
+    open_count, blocker_count = _open_counts(open_data)
+    removed_data = fetch_removed_report(project_key)
+    if removed_data is not None:
+        removed_facet = _impact_severity_facet(removed_data)
+        removed = sum(removed_facet.values()) if removed_facet else 0
+    else:
+        removed = None
     effective_removed = removed if removed is not None else 0
     total = open_count + effective_removed
     return open_count, total, blocker_count, removed
+
+
+def parse_sonar_cached(sonar_report_path):
+    """Return (open, total, blocker_count, removed) from a cached sonar-report.json.
+
+    Uses the API's ``total`` field as the authoritative open count (it is not
+    limited by the ``ps=500`` page cap that truncates the issues array).  Severity
+    breakdown falls back to per-issue counting when the ``impactSeverities`` facet
+    is absent (the Makefile's curl does not request facets).
+    """
+    try:
+        with open(sonar_report_path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+    # Authoritative open count from the API's total field.
+    open_count = data.get('total', 0)
+
+    # Severity breakdown: use the impactSeverities facet if present, else per-issue.
+    issues = data.get('issues') or []
+    facet = _impact_severity_facet(data)
+    if facet is not None:
+        impact_counts = facet
+        blocker_count = facet.get('BLOCKER', 0) or 0
+    else:
+        impact_counts = count_by_impact(issues)
+        blocker_count = 0
+        for issue in issues:
+            if highest_impact_severity(issue) == 'BLOCKER' or issue.get('severity') == 'BLOCKER':
+                blocker_count += 1
+
+    # No removed data in the cached OPEN-only report.
+    return open_count, open_count, blocker_count, None
+
+
+def coverage_from_cache(measures_path):
+    """Return (covered, total, pct) from a cached sonar-measures.json, or None."""
+    try:
+        with open(measures_path, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    measures = {}
+    for m in (data.get('component', {}) or {}).get('measures', []) or []:
+        metric = m.get('metric')
+        value = m.get('value')
+        if metric and value is not None:
+            measures[metric] = value
+    if 'coverage' not in measures:
+        return None
+    try:
+        coverage = float(measures['coverage'])
+        ltc = int(float(measures.get('lines_to_cover', 0) or 0))
+        unc = int(float(measures.get('uncovered_lines', 0) or 0))
+    except (TypeError, ValueError):
+        return None
+    return ltc - unc, ltc, coverage
 
 
 # ---------------------------------------------------------------------------
@@ -636,40 +622,53 @@ def main(argv=None):
                    help='Glob for the NEWEST .xcresult bundle (iOS tests); '
                         'testsCount/testsFailedCount are read via xcresulttool. '
                         'When given alongside --test-log the counts are SUMMED.')
-    p.add_argument('--cov-measures',
-                   help='Cached sonar-measures.json (preferred coverage source)')
-    # Repeatable --local-cov / --local-type pairs (C++ lcov + iOS xccov).
-    p.add_argument('--local-cov', action='append', default=[],
-                   help='Local coverage file (repeatable). Pairs positionally '
-                        'with --local-type.')
-    p.add_argument('--local-type', action='append', default=[],
-                   choices=('lcov', 'xccov', 'none'),
-                   help='Local coverage source type for the Nth --local-cov '
-                        '(repeatable; default lcov).')
-    p.add_argument('--sonar-report',
-                   help='Cached sonar-report.json (issues/search response)')
-    p.add_argument('--removed-facet',
-                   help='Cached resolutions=REMOVED&facets=impactSeverities report '
-                        '(makes total = open + removed)')
+    p.add_argument('--firmware-test-log',
+                   help='Firmware host-test log (gtest binary stdout). Used for '
+                        'vehicle-spy-esp32; the gtest "[  PASSED  ] N tests." '
+                        'summary line is parsed for the true per-test count. '
+                        'When given alongside --test-log the counts are SUMMED.')
+    p.add_argument('--project-key',
+                   help='SonarCloud component key (e.g. danieljsinclair_vehicle-spy). '
+                        'Coverage + sonar OPEN/total are fetched LIVE from the API '
+                        'when no cached artefact is supplied. On any fetch failure '
+                        '(no token / network error / bad JSON) the fields are '
+                        'OMITTED (N/A / dropped) — NEVER a stale number.')
+    p.add_argument('--sonar-report', default=None,
+                   help='Path to cached sonar-report.json (authoritative open-count). '
+                        'When the file exists, read OPEN/total from it instead of '
+                        'the live API.')
+    p.add_argument('--sonar-measures', default=None,
+                   help='Path to cached sonar-measures.json (authoritative coverage). '
+                        'When the file exists, read coverage from it instead of the '
+                        'live API.')
     args = p.parse_args(argv)
-
-    # Zip --local-cov/--local-type into (path, type) pairs. If fewer types than
-    # paths were given, default the remainder to 'lcov' (the common case).
-    types = list(args.local_type)
-    while len(types) < len(args.local_cov):
-        types.append('lcov')
-    local_pairs = list(zip(args.local_cov, types))
 
     try:
         tests = parse_tests(args.test_log)
         xc_tests = parse_xcresult_tests(args.xcresult_glob)
-        if tests is not None and xc_tests is not None:
-            # Sum C++ (gtest log) + iOS (xcresult) into one row.
-            tests = (tests[0] + xc_tests[0], tests[1] + xc_tests[1])
-        elif xc_tests is not None:
-            tests = xc_tests
-        cov = coverage_for(args.cov_measures, local_pairs)
-        sonar = parse_sonar(args.sonar_report, args.removed_facet)
+        fw_tests = parse_tests(args.firmware_test_log)
+        # Sum all available sources: C++ (gtest log) + iOS (xcresult) +
+        # firmware (gtest log via --firmware-test-log). Each source is
+        # independent; missing sources are None (omitted gracefully).
+        components = [t for t in (tests, xc_tests, fw_tests) if t is not None]
+        if components:
+            tests = (sum(t[0] for t in components), sum(t[1] for t in components))
+        # If no source yielded data, tests stays None -> N/A column.
+
+        # Coverage: prefer cached measures, fall back to live API.
+        cov = None
+        if args.sonar_measures and os.path.isfile(args.sonar_measures):
+            cov = coverage_from_cache(args.sonar_measures)
+        if cov is None and args.project_key:
+            cov = coverage_for(args.project_key)
+
+        # Sonar: prefer cached report, fall back to live API.
+        sonar = None
+        if args.sonar_report and os.path.isfile(args.sonar_report):
+            sonar = parse_sonar_cached(args.sonar_report)
+        if sonar is None and args.project_key:
+            sonar = parse_sonar_live(args.project_key)
+
         emit_line(args.label, tests, cov, sonar)
     except Exception as exc:  # never crash a display target
         print('{}{} summary failed: {}{}'.format(RED, args.label, exc, RESET),

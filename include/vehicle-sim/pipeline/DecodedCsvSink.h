@@ -1,10 +1,8 @@
 #pragma once
 
 #include "vehicle-sim/domain/VehicleSignal.h"
-#include <memory>
+#include "vehicle-sim/telemetry/TraceLogger.h"
 #include <string>
-
-namespace vehicle_sim::telemetry { class TraceLogger; }
 
 namespace vehicle_sim::pipeline {
 
@@ -16,6 +14,10 @@ namespace vehicle_sim::pipeline {
  * expand the schema to 12 columns.
  *
  * Raw capture is the source of truth; this CSV is derived from it.
+ *
+ * Rule of Zero: holds TraceLogger by value, so the compiler-generated special
+ * members give correct move-only semantics (TraceLogger/std::ofstream are
+ * non-copyable, movable). No hand-written dtor or copy/move ops needed.
  */
 class DecodedCsvSink final {
 public:
@@ -27,18 +29,12 @@ public:
      * keeps existing single-arg callers compiling.
      */
     explicit DecodedCsvSink(const std::string& base, const std::string& vehicleId = "");
-    ~DecodedCsvSink();
-
-    DecodedCsvSink(const DecodedCsvSink&) = delete;
-    DecodedCsvSink& operator=(const DecodedCsvSink&) = delete;
-    DecodedCsvSink(DecodedCsvSink&&) noexcept;
-    DecodedCsvSink& operator=(DecodedCsvSink&&) noexcept;
 
     void write(const domain::VehicleSignal& signal) noexcept;
     [[nodiscard]] bool isValid() const noexcept;
 
 private:
-    std::unique_ptr<telemetry::TraceLogger> logger_;
+    telemetry::TraceLogger logger_;
 };
 
 } // namespace vehicle_sim::pipeline

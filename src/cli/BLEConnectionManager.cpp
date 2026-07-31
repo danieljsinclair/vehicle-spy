@@ -10,9 +10,6 @@ constexpr int MIN_RAW_DATA_LOG_LENGTH = 3;
 
 BLEConnectionManager::BLEConnectionManager(std::unique_ptr<BLEManager> bleManager) noexcept
     : bleManager_(std::move(bleManager))
-    , isConnected_(false)
-    , polling_(false)
-    , protocol_(domain::VehicleProtocol::OBD2)
 {
 }
 
@@ -27,7 +24,7 @@ BLEConnectionManager::~BLEConnectionManager() {
 
 bool BLEConnectionManager::connect(const std::string& address,
                                     domain::VehicleProtocol protocol,
-                                    DataCallback callback) {
+                                    const DataCallback& callback) {
     protocol_ = protocol;
     const char* protocolLabel = (protocol == domain::VehicleProtocol::CAN) ? "CAN" : "OBD2";
 

@@ -119,7 +119,7 @@ private:
         const std::string& vin,
         const VehicleSuggestion& suggestion) const;
 
-    void completeDetection();
+    void completeDetection() const;
     void addFrame(const std::vector<std::uint8_t>& data);
 
     // CAN ID fingerprinting registry (data-driven, OCP-compliant)
@@ -134,7 +134,7 @@ private:
     std::optional<bool> isElectric_;
 
     // Timing
-    std::chrono::steady_clock::time_point startTime_;
+    std::chrono::steady_clock::time_point startTime_{std::chrono::steady_clock::now()};
 
     // Raw frame ring buffer
     static constexpr int MAX_FRAME_HISTORY = 50;

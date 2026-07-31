@@ -1,26 +1,23 @@
 #include <iostream>
+#include <memory>
+#include <string_view>
 #include <csignal>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/Orchestration.h"
-#include "vehicle-sim/cli/TelemetryRunner.h"
 #include "vehicle-sim/cli/BLERunContext.h"
 #include "vehicle-sim/cli/ReplayRunContext.h"
 #include "vehicle-sim/cli/LiveRunContext.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
+#include "vehicle-sim/pipeline/SignalStopBroker.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/discovery/UDPDiscovery.h"
 
 namespace {
 
 constexpr int BLE_SCAN_TIMEOUT_S = 10;
-
-// Signal handler for discovery mode - sets the stop flag when Ctrl-C is pressed
-void discoverySignalHandler(int sigNum) {
-    std::cout << "\nReceived signal " << sigNum << ", stopping discovery...\n";
-    vehicle_sim::discovery::UDPDiscovery::requestStop();
-}
 
 int runScan(vehicle_sim::BLEManager& bleManager) {
     using namespace vehicle_sim;
@@ -49,17 +46,31 @@ int runScan(vehicle_sim::BLEManager& bleManager) {
 // Run UDP discovery and list found ESP32s.
 int runDiscovery() {
     using namespace vehicle_sim::discovery;
+    using namespace vehicle_sim::pipeline;
 
     std::cout << "Listening for ESP32 discovery broadcasts on UDP port "
               << DISCOVERY_PORT << "...\n";
     std::cout << "Press Ctrl-C to stop.\n\n";
 
-    // Install signal handler for Ctrl-C (SIGINT) - sets flag instead of relying on EINTR
-    std::signal(SIGINT, discoverySignalHandler);
-    std::signal(SIGTERM, discoverySignalHandler);
-    UDPDiscovery::resetStop();
+    // Cooperative stop: the shared StopToken is published to the broker and
+    // polled by discovery; the signal handler flips it via the async-signal-safe
+    // onStopSignal (one atomic load + one atomic store — no cout/endl).
+    auto stop = std::make_shared<StopToken>();
+    signal_stop_broker::brokerSet(stop.get());
+    std::signal(SIGINT, vehicle_sim_onStopSignal);
+    std::signal(SIGTERM, vehicle_sim_onStopSignal);
+    // RAII scope guard: non-copyable, non-movable — clears the broker on scope exit.
+    struct BrokerClear {
+        BrokerClear() = default;
+        ~BrokerClear() { signal_stop_broker::brokerClear(); }
+        BrokerClear(const BrokerClear&) = delete;
+        BrokerClear& operator=(const BrokerClear&) = delete;
+        BrokerClear(BrokerClear&&) = delete;
+        BrokerClear& operator=(BrokerClear&&) = delete;
+    };
+    BrokerClear clearer;
 
-    UDPDiscovery discovery;
+    UDPDiscovery discovery{stop};
 
     // Note: Discovery packets are intentionally unsigned (per commit 8a0acde).
     // Signature verification is only used for OTA updates, not discovery.
@@ -134,7 +145,7 @@ std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
     if (!opts.log_base.empty()) {
         return opts.log_base;
     }
-    auto stripSuffix = [](std::string s, const std::string& suffix) {
+    auto stripSuffix = [](std::string s, std::string_view suffix) {
         if (s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0) {
             s.erase(s.size() - suffix.size());
         }
@@ -154,7 +165,6 @@ std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
 int main(int argc, char* argv[]) {
     using namespace vehicle_sim;
 
-    cli::registerSignalHandlers();
     cli::printBanner();
 
     domain::DBCTranslationService translationService;
@@ -166,8 +176,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto validationError = cli::validateOptions(opts, translationService);
-    if (!validationError.empty()) {
+    if (auto validationError = cli::validateOptions(opts, translationService); !validationError.empty()) {
         std::cerr << validationError << "\n";
         return 1;
     }

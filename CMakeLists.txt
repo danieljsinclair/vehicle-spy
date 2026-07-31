@@ -50,9 +50,10 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/presentation/TelemetryFormatter.cpp
     src/ble/BLEManager.cpp
     src/ble/BLEManagerBase.cpp
+    src/ble/DeviceRegistry.cpp
+    src/ble/Elm327Session.cpp
     src/ble/TeslaBLETransport.cpp
     src/ble/platform/BLEManagerMock.cpp
-    src/config/ConfigLoader.cpp
     src/domain/VehicleSignal.cpp
     src/domain/TelemetrySignal.cpp
     src/domain/OBD2SignalTranslator.cpp
@@ -83,6 +84,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/CaptureNormaliser.cpp
     src/pipeline/DemoTransport.cpp
     src/pipeline/TCPTransport.cpp
+    src/pipeline/PosixSocket.cpp
     src/pipeline/USBTransport.cpp
     src/pipeline/OTAHttpTransport.cpp
     src/pipeline/PipelineFactory.cpp
@@ -90,6 +92,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/DecodedCsvSink.cpp
     src/pipeline/ConsoleProgressReporter.cpp
     src/pipeline/PipelineReplay.cpp
+    src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
     src/cli/Orchestration.cpp
     src/cli/BLEConnectionManager.cpp
@@ -106,10 +109,19 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/discovery/DiscoveryPacket.cpp
     src/discovery/DiscoveryVerifier.cpp
     src/discovery/UDPDiscovery.cpp
+    src/discovery/PosixDiscoverySocket.cpp
     src/pipeline/SecureTcpTransport.cpp
     src/pipeline/ITransportOutput.cpp
-    firmware/can-bridge/StatusLED.cpp
     firmware/can-bridge/HardwareStatusLEDOutput.cpp
+    firmware/vanilla/StatusLED.cpp
+    firmware/vanilla/StatusLEDRenderer.cpp
+    firmware/vanilla/AtCommandDispatcher.cpp
+    firmware/vanilla/DiscoveryManager.cpp
+    firmware/vanilla/WiFiManager.cpp
+    firmware/vanilla/NtpTimeSync.cpp
+    firmware/vanilla/OtaUpdateServer.cpp
+    firmware/vanilla/CanBridge.cpp
+    firmware/vanilla/FirmwareApp.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds
@@ -164,9 +176,17 @@ target_include_directories(vehicle-sim-lib
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/firmware
     ${CMAKE_CURRENT_SOURCE_DIR}/firmware/can-bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/firmware/vanilla
 )
 
 target_compile_options(vehicle-sim-lib PRIVATE -g -Wall -Wextra -Werror)
+
+# OtaUpdateServer.cpp is the finished ino->vanilla refactor target: the OTA
+# update logic moved out of ota_update.ino into firmware/vanilla/, is compiled
+# into vehicle-sim-lib, wired at runtime (ota_update.ino: otaServer =
+# make_unique<OtaUpdateServer>(...)), and host-tested (219/219). It carries no
+# exemptions — it compiles clean under -Werror like the rest of the tree.
+
 
 # TCP auth token — single credential for TCP commands and OTA.
 # Injected by the root Makefile via -DTCP_AUTH_TOKEN=$(ESP32_TCP_TOKEN).

@@ -92,14 +92,25 @@ struct VehicleConfig final {
     ~VehicleConfig() noexcept = default;
 
     // Equality comparison (all fields)
-    [[nodiscard]] bool operator==(
-        const VehicleConfig& other
-    ) const noexcept;
+    [[nodiscard]] friend bool operator==(
+        const VehicleConfig& lhs,
+        const VehicleConfig& rhs
+    ) noexcept {
+        return lhs.dbcFilePath == rhs.dbcFilePath
+            && lhs.dbcBundleFileName == rhs.dbcBundleFileName
+            && lhs.vehicleName == rhs.vehicleName
+            && lhs.signalMappings == rhs.signalMappings
+            && lhs.canBus == rhs.canBus
+            && lhs.isCANProtocol == rhs.isCANProtocol;
+    }
 
     // Inequality (derived from operator==)
-    [[nodiscard]] bool operator!=(
-        const VehicleConfig& other
-    ) const noexcept;
+    [[nodiscard]] friend bool operator!=(
+        const VehicleConfig& lhs,
+        const VehicleConfig& rhs
+    ) noexcept {
+        return !(lhs == rhs);
+    }
 
     /**
      * Check if a DBC signal is mapped to a VehicleSignal field.

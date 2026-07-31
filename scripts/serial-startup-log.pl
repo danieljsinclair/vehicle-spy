@@ -8,7 +8,7 @@ my ($port, $baud, $max_wait, $post_byte, $reset_esptool, $esptool, $help);
 $baud      = 115200;
 $max_wait  = 30;
 $post_byte = 30;
-$esptool   = ($ENV{HOME} // '/Users/danielsinclair') . '/Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool';
+$esptool   = $ENV{HOME} . '/Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool';
 
 sub usage {
     print <<"USAGE";

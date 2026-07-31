@@ -204,14 +204,15 @@ namespace vehicle_sim {
 // C++ Implementation starts here
 BLEManagerMacOS::BLEManagerMacOS()
     : BLEManagerBase()  // Initialize base class
-    , connected_(false)
 {
     // Create delegate and assign to member variable
     BLEMacOSDelegate* delegate = [[BLEMacOSDelegate alloc] init];
     delegate.manager = this;
 
-    // Store delegate to prevent deallocation (manual retain since no ARC)
-    delegate_ = (void*)CFBridgingRetain(delegate);
+    // Store delegate to prevent deallocation (manual retain since no ARC).
+    // CFBridgingRetain performs the +1 retain (balanced by CFRelease in the
+    // dtor); the __bridge cast does not add a second retain.
+    delegate_ = (__bridge BLEMacOSDelegate*)CFBridgingRetain(delegate);
     [delegate release];
 
     // Create dispatch queue for BLE operations
@@ -236,7 +237,7 @@ BLEManagerMacOS::~BLEManagerMacOS() {
 
     // Release delegate
     if (delegate_) {
-        CFRelease(delegate_);
+        CFRelease((__bridge CFTypeRef)delegate_);
         delegate_ = nullptr;
     }
 }
@@ -257,7 +258,7 @@ std::vector<BLEDeviceInfo> BLEManagerMacOS::scanForDevices(int timeout_seconds) 
     }
 
     // Clear previous discoveries (use base class method)
-    clearDiscoveredDevices();
+    deviceRegistry().clearDiscoveredDevices();
 
     // Scan for all peripherals (nil = no service filter)
     [central_manager_ scanForPeripheralsWithServices:nil
@@ -275,12 +276,12 @@ std::vector<BLEDeviceInfo> BLEManagerMacOS::scanForDevices(int timeout_seconds) 
     [central_manager_ stopScan];
 
     // Get devices from base class (which was populated by delegate callbacks)
-    std::cout << "[BLEManagerMacOS] Scan complete. Found " << discovered_devices_.size() << " device(s)" << std::endl;
+    std::cout << "[BLEManagerMacOS] Scan complete. Found " << deviceRegistry().devices().size() << " device(s)" << std::endl;
 
-    return discovered_devices_;
+    return deviceRegistry().devices();
 }
 
-bool BLEManagerMacOS::connect(const std::string& device_identifier) {
+bool BLEManagerMacOS::connect(std::string_view device_identifier) {
     std::cout << "[BLEManagerMacOS] Attempting to connect to: " << device_identifier << std::endl;
 
     if (!central_manager_) {
@@ -295,7 +296,7 @@ bool BLEManagerMacOS::connect(const std::string& device_identifier) {
     }
 
     // Find the peripheral from our discovered list using base class method
-    auto device = findDeviceByAddress(device_identifier);
+    auto device = deviceRegistry().findDeviceByAddress(device_identifier);
     CBPeripheral* target_peripheral = nullptr;
 
     if (device && device->peripheral) {
@@ -305,7 +306,8 @@ bool BLEManagerMacOS::connect(const std::string& device_identifier) {
         const_cast<BLEDeviceInfo&>(*device).peripheral = nullptr;
     } else {
         // Try to retrieve by UUID if not in discovered list
-        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:device_identifier.c_str()]];
+        std::string identifier_str(device_identifier);
+        NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:[NSString stringWithUTF8String:identifier_str.c_str()]];
         if (uuid) {
             NSArray* peripherals = [central_manager_ retrievePeripheralsWithIdentifiers:@[uuid]];
             if (peripherals.count > 0) {
@@ -329,11 +331,11 @@ bool BLEManagerMacOS::connect(const std::string& device_identifier) {
 
     // Connection is async - report success if no immediate error
     // The delegate callbacks will confirm actual connection state
-    connected_ = true;
-    connected_device_id_ = device_identifier;
+    connectionState().setConnected(true);
+    connectionState().setConnectedDeviceId(std::string(device_identifier));
 
     // Update base class state
-    setConnectionState(true, device_identifier);
+    connectionState().setConnectionState(true, device_identifier);
 
     std::cout << "[BLEManagerMacOS] Connection initiated..." << std::endl;
     return true;
@@ -351,11 +353,11 @@ void BLEManagerMacOS::disconnect() {
     write_characteristic_ = nullptr;
     notify_characteristic_ = nullptr;
 
-    connected_ = false;
-    connected_device_id_.clear();
+    connectionState().setConnected(false);
+    connectionState().setConnectedDeviceId("");
 
     // Update base class state
-    setConnectionState(false, "");
+    connectionState().setConnectionState(false, "");
 
     std::cout << "[BLEManagerMacOS] Disconnected" << std::endl;
 }
@@ -375,11 +377,11 @@ void BLEManagerMacOS::send(const std::vector<uint8_t>& data) {
 }
 
 bool BLEManagerMacOS::isConnected() const {
-    return connected_;
+    return connectionState().isConnectedRaw();
 }
 
 std::string BLEManagerMacOS::getConnectedDeviceId() const {
-    return connected_device_id_;
+    return connectionState().connectedDeviceIdRaw();
 }
 
 int BLEManagerMacOS::getBluetoothState() const {
@@ -400,21 +402,21 @@ void BLEManagerMacOS::onDeviceDiscovered(const BLEDeviceInfo& device) {
 
 void BLEManagerMacOS::onDataReceived(const std::vector<uint8_t>& data) {
     // Use base class method for callback invocation (includes OBD2 parsing)
-    invokeDataCallback(data);
+    rawActivity().notify(data);
 }
 
 void BLEManagerMacOS::onConnectionStateChanged(bool is_connected, const std::string& device_id) {
-    connected_ = is_connected;
+    connectionState().setConnected(is_connected);
     if (is_connected && !device_id.empty()) {
-        connected_device_id_ = device_id;
+        connectionState().setConnectedDeviceId(device_id);
         std::cout << "[BLEManagerMacOS] Connection established: " << device_id << std::endl;
     } else {
-        connected_device_id_.clear();
+        connectionState().setConnectedDeviceId("");
         std::cout << "[BLEManagerMacOS] Connection lost" << std::endl;
     }
 
     // Update base class state
-    setConnectionState(is_connected, device_id);
+    connectionState().setConnectionState(is_connected, device_id);
 }
 
 void BLEManagerMacOS::onCharacteristicDiscovered(CBCharacteristic* characteristic) {
@@ -438,15 +440,15 @@ void BLEManagerMacOS::onCharacteristicDiscovered(CBCharacteristic* characteristi
     }
 
     if (gotWrite || gotNotify) {
-        std::lock_guard<std::mutex> lock(characteristics_mutex_);
+        std::scoped_lock lock(characteristics_mutex_);
         characteristics_cv_.notify_all();
     }
 }
 
 void BLEManagerMacOS::onBluetoothStateChanged(bool isPoweredOn) {
     if (!isPoweredOn) {
-        connected_ = false;
-        setConnectionState(false, "");
+        connectionState().setConnected(false);
+        connectionState().setConnectionState(false, "");
         std::cout << "[BLEManagerMacOS] Bluetooth became unavailable" << std::endl;
     }
 }
@@ -492,7 +494,7 @@ bool BLEManagerMacOS::waitForBluetoothReady(int timeout_ms) {
 }
 
 CBPeripheral* BLEManagerMacOS::findPeripheralByAddress(const std::string& address) {
-    auto device = findDeviceByAddress(address);
+    auto device = deviceRegistry().findDeviceByAddress(address);
     if (device && device->peripheral) {
         CBPeripheral* peripheral = (CBPeripheral*)device->peripheral;
         const_cast<BLEDeviceInfo&>(*device).peripheral = nullptr;
@@ -502,7 +504,7 @@ CBPeripheral* BLEManagerMacOS::findPeripheralByAddress(const std::string& addres
 }
 
 bool BLEManagerMacOS::waitForCharacteristics(int timeout_ms) {
-    std::unique_lock<std::mutex> lock(characteristics_mutex_);
+    std::unique_lock lock(characteristics_mutex_);
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
     while (!write_characteristic_ || !notify_characteristic_) {

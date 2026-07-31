@@ -42,7 +42,7 @@ private:
     std::unique_ptr<BLEPlatform> platform_;
 
     mutable std::mutex state_mutex_;
-    bool connected_;
+    bool connected_{false};
 
     mutable std::mutex buffer_mutex_;
     std::deque<std::uint8_t> receive_buffer_;

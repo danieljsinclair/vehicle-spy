@@ -2,9 +2,11 @@
 
 #include "vehicle-sim/pipeline/IAdapterNormaliser.h"
 #include "vehicle-sim/pipeline/ITransport.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace vehicle_sim::pipeline {
 
@@ -28,8 +30,8 @@ struct PipelineSource {
  * "elm327"; unknown values are normalised to "raw".
  */
 [[nodiscard]] std::string resolveAdapterProtocol(
-    const std::string& connectTarget,
-    const std::string& adapterProtocol) noexcept;
+    std::string_view connectTarget,
+    std::string_view adapterProtocol) noexcept;
 
 /**
  * Parse a "tcp:<host>:<port>" or "tcp:<host>" connect target.
@@ -46,7 +48,7 @@ struct PipelineSource {
  * @return true if the target is a well-formed tcp: target with a non-empty host.
  */
 [[nodiscard]] bool parseTcpTarget(
-    const std::string& target,
+    std::string_view target,
     std::string& hostOut,
     int& portOut) noexcept;
 
@@ -68,7 +70,8 @@ struct PipelineSource {
  * Returns {nullptr, nullptr} if the target is unsupported / unparseable.
  */
 [[nodiscard]] PipelineSource buildPipelineSource(
-    const std::string& connectTarget,
-    const std::string& adapterProtocol);
+    std::string_view connectTarget,
+    std::string_view adapterProtocol,
+    std::shared_ptr<StopToken> stop = nullptr);
 
 } // namespace vehicle_sim::pipeline

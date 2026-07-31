@@ -13,37 +13,33 @@
 #ifndef VEHICLE_SIM_DISCOVERY_UDP_H
 #define VEHICLE_SIM_DISCOVERY_UDP_H
 
-#include "vehicle-sim/discovery/DiscoveryPacket.h"
+#include "vehicle-sim/discovery/DiscoveredDevice.h"
 #include "vehicle-sim/discovery/DiscoveryVerifier.h"
+#include "vehicle-sim/discovery/IDiscoveryListener.h"
+#include "vehicle-sim/discovery/IDiscoverySocket.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 
 #include <string>
 #include <vector>
 #include <chrono>
 #include <array>
 #include <functional>
-#include <atomic>
+#include <memory>
 
 namespace vehicle_sim::discovery {
 
-// Information about a discovered ESP32.
-struct DiscoveredDevice {
-    std::array<uint8_t, DEVICE_ID_LEN> deviceId;
-    std::string address;     // IP address of the ESP32
-    uint16_t canPort;        // TCP port for CAN bridge
-    uint16_t otaPort;        // TCP port for OTA
-    uint64_t timestamp;      // Packet timestamp (Unix epoch)
-
-    // Connection string for --connect: "tcp:<address>:<port>"
-    std::string tcpConnectionString() const {
-        return "tcp:" + address + ":" + std::to_string(canPort);
-    }
-};
-
-class UDPDiscovery {
+class UDPDiscovery : public IDiscoveryListener {
 public:
     using DeviceCallback = std::function<void(const DiscoveredDevice&)>;
 
     UDPDiscovery();
+    explicit UDPDiscovery(std::shared_ptr<pipeline::StopToken> stop);
+    // Test seam: inject the raw UDP socket (default = PosixDiscoverySocket, the
+    // production POSIX adapter; tests inject a fake that scripts canned packets).
+    // Passing nullptr selects the production adapter. Behavior is identical to
+    // the single-argument ctor when socket is nullptr.
+    explicit UDPDiscovery(std::unique_ptr<IDiscoverySocket> socket,
+                          std::shared_ptr<pipeline::StopToken> stop = nullptr);
     ~UDPDiscovery();
 
     // Non-copyable
@@ -52,10 +48,10 @@ public:
 
     // Start listening for UDP broadcasts.
     // Returns true on success.
-    bool start();
+    bool start() override;
 
     // Stop listening.
-    void stop();
+    void stop() override;
 
     // Check if currently listening.
     bool isListening() const;
@@ -63,7 +59,7 @@ public:
     // Poll for discovered devices. Waits up to `timeout` for at least one
     // valid discovery packet. Returns all newly discovered devices since the
     // last poll (deduplicated by IP address).
-    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout);
+    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout) override;
 
     // Set the Ed25519 public key for signature verification.
     void setPublicKey(const std::array<uint8_t, ED25519_PUBLIC_KEY_LEN>& key);
@@ -72,18 +68,11 @@ public:
     void setMaxClockSkew(uint64_t seconds);
 
     // Set a callback that fires for each valid discovery packet received.
-    void setDeviceCallback(DeviceCallback cb);
-
-    // Request that poll() stop at the next iteration (called from signal handler).
-    // This is a static method that sets a global flag checked by poll().
-    static void requestStop() noexcept;
-
-    // Reset the stop flag (for repeated runs).
-    static void resetStop() noexcept;
+    void setDeviceCallback(const DeviceCallback& cb);
 
 private:
     class Impl;
-    Impl* impl_;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace vehicle_sim::discovery

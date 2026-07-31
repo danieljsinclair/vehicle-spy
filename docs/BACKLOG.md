@@ -37,3 +37,11 @@
 3. Every concrete class must implement an abstract interface
 4. All dependencies must be injected via constructor
 5. Minimum 90% test coverage for core logic
+
+## iOS App — Future Work (Out of Scope, Logged)
+
+*Observed this session; deferred to post-sonar-zero iOS work.*
+
+- **Cert verification fails over "security"** — iOS app could not verify ESP32 (complained about security); should verify using embedded certs. Investigate TLS/cert pinning path vs embedded-cert provision.
+- **Trust flow** — App showed "Trust" button (should auto-connect after trust); instead separate "Connect" button appeared, which then worked. Trust→auto-connect is intended UX.
+- **LED goes out on client connect** — After iOS app pressed Connect, ESP32 blue LED turned off entirely (should be CLIENT_CONNECTED solid on). Cross-ref StatusLED task #26 / bug 2.

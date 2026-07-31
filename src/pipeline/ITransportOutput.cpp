@@ -18,7 +18,7 @@ TaggedOutput::TaggedOutput(std::shared_ptr<ITransportOutput> base, const std::st
 {
 }
 
-void TaggedOutput::setDeviceId(const std::string& deviceId) {
+void TaggedOutput::setDeviceId(std::string_view deviceId) {
     deviceId_ = deviceId;
 }
 

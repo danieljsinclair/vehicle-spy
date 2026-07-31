@@ -10,7 +10,7 @@ namespace vehicle_sim::domain {
 
 class BLESignalSource final : public ISignalSource {
 public:
-    BLESignalSource(BLEManager* bleManager) noexcept;
+    explicit BLESignalSource(BLEManager* bleManager) noexcept;
     ~BLESignalSource() override;
 
     // Non-copyable, movable
@@ -21,15 +21,25 @@ public:
     void start() noexcept override;
     void stop() noexcept override;
 
+    // Read-only observation seam for the parsed CAN frame accumulation. The
+    // parse path (onDataReceived) stores each frame keyed by its little-endian
+    // CAN-ID here; this accessor exposes that state for testing/inspection
+    // without altering the parse contract. Single source of truth for the
+    // accumulated frames.
+    [[nodiscard]] const std::unordered_map<std::uint16_t, std::vector<std::uint8_t>>&
+    accumulatedFrames() const noexcept {
+        return accumulatedFrames_;
+    }
+
 private:
     void onDataReceived(const std::vector<std::uint8_t>& data);
 
     BLEManager* bleManager_;  // Non-owning reference - wrapper owns it
     mutable std::mutex signalMutex_;
-    VehicleSignal latestSignal_;
+    VehicleSignal latestSignal_{VehicleSignal::Params{.timestampUtcMs = 0}};
 
     std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> accumulatedFrames_;
-    bool connected_;
+    bool connected_{false};
 };
 
 } // namespace vehicle_sim::domain

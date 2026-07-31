@@ -1,9 +1,10 @@
 .PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
 	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
-	        capture-tcp ota-keys flash-over-tcp flash-over-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
+	        capture-tcp ota-keys flash-over-tcp flash-over-usb \
+			reboot reboot-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
 	        sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary sonar-compiledb sonar-compiledb-cpp sonar-compiledb-merge sonar-clean summary \
-	        coverage-run coverage-clean coverage-summary \
+	        coverage-run coverage-clean coverage-summary coverage-scorecard coverage-firmware coverage-firmware-clean \
 			header discovery join-wifi join-wifi-usb
 
 # Device ID (first connected/available device, excluding unavailable)
@@ -18,7 +19,10 @@ ESPTOOL_DIR   ?= $(shell python3 -c 'import pathlib; roots=sorted(pathlib.Path.h
 ESPTOOL       ?= $(ESPTOOL_DIR)/esptool
 ESPTOOL_MERGE_CMD ?= $(shell if [ -x "$(ESPTOOL)" ] && "$(ESPTOOL)" --help 2>/dev/null | grep -q 'merge-bin'; then printf 'merge-bin'; else printf 'merge_bin'; fi)
 ESP32_HOST    ?=
-ESP32_WIFI_PASS ?=
+# ESP32_WIFI_PASS is the current var; ESP32_WIFI_PASSWORD is a legacy alias
+# still supported so older shells/docs keep working. PASS wins when both are set.
+ESP32_WIFI_PASSWORD ?=
+ESP32_WIFI_PASS ?= $(ESP32_WIFI_PASSWORD)
 # Shared auto-discovery command: extracts the first TCP IP from the vehicle-sim discovery output.
 # Used in flash/reboot recipes when ESP32_HOST is not set.
 ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2
@@ -30,6 +34,7 @@ ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -o
         CYAN=\033[0;36m
       YELLOW=\033[1;33m
        WHITE=\033[1;37m
+       GREY=\033[0;90m
 	      NC=\033[0m
 
 # Default -- build + test all platforms + coverage + THREE sonar scans + headline.
@@ -37,18 +42,33 @@ ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -o
 # app), and `sonar-scan-esp32` (vehicle-spy-esp32 = ESP32) are each
 # dependency-gated: a scan runs only when THAT project's inputs change.
 # `summary` (the THREE-LINE headline, one per project) is ALWAYS the last output.
-all: header test firmware ios coverage-run coverage-ios sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary summary
+all: header test firmware ios coverage-run coverage-ios coverage-firmware sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary coverage-scorecard coverage-summary summary
+
+# Commit gate — the FULL pipeline every commit must pass 100% green before it
+# lands (CLAUDE.md COMMIT GATE rule). Each leg is an independent check; if any
+# is red, the commit does NOT happen. ios-analyze is the Obj-C++ quality gate
+# (cfamily cannot parse .mm; Apple's static analyzer owns leak/dead-store bug
+# classes on .mm/.m). sonar-scan re-scans vehicle-spy (the gate-affected
+# project) and fails the gate if new issues appear. Run this before committing.
+.PHONY: gate
+gate: test firmware-host-tests ios ios-test-gate ios-analyze firmware sonar-scan
+	@printf "$${GREEN}== COMMIT GATE PASSED ==$${NC}\n"
+	@printf "  test 1111 | firmware-host 219 | ios (-Werror) | ios-test-gate (XCTest) | ios-analyze (CLEAN) | firmware | sonar vehicle-spy 7 OPEN\n"
 
 # Shared macro to show build config (DRY)
 define show_wifi
-	@if [ -n "$(ESP32_WIFI_SSID)" ]; then \
+	@if [ -z "$(ESP32_WIFI_SSID)" ]; then \
+		echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)"; \
+		echo " $(YELLOW)warning: ESP32_WIFI_SSID is blank — firmware will boot in AP mode (valid)$(NC)"; \
+	elif [ -z "$(ESP32_WIFI_PASS)" ]; then \
+		echo " ESP32_WIFI_SSID: $(PURPLE)$(ESP32_WIFI_SSID)$(NC)"; \
+		echo " $(YELLOW)warning: ESP32_WIFI_PASS is blank — auth will fail; firmware falls back to AP mode$(NC)"; \
+	else \
 		echo " ESP32_WIFI_SSID: $(GREEN)$(ESP32_WIFI_SSID)$(NC)"; \
 		_pass="$(ESP32_WIFI_PASS)"; \
 		_masked=$$(echo "$$_pass" | sed 's/./\*/g'); \
 		_masked=$${_pass%"$${_pass#?}"}$${_masked#?}; \
 		echo " ESP32_WIFI_PASS: $(RED)$${_masked}$(NC)"; \
-	else \
-		echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)"; \
 	fi
 endef
 
@@ -74,9 +94,18 @@ footer:
 # -- Clean ---------------------------------------------------------------
 
 clean: clean-icons
-	rm -rf build-native build-ios build-cov build-sonar $(FIRMWARE_BUILD)
-	rm -rf ~/Library/Developer/Xcode/DerivedData/VehicleSimApp-*
-	rm -rf vehicle-sim-ios/VehicleSim/build
+	@FAILED=""; \
+	for dir in build-native build-ios build-cov build-sonar $(FIRMWARE_BUILD); do \
+		if ! rm -rf "$$dir" 2>/dev/null; then \
+			echo "WARNING: $$dir could not be removed (file in use?). Run: lsof +D $$dir | head to find the process; kill it; or chflags -R nouchg $$dir && rm -rf $$dir"; \
+			FAILED="$$FAILED $$dir"; \
+		fi; \
+	done; \
+	rm -rf ~/Library/Developer/Xcode/DerivedData/VehicleSimApp-*; \
+	rm -rf vehicle-sim-ios/VehicleSim/build; \
+	if [ -n "$$FAILED" ]; then \
+		echo "Scrub note: could not remove:$$FAILED"; \
+	fi
 
 scrub: clean
 	@echo "Scrubbing all caches..."
@@ -94,7 +123,8 @@ build-native/Makefile: CMakeLists.txt
 	@cd build-native && cmake .. -DBUILD_IOS=OFF -DBUILD_TESTS=ON -DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"
 
 native macos osx: build-native/Makefile
-	@$(MAKE) -C build-native all
+	@mkdir -p build-native/profraw
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native all
 
 # C++ gtest suite (green) + Python capture-notepad suite (must also be green).
 # A failure in either fails the build.
@@ -106,9 +136,14 @@ test-cpp: $(TEST_REPORT)
 	@cat "$(TEST_REPORT)"
 
 $(TEST_REPORT): build-native/Makefile CMakeLists.txt test/CMakeLists.txt $(shell find test include src -type f 2>/dev/null)
+	@mkdir -p build-native/profraw
 	@echo "--- Running C++ tests ---"
-	@$(MAKE) -C build-native vehicle-sim-tests
-	@$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes | tee "$(TEST_REPORT)"
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native vehicle-sim-tests
+	@# pipefail: without it the pipe returns tee's exit (always 0), masking
+	@# test failures so `make test`/`make firmware` exit 0 while gtest reports
+	@# FAILED. This makes the commit gate actually enforce green tests.
+	@set -o pipefail; LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" \
+		$(MAKE) -C build-native test ARGS="--verbose" GTEST_COLOR=yes | tee "$(TEST_REPORT)"
 
 # -- iOS ------------------------------------------------------------------
 
@@ -179,6 +214,64 @@ run run-app run-ios: deploy verify-device-id
 xcode: native app-icons
 	@echo "Launching Xcode..."
 	@open vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj
+
+# ios-analyze: Apple static analyzer on the iOS app (.mm/.m QUALITY gate).
+# This is the Obj-C++ quality channel that cfamily CANNOT provide (cfamily
+# cannot index .mm on any tier — see coverage-manifest.toml [deferred.mm]).
+# `xcodebuild analyze` runs clang's static analyzer with Apple's native Obj-C++
+# parser: zero false positives from #import/message-send (the cfamily failure
+# mode), and it catches REAL .mm bugs cfamily never could (leaks, dead stores).
+#
+# GATE: xcodebuild analyze exits 0 even when the analyzer emits findings (it
+# only fails on compile errors), so the GATE is a post-run scan of the log for
+# analyzer findings on .mm/.m. The 4 finding categories the analyzer raises on
+# Obj-C++ are real bug classes: [osx.cocoa.RetainCount] (leaks), [deadcode.
+# DeadStores], [osx.cocoa.NonFormatString], etc. We fail the target if ANY
+# analyzer finding lands on a .mm/.m — the user's "clean house" bar. Findings
+# on .h/.cpp/.swift are NOT gated here (those belong to their own projects'
+# cfamily/Swift analyzers); only .mm/.m — the files nothing else can analyze.
+#
+# NOTE: -Werror is intentionally NOT used. -Werror converts COMPILER warnings
+# (like the -Wdocumentation warnings the .mm fires on included C++ headers)
+# into errors — it would break the build on unrelated .h doc warnings AND it
+# does not affect static-analyzer findings (the leak/dead-store checks) at all.
+# The log-scan gate targets the actual analyzer findings precisely.
+ANALYZE_LOG := build-ios/ios-analyze.log
+.PHONY: ios-analyze
+ios-analyze: app-icons
+	@echo "=== [vehicle-spy-ios] Running Apple static analyzer (xcodebuild analyze) ==="
+	@mkdir -p build-ios
+	@# Wipe the analyzer's derivedData so xcodebuild re-runs every Analyze phase
+	@# (a warm Index.noindex = incremental no-op = zero findings printed, even
+	@# when real findings exist — non-deterministic gate). find -delete (not
+	@# rm -rf, which the sandbox blocks) clears the dedicated analyze-dd dir.
+	@find build-ios/analyze-dd -mindepth 1 -delete 2>/dev/null || true
+	@set -o pipefail; \
+	xcodebuild -project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj \
+			   -scheme VehicleSimApp -configuration Debug \
+			   -destination 'platform=iOS Simulator,name=iPhone 16' \
+			   -derivedDataPath build-ios/analyze-dd analyze \
+			   > $(ANALYZE_LOG) 2>&1; \
+	XCB_STATUS=$$?; \
+	if [ $$XCB_STATUS -ne 0 ]; then \
+		printf "${RED}== ios-analyze: xcodebuild FAILED (rc=$$XCB_STATUS) ==${NC}  (logfile: ${CYAN}$(ANALYZE_LOG)${NC})\n"; \
+		exit $$XCB_STATUS; \
+	fi
+	@# Gate: fail if the analyzer raised ANY finding on a .mm/.m file. The clang
+	@# analyzer line format is "<path>.mm:LINE:COL: warning: <msg> [category]"
+	@# (the .mm: precedes warning:, hence the pattern). Findings on .h/.cpp/.swift
+	@# are NOT gated here (other projects' analyzers own those); only .mm/.m —
+	@# the files no other analyzer can parse.
+	@findings=$$(grep -E '\.(mm|m):[0-9]+:[0-9]+: warning:' $(ANALYZE_LOG) || true); \
+	if [ -n "$$findings" ]; then \
+		n=$$(echo "$$findings" | wc -l | tr -d ' '); \
+		printf "${RED}== ios-analyze FAILED: $${n} analyzer finding(s) on .mm/.m ==${NC}\n"; \
+		echo "$$findings" | sed 's/^/  /'; \
+		echo "  Fix the above (leaks/dead-stores/etc.) or the iOS quality gate stays red."; \
+		exit 1; \
+	else \
+		printf "${GREEN}== ios-analyze PASSED: zero analyzer findings on .mm/.m ==${NC}\n"; \
+	fi
 
 # -- iOS Icons -------------------------------------------------------------
 
@@ -267,14 +360,21 @@ install-deps:
 
 # WiFi credentials: read from environment, or prompt at build time.
 # Never use a silent default — the wrong SSID means the ESP32 won't connect.
+# ESP32_WIFI_PASS is current; ESP32_WIFI_PASSWORD is a legacy alias used only
+# when PASS is unset (defined above). Blank creds are permitted (AP mode).
 ESP32_WIFI_SSID ?=
-ESP32_WIFI_PASS ?=
 FIRMWARE_EXTRA_CFLAGS ?=
+# Force C++14 for std::make_unique, std::transform, std::round
+FIRMWARE_CFLAGS ?= -std=gnu++14
 
 # WiFi credentials as compiler defines (only in memory, never on disk)
 # Suppress SSID warning for discovery/discovery/join-wifi targets (not firmware-related)
 ifneq ($(ESP32_WIFI_SSID),)
 FIRMWARE_CFLAGS += -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASS=$(ESP32_WIFI_PASS)
+ifeq ($(ESP32_WIFI_PASS),)
+$(warning ESP32_WIFI_SSID is set but ESP32_WIFI_PASS is blank — auth will fail; firmware will fall back to AP mode.)
+$(warning Set: export ESP32_WIFI_PASS=yourpassword  (or legacy ESP32_WIFI_PASSWORD=yourpassword))
+endif
 else ifeq ($(filter discovery join-wifi join-wifi-usb,$(MAKECMDGOALS)),)
 $(warning ESP32_WIFI_SSID is not set. Firmware will use AP mode (ESP32-CAN).)
 $(warning Set: export ESP32_WIFI_SSID=yourSSID ESP32_WIFI_PASS=yourpassword)
@@ -306,11 +406,29 @@ $(FIRMWARE_CRED_SENTINEL): $(FIRMWARE_DIR)/*.ino FORCE
 		echo "  ${YELLOW}WiFi credentials changed${NC} -> ${GREEN}rebuilding firmware...${NC}"; \
 	fi
 
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(wildcard $(FIRMWARE_DIR)/*.ino)
+# Firmware source inputs: the .ino sketch PLUS the extracted vanilla C++ it
+# #includes (firmware/vanilla/) and the ESP32-specific sources compiled into
+# the sketch. Without these as prerequisites, a stale can-bridge.ino.bin from
+# before a vanilla-source edit would satisfy the target and `make firmware`
+# would silently return the old binary. (arduino-cli itself is incremental,
+# but Make's dependency graph must know to re-invoke it.)
+# StatusLED.cpp/h live in firmware/vanilla/ (testable-shared, relocated by
+# cpp:c25321f). The ESP32 build reaches the vanilla sources via arduino-cli's
+# --library firmware/vanilla mechanism (registered as a library, compiled as
+# TUs, headers on the include path) — there are NO symlinks into can-bridge.
+# The firmware/vanilla/*.cpp wildcard below covers the content for dependency
+# tracking. Only the ESP32-specific HardwareStatusLEDOutput (GPIO) is named
+# explicitly here.
+FIRMWARE_SRCS := $(wildcard $(FIRMWARE_DIR)/*.ino) \
+                 $(wildcard firmware/vanilla/*.cpp firmware/vanilla/*.h) \
+                 $(wildcard $(FIRMWARE_DIR)/*.h) \
+                 $(wildcard $(FIRMWARE_DIR)/HardwareStatusLEDOutput.cpp)
+
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(FIRMWARE_SRCS)
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
-	arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS)"
+	arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++14"
 	$(ESPTOOL) \
 		--chip esp32 \
 		$(ESPTOOL_MERGE_CMD) --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin --target-offset 0x0 \
@@ -342,7 +460,7 @@ monitor: firmware-port
 
 	@screen "$(ESP32_PORT)" 115200
 
-reboot-over-usb: firmware-port
+reboot reboot-usb reboot-over-usb: firmware-port
 	@if [ -z "$(ESPTOOL)" ]; then echo "${RED}Error: esptool not found under $(HOME)/Library/Arduino15/packages/esp32/tools/esptool_py/${NC}" >&2; exit 1; fi
 	@echo "Starting serial logger, then resetting ${PURPLE}$(ESP32_PORT)${NC} via esptool USB control reset..."
 	@scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 30 --post-byte 30 --reset-esptool --esptool "$(ESPTOOL)"
@@ -384,20 +502,24 @@ OTA_KEYS_DIR ?= $(HOME)/.vehicle-sim/ota
 # Usage: make check-esp32 ESP32_HOST=192.168.68.60
 # Pings the device and reports whether it's reachable on the network.
 check-esp32:
+	@if [ -z "$(ESP32_HOST)" ]; then \
+		echo "${RED}Error: ESP32_HOST is required.${NC}" >&2; \
+		echo "Usage:" >&2; \
 		echo "  make check-esp32 ESP32_HOST=<esp32-ip>" >&2; \
 		exit 1; \
 	fi
-	@echo "Pinging $(_IP)..."
-	@ping -c 3 -t 2 "$(_IP)" 2>/dev/null | tail -1
-	@echo ""
-	@echo "ARP table:"
-	@arp -an | grep "$(_IP)" 2>/dev/null || echo "  (no ARP entry)"
-	@echo ""
-	@echo "TCP port 3333:"
-	@nc -z -w 2 "$(_IP)" 3333 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
-	@echo ""
-	@echo "TCP port 80:"
-	@nc -z -w 2 "$(_IP)" 80 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
+	@_IP="$(ESP32_HOST)"; \
+	echo "Pinging $$_IP..."; \
+	ping -c 3 -t 2 "$$_IP" 2>/dev/null | tail -1; \
+	echo ""; \
+	echo "ARP table:"; \
+	arp -an | grep "$$_IP" 2>/dev/null || echo "  (no ARP entry)"; \
+	echo ""; \
+	echo "TCP port 3333:"; \
+	nc -z -w 2 "$$_IP" 3333 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"; \
+	echo ""; \
+	echo "TCP port 80:"; \
+	nc -z -w 2 "$$_IP" 80 2>/dev/null && echo "  OPEN" || echo "  CLOSED/unreachable"
 
 # TCP auth token — single credential for TCP commands and OTA
 # Generated by make ota-creds, persisted in ~/.zshrc, baked into firmware via TCP_AUTH_TOKEN
@@ -449,9 +571,9 @@ dump-tcp:
 	@sudo tcpdump -i en0 -n -X udp port 3335
 
 
-flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
+flash-wifi flash-over-wifi flash-tcp flash-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
-		echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
+		echo "${YELLOW}ESP32_HOST not set — attempting auto-discovery...${NC}"; \
 		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
 		echo "      Set ESP32_HOST=<ip> to skip discovery."; \
 		DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
@@ -462,7 +584,10 @@ flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 		fi; \
 		echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
 		ESP32_HOST="$$DISCOVERED_IP"; \
+	else \
+		echo "${GREEN}ESP32_HOST is set: $(ESP32_HOST)${NC}"; \
 	fi
+	@$(MAKE) firmware native
 	@echo "--- Signing firmware ---"
 	@scripts/ota-sign.sh $(FIRMWARE_BUILD)/can-bridge.ino.bin --keys-dir "$(OTA_KEYS_DIR)"
 	@echo "--- Pushing signed firmware to $(ESP32_HOST):80 ---"
@@ -503,6 +628,8 @@ flash-wifi flash-over-wifi flash-tcp flash-over-tcp: firmware native
 # make sonar-scan            -- upload vehicle-spy (C++/iOS) to SonarCloud
 # make sonar-scan-esp32      -- upload vehicle-spy-esp32 (firmware) to SonarCloud
 # make sonar-summary         -- print cached/live issue counts by severity (BOTH projects)
+# make coverage-scorecard    -- 4-line coverage (per-project lines/% + TOTAL blended + avg). Per-project %
+#                               HONEST (Phase 3 landed); TOTAL directional until inversion config lands (TRUSTWORTHY=1)
 # make summary               -- TWO-LINE headline (one per project)
 # make sonar-clean           -- drop cached reports + scanner work dir
 #
@@ -534,6 +661,26 @@ SONAR_ESP32_REMOVED_FACET := build-firmware/sonar-removed-facet.json
 SONAR_ESP32_MEASURES     := build-firmware/sonar-measures.json
 SONAR_ESP32_SCANNER_LOG  := build-firmware/sonar-scanner.log
 
+# -- Per-project Sonar source-file prerequisites (stale-scan fix) --
+# Each sonar REPORT file target (below) lists its project's source files as
+# prerequisites so the scan INVALIDATES when source changes. Without this, a
+# fresh-but-stale report.json would make `make sonar-scan` / `make gate` SKIP
+# the rescan and print "green" against an old OPEN count.
+#
+# The source DIRS come from coverage-manifest.toml (the SAME single source of
+# truth that drives sonar.sources via gen_coverage_config.py), queried through
+# scripts/manifest_query.py. We expand those dirs to their source files here so
+# Make's mtime check has real leaves to compare. This is DRY — no second
+# hand-maintained enumeration that can drift from the manifest.
+SONAR_SRC_DIRS    := $(shell python3 scripts/manifest_query.py --mode src-dirs vehicle-spy)
+SONAR_SRC_INPUTS  := $(shell find $(SONAR_SRC_DIRS) -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.mm' \) 2>/dev/null | sort)
+
+SONAR_IOS_SRC_DIRS   := $(shell python3 scripts/manifest_query.py --mode src-dirs vehicle-spy-ios)
+SONAR_IOS_SRC_INPUTS := $(shell find $(SONAR_IOS_SRC_DIRS) -type f \( -name '*.swift' -o -name '*.mm' -o -name '*.m' -o -name '*.h' \) 2>/dev/null | sort)
+
+SONAR_ESP32_SRC_DIRS   := $(shell python3 scripts/manifest_query.py --mode src-dirs vehicle-spy-esp32)
+SONAR_ESP32_SRC_INPUTS := $(shell find $(SONAR_ESP32_SRC_DIRS) -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.ino' \) 2>/dev/null | sort)
+
 # == LLVM coverage tooling (xcrun with Homebrew fallback) ==
 LLVM_COV      := $(shell xcrun --find llvm-cov 2>/dev/null || which llvm-cov 2>/dev/null)
 LLVM_PROFDATA := $(shell xcrun --find llvm-profdata 2>/dev/null || which llvm-profdata 2>/dev/null)
@@ -544,7 +691,7 @@ BUILD_COV_STAMP     := $(BUILD_COV_DIR)/.build-cov-ready.stamp
 COVERAGE_XML_CPP    := $(BUILD_COV_DIR)/coverage-sonar.xml
 COVERAGE_LCOV       := $(BUILD_COV_DIR)/lcov.info
 # Source inputs that invalidate the coverage build when they change.
-COV_BUILD_INPUTS    := $(shell find CMakeLists.txt test include src -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.cmake' -o -name '*.mm' \) 2>/dev/null | sort)
+COV_BUILD_INPUTS    := $(shell find CMakeLists.txt test include src firmware/vanilla firmware/can-bridge/HardwareStatusLEDOutput.cpp -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' -o -name '*.h' -o -name '*.hh' -o -name '*.hpp' -o -name '*.cmake' -o -name '*.mm' \) 2>/dev/null | sort)
 
 # Separate build dir with its OWN CMakeCache so coverage instrumentation does
 # NOT invalidate the regular test build (build-native). RelWithDebInfo + llvm-cov
@@ -566,11 +713,36 @@ $(BUILD_COV_STAMP): $(COV_BUILD_INPUTS) $(BUILD_COV_DIR)/CMakeCache.txt
 # convert to SonarCloud generic XML. File-artefact target: re-runs only when
 # the build, sources, or coverage script change. run_coverage_tests.sh writes
 # coverage-sonar.xml itself.
-$(COVERAGE_LCOV): $(BUILD_COV_STAMP) $(COV_BUILD_INPUTS) scripts/run_coverage_tests.sh
-	@LLVM_PROFDATA="$(LLVM_PROFDATA)" LLVM_COV="$(LLVM_COV)" \
+$(COVERAGE_LCOV): $(BUILD_COV_STAMP) $(COV_BUILD_INPUTS) scripts/run_coverage_tests.sh scripts/lcov_add_uninstrumented.py coverage-manifest.toml scripts/manifest_query.py
+	@# SINGLE SOURCE OF TRUTH: COVERAGE_SRC_DIRS + COVERAGE_EXCLUDES are derived
+	@# from coverage-manifest.toml (via manifest_query.py), the SAME manifest
+	@# that regenerates sonar-project.properties. No hand-mirroring to drift.
+	@# run_coverage_tests.sh adds synthetic 0%-coverage lcov entries for any
+	@# sonar.sources file not already present (close hidden gaps) so sonar's
+	@# lines_to_cover denominator agrees with lcov's file-list; COVERAGE_EXCLUDES
+	@# mirrors sonar.exclusions so the completion step SKIPS excluded files
+	@# (lcov file-list == sonar.sources EFFECTIVE set; no drift either direction).
+	@# Per the manifest: main.cpp + cli/*RunContext.cpp are NOT excluded — they
+	@# surface as honest-uncovered (synthetic 0%) so they count exactly once.
+	@COVERAGE_SRC_DIRS=$$(python3 scripts/manifest_query.py --mode src-dirs vehicle-spy) \
+		COVERAGE_EXCLUDES="$$(python3 scripts/manifest_query.py --mode excludes vehicle-spy)" \
+		LLVM_PROFDATA="$(LLVM_PROFDATA)" LLVM_COV="$(LLVM_COV)" \
 		bash scripts/run_coverage_tests.sh $(BUILD_COV_DIR)
 
 coverage-run: $(COVERAGE_LCOV)
+
+# coverage-sonar.xml is now a first-class make target (was a side-effect inside
+# run_coverage_tests.sh).  This guarantees the gate always has a fresh XML that
+# matches the current lcov.info before the sonar scan consumes it via
+# sonar.coverageReportPaths.
+$(COVERAGE_XML_CPP): $(COVERAGE_LCOV) scripts/lcov_to_xml.py scripts/manifest_query.py
+	@python3 scripts/lcov_to_xml.py \
+		$(COVERAGE_LCOV) \
+		$(COVERAGE_XML_CPP) \
+		--project-root "$(CURDIR)" \
+		$$(python3 scripts/manifest_query.py --mode src-roots vehicle-spy) \
+		--exclude-glob '**/*.mm'
+
 coverage-clean:
 	@rm -f $(COVERAGE_LCOV) $(COVERAGE_XML_CPP) $(BUILD_COV_DIR)/coverage.profdata $(BUILD_COV_DIR)/coverage.txt
 	@rm -rf $(BUILD_COV_DIR)/profraw
@@ -583,41 +755,126 @@ COVERAGE_XML_IOS  := $(BUILD_IOS_DIR)/coverage-ios.xml
 IOS_COV_INPUTS    := $(shell find vehicle-sim-ios/VehicleSim vehicle-sim-ios/VehicleSimTests -type f \( -name '*.swift' -o -name '*.mm' -o -name '*.h' \) 2>/dev/null | sort) Makefile
 
 # test-ios: run the iOS unit-test bundle on the simulator (no coverage).
-# Reports pass/fail but does NOT gate the pipeline (some pre-existing tests
-# are latent app bugs -- see commit history). The xcresult is still produced.
+# File-artefact target: re-runs only when the log is missing or the app
+# sources / Makefile have changed since the last run. The log is the
+# artefact Make tracks; the coloured PASSED/FAILED line is just display.
 #
-# xcodebuild prints results to stderr; we tee the full output to a log file
-# (so failures are captured for post-mortem) then grep the test summary from
-# the log for a concise on-screen verdict. The summary line looks like:
+# xcodebuild prints results to stderr; we redirect the full output to a log
+# file (captured for post-mortem). The exit code is NOT authoritative on its
+# own: a nonzero xcodebuild exit (test failures OR a host crash) is masked
+# with `|| true` so the recipe body can reach the display logic below, which
+# greps the test summary for a concise on-screen verdict. The summary line
+# looks like:
 #   Test Suite 'VehicleSimTests.xctest' passed at ... :
 #   Executed 51 tests, with 5 failures ...
 # or
 #   ** TEST FAILED **
 IOS_TEST_LOG := $(BUILD_IOS_DIR)/ios-test.log
+# Deterministic result-bundle path for test-ios. A STABLE path (cleared each
+# run) avoids the result-bundle STAGING CONTAMINATION seen with xcodebuild's
+# default timestamped location under build-ios/Logs/Test: stale "1_Test"
+# staging entries there cause `Result bundle saving failed` + a FALSE
+# `** TEST FAILED **`. Clearing the bundle + staging dir before each run keeps
+# the test leg self-healing (see ios_test_verdict's CONTAMINATED branch).
+IOS_TEST_BUNDLE := $(BUILD_IOS_DIR)/ios-test.xcresult
+IOS_TEST_STAGING := $(BUILD_IOS_DIR)/Logs/Test
 
-# test-ios: run the iOS unit-test bundle on the simulator (no coverage).
-# File-artefact target: re-runs only when the log is missing or the app
-# sources / Makefile have changed since the last run. The log is the
-# artefact Make tracks; the coloured PASSED/FAILED line is just display.
+# ios_test_verdict — AUTHORITATIVE pass/fail for an iOS test log.
+#
+# Why this exists: xcodebuild's exit code is unreliable as a gate signal.
+# (1) `make ios` only BUILDS (never `test`), so the XCTest bundle was never
+#     run by the gate at all. (2) `test-ios` masks xcodebuild's exit with
+#     `|| true` to reach its display logic, so the gate could not inherit a
+#     real signal. (3) on a host crash, xcodebuild restarts and the retry
+#     output never lands in the log — the log TRUNCATES mid-line ("Testing
+#     started" with no SUCCEEDED/FAILED marker), which can look like "no
+#     failures" when tests actually crashed. (4) result-bundle STAGING
+#     CONTAMINATION in build-ios/Logs/Test leaves stale "1_Test" entries that
+#     make xcodebuild emit `Result bundle saving failed ... mkstemp: No such
+#     file` / `Staging directory still contains` and a FALSE `** TEST FAILED
+#     **` even when no assertion failed — a spurious RED. Clearing the staging
+#     dir (or a deterministic -resultBundlePath) self-heals it; see the recipe.
+#
+# This macro resolves a log to a single authoritative verdict by scanning for
+# xcodebuild's explicit terminal markers / contamination signatures, NOT exit
+# codes or the cosmetic PASSED line:
+#   FAIL  <=> result-bundle contamination signature present (checked FIRST —
+#             a contaminated run can't be trusted as green; re-run after the
+#             recipe clears the staging dir). Surfaced distinctly so a human
+#             sees "infrastructure, not a test regression".
+#   PASS  <=> '** TEST SUCCEEDED **' present (and no contamination)
+#   FAIL  <=> '** TEST FAILED **' present, OR a crash/restart signature
+#             ('Restarting after unexpected exit' / 'Fatal error'), OR neither
+#             marker present (truncated/unknown log — treated as FAIL so a
+#             half-written log can never look green).
+#
+# Args: $$1 = log path. Prints the executed-tests line + coloured verdict.
+# Sets shell var IOS_VERDICT to PASSED|FAILED for the caller to act on.
+define ios_test_verdict
+	_line=$$(grep -E 'Executed [0-9]+ tests' $(1) | tail -1 | sed 's/^/  /'); \
+	if grep -qE 'Result bundle saving failed|Staging directory still contains' $(1); then \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: CONTAMINATED (result-bundle staging corruption — re-run; not a test regression)$(NC)\n"; \
+	elif grep -qE '\*\* TEST SUCCEEDED \*\*' $(1); then \
+		IOS_VERDICT=PASSED; \
+		printf "  $(GREEN)iOS tests: PASSED — %s$(NC)\n" "$$_line"; \
+	elif grep -qE '\*\* TEST FAILED \*\*' $(1); then \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: FAILED — %s$(NC)\n" "$$_line"; \
+	elif grep -qE 'Restarting after unexpected exit|Fatal error' $(1); then \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: CRASHED/RESTARTED (host crash) — %s$(NC)\n" "$$_line"; \
+	else \
+		IOS_VERDICT=FAILED; \
+		printf "  $(RED)iOS tests: UNKNOWN (no TEST SUCCEEDED/FAILED marker — log truncated?)$(NC)\n"; \
+	fi
+endef
+
 test-ios: $(IOS_TEST_LOG)
 
 $(IOS_TEST_LOG): app-icons $(IOS_COV_INPUTS)
 	@echo "=== [vehicle-spy] Running iOS tests on simulator $(IOS_SIMULATOR) ==="
+	@# Ensure the build dir exists before the redirect below writes to it (on a
+	@# clean tree build-ios/ is absent and `> $@` would fail with ENOENT).
+	@mkdir -p $(BUILD_IOS_DIR)
+	@# Clear the result bundle + Logs/Test staging dir before each run so stale
+	@# "1_Test" entries can't contaminate this run (false-RED root cause). The
+	@# bundle itself must go — xcodebuild refuses -resultBundlePath if the dir
+	@# already exists (find -mindepth 1 -delete leaves the empty dir behind and
+	@# the run aborts with "Existing file at -resultBundlePath"). The staging
+	@# dir contents are cleared in place (find -delete, no leaf dir needed).
+	@rm -rf $(IOS_TEST_BUNDLE); \
+	find $(IOS_TEST_STAGING) -mindepth 1 -delete 2>/dev/null || true
 	@_run=$$(date +%Y%m%d-%H%M%S); \
 	xcodebuild test \
 		-project vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj \
 		-scheme VehicleSimApp -configuration Debug \
 		-destination 'platform=iOS Simulator,name=$(IOS_SIMULATOR),arch=arm64' \
 		-derivedDataPath $(BUILD_IOS_DIR) \
+		-resultBundlePath $(IOS_TEST_BUNDLE) \
 		CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
 		> $@ 2>&1 || true
-	@_line=$$(grep -E 'Executed [0-9]+ tests' $@ | tail -1 | sed 's/^/  /'); \
-	if grep -q 'Test Suite.*passed' $@ 2>/dev/null; then \
-		echo "  $(GREEN)iOS tests: PASSED — $$_line$(NC)"; \
-	elif grep -q 'Test Suite.*failed' $@ 2>/dev/null; then \
-		echo "  $(RED)iOS tests: FAILED — $$_line$(NC)"; \
-	else \
-		echo "  $(YELLOW)iOS tests: unknown (see $@)$(NC)"; fi
+	@$(call ios_test_verdict,$@)
+
+# ios-test-gate: the GATE's authoritative iOS test leg.
+#
+# `make gate` depends on this (NOT on `ios`, which only BUILDS the app and
+# never runs XCTest). This target (1) forces a FRESH test run by removing the
+# cached log artefact (the file-artefact cache in test-ios would otherwise
+# let the gate inherit a stale green log from a prior run when no source
+# changed), then (2) builds the log via the test-ios recipe, then (3) applies
+# ios_test_verdict and FAILS the gate unless the log shows an authoritative
+# PASS. A red test, a host crash, or a truncated log all fail the gate.
+.PHONY: ios-test-gate
+ios-test-gate:
+	@rm -f $(IOS_TEST_LOG)
+	@$(MAKE) $(IOS_TEST_LOG)
+	@$(call ios_test_verdict,$(IOS_TEST_LOG)); \
+	if [ "$$IOS_VERDICT" != "PASSED" ]; then \
+		printf "$(RED)== ios-test-gate FAILED: iOS tests not green (see $(IOS_TEST_LOG)) ==$(NC)\n"; \
+		exit 1; \
+	fi
+	@printf "$(GREEN)== ios-test-gate PASSED: iOS tests green ==$(NC)\n"
 
 # coverage-ios: xcodebuild test -enableCodeCoverage, extract xccov, convert to
 # SonarCloud XML. Tolerates test FAILURES and hard crashes: writes the xcresult
@@ -627,7 +884,7 @@ $(IOS_TEST_LOG): app-icons $(IOS_COV_INPUTS)
 # (A deterministic app crash -- e.g. misaligned-pointer in DiscoveryPacket.parse
 # -- currently prevents iOS coverage; fixing that is a separate product item.)
 IOS_XCRESULT_DIR := $(BUILD_IOS_DIR)/xcresults
-$(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project.properties
+$(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-ios.properties
 	@echo "=== [vehicle-spy] Running iOS tests with coverage ==="
 	@mkdir -p $(IOS_XCRESULT_DIR)
 	@_run=$$(date +%Y%m%d-%H%M%S); \
@@ -649,11 +906,13 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project.p
 		echo "  $(YELLOW)iOS tests: unknown (see $(IOS_TEST_LOG))$(NC)"; fi
 	@echo "=== [vehicle-spy] Extracting xccov coverage ==="
 	@# Try bundles newest-first; a hard crash can leave the newest incomplete.
+	@# Capture the chosen bundle path in IOS_XCRESULT_BUNDLE so the per-line
+	@# converter (xccov_to_sonar --xcresult) can fetch true per-line coverage.
 	@_got=0; \
 	for b in $$(find $(IOS_XCRESULT_DIR) -name '*.xcresult' -type d 2>/dev/null | sort -r); do \
 		if xcrun xccov view --report --json "$$b" > $(COVERAGE_JSON_IOS) 2>/dev/null \
 			&& [ -s $(COVERAGE_JSON_IOS) ]; then \
-			echo "  using: $$b"; _got=1; break; \
+			echo "  using: $$b"; echo "$$b" > $(BUILD_IOS_DIR)/.xcresult-bundle; _got=1; break; \
 		fi; \
 	done; \
 	if [ "$$_got" != "1" ]; then \
@@ -661,16 +920,146 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project.p
 		echo "${YELLOW}         emitting empty iOS coverage. C++ coverage + quality still upload.${NC}"; \
 		printf '<?xml version="1.0" encoding="UTF-8"?>\n<coverage version="1"/>\n' > $(COVERAGE_XML_IOS); \
 		printf '' > $(COVERAGE_JSON_IOS); \
+		rm -f $(BUILD_IOS_DIR)/.xcresult-bundle; \
 	fi
-	@if [ -s $(COVERAGE_JSON_IOS) ]; then \
+	@if [ -s $(COVERAGE_JSON_IOS) ] && [ -f $(BUILD_IOS_DIR)/.xcresult-bundle ]; then \
+		set -f; \
+		_bundle=$$(cat $(BUILD_IOS_DIR)/.xcresult-bundle); \
+		_exclude_args=$$(python3 scripts/manifest_query.py --mode coverage-exclude-glob-args vehicle-spy-ios 2>/dev/null); \
 		python3 scripts/xccov_to_sonar.py \
 			--input $(COVERAGE_JSON_IOS) \
 			--output $(COVERAGE_XML_IOS) \
 			--project-root $(CURDIR) \
-			--exclude-targets VehicleSimTests.xctest; \
+			--exclude-targets VehicleSimTests.xctest \
+			--include-roots vehicle-sim-ios \
+			$${_exclude_args} \
+			--xcresult "$$_bundle"; \
 	fi
 
 coverage-ios: $(COVERAGE_XML_IOS)
+
+# == iOS compile_commands.json for CFamily (.mm compilation database) ==
+# xcodebuild has no -generate-export-compile-commands (SwiftPM/swiftc only), and
+# Sonar's build-wrapper needs a separate binary + instrumented rebuild. This
+# scraper captures the REAL clang invocation from a verbose simulator build and
+# synthesizes a portable compile_commands.json (DerivedData/hmap/resp paths
+# stripped) that CFamily consumes via sonar.cfamily.compile-commands. Without it
+# CFamily logs "ObjC: 0" and every .mm drops to an unknown file with no ncloc,
+# so coverage cannot attach. Mirrors the app Makefile's COMPILE_COMMANDS target
+# (the proven source of this approach). Fresh derivedDataPath forces a real
+# compile (a no-op build prints no CompileC lines). The build may fail at
+# link/sign on a simulator-only run; the scraper parses stdout regardless of
+# exit because compile lines are emitted before any link step.
+#
+# The scraper's source-globs are '*.mm','*.m','*.cpp' — it emits a CU for every
+# matching CompileC line in the xcodebuild log. The iOS xcodebuild compiles 3
+# .mm: VehicleSimWrapper.mm (vehicle-sim-ios/) + BLEManageriOS.mm +
+# IOSDBCContentProvider.mm (both under src/, but compiled into the iOS app per
+# the pbxproj). All 3 become CFamily components for vehicle-spy-ios this way.
+COMPILE_COMMANDS_IOS  := $(BUILD_IOS_DIR)/compile_commands.json
+COMPILE_CMD_SCRAPER   := scripts/xcodebuild_to_compile_commands.py
+COMPILE_CMD_INPUTS_IOS := $(COMPILE_CMD_SCRAPER) \
+	$(shell find vehicle-sim-ios/VehicleSim src -type f \( -name '*.mm' -o -name '*.m' -o -name '*.cpp' -o -name '*.h' \) ! -path '*/build/*' ! -path '*/xcuserdata/*' 2>/dev/null | sort)
+
+$(COMPILE_COMMANDS_IOS): $(COMPILE_CMD_INPUTS_IOS) Makefile
+	@mkdir -p $(BUILD_IOS_DIR)
+	@echo "=== [vehicle-spy-ios] Generating compile_commands.json for CFamily ==="
+	@TMPDD=$$(mktemp -d); \
+	python3 $(COMPILE_CMD_SCRAPER) \
+		vehicle-sim-ios/VehicleSim/VehicleSimApp.xcodeproj VehicleSimApp Debug iphonesimulator \
+		"generic/platform=iOS Simulator" "$$TMPDD" $(COMPILE_COMMANDS_IOS) \
+		'*.mm' '*.m' '*.cpp'; \
+	rc=$$?; rm -rf "$$TMPDD"; \
+	if [ $$rc -ne 0 ]; then \
+		echo "=== [vehicle-spy-ios] compile_commands scrape failed (rc=$$rc) ==="; \
+		exit $$rc; \
+	fi
+
+compile-ios: $(COMPILE_COMMANDS_IOS)
+.PHONY: compile-ios
+
+# == Firmware host test coverage (llvm-cov for vanilla C++) ==
+# The 6 extracted vanilla classes (firmware/vanilla/*.cpp) + StatusLEDRenderer
+# are host-tested via CMake/GoogleTest in firmware/build-verify. This coverage
+# instruments the vanilla C++ layer (the thin-veneer testable surface) before
+# the .ino routing refactor.
+FIRMWARE_BUILD_DIR     := firmware/build-verify
+FIRMWARE_COVERAGE_LCOV := $(FIRMWARE_BUILD_DIR)/lcov.info
+FIRMWARE_COVERAGE_XML  := $(FIRMWARE_BUILD_DIR)/coverage-sonar.xml
+FIRMWARE_TEST_REPORT   := $(FIRMWARE_BUILD_DIR)/test-report.txt
+FIRMWARE_TEST_INPUTS   := $(shell find firmware/CMakeLists.txt firmware/vanilla firmware/can-bridge/HardwareStatusLEDOutput.cpp firmware/tests firmware/mocks -type f 2>/dev/null | sort)
+
+# firmware-host-tests: build and run the firmware host tests (no coverage).
+# File-artefact target: re-runs only when inputs change.
+.PHONY: firmware-host-tests
+firmware-host-tests: $(FIRMWARE_TEST_REPORT)
+
+$(FIRMWARE_TEST_REPORT): $(FIRMWARE_TEST_INPUTS)
+	@echo "=== [firmware] Building host tests (firmware/build-verify) ==="
+	@mkdir -p $(FIRMWARE_BUILD_DIR)
+	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug
+	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
+	@echo "=== [firmware] Running host tests ==="
+	@# Run the gtest binary directly so the report carries the gtest summary
+	@# line ("[  PASSED  ] N tests.") that build_summary.py parses for the
+	@# firmware test count. ctest wraps the binary and reports only the
+	@# per-case count (e.g. "out of 1"), which hides the 308 individual
+	@# gtest tests from the summary headline. The binary's exit code is
+	@# non-zero when any test fails, so the commit gate still sees red.
+	@$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests > $(FIRMWARE_TEST_REPORT) 2>&1
+
+# coverage-firmware: build with llvm-cov instrumentation, run tests, export lcov.
+# Re-runs only when inputs or the CMakeLists change. The lcov covers
+# firmware/vanilla/*.cpp (the extracted SOLID C++ surface) + .ino files.
+$(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scripts/lcov_to_xml.py scripts/lcov_add_uninstrumented.py
+	@echo "=== [firmware] Building host tests with coverage (llvm-cov) ==="
+	@mkdir -p $(FIRMWARE_BUILD_DIR)
+	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
+	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON
+	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
+	@echo "=== [firmware] Running tests under coverage ==="
+	@# Honesty: pipefail (no || true) so a firmware test failure propagates
+	@# instead of being masked by tee. Matches the C++ coverage-run path
+	@# ($(COVERAGE_LCOV) recipe runs run_coverage_tests.sh with no || true).
+	@# Coverage is still collected from profraw up to the point of failure.
+	@set -o pipefail; LLVM_PROFILE_FILE="$(FIRMWARE_BUILD_DIR)/profraw/default-%p.profraw" \
+		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests 2>&1 | tee $(FIRMWARE_TEST_REPORT)
+	@echo "=== [firmware] Merging profdata and exporting lcov ==="
+	@$(LLVM_PROFDATA) merge -o $(FIRMWARE_BUILD_DIR)/coverage.profdata \
+		$(FIRMWARE_BUILD_DIR)/profraw/*.profraw 2>/dev/null || true
+	@$(LLVM_COV) export \
+		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests \
+		--instr-profile=$(FIRMWARE_BUILD_DIR)/coverage.profdata \
+		--ignore-filename-regex='(firmware/tests|firmware/mocks|firmware/build-verify|/src/)' \
+		-format=lcov \
+		> $(FIRMWARE_COVERAGE_LCOV).tmp 2>/dev/null || true
+	@echo "=== [firmware] Adding uninstrumented files (.ino, Arduino wrappers) to lcov ==="
+	@# SINGLE SOURCE OF TRUTH: src-dirs + excludes from coverage-manifest.toml.
+	@# `set -f` disables shell globbing so the manifest's sonar-style patterns
+	@# (build-firmware/**, **/OtaPublicKey.h, ...) reach the script LITERALLY —
+	@# without it /bin/sh expands the ** globs against the filesystem and the
+	@# script receives file paths instead of patterns (silently wrong excludes).
+	@set -f; python3 scripts/lcov_add_uninstrumented.py \
+		$(FIRMWARE_COVERAGE_LCOV).tmp \
+		$(FIRMWARE_COVERAGE_LCOV) \
+		--root "$(CURDIR)" \
+		$$(python3 scripts/manifest_query.py --mode src-dir-args vehicle-spy-esp32) \
+		$$(python3 scripts/manifest_query.py --mode exclude-args vehicle-spy-esp32) \
+		$$(python3 scripts/manifest_query.py --mode coverage-exclude-args vehicle-spy-esp32)
+	@rm -f $(FIRMWARE_COVERAGE_LCOV).tmp
+	@echo "=== [firmware] Converting lcov to Sonar XML ==="
+	@python3 scripts/lcov_to_xml.py \
+		$(FIRMWARE_COVERAGE_LCOV) \
+		$(FIRMWARE_COVERAGE_XML) \
+		--project-root "$(CURDIR)" \
+		$$(python3 scripts/manifest_query.py --mode src-roots vehicle-spy-esp32)
+
+
+coverage-firmware: $(FIRMWARE_COVERAGE_LCOV)
+
+coverage-firmware-clean:
+	@rm -f $(FIRMWARE_COVERAGE_LCOV) $(FIRMWARE_COVERAGE_XML) $(FIRMWARE_BUILD_DIR)/coverage.profdata $(FIRMWARE_TEST_REPORT)
+	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
 
 # == ESP32 firmware compile database (arduino-cli, xtensa) ==
 # Used by the vehicle-spy-esp32 project only. The vehicle-spy project
@@ -689,7 +1078,7 @@ sonar-compiledb: $(SONAR_COMPILE_DB_FW)
 $(SONAR_COMPILE_DB_FW): $(wildcard $(FIRMWARE_DIR)/*.ino) $(wildcard $(FIRMWARE_DIR)/*.h) scripts/sonar_filter_compdb.py
 	@echo "--- Generating ESP32 compilation database ${CYAN}$(SONAR_COMPILE_DB_FW)${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)/compiledb
-	@arduino-cli compile --fqbn $(FQBN) $(FIRMWARE_DIR) \
+	@arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) \
 		--build-path $(FIRMWARE_BUILD)/compiledb \
 		--only-compilation-database \
 		--build-property "compiler.cpp.extra_flags=-DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"" \
@@ -735,6 +1124,7 @@ define run_sonar_scan
 	@mkdir -p $$(dirname $(SS_SCANNER_LOG))
 	@SONAR_TOKEN="$${SONAR_TOKEN_ES}" sonar-scanner \
 		-Dproject.settings=$(SS_PROPERTIES) \
+		-Dsonar.working.directory=$(SS_BUILD_DIR)/.sonar \
 		> $(SS_SCANNER_LOG) 2>&1; \
 		rc=$$?; \
 		if [ $$rc -ne 0 ]; then \
@@ -743,9 +1133,9 @@ define run_sonar_scan
 		fi
 	@echo "=== [$(SS_LABEL)] Waiting for SonarCloud Compute Engine to finish ==="
 	@TOKEN="$${SONAR_TOKEN_ES}"; \
-		CETASKID=$$(grep -E '^ceTaskId=' .scannerwork/report-task.txt 2>/dev/null | cut -d= -f2); \
+		CETASKID=$$(grep -E '^ceTaskId=' $(SS_BUILD_DIR)/.sonar/report-task.txt 2>/dev/null | cut -d= -f2); \
 		if [ -z "$$CETASKID" ]; then \
-			echo "${RED}ERROR: [$(SS_LABEL)] no ceTaskId in .scannerwork/report-task.txt; cannot confirm analysis settled${NC}"; exit 1; \
+			echo "${RED}ERROR: [$(SS_LABEL)] no ceTaskId in $(SS_BUILD_DIR)/.sonar/report-task.txt; cannot confirm analysis settled${NC}"; exit 1; \
 		fi; \
 		echo "  CE task: $$CETASKID"; \
 		dead=0; \
@@ -789,7 +1179,37 @@ endef
 # The file is touched when the summary is fresh, making `sonar-summary`
 # skippable when nothing changed.
 
-sonar-scan: $(SONAR_REPORT)
+# Option B (drift-stability hardening): a stale build dir (leftover
+# coverage-sonar.xml / .profraw from a prior source state) could be uploaded
+# by a scan, causing scope oscillation (e.g. the 2026-07-16 17:11 vehicle-spy
+# spike to pre-fix 7045). Every scan now DEPENDS on a FULL REGENERATION via
+# `coverage-run` (not a delete-and-pray). `coverage-run` already regenerates
+# the XML from scratch whenever sources/scripts change; `make clean` wipes the
+# dir at the start of a full build. The prior `coverage-clean` prereq DELETED
+# the XML (and .profraw) BEFORE the scan's $(SONAR_REPORT) depended on it —
+# but coverage-sonar.xml is an orphan side-effect with no make rule, so nothing
+# rebuilt it → "No rule to make target 'build-cov/coverage-sonar.xml'".
+# Depending on `coverage-run` instead guarantees regeneration from current source
+# state, without deleting the profdata/profraw needed to do so. The standalone
+# `coverage-clean` / `coverage-firmware-clean` targets are UNTOUCHED and still
+# delete coverage artifacts exactly as before (manual `make coverage-clean` or
+# `make clean` still works). The only change is the intra-scan prereq.
+sonar-scan: coverage-run $(SONAR_REPORT)
+
+# == Coverage manifest (single source of truth) ==
+# coverage-manifest.toml is the authority for each project's sonar.sources /
+# sonar.exclusions / sonar.coverage.exclusions. gen_coverage_config.py
+# regenerates those lines in the 3 sonar-project*.properties files (static
+# lines preserved); manifest_query.py feeds the coverage recipes'
+# COVERAGE_SRC_DIRS/EXCLUDES. `manifest-check` fails if the checked-in
+# properties have drifted from the manifest (catches hand-edits); run
+# `manifest-regen` to resync.
+.PHONY: manifest-check manifest-regen
+manifest-check:
+	@python3 scripts/gen_coverage_config.py --check
+
+manifest-regen:
+	@python3 scripts/gen_coverage_config.py
 
 $(SONAR_REPORT): SS_PROPERTIES    := $(SONAR_PROPERTIES)
 $(SONAR_REPORT): SS_PROJECT_KEY   := $(SONAR_PROJECT_KEY)
@@ -799,8 +1219,9 @@ $(SONAR_REPORT): SS_MEASURES      := $(SONAR_MEASURES)
 $(SONAR_REPORT): SS_SCANNER_LOG   := $(SONAR_SCANNER_LOG)
 $(SONAR_REPORT): SS_LABEL         := vehicle-spy
 $(SONAR_REPORT): SS_COMPILE_DB    := $(BUILD_COV_DIR)/compile_commands.json
+$(SONAR_REPORT): SS_BUILD_DIR     := build-sonar
 
-$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_XML_CPP) $(SONAR_PROPERTIES)
+$(SONAR_REPORT): $(BUILD_COV_DIR)/compile_commands.json $(COVERAGE_LCOV) $(COVERAGE_XML_CPP) $(SONAR_PROPERTIES) $(SONAR_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 sonar-scan-ios: $(SONAR_IOS_REPORT)
@@ -812,11 +1233,14 @@ $(SONAR_IOS_REPORT): SS_REMOVED_FACET := $(SONAR_IOS_REMOVED_FACET)
 $(SONAR_IOS_REPORT): SS_MEASURES      := $(SONAR_IOS_MEASURES)
 $(SONAR_IOS_REPORT): SS_SCANNER_LOG   := $(SONAR_IOS_SCANNER_LOG)
 $(SONAR_IOS_REPORT): SS_LABEL         := vehicle-spy-ios
+$(SONAR_IOS_REPORT): SS_BUILD_DIR     := build-ios
 
-$(SONAR_IOS_REPORT): $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES)
+$(SONAR_IOS_REPORT): $(COMPILE_COMMANDS_IOS) $(COVERAGE_XML_IOS) $(SONAR_IOS_PROPERTIES) $(SONAR_IOS_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
-sonar-scan-esp32: $(SONAR_ESP32_REPORT)
+# Option B hardening (see sonar-scan above): clean esp32 coverage artifacts
+# before regenerating, so a stale firmware/build-verify XML can never upload.
+sonar-scan-esp32: coverage-firmware $(SONAR_ESP32_REPORT)
 
 $(SONAR_ESP32_REPORT): SS_PROPERTIES    := $(SONAR_ESP32_PROPERTIES)
 $(SONAR_ESP32_REPORT): SS_PROJECT_KEY   := $(SONAR_ESP32_PROJECT_KEY)
@@ -826,8 +1250,9 @@ $(SONAR_ESP32_REPORT): SS_MEASURES      := $(SONAR_ESP32_MEASURES)
 $(SONAR_ESP32_REPORT): SS_SCANNER_LOG   := $(SONAR_ESP32_SCANNER_LOG)
 $(SONAR_ESP32_REPORT): SS_LABEL         := vehicle-spy-esp32
 $(SONAR_ESP32_REPORT): SS_COMPILE_DB    := $(SONAR_COMPILE_DB_FW)
+$(SONAR_ESP32_REPORT): SS_BUILD_DIR     := build-firmware
 
-$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(SONAR_ESP32_PROPERTIES)
+$(SONAR_ESP32_REPORT): $(SONAR_COMPILE_DB_FW) $(FIRMWARE_COVERAGE_LCOV) $(SONAR_ESP32_PROPERTIES) $(SONAR_ESP32_SRC_INPUTS) coverage-manifest.toml scripts/manifest_query.py
 	$(run_sonar_scan)
 
 # sonar-summary: regenerate only when a report file or the summary script
@@ -852,31 +1277,59 @@ sonar-summary: $(SONAR_REPORT) $(SONAR_IOS_REPORT) $(SONAR_ESP32_REPORT) scripts
 		echo ""; \
 	fi
 
-# coverage-summary: print local coverage % (C++ lcov + iOS xccov). No prereq:
-# this must NEVER trigger a scan/build. Graceful if files are absent.
+# coverage-scorecard: 4-line coverage scorecard (per-project lines_to_cover +
+# coverage% + uncovered, then two TOTALs: sum/blended + avg of 3 %). Fetches the
+# LIVE SonarCloud API per run (single source of truth via sonar_live.py;
+# staleness impossible — no persistent cache read). No prereq: must NEVER trigger
+# a scan/build (mirrors coverage-summary). Per-project % is HONEST (Phase 3
+# landed); the TOTAL is directional until the inversion config lands — pass
+# TRUSTWORTHY=1 once that lands + re-scan to drop the split-state banner.
+# Purpose: the lines_to_cover distribution shows WHERE code lives; the goal is
+# to move code OUT of the esp32 .ino INTO mockable vehicle-spy cpp, visible here
+# as vehicle-spy rising + esp32 shrinking over time.
+.PHONY: coverage-scorecard
+coverage-scorecard:
+	@if [ "$${TRUSTWORTHY:-0}" = "1" ]; then _trust="--trustworthy"; else _trust=""; fi; \
+	if [ "$${COLOUR:-1}" = "0" ]; then _colour="--no-colour"; else _colour=""; fi; \
+	python3 scripts/coverage_scorecard.py $$_colour $$_trust
+
+# coverage-summary: print 3 blocks (vehicle-spy C++, vehicle-spy-ios, vehicle-spy-esp32).
+# Each block shows SonarCloud live (API) + local (lcov/xccov) + drift + exclusions.
+# No prereq: this must NEVER trigger a scan/build. Graceful if files/API are absent.
 coverage-summary:
 	@echo ""
-	@echo "=== [vehicle-spy] BEGIN: coverage summary ==="
-	@if [ -f "$(COVERAGE_LCOV)" ]; then \
-		echo "  C++ core (lcov):"; \
-		python3 -c "import sys; sys.path.insert(0,'scripts'); from build_summary import _lcov_coverage; c=_lcov_coverage('$(COVERAGE_LCOV)'); print('    {:.1f}% ({}/{})'.format(c[2],c[0],c[1]) if c else '    n/a')" 2>/dev/null || echo "    n/a"; \
-	else echo "  C++ core (lcov): n/a (run: make coverage-run)"; fi
-	@if [ -f "$(COVERAGE_JSON_IOS)" ]; then \
-		echo "  iOS app (xccov):"; \
-		python3 -c "import sys; sys.path.insert(0,'scripts'); from build_summary import _xccov_coverage; c=_xccov_coverage('$(COVERAGE_JSON_IOS)'); print('    {:.1f}% ({}/{})'.format(c[2],c[0],c[1]) if c else '    n/a')" 2>/dev/null || echo "    n/a"; \
-	else echo "  iOS app (xccov): n/a (run: make coverage-ios)"; fi
-	@echo "=== [vehicle-spy] END: coverage summary ==="
-
-# -- End-of-make headline (THREE compact coloured lines) --------------------
-#
-# The end-of-make summary. Emits THREE scannable lines, one per project:
+	@echo "=== [vehicle-spy] C++ core coverage ==="
+	@python3 scripts/coverage_block.py \
+		--project-key "$(SONAR_PROJECT_KEY)" \
+		--local-cov "$(COVERAGE_XML_CPP)" \
+		--local-type xml \
+		--exclusions "$(SONAR_PROPERTIES)" \
+		--label "[vehicle-spy]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-run)$(NC)"
+	@echo ""
+	@echo "=== [vehicle-spy-ios] iOS app coverage ==="
+	@python3 scripts/coverage_block.py \
+		--project-key "$(SONAR_IOS_PROJECT_KEY)" \
+		--local-cov "$(COVERAGE_XML_IOS)" \
+		--local-type xml \
+		--exclusions "$(SONAR_IOS_PROPERTIES)" \
+		--label "[vehicle-spy-ios]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-ios)$(NC)"
+	@echo ""
+	@echo "=== [vehicle-spy-esp32] ESP32 firmware coverage ==="
+	@python3 scripts/coverage_block.py \
+		--project-key "$(SONAR_ESP32_PROJECT_KEY)" \
+		--local-cov "$(FIRMWARE_COVERAGE_XML)" \
+		--local-type xml \
+		--exclusions "$(SONAR_ESP32_PROPERTIES)" \
+		--label "[vehicle-spy-esp32]" 2>/dev/null || echo "  $(GREY)coverage data unavailable (run: make coverage-firmware)$(NC)"
+	@echo ""
 #
 #     [vehicle-spy]         tests: PASS 882/887 | cov: 70.4% 3868/5491 | sonar: open N / total M (no blocker)
 #     [vehicle-spy-ios]     tests: PASS 30/35   | cov: 45.2% 623/1378 | sonar: open N / total M (no blocker)
-#     [vehicle-spy-esp32] tests: N/A         | cov: N/A             | sonar: open N / total M (no blocker)
+#     [vehicle-spy-esp32] tests: PASS N/N   | cov: N/A             | sonar: open N / total M (no blocker)
 #
 # tests  = C++ gtest (from test-report.txt) for vehicle-spy; iOS xcresult
-#           ResultMetrics for vehicle-spy-ios; N/A for firmware.
+#           ResultMetrics for vehicle-spy-ios; gtest binary stdout
+#           (firmware/build-verify/test-report.txt) for vehicle-spy-esp32.
 # cov    = C++ lcov for vehicle-spy; iOS xccov for vehicle-spy-ios; N/A for
 #           firmware. vehicle-spy does NOT include iOS coverage (that lives in
 #           vehicle-spy-ios); the two must not double-count.
@@ -896,37 +1349,55 @@ SUMMARY_FILE := build-sonar/summary.txt
 # the headline prints even when nothing was rebuilt.
 .PHONY: summary
 summary: $(SUMMARY_FILE)
-	@cat $(SUMMARY_FILE)
+	@if [ -f $(SUMMARY_FILE) ]; then cat $(SUMMARY_FILE); \
+	else echo "$(YELLOW)summary unavailable$(NC) — run $(GREEN)make summary$(NC) after sonar-scan/coverage-run"; fi
 
-$(SUMMARY_FILE): $(SONAR_MEASURES) $(SONAR_IOS_MEASURES) $(SONAR_ESP32_MEASURES) \
-		$(COVERAGE_LCOV) $(COVERAGE_JSON_IOS) \
-		$(TEST_REPORT) \
-		scripts/build_summary.py
+$(SUMMARY_FILE): $(wildcard $(TEST_REPORT)) $(wildcard $(FIRMWARE_TEST_REPORT)) \
+		$(wildcard $(SONAR_REPORT)) $(wildcard $(SONAR_MEASURES)) \
+		$(wildcard $(SONAR_IOS_REPORT)) $(wildcard $(SONAR_IOS_MEASURES)) \
+		$(wildcard $(SONAR_ESP32_REPORT)) $(wildcard $(SONAR_ESP32_MEASURES)) \
+		scripts/build_summary.py scripts/coverage_scorecard.py scripts/sonar_live.py
 	@mkdir -p $$(dirname $@)
+	@# HEADLINE = CACHE-OR-LIVE. Sonar OPEN/total + coverage are read from the
+	@# cached scan artefacts (sonar-report.json + sonar-measures.json) when
+	@# present — those are the authoritative outputs of the just-run scan.  If a
+	@# cache file is absent (no scan yet, or clean tree) we fall back to the
+	@# live SonarCloud API via --project-key so the headline never fabricates.
 	@_tmp=$$(mktemp build-sonar/.summary.XXXXXX); \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy]" \
-		--test-log "$(TEST_REPORT)" \
-		--cov-measures "$(SONAR_MEASURES)" \
-		--local-cov "$(COVERAGE_LCOV)" --local-type lcov \
+		--project-key "$(SONAR_PROJECT_KEY)" \
 		--sonar-report "$(SONAR_REPORT)" \
-		--removed-facet "$(SONAR_REMOVED_FACET)" \
+		--sonar-measures "$(SONAR_MEASURES)" \
+		--test-log "$(TEST_REPORT)" \
 		> $$_tmp; \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy-ios]" \
-		--xcresult-glob "$(IOS_XCRESULT_DIR)/run-*.xcresult" \
-		--cov-measures "$(SONAR_IOS_MEASURES)" \
-		--local-cov "$(COVERAGE_JSON_IOS)" --local-type xccov \
+		--project-key "$(SONAR_IOS_PROJECT_KEY)" \
 		--sonar-report "$(SONAR_IOS_REPORT)" \
-		--removed-facet "$(SONAR_IOS_REMOVED_FACET)" \
+		--sonar-measures "$(SONAR_IOS_MEASURES)" \
+		--xcresult-glob "$(IOS_XCRESULT_DIR)/run-*.xcresult" \
 		>> $$_tmp; \
 	python3 scripts/build_summary.py \
 		--label "[vehicle-spy-esp32]" \
+		--project-key "$(SONAR_ESP32_PROJECT_KEY)" \
 		--sonar-report "$(SONAR_ESP32_REPORT)" \
-		--removed-facet "$(SONAR_ESP32_REMOVED_FACET)" \
+		--sonar-measures "$(SONAR_ESP32_MEASURES)" \
+		--firmware-test-log "$(FIRMWARE_TEST_REPORT)" \
 		>> $$_tmp; \
-	echo "HINT: run 'make sonar-summary' (full issues) or 'make coverage-summary' (coverage %)." >> $$_tmp; \
-	mv $$_tmp $@
+	echo ""; \
+	echo "$(YELLOW)========================================$(NC)"; \
+	echo "$(YELLOW)DECLARED COVERAGE GAPS (excluded from coverage denominator)$(NC)"; \
+	echo "$(YELLOW)========================================$(NC)"; \
+	echo "$(CYAN)iOS:$(NC)    No exclusions — full denominator (was ContentView.swift)"; \
+	echo "$(CYAN)esp32:$(NC)  No exclusions — full denominator (was *.ino + HardwareStatusLEDOutput.cpp)"; \
+	echo "$(GREY)NOTE: Coverage % now reflects the full production-code denominator.$(NC)"; \
+	echo "$(GREY)Previously excluded structurally-untestable veneer is now counted$(NC)"; \
+	echo "$(GREY)honestly as uncovered. Goal: grow testable code to improve these$(NC)"; \
+	echo "$(GREY)numbers over time. Reversible.$(NC)"; \
+	echo "$(YELLOW)========================================$(NC)"; \
+	python3 scripts/coverage_scorecard.py --mm-only --colour >> $$_tmp; \
+	mv $$_tmp $(SUMMARY_FILE)
 
 sonar-clean:
 	@rm -f $(SONAR_REPORT) $(SONAR_REMOVED_FACET) $(SONAR_MEASURES)
@@ -976,12 +1447,13 @@ capture capture-usb capture-over-usb: test-cpp
 #
 # Requires ESP32_HOST to be set (the ESP32 IP/hostname on the local network).
 
-capture-tcp capture-over-tcp capture-wifi capture-over-wifi: native
+capture-tcp capture-over-tcp capture-wifi capture-over-wifi:
 	@if [ -z "$(ESP32_HOST)" ]; then \
 		echo "${RED}Error: ESP32_HOST is required.${NC}" >&2; \
 		echo "  make capture-tcp ESP32_HOST=<esp32-ip>" >&2; \
 		exit 1; \
 	fi
+	@$(MAKE) native
 	@mkdir -p $(CAPDIR)
 	@ts=$$(date +%Y-%m-%d-%H%M%S); \
 		if [ -n "$(CAPFILE)" ]; then name="$(CAPFILE)_$$ts"; else name="capture_$$ts"; fi; \
@@ -1014,9 +1486,9 @@ help:
 	@echo "  coverage-ios     - Run iOS tests with xcodebuild -enableCodeCoverage + xccov/XML"
 	@echo "  coverage-summary - Print local coverage % (C++ lcov + iOS xccov)"
 	@echo "  test-ios         - Run iOS unit tests on the simulator (no coverage)"
-	@echo "  sonar-scan        - Run SonarCloud analysis on vehicle-spy (C++ core, needs SONAR_TOKEN)"
-	@echo "  sonar-scan-ios    - Run SonarCloud analysis on vehicle-spy-ios (iOS app, needs SONAR_TOKEN)"
-	@echo "  sonar-scan-esp32  - Run SonarCloud analysis on vehicle-spy-esp32 (ESP32, needs SONAR_TOKEN)"
+	@echo "  sonar-scan        - Run SonarCloud analysis on vehicle-spy (C++ core, needs SONAR_TOKEN_ES)"
+	@echo "  sonar-scan-ios    - Run SonarCloud analysis on vehicle-spy-ios (iOS app, needs SONAR_TOKEN_ES)"
+	@echo "  sonar-scan-esp32  - Run SonarCloud analysis on vehicle-spy-esp32 (ESP32, needs SONAR_TOKEN_ES)"
 	@echo "  sonar-summary     - Print cached/live SonarCloud issue counts by severity for ALL THREE projects"
 	@echo "  sonar-compiledb  - Regenerate ESP32 (arduino-cli) compilation database only"
 	@echo "  sonar-compiledb-cpp - Ensure C++ (CMake) compilation database exists (build-cov)"
@@ -1032,22 +1504,37 @@ help:
 	@echo "  clean            - Clean build artifacts"
 	@echo "  scrub            - Full clean including toolchain sentinel"
 	@echo "  help             - Show this help message"
-reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp: native
+reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \
-			echo "${YELLOW}WARN: ESP32_HOST not set. Attempting auto-discovery...${NC}"; \
-			echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
-			echo "      Set ESP32_HOST=<ip> to skip discovery."; \
-			DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
-			if [ -z "$$DISCOVERED_IP" ]; then \
-				echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
-				echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \
-				exit 1; \
-			fi; \
-			echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
-			ESP32_HOST="$$DISCOVERED_IP"; \
-		fi
+		echo "${YELLOW}ESP32_HOST not set — attempting auto-discovery...${NC}"; \
+		echo "      (This will fail if the ESP32 is in AP mode or on a different network.)"; \
+		echo "      Set ESP32_HOST=<ip> to skip discovery."; \
+		DISCOVERED_IP=$$($(ESP32_DISCOVER_CMD)); \
+		if [ -z "$$DISCOVERED_IP" ]; then \
+			echo "${RED}Error: could not auto-discover ESP32.${NC}" >&2; \
+			echo "  Is the ESP32 on the same network? Try: make reboot-over-tcp ESP32_HOST=<ip>" >&2; \
+			exit 1; \
+		fi; \
+		echo "${GREEN}--- Found ESP32 at $$DISCOVERED_IP ---${NC}"; \
+		ESP32_HOST="$$DISCOVERED_IP"; \
+	else \
+		echo "${GREEN}ESP32_HOST is set: $(ESP32_HOST)${NC}"; \
+	fi
+	@$(MAKE) native
 	@echo "Rebooting $(ESP32_HOST):3333..."
-	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATZ\rATE0\rATREBOOT\r' | nc -w 5 "$(ESP32_HOST)" 3333 2>/dev/null; \
+	@# Stagger AUTH and ATREBOOT and hold the socket open between them.
+	@# TcpServerManager::cycle() reads ONE readLine('\r') per loop tick, so
+	@# the two commands cannot be sent in a single burst — nc would close
+	@# before the second tick reads ATREBOOT. ATZ/ATE0 are intentionally
+	@# omitted: when sent in the same buffer as ATREBOOT they prevent the
+	@# ATREBOOT line from being dispatched (the device acks ATZ then stops
+	@# reading the remainder). The minimal reboot sequence is AUTH then
+	@# ATREBOOT. The trailing sleep holds the socket open long enough for
+	@# the device's tick loop to dispatch ATREBOOT and call esp_.restart()
+	@# (which reboots and drops the connection).
+	@{ printf 'AUTH $(ESP32_TCP_TOKEN)\r'; sleep 1; \
+	   printf 'ATREBOOT\r'; sleep 4; } \
+	   | nc -w 8 "$(ESP32_HOST)" 3333 2>/dev/null; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
 			echo "${YELLOW}WARN: no response (device may have already rebooted)${NC}"; \

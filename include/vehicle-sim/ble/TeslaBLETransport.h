@@ -49,7 +49,7 @@ private:
 
     // Connection state
     mutable std::mutex state_mutex_;
-    bool connected_;
+    bool connected_{false};
 
     // Packet buffer for reassembling fragmented packets
     mutable std::mutex buffer_mutex_;
@@ -57,7 +57,7 @@ private:
 
     // Notification callback
     mutable std::mutex callback_mutex_;
-    std::function<void(const std::vector<std::uint8_t>&)> notification_callback_;
+    std::function<void(const std::vector<std::uint8_t>&)> notification_callback_{nullptr};
 
     // Private methods for packet processing
     void processIncomingData(const std::vector<std::uint8_t>& data);

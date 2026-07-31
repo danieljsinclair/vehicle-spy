@@ -5,6 +5,7 @@
 #include "vehicle-sim/pipeline/PipelineReplay.h"
 #include "vehicle-sim/pipeline/RawFrameNormaliser.h"
 #include "vehicle-sim/pipeline/TCPTransport.h"
+#include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/domain/CaptureLog.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
@@ -47,10 +48,12 @@ class TCPSignalSource final : public ISignalSource {
 public:
     TCPSignalSource(std::unique_ptr<ITransport> transport,
                     std::unique_ptr<IAdapterNormaliser> normaliser,
-                    DBCTranslationService& translationService)
+                    DBCTranslationService& translationService,
+                    std::shared_ptr<pipeline::StopToken> stop)
         : transport_(std::move(transport))
         , normaliser_(std::move(normaliser))
         , translationService_(translationService)
+        , stop_(std::move(stop))
     {}
 
     ~TCPSignalSource() override {
@@ -62,14 +65,22 @@ public:
 
     [[nodiscard]] VehicleSignal latestSignal() const noexcept override {
         std::lock_guard<std::mutex> lock(mutex_);
-        return latestSignal_.value_or(VehicleSignal(0));
+        return latestSignal_.value_or(VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 0}));
+    }
+
+    /// Returns true if the pipeline thread is still alive and reading from
+    /// the transport. When the transport exhausts (peer close, network drop),
+    /// the worker sets running_ = false and this returns false — allowing
+    /// the ViewModel to detect a silent TCP drop.
+    bool isRunning() const noexcept {
+        return running_.load();
     }
 
     void start() override {
         if (running_.exchange(true)) {
             return; // already running
         }
-        TCPTransport::resetStop();
+        stop_->reset();
         if (!transport_->open()) {
             running_ = false;
             return;
@@ -84,7 +95,7 @@ public:
             return;
         }
         // Request the transport to return nullopt at its next select() timeout.
-        TCPTransport::requestStop();
+        stop_->requestStop();
         if (worker_.joinable()) {
             worker_.join();
         }
@@ -94,6 +105,7 @@ private:
     std::unique_ptr<ITransport> transport_;
     std::unique_ptr<IAdapterNormaliser> normaliser_;
     DBCTranslationService& translationService_;
+    std::shared_ptr<pipeline::StopToken> stop_;
     std::atomic<bool> running_{false};
     std::thread worker_;
     std::optional<VehicleSignal> latestSignal_;
@@ -181,6 +193,10 @@ private:
     _protocol = VehicleProtocol::Simulation;
     _signalSource = std::make_unique<domain::DemoSignalSource>(100);
     _signalSource->start();
+
+    // Mirror the TCP/BLE connect paths so demo mode also reports its device id.
+    _connectedDeviceName = @"Demo";
+    _connectedDeviceAddress = @"demo";
 }
 
 - (void)startBLE {
@@ -390,12 +406,17 @@ private:
         _protocol = VehicleProtocol::OBD2;
     }
 
-    // Create TCP transport and raw frame normaliser
-    auto transport = std::make_unique<TCPTransport>(host, port, "raw");
+    // Create TCP transport and raw frame normaliser. The StopToken is shared
+    // between the transport and the signal source so stop() flips the flag the
+    // transport's hot loop polls.
+    auto stop = std::make_shared<pipeline::StopToken>();
+    auto transport = std::make_unique<TCPTransport>(
+        pipeline::TransportEndpoint{host, static_cast<int>(port), "raw"},
+        std::make_shared<pipeline::StdOut>(), pipeline::TcpReadTiming{}, stop);
     auto normaliser = std::make_unique<RawFrameNormaliser>();
 
     // Open the transport to verify connectivity before starting the thread
-    TCPTransport::resetStop();
+    stop->reset();
     if (!transport->open()) {
         NSLog(@"[VehicleSimWrapper] Failed to open TCP transport to %s:%d", host.c_str(), port);
         return NO;
@@ -403,7 +424,7 @@ private:
 
     // Create the TCP signal source (takes ownership of transport + normaliser)
     auto tcpSource = std::make_unique<TCPSignalSource>(
-        std::move(transport), std::move(normaliser), *_translationService);
+        std::move(transport), std::move(normaliser), *_translationService, stop);
 
     _signalSource = std::move(tcpSource);
     _signalSource->start();
@@ -555,6 +576,28 @@ private:
     return ConnectionStateConnecting;
 }
 
+- (BOOL)isConnectionAlive {
+    // BLE: alive if the BLE manager reports a live connection.
+    if (_bleManager && _bleManager->isConnected()) {
+        return YES;
+    }
+
+    // TCP: downcast to TCPSignalSource (defined in this translation unit)
+    // and check its internal running_ flag. When the transport exhausts
+    // (peer close, network drop), the pipeline thread sets running_ = false,
+    // which this method surfaces so the ViewModel can detect a silent drop.
+    if (auto* tcpSource = dynamic_cast<TCPSignalSource*>(_signalSource.get())) {
+        return tcpSource->isRunning() ? YES : NO;
+    }
+
+    // Demo source: always alive while _signalSource exists.
+    if (_signalSource) {
+        return YES;
+    }
+
+    return NO;
+}
+
 - (BOOL)isBluetoothReady {
     return _bleManager != nullptr;
 }
@@ -584,7 +627,7 @@ private:
     }
 
     if (result.hasSuggestion()) {
-        const char* conf = "";
+        const char* conf;
         switch (result.confidence) {
             case domain::DetectionConfidence::High: conf = "high"; break;
             case domain::DetectionConfidence::Medium: conf = "medium"; break;

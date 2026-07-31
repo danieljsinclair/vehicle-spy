@@ -18,22 +18,30 @@ namespace vehicle_sim::domain {
 class VehicleSignal final {
 public:
     /**
-     * Construct a VehicleSignal
-     * All parameters default to nullopt except timestampUtcMs
+     * Parameter object grouping the (mostly optional) signal fields that make
+     * up a VehicleSignal. Bundles the constructor's 11 arguments into one
+     * object so call sites read by name and stay resilient to field order.
+     * Every field defaults to nullopt except timestampUtcMs.
      */
-    VehicleSignal(
-        std::uint64_t timestampUtcMs,
-        std::optional<double> throttlePercent = std::nullopt,
-        std::optional<double> speedKmh = std::nullopt,
-        std::optional<double> accelerationG = std::nullopt,
-        std::optional<double> brakePercent = std::nullopt,
-        std::optional<double> steeringAngleDeg = std::nullopt,
-        std::optional<double> motorRpm = std::nullopt,
-        std::optional<double> motorHvVoltage = std::nullopt,
-        std::optional<double> motorHvCurrent = std::nullopt,
-        std::optional<double> motorTorqueNm = std::nullopt,
-        std::optional<std::int32_t> gearSelector = std::nullopt
-    ) noexcept;
+    struct Params {
+        std::uint64_t timestampUtcMs = 0;
+        std::optional<double> throttlePercent;
+        std::optional<double> speedKmh;
+        std::optional<double> accelerationG;
+        std::optional<double> brakePercent;
+        std::optional<double> steeringAngleDeg;
+        std::optional<double> motorRpm;
+        std::optional<double> motorHvVoltage;
+        std::optional<double> motorHvCurrent;
+        std::optional<double> motorTorqueNm;
+        std::optional<std::int32_t> gearSelector;
+    };
+
+    /**
+     * Construct a VehicleSignal from a Params object (cpp:S107 parameter object
+     * replacing the 11-argument constructor).
+     */
+    explicit VehicleSignal(Params params) noexcept;
 
     // Default copy / move
     VehicleSignal(const VehicleSignal&) noexcept = default;
@@ -68,10 +76,24 @@ public:
     [[nodiscard]] std::int32_t gearSelectorOr(std::int32_t defaultVal = 0) const noexcept;
 
     // Equality comparison (member-wise, uses optional's ==)
-    [[nodiscard]] bool operator==(const VehicleSignal& other) const noexcept;
+    [[nodiscard]] friend bool operator==(const VehicleSignal& lhs, const VehicleSignal& rhs) noexcept {
+        return lhs.m_throttlePercent == rhs.m_throttlePercent &&
+               lhs.m_speedKmh == rhs.m_speedKmh &&
+               lhs.m_accelerationG == rhs.m_accelerationG &&
+               lhs.m_brakePercent == rhs.m_brakePercent &&
+               lhs.m_steeringAngleDeg == rhs.m_steeringAngleDeg &&
+               lhs.m_motorRpm == rhs.m_motorRpm &&
+               lhs.m_motorHvVoltage == rhs.m_motorHvVoltage &&
+               lhs.m_motorHvCurrent == rhs.m_motorHvCurrent &&
+               lhs.m_motorTorqueNm == rhs.m_motorTorqueNm &&
+               lhs.m_gearSelector == rhs.m_gearSelector &&
+               lhs.m_timestampUtcMs == rhs.m_timestampUtcMs;
+    }
 
     // Inequality (derived from operator==)
-    [[nodiscard]] bool operator!=(const VehicleSignal& other) const noexcept;
+    [[nodiscard]] friend bool operator!=(const VehicleSignal& lhs, const VehicleSignal& rhs) noexcept {
+        return !(lhs == rhs);
+    }
 
     // Valid signal ranges (DBC-verified) - kept for reference
     static constexpr double THROTTLE_MIN = 0.0;

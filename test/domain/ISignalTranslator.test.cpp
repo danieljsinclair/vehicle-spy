@@ -35,7 +35,7 @@ TEST(ISignalTranslatorTest, TranslateReturnsOptionalVehicleSignal)
     std::vector<std::uint8_t> validData = {0xAA, 0x55};
 
     EXPECT_CALL(mock, translate(validData, _))
-        .WillOnce(Return(VehicleSignal(12345, 50.0, 100.0, 0.5, 0.0)));
+        .WillOnce(Return(VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 12345, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = 0.5, .brakePercent = 0.0})));
 
     auto result = mock.translate(validData, std::nullopt);
 

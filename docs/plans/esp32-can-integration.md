@@ -45,18 +45,27 @@ Two software components:
 
 ## Firmware Architecture Decision
 
-**Phase 1: Use WiCAN firmware as-is.**
+**Phase 1: Custom firmware (path B).**
 
-The WiCAN firmware already implements everything we need:
-- CAN frame reading (ISO 15765-4, CAN 2.0A/B)
-- WiFi TCP server with ELM327 command compatibility
-- HTTP REST API for CAN frame access
-- BLE GATT server (fallback)
-- Web configuration interface
+Complete the god-class thin-veneer decomposition in firmware/vanilla/*.cpp, preserving the unique vehicle-sim requirements:
+- Signed discovery (for iOS integration)
+- TCP authentication
+- Custom AT/HELO handshake
+- OTA updates
 
-Our integration work belongs in vehicle-sim's transport layer, not ESP32 firmware.
+This builds on the existing firmware skeleton and maintains our differentiated capabilities.
 
-**Phase 2 (future): Custom binary firmware if ELM327 ASCII overhead becomes a bottleneck.**
+**Phase 2 (future, optional): Stock WiCAN as alternative transport (path A).**
+
+Add WiCAN support as a complementary client-side transport option:
+- At the CLIENT layer: switchable via --wifi / discovery (runtime transport selection)
+- At the firmware layer: alternatives on a given device (custom firmware OR stock WiCAN)
+- Reuse ELM327Transport parser via ELM327-over-WiFi (existing parser)
+- Provides an escape hatch for users who prefer stock firmware over custom features
+
+**Phase 3 (future optimisation): Binary protocol firmware.**
+
+If ELM327 ASCII overhead becomes a bottleneck:
 - Fork hypery11/flipper-tesla-fsd ESP32 port, strip injection/FSD logic
 - Stream binary CAN frames: `[timestamp_ms:4][can_id:2][dlc:1][data:8]` = 15 bytes
 - PlatformIO build targeting generic ESP32 + MCP2515 or M5Stack ATOM
@@ -199,39 +208,37 @@ All-in-one option. ATOMIC CAN Base has built-in CAN transceiver. Firmware from h
 
 ## Implementation Phases
 
-### Phase 1: WiFi Transport (CLI only, 2-3 days)
+## Implementation Roadmap
 
-Proves the data path: WiFi → TCP → parseCANFrame → DBCTranslationService → VehicleSignal → display
+### Phase 1: Custom Firmware Completion (current work)
+- Complete god-class thin-veneer decomposition (firmware/vanilla/*.cpp)
+- Preserve unique capabilities: signed discovery, TCP auth, custom AT/HELO, OTA
+- Build and flash to ESP32 hardware
 
-1. Create `WiFiTransport` with TCP socket connection
-2. Implement ELM327 command sending over TCP (same AT commands as BLE)
-3. Reuse `ELM327Transport::parseCANFrame()` for parsing
-4. Create `WiFiSignalSource` implementing ISignalSource
-5. Add `--wifi` CLI option and routing in main.cpp
-6. Create `ESP32RunContext`
-7. Add tests: mock TCP server → WiFiTransport → frame parsing → VehicleSignal
-
-### Phase 2: ESP32 Firmware Customization (if needed, 3-5 days)
-
-Optimize for read-only telemetry (no ELM327 ASCII overhead):
-1. Fork hypery11/flipper-tesla-fsd ESP32 port
-2. Strip injection/FSD logic, keep CAN reader
-3. Implement binary CAN frame protocol over TCP
-4. Add WiFi AP + station mode, mDNS advertisement
-5. Build with PlatformIO
+### Phase 2: WiFi Transport Layer (CLI, 2-3 days)
+- Create `WiFiTransport` with TCP socket connection
+- Implement ELM327 command sending over TCP (same AT commands as BLE)
+- Reuse `ELM327Transport::parseCANFrame()` for parsing
+- Create `WiFiSignalSource` implementing ISignalSource
+- Add `--wifi` CLI option and routing in main.cpp
+- Create `ESP32RunContext`
+- Add tests: mock TCP server → WiFiTransport → frame parsing → VehicleSignal
 
 ### Phase 3: iOS App Integration (3-5 days)
-
-1. Create iOS WiFi transport using URLSession/Network framework
-2. Add ESP32 WiFi source option in vehicle selection UI
-3. Create WiFiSignalSource in VehicleSimWrapper
+- Create iOS WiFi transport using URLSession/Network framework
+- Add ESP32 WiFi source option in vehicle selection UI
+- Create WiFiSignalSource in VehicleSimWrapper
 
 ### Phase 4: Auto-Discovery (2-3 days)
+- mDNS/Bonjour discovery for ESP32 on local network
+- `--wifi auto` CLI option
+- Connection health monitoring, auto-reconnect
+- Configuration UI for CAN bus speed, protocol selection
 
-1. mDNS/Bonjour discovery for ESP32 on local network
-2. `--wifi auto` CLI option
-3. Connection health monitoring, auto-reconnect
-4. Configuration UI for CAN bus speed, protocol selection
+### Phase 5 (optional): Stock WiCAN Support
+- Add WiCAN as alternative client-side transport (path A escape hatch)
+- Runtime transport selection via --wifi / discovery
+- For users who prefer stock firmware over custom features
 
 ## Testing Strategy
 

@@ -45,6 +45,24 @@ public:
     [[nodiscard]] virtual time_point now() const = 0;
 
     /**
+     * Sleep (park the calling thread) for `d` of THIS clock's time.
+     *
+     * For a SystemClock this is real wall-clock sleep (std::this_thread::
+     * sleep_for) — production behavior, unchanged. For a FakeClock this must
+     * NOT park on the OS wall clock (a test would then be real-time-bound): the
+     * FakeClock implementation advances its virtual time by `d` and returns
+     * immediately, so callers that sleep on a FakeClock stay deterministic and
+     * instant. The contract is "the caller yields for `d` of clock time"; a
+     * FakeClock honours that by moving virtual time forward, not by blocking.
+     *
+     * Consumers: TCPTransport's hunt backoff + its handshake pacing, which
+     * sleep for fixed durations and do NOT need a condition_variable to wake on
+     * (unlike waitFor). Kept as a separate primitive from waitFor() because the
+     * backoff loop re-checks a stop predicate each slice itself.
+     */
+    virtual void sleepFor(std::chrono::milliseconds d) = 0;
+
+    /**
      * Block the calling thread until `deadline` is reached on THIS clock OR
      * `pred` becomes true, whichever is first.
      *
@@ -74,7 +92,7 @@ protected:
     [[nodiscard]] virtual bool waitForImpl(
         std::condition_variable& cv,
         std::unique_lock<std::mutex>& lock,
-        std::function<bool()> pred,
+        const std::function<bool()>& pred,
         time_point deadline) const = 0;
 };
 
@@ -88,11 +106,13 @@ class SystemClock final : public IClock {
 public:
     [[nodiscard]] time_point now() const override;
 
+    void sleepFor(std::chrono::milliseconds d) override;
+
 protected:
     [[nodiscard]] bool waitForImpl(
         std::condition_variable& cv,
         std::unique_lock<std::mutex>& lock,
-        std::function<bool()> pred,
+        const std::function<bool()>& pred,
         time_point deadline) const override;
 };
 
@@ -146,6 +166,8 @@ public:
 
     [[nodiscard]] time_point now() const override;
 
+    void sleepFor(std::chrono::milliseconds d) override;
+
     /**
      * Advance virtual time by `d` and wake any waiter parked in waitFor().
      * Monotonic: d must be non-negative (negative advance is a no-op).
@@ -165,7 +187,7 @@ protected:
     [[nodiscard]] bool waitForImpl(
         std::condition_variable& cv,
         std::unique_lock<std::mutex>& lock,
-        std::function<bool()> pred,
+        const std::function<bool()>& pred,
         time_point deadline) const override;
 
 private:

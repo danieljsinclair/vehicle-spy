@@ -1,0 +1,108 @@
+#pragma once
+
+// ArduinoWiFi.h - Arduino WiFi implementation for IWiFi interface
+// Bridges Arduino WiFi library to vanilla IWiFi interface
+//
+// This is the production implementation used in the .ino.
+// For host testing, use WiFiMock from mocks/WiFiMock.h.
+//
+// IMPORTANT: This file is only available when building for Arduino (ARDUINO defined).
+// Host tests use mocks instead.
+
+#ifdef ARDUINO
+
+#include <WiFi.h>
+#include <string>
+#include <functional>
+#include "WiFiManager.h"
+#include "DiscoveryManager.h"
+
+namespace esp32_firmware {
+
+// Forward declaration
+struct IWiFiDiscovery;
+
+// ArduinoWiFi - production IWiFi implementation using Arduino WiFi library
+// Also implements IWiFiDiscovery for DiscoveryManager
+class ArduinoWiFi : public IWiFi, public IWiFiDiscovery {
+public:
+    ArduinoWiFi() = default;
+
+    // IWiFi interface - delegates to WiFi class
+    void setMode(int mode) override {
+        WiFi.mode(static_cast<wifi_mode_t>(mode));
+    }
+
+    void begin(const char* ssid, const char* pass) override {
+        if (pass && *pass) {
+            WiFi.begin(ssid, pass);
+        } else {
+            WiFi.begin(ssid);
+        }
+    }
+
+    void disconnect(bool wifiOff, bool eraseAP) override {
+        WiFi.disconnect(wifiOff, eraseAP);
+    }
+
+    int status() const override {
+        return static_cast<int>(WiFi.status());
+    }
+
+    std::string localIP() const override {
+        return std::string(WiFi.localIP().toString().c_str());
+    }
+
+    std::string softAPIP() const override {
+        return std::string(WiFi.softAPIP().toString().c_str());
+    }
+
+    void softAP(const char* ssid, const char* pass) override {
+        if (pass && *pass) {
+            WiFi.softAP(ssid, pass);
+        } else {
+            WiFi.softAP(ssid);
+        }
+    }
+
+    void setHostname(const char* name) override {
+        WiFi.setHostname(name);
+    }
+
+    int getMode() const override {
+        return static_cast<int>(WiFi.getMode());
+    }
+
+    std::string SSID() const override {
+        return std::string(WiFi.SSID().c_str());
+    }
+
+    const char* disconnectReasonName(int reason) const override {
+        return WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason));
+    }
+
+    void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) override {
+        // Note: Arduino WiFiEvent requires a different signature
+        // This is a placeholder - the actual callback registration is handled
+        // by the Arduino framework directly. We keep the signature for interface
+        // compliance but defer to the platform's native event system.
+        (void)cb;
+        (void)event;
+    }
+
+    // IWiFiDiscovery interface - for DiscoveryManager
+    std::string broadcastIP() const override {
+        if (WiFi.getMode() == WIFI_AP) {
+            return "192.168.4.255";
+        }
+        // STA or other: use the limited broadcast address (received by all hosts
+        // on the local link). The previous code returned WiFi.localIP() as a
+        // placeholder — that sent packets TO THE DEVICE ITSELF, never reaching
+        // any other host. 255.255.255.255 is the standard discovery broadcast.
+        return "255.255.255.255";
+    }
+};
+
+} // namespace esp32_firmware
+
+#endif // ARDUINO

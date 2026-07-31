@@ -68,27 +68,6 @@ struct DBCSignalDefinition final {
         const DBCSignalParams& params
     ) noexcept;
 
-    /**
-     * Construct a complete signal definition (legacy constructor).
-     *
-     * All parameters are required. Use defaults for optional values.
-     * Delegates to the params constructor.
-     */
-    DBCSignalDefinition(
-        std::uint16_t      canId,
-        std::string        name,
-        std::size_t        startBit,
-        std::size_t        bitLength,
-        DBCByteOrder       byteOrder,
-        double             scale,
-        double             offset,
-        bool               isSigned,
-        std::string        unit,
-        double             min,
-        double             max,
-        std::vector<DBCValueEntry> valueTable = {}
-    ) noexcept;
-
     // Message identifier (BO_ from DBC)
     const std::uint16_t canId;
 
@@ -133,14 +112,45 @@ struct DBCSignalDefinition final {
     ~DBCSignalDefinition() noexcept = default;
 
     // Equality comparison (all fields)
-    [[nodiscard]] bool operator==(
-        const DBCSignalDefinition& other
-    ) const noexcept;
+    [[nodiscard]] friend bool operator==(
+        const DBCSignalDefinition& lhs,
+        const DBCSignalDefinition& rhs
+    ) noexcept {
+        if (lhs.canId != rhs.canId
+            || lhs.name != rhs.name
+            || lhs.startBit != rhs.startBit
+            || lhs.bitLength != rhs.bitLength
+            || lhs.byteOrder != rhs.byteOrder
+            || lhs.scale != rhs.scale
+            || lhs.offset != rhs.offset
+            || lhs.isSigned != rhs.isSigned
+            || lhs.unit != rhs.unit
+            || lhs.min != rhs.min
+            || lhs.max != rhs.max) {
+            return false;
+        }
+
+        if (lhs.valueTable.size() != rhs.valueTable.size()) {
+            return false;
+        }
+
+        for (std::size_t i = 0; i < lhs.valueTable.size(); ++i) {
+            if (lhs.valueTable[i].value != rhs.valueTable[i].value
+                || lhs.valueTable[i].description != rhs.valueTable[i].description) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     // Inequality (derived from operator==)
-    [[nodiscard]] bool operator!=(
-        const DBCSignalDefinition& other
-    ) const noexcept;
+    [[nodiscard]] friend bool operator!=(
+        const DBCSignalDefinition& lhs,
+        const DBCSignalDefinition& rhs
+    ) noexcept {
+        return !(lhs == rhs);
+    }
 };
 
 } // namespace vehicle_sim::domain

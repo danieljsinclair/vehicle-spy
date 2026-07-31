@@ -15,8 +15,7 @@
 #include <array>
 #include <string>
 
-namespace vehicle_sim {
-namespace discovery {
+namespace vehicle_sim::discovery {
 
 inline constexpr size_t ED25519_PUBLIC_KEY_LEN = 32;
 // Default clock skew for timestamp validation: 5 minutes (reasonable for devices with NTP)
@@ -45,7 +44,6 @@ bool verify(const DiscoveryPacket& packet,
             uint64_t nowEpoch,
             uint64_t maxClockSkew = DEFAULT_MAX_CLOCK_SKEW);
 
-} // namespace discovery
-} // namespace vehicle_sim
+} // namespace vehicle_sim::discovery
 
 #endif // VEHICLE_SIM_DISCOVERY_VERIFIER_H

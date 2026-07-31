@@ -107,7 +107,7 @@ public:
     [[nodiscard]] std::string lastRawHex() const;
 
 private:
-    std::unique_ptr<BLEManagerBase> platform_;
+    std::unique_ptr<BLEManagerBase> platform_{createDefaultPlatform()};
     DeviceCallback device_callback_;
     DataCallback data_callback_;
 

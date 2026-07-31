@@ -61,6 +61,16 @@ private:
     /// Join config_.signalMappings with parseResult_.signalsByCanId once.
     void resolveMappings();
 
+    /// Result of locating a signal's owning CAN frame + definition. `def` is
+    /// nullptr when no DBC definition carries `signalName`.
+    struct LocatedSignal {
+        std::uint16_t canId = 0;
+        const DBCSignalDefinition* def = nullptr;
+    };
+    /// Scan parseResult_ for the single CAN ID + definition carrying
+    /// `signalName`. Returns a LocatedSignal with def==nullptr when not found.
+    LocatedSignal locateSignal(std::string_view signalName) const noexcept;
+
     const VehicleConfig& config_;
     const DBCParseResult& parseResult_;
     std::vector<ResolvedField> resolved_;

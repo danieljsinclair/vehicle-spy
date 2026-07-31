@@ -44,10 +44,19 @@ public:
     [[nodiscard]] std::uint64_t getTimestampUtcMs() const noexcept;
 
     // Equality comparison (member-wise)
-    [[nodiscard]] bool operator==(const TelemetrySignal& other) const noexcept;
+    [[nodiscard]] friend bool operator==(const TelemetrySignal& lhs, const TelemetrySignal& rhs) noexcept {
+        return lhs.m_rpm == rhs.m_rpm &&
+               lhs.m_gear == rhs.m_gear &&
+               lhs.m_torqueNm == rhs.m_torqueNm &&
+               lhs.m_speedKmh == rhs.m_speedKmh &&
+               lhs.m_throttlePercent == rhs.m_throttlePercent &&
+               lhs.m_timestampUtcMs == rhs.m_timestampUtcMs;
+    }
 
     // Inequality (derived from operator==)
-    [[nodiscard]] bool operator!=(const TelemetrySignal& other) const noexcept;
+    [[nodiscard]] friend bool operator!=(const TelemetrySignal& lhs, const TelemetrySignal& rhs) noexcept {
+        return !(lhs == rhs);
+    }
 
 private:
     double      m_rpm;             // 0.0 - 12000.0

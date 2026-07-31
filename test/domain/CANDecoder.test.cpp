@@ -1,9 +1,20 @@
 #include <gtest/gtest.h>
 #include <cstdint>
+#include <cstddef>
+#include <algorithm>
 #include <vector>
 #include "vehicle-sim/domain/CANDecoder.h"
 
 using namespace vehicle_sim::domain;
+
+// Serialization-edge adapter: view a uint8_t test frame as byte-oriented data
+// for CANDecoder::extractSignal (which takes std::vector<std::byte>).
+[[nodiscard]] static std::vector<std::byte> asBytes(const std::vector<std::uint8_t>& frame) {
+    std::vector<std::byte> bytes(frame.size());
+    std::transform(frame.begin(), frame.end(), bytes.begin(),
+                   [](std::uint8_t b) { return static_cast<std::byte>(b); });
+    return bytes;
+}
 
 // ================================================
 // CANDecoder Unit Tests
@@ -29,7 +40,7 @@ TEST_F(CANDecoderTest, ExtractsUnsigned8BitSignal) {
     // Byte 4 (bit 32), value 200 → 200 * 0.4 = 80.0%
     canFrame[4] = 200;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 80.0);
@@ -39,7 +50,7 @@ TEST_F(CANDecoderTest, ExtractsUnsigned8BitSignalAtMinimum) {
     // Zero input → 0.0
     canFrame[4] = 0;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 0.0);
@@ -49,7 +60,7 @@ TEST_F(CANDecoderTest, ExtractsUnsigned8BitSignalAtMaximum) {
     // Max 8-bit: 255 → 255 * 0.4 = 102.0 (clamp at 100% for pedal)
     canFrame[4] = 255;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 8, 0.4, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 8, 0.4, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 102.0);
@@ -66,7 +77,7 @@ TEST_F(CANDecoderTest, ExtractsUnsigned16BitSignalLittleEndian) {
     canFrame[4] = 0x88;  // 5000 & 0xFF = 0x88
     canFrame[5] = 0x13;  // 5000 >> 8  = 0x13
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 16, 0.01, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 16, 0.01, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 50.0);
@@ -78,7 +89,7 @@ TEST_F(CANDecoderTest, ExtractsUnsigned16BitSignalHighSpeed) {
     canFrame[4] = 0x9C;
     canFrame[5] = 0x63;
 
-    auto result = CANDecoder::extractSignal(canFrame, 32, 16, 0.01, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 32, 16, 0.01, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 255.0);
@@ -96,7 +107,7 @@ TEST_F(CANDecoderTest, ExtractsUnsignedSignalWithNegativeOffset) {
     canFrame[3] = 0x00;
     canFrame[4] = 0x00;
 
-    auto result = CANDecoder::extractSignal(canFrame, 24, 10, 0.03125, -16.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 24, 10, 0.03125, -16.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, -16.0);
@@ -109,7 +120,7 @@ TEST_F(CANDecoderTest, ExtractsUnsignedSignalAtZeroAcceleration) {
     canFrame[3] = 0x00;
     canFrame[4] = 0x02;
 
-    auto result = CANDecoder::extractSignal(canFrame, 24, 10, 0.03125, -16.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 24, 10, 0.03125, -16.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 0.0, 0.001);
@@ -121,7 +132,7 @@ TEST_F(CANDecoderTest, ExtractsUnsignedSignalPositiveAcceleration) {
     canFrame[3] = 0x80;
     canFrame[4] = 0x02;
 
-    auto result = CANDecoder::extractSignal(canFrame, 24, 10, 0.03125, -16.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 24, 10, 0.03125, -16.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 4.0, 0.001);
@@ -133,7 +144,7 @@ TEST_F(CANDecoderTest, ExtractsUnsignedSignalNegativeAcceleration) {
     canFrame[3] = 0x40;
     canFrame[4] = 0x01;
 
-    auto result = CANDecoder::extractSignal(canFrame, 24, 10, 0.03125, -16.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 24, 10, 0.03125, -16.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, -6.0, 0.001);
@@ -152,7 +163,7 @@ TEST_F(CANDecoderTest, ExtractsSteeringAngleAtCenter) {
     canFrame[2] = 0x00;
     canFrame[3] = 0x20;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 0.0, 0.01);
@@ -164,7 +175,7 @@ TEST_F(CANDecoderTest, ExtractsSteeringAnglePositive) {
     canFrame[2] = 0x84;
     canFrame[3] = 0x23;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 90.0, 0.1);
@@ -176,7 +187,7 @@ TEST_F(CANDecoderTest, ExtractsSteeringAngleNegative) {
     canFrame[2] = 0x7C;
     canFrame[3] = 0x1C;
 
-    auto result = CANDecoder::extractSignal(canFrame, 16, 14, 0.1, -819.2, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 16, 14, 0.1, -819.2, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, -90.0, 0.1);
@@ -191,7 +202,7 @@ TEST_F(CANDecoderTest, ExtractsBitFieldSpanningTwoBytes) {
     // Value 5 = 0b101, placed at bits 5-7 of byte 0
     canFrame[0] = 0xA0;  // bits 5-7 = 101
 
-    auto result = CANDecoder::extractSignal(canFrame, 5, 3, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 5, 3, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 5.0);
@@ -204,7 +215,7 @@ TEST_F(CANDecoderTest, ExtractsBitFieldSpanningThreeBytes) {
     canFrame[0] = 0x40;
     canFrame[1] = 0xA8;
 
-    auto result = CANDecoder::extractSignal(canFrame, 6, 10, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 6, 10, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 673.0);
@@ -220,7 +231,7 @@ TEST_F(CANDecoderTest, Extracts2BitBrakeState) {
     // Value 1 at bit 17: byte 2 = 0x02 (bit 1 set)
     canFrame[2] = 0x02;
 
-    auto result = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 1.0);
@@ -230,7 +241,7 @@ TEST_F(CANDecoderTest, Extracts2BitBrakeStateValue3) {
     // Value 3 at bit 17: byte 2 = 0x06 (bits 1-2 set)
     canFrame[2] = 0x06;
 
-    auto result = CANDecoder::extractSignal(canFrame, 17, 2, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 17, 2, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 3.0);
@@ -248,7 +259,7 @@ TEST_F(CANDecoderTest, Extracts12BitWheelSpeed) {
     canFrame[0] = 0xF4;
     canFrame[1] = 0x01;
 
-    auto result = CANDecoder::extractSignal(canFrame, 0, 12, 0.1, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 0, 12, 0.1, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 50.0);
@@ -259,7 +270,7 @@ TEST_F(CANDecoderTest, Extracts12BitWheelSpeedAtMax) {
     canFrame[0] = 0xFF;
     canFrame[1] = 0x0F;
 
-    auto result = CANDecoder::extractSignal(canFrame, 0, 12, 0.1, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 0, 12, 0.1, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 409.5);
@@ -275,7 +286,7 @@ TEST_F(CANDecoderTest, Extracts8BitLateralAcceleration) {
     // Raw 127 → physical = (127 * 0.01) + (-1.27) = 0.0 g
     canFrame[6] = 0x7F;
 
-    auto result = CANDecoder::extractSignal(canFrame, 48, 8, 0.01, -1.27, true);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 48, 8, 0.01, -1.27, true);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 0.0, 0.001);
@@ -286,7 +297,7 @@ TEST_F(CANDecoderTest, Extracts8BitLateralAccelerationPositive) {
     // DBC uses unsigned + negative offset for signed physical range
     canFrame[6] = 0xB1;
 
-    auto result = CANDecoder::extractSignal(canFrame, 48, 8, 0.01, -1.27, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 48, 8, 0.01, -1.27, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_NEAR(*result, 0.5, 0.01);
@@ -299,13 +310,13 @@ TEST_F(CANDecoderTest, Extracts8BitLateralAccelerationPositive) {
 TEST_F(CANDecoderTest, ReturnsNulloptForFrameTooSmall) {
     std::vector<uint8_t> shortFrame{0x00, 0x00, 0x00};
 
-    auto result = CANDecoder::extractSignal(shortFrame, 32, 8, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(shortFrame), 32, 8, 1.0, 0.0, false);
 
     EXPECT_FALSE(result.has_value());
 }
 
 TEST_F(CANDecoderTest, ReturnsNulloptForZeroBitLength) {
-    auto result = CANDecoder::extractSignal(canFrame, 0, 0, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 0, 0, 1.0, 0.0, false);
 
     EXPECT_FALSE(result.has_value());
 }
@@ -314,7 +325,7 @@ TEST_F(CANDecoderTest, Handles1BitSignal) {
     // Boolean signal at bit 0
     canFrame[0] = 0x01;
 
-    auto result = CANDecoder::extractSignal(canFrame, 0, 1, 1.0, 0.0, false);
+    auto result = CANDecoder::extractSignal(asBytes(canFrame), 0, 1, 1.0, 0.0, false);
 
     ASSERT_TRUE(result.has_value());
     EXPECT_DOUBLE_EQ(*result, 1.0);

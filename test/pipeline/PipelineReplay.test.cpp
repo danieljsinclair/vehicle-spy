@@ -249,3 +249,104 @@ TEST(PipelineReplayTest, NullDecodedSinkRunsDecodeWithoutOutput) {
     // A frame-shaped line still decodes (we just don't persist it).
     EXPECT_FALSE(dir.exists("anything.csv"));
 }
+
+// --- Blind characterisation contracts for S3776/S134 (runReplay loop) ---
+// These lock the externally-observable null-sink behaviour the runReplay loop
+// must preserve under refactor: each optional sink/reporter may be null without
+// fault, and a well-formed frame-shaped line is always counted as decoded.
+//
+// NOTE on the gate-report's "unknown CAN id decodes to no signal" contract:
+// that precondition is UNREACHABLE through this pipeline. DBCSignalTranslator::
+// translate() returns nullopt ONLY for a sub-min-length packet
+// (isValidPacket: rawData.size() < 10); for any well-formed frame it stores the
+// payload and delegates to VehicleSignalFactory::build(), which ALWAYS returns
+// a (possibly all-nullopt-field) VehicleSignal. processFrame() therefore never
+// returns nullopt for a normalised frame, so runReplay's "signal falsy → skip
+// framesDecoded" arm never fires for valid frames — every well-formed frame
+// increments framesDecoded regardless of CAN id. Contract 1 below locks that
+// real behaviour (flagged to team-lead as a gate-report discrepancy).
+
+TEST(PipelineReplayTest, FrameWithUnknownCanId_StillCountsAsDecoded) {
+    // Contract (recast from the gate report after tracing): a frame-shaped,
+    // well-normalised line whose CAN id is absent from the loaded DBC is still
+    // counted as decoded — the CAN id is not a decode filter in this pipeline.
+    // linesRead and framesDecoded both increment; it is neither skipped nor
+    // malformed. Locks the actual behaviour; the "decode to no signal" variant
+    // is unreachable (see module note above).
+    TempDir dir;
+    // id 4321 (0x4321) is not carried by the tesla DBC; bytes are well-formed.
+    std::string capture = dir.writeCapture("cap_unknown.csv",
+        "1000,4321,8,3C00180004A001FF\n");
+
+    DBCTranslationService service;
+    DefaultVehicleConfigs::registerAll(service.registry());
+    ASSERT_TRUE(service.loadVehicle("tesla", VehicleProtocol::CAN));
+
+    FileTransport transport(capture);
+    ASSERT_TRUE(transport.open());
+    CaptureNormaliser normaliser;
+
+    auto stats = runReplay(transport, normaliser, service,
+                           /*decodedSink=*/nullptr, /*rawSink=*/nullptr);
+
+    EXPECT_EQ(stats.linesRead, 1u);
+    EXPECT_EQ(stats.framesDecoded, 1u);
+    EXPECT_EQ(stats.skippedLines, 0u);
+    EXPECT_EQ(stats.malformedLines, 0u);
+}
+
+TEST(PipelineReplayTest, NullProgressReporter_DecodesAndWritesCsvWithoutDeref) {
+    // Contract: a null progress reporter (explicit nullptr) with a non-null
+    // decoded sink writes the decoded CSV, reports correct stats, and does not
+    // dereference the null reporter on either the per-frame or completion path.
+    TempDir dir;
+    std::string capture = dir.writeCapture("cap_noprogress.csv",
+        "1000,118,8,3C00180004A001FF\n");
+
+    DBCTranslationService service;
+    DefaultVehicleConfigs::registerAll(service.registry());
+    ASSERT_TRUE(service.loadVehicle("tesla", VehicleProtocol::CAN));
+
+    FileTransport transport(capture);
+    ASSERT_TRUE(transport.open());
+    CaptureNormaliser normaliser;
+
+    std::string base = dir.base("noprogress");
+    DecodedCsvSink sink(base);
+    ASSERT_TRUE(sink.isValid());
+
+    auto stats = runReplay(transport, normaliser, service, &sink,
+                           /*rawSink=*/nullptr, /*progressReporter=*/nullptr);
+
+    EXPECT_EQ(stats.linesRead, 1u);
+    EXPECT_EQ(stats.framesDecoded, 1u);
+    EXPECT_EQ(stats.malformedLines, 0u);
+    EXPECT_TRUE(dir.exists("noprogress.csv"));
+}
+
+TEST(PipelineReplayTest, NullRawSink_WritesDecodedCsvAndRecordsNoRaw) {
+    // Contract: a null raw sink with a non-null decoded sink writes the decoded
+    // CSV for a decoded frame and does NOT attempt raw recording (no .raw.txt).
+    TempDir dir;
+    std::string capture = dir.writeCapture("cap_noraw.csv",
+        "1000,118,8,3C00180004A001FF\n");
+
+    DBCTranslationService service;
+    DefaultVehicleConfigs::registerAll(service.registry());
+    ASSERT_TRUE(service.loadVehicle("tesla", VehicleProtocol::CAN));
+
+    FileTransport transport(capture);
+    ASSERT_TRUE(transport.open());
+    CaptureNormaliser normaliser;
+
+    std::string base = dir.base("noraw");
+    DecodedCsvSink sink(base);
+    ASSERT_TRUE(sink.isValid());
+
+    auto stats = runReplay(transport, normaliser, service, &sink,
+                           /*rawSink=*/nullptr);
+
+    EXPECT_EQ(stats.framesDecoded, 1u);
+    EXPECT_TRUE(dir.exists("noraw.csv"));
+    EXPECT_FALSE(dir.exists("noraw.raw.txt"));
+}
