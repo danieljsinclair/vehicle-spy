@@ -177,11 +177,16 @@ public:
     // both reach the monitor flag through this single override.
     void setMonitorActive(bool active) override;
     bool isMonitorActive() const;
-    void processCanFrames();
+    // nowMs is the caller's current tick (millis()). It is forwarded to
+    // CanBridge so the serial quiet-window can be evaluated as a DEADLINE
+    // comparison rather than a stuck boolean — the clock is injected by the
+    // caller (same idiom as update(now) / TcpServerManager::cycle(nowMs))
+    // instead of being read from a hidden global.
+    void processCanFrames(uint32_t nowMs);
     // Serial quiet-window ownership moved out of the .ino global (cpp:S5421):
     // the .ino sets this (millis()-based) when it drains a serial AT command;
     // processCanFrames() forwards it to CanBridge::processFrames so serial
-    // emission is suppressed during that window.
+    // emission is suppressed until that deadline passes.
     void setSerialQuietUntilMs(uint32_t ms);
 
     // Discovery (Stage 3 of the .ino → vanilla extraction): the .ino owns no

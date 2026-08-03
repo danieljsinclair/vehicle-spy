@@ -158,26 +158,86 @@ TEST_F(TcpServerManagerTest, IsValidAuthToken_CaseSensitive) {
 
 // ════════════════════════════════════════════════════════════════════════════
 // §2  ACCEPT — accept() yields a client whose first readLine is a valid AUTH.
-//    Expected: println("OK"), setMonitorActive(false).
+//    Expected: println("OK"), then monitor AUTO-ACTIVATES.
+//
+//    CONTRACT (raw-protocol stream-on-connect): the host CLI connects over
+//    tcp:// with protocol=raw and therefore never sends the ELM327 init
+//    sequence (ATZ/ATSP6/ATH1/ATMA). An authenticated client is by definition
+//    asking for the CAN stream, so the firmware activates the monitor itself
+//    once AUTH succeeds. Without this the client sits connected and receives
+//    zero frames — indistinguishable from a dead bus.
+//
+//    The accept-time clear to false is retained as the safe default while the
+//    auth outcome is still unknown, so a stale monitor from a previous client
+//    can never leak to an unauthenticated newcomer.
+//
 //    LED pattern is NOT set here — it is owned by FirmwareApp via
 //    selectLedPattern(wifiState, clientConnected). FirmwareApp::update()
 //    queries IClientConnectionSource (TcpServerManager::hasClient()) and will
 //    show CLIENT_CONNECTED on the next loop tick.
 // ════════════════════════════════════════════════════════════════════════════
 
-TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_PrintsOkAndClearsMonitor) {
+TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_PrintsOkAndActivatesMonitor) {
     MockTcpServerClient& client = queueConnectedClient();
     EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
     EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
     EXPECT_CALL(client, println(std::string("OK")));
-    EXPECT_CALL(host_, setMonitorActive(false));
-    EXPECT_CALL(server_, accept()).WillOnce([&](void) {
-        // Hand back the one queued client.
-        return std::unique_ptr<ITcpServerClient>(server_.queued_.empty()
-            ? nullptr : server_.queued_.back().release());
-    });
+
+    // Order matters: the pre-auth clear must not undo the post-auth activation.
+    {
+        InSequence seq;
+        EXPECT_CALL(host_, setMonitorActive(false));
+        EXPECT_CALL(host_, setMonitorActive(true));
+    }
+
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
 
     manager_.cycle(/*nowMs=*/1000);
+}
+
+TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_MonitorEndsActive) {
+    // Behavioural restatement of the above without ordering: whatever the
+    // internal sequence, the LAST monitor transition of a successful AUTH
+    // cycle must leave streaming ON. This is the assertion that actually
+    // maps to "the host CLI receives CAN frames".
+    bool monitorState = false;
+    ON_CALL(host_, setMonitorActive(_))
+        .WillByDefault(Invoke([&monitorState](bool active) { monitorState = active; }));
+
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(host_, setMonitorActive(_)).Times(AnyNumber());
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+
+    manager_.cycle(/*nowMs=*/1000);
+
+    EXPECT_TRUE(monitorState)
+        << "an authenticated raw-protocol client must be streaming without needing ATMA";
+}
+
+TEST_F(TcpServerManagerTest, Cycle_AcceptInvalidAuth_MonitorEndsInactive) {
+    // Negative control for the auto-activation: a rejected client must NOT be
+    // handed the CAN stream. Pins that auto-activate sits on the success branch
+    // only.
+    bool monitorState = true;  // deliberately hostile start
+    ON_CALL(host_, setMonitorActive(_))
+        .WillByDefault(Invoke([&monitorState](bool active) { monitorState = active; }));
+
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(std::string("AUTH wrong-token")));
+    EXPECT_CALL(client, println(std::string("ERROR unauthorized")));
+    EXPECT_CALL(client, flush());
+    EXPECT_CALL(client, stop());
+    EXPECT_CALL(host_, setMonitorActive(_)).Times(AnyNumber());
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+
+    manager_.cycle(/*nowMs=*/1000);
+
+    EXPECT_FALSE(monitorState)
+        << "a rejected client must never be streamed CAN data";
 }
 
 // ════════════════════════════════════════════════════════════════════════════

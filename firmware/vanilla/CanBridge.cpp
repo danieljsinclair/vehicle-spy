@@ -18,7 +18,7 @@ bool CanBridge::init() {
     return true;
 }
 
-void CanBridge::processFrames(bool monitorActive, uint32_t serialQuietUntilMs) {
+void CanBridge::processFrames(bool monitorActive, uint32_t nowMs, uint32_t serialQuietUntilMs) {
     if (!initialized_) return;
 
     monitorActive_ = monitorActive;
@@ -28,7 +28,12 @@ void CanBridge::processFrames(bool monitorActive, uint32_t serialQuietUntilMs) {
     // is connected AND monitorActive.
     CanFrame msg;
     while (canDriver_.receive(&msg, 0) == 0) {  // ESP_OK = 0
-        const bool suppressSerialFrames = (serialQuietUntilMs > 0);
+        // serialQuietUntilMs is a DEADLINE in the caller's millis() time base,
+        // not a flag. Comparing it as a boolean (`> 0`) latches the suppression
+        // on permanently after the first AT command arms it, because the
+        // deadline is a non-zero timestamp that is never reset to 0. The
+        // window is half-open: [armed, deadline).
+        const bool suppressSerialFrames = (nowMs < serialQuietUntilMs);
 
         if (!suppressSerialFrames) {
             // Build frame string

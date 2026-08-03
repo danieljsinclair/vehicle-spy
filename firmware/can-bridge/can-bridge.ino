@@ -692,7 +692,7 @@ void loop() {
     // serial logging live otherwise, with no WiFi client). Single RX drain —
     // never double-reads a frame.
 #if VEHICLE_SIM_ENABLE_TWAI
-    firmwareApp.processCanFrames();
+    firmwareApp.processCanFrames(static_cast<uint32_t>(millis()));
 #endif
 }
 

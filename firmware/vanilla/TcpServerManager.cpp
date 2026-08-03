@@ -71,6 +71,14 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         if (isValidAuthToken(firstLine, authToken_)) {
             current_->println("OK");
             current_->flush();
+            // ── Stream-on-connect ────────────────────────────────────────────
+            // An authenticated client is, by contract, asking for the CAN
+            // stream. The raw (non-ELM327) host protocol never sends ATMA, so
+            // waiting for it would leave the client connected and silent. The
+            // ATMA/ATPC handlers still toggle this same flag, so ELM327-mode
+            // clients are unaffected — ATMA on an already-active monitor is
+            // idempotent, and ATPC can still pause the stream explicitly.
+            host_.setMonitorActive(true);
             // LED pattern is now owned by FirmwareApp via selectLedPattern.
             // FirmwareApp::update() queries IClientConnectionSource (backed by
             // TcpServerManager::hasClient()) and will show CLIENT_CONNECTED on
