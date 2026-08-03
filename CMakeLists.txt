@@ -77,6 +77,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/IDBCContentProvider.cpp
     src/domain/VehicleConfigResolver.cpp
     src/domain/CaptureLog.cpp
+    src/util/ExecutablePath.cpp
     src/domain/SignalSourceFactory.cpp
     src/pipeline/FileTransport.cpp
     src/pipeline/RawFrameNormaliser.cpp
