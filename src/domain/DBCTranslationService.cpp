@@ -3,6 +3,7 @@
 #include "vehicle-sim/domain/DBCSignalTranslator.h"
 #include "vehicle-sim/domain/OBD2SignalTranslator.h"
 #include "vehicle-sim/domain/ISignalTranslator.h"
+#include "vehicle-sim/util/ExecutablePath.h"
 
 namespace vehicle_sim::domain {
 
@@ -34,7 +35,11 @@ bool DBCTranslationService::loadVehicle(const std::string& vehicleId, VehiclePro
         if (!config) {
             return false;
         }
-        pImpl->parseResult_ = pImpl->parser_.parseFile(config->dbcFilePath);
+        // Resolve the DBC path relative to the running executable so the binary
+        // works from any CWD (config->dbcFilePath is a PWD-relative default).
+        const std::string dbcPath =
+            util::ExecutablePath::resolveResource(config->dbcFilePath);
+        pImpl->parseResult_ = pImpl->parser_.parseFile(dbcPath);
         if (pImpl->parseResult_.signalsByCanId.empty()) {
             return false;
         }
