@@ -76,8 +76,11 @@ public:
     // Initialize CAN driver
     bool init();
 
-    // Process received CAN frames - call from main loop()
-    void processFrames(bool monitorActive, uint32_t serialQuietUntilMs);
+    // Process received CAN frames - call from main loop().
+    // nowMs is the current tick (millis()); serialQuietUntilMs is a DEADLINE in
+    // the same time base, NOT a boolean flag. Serial frame emission is
+    // suppressed only while nowMs is strictly before that deadline.
+    void processFrames(bool monitorActive, uint32_t nowMs, uint32_t serialQuietUntilMs);
 
     // Set monitor active state
     void setMonitorActive(bool active) { monitorActive_ = active; }

@@ -44,10 +44,15 @@ public:
     // ── Per-tick state-machine step ──────────────────────────────────────────
     // Drives one iteration of the client-facing TCP lifecycle:
     //   1. Probe accept(); if a new client arrives, stop() any existing one,
-    //      adopt the new client, clear the monitor flag, set the AUTH read
-    //      timeout, read+trim the first line and validate it:
-    //        - valid   → println "OK" + flush + setPattern(CLIENT_CONNECTED);
-    //        - invalid → println "ERROR unauthorized" + flush + stop + drop.
+    //      adopt the new client, clear the monitor flag (safe default while the
+    //      auth outcome is unknown), set the AUTH read timeout, read+trim the
+    //      first line and validate it:
+    //        - valid   → println "OK" + flush + setMonitorActive(TRUE);
+    //        - invalid → println "ERROR unauthorized" + flush + stop + drop
+    //                    (monitor stays cleared).
+    //      The activate-on-auth step implements stream-on-connect for the raw
+    //      host protocol, which never issues ATMA. ATMA/ATPC remain wired to
+    //      the same flag for ELM327-mode clients.
     //   2. Otherwise, if the adopted client is connected and a command is
     //      available, set the COMMAND read timeout, read+trim the line and
     //      forward non-empty commands to host_.handleTcpAtCommand.

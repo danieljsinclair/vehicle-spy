@@ -521,7 +521,7 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_MonitorAndTcpWiringSurviveRegroup)
     ASSERT_TRUE(firmwareApp->isMonitorActive())
         << "setMonitorActive(true) must forward to the wired CanBridge";
 
-    EXPECT_NO_THROW({ firmwareApp->processCanFrames(); })
+    EXPECT_NO_THROW({ firmwareApp->processCanFrames(/*nowMs=*/1000); })
         << "processCanFrames must route through the wired CanBridge without throwing";
 
     // (2) TCP-restart callback wiring: a WiFi connect must arm the
