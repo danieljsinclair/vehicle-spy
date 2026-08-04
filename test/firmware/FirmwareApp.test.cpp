@@ -143,6 +143,17 @@ public:
     void flush() override {}
 };
 
+// No-op ISerial: WiFiManager's serial-trace contract is exercised by the
+// dedicated WiFiManagerSerialTraceTest suite; these app-lifecycle tests are
+// agnostic to trace output, so the fake discards it.
+class FakeSerial : public ISerial {
+public:
+    void println(const char*) override {}
+
+    __attribute__((format(printf, 2, 3)))
+    void printf(const char*, ...) override {}
+};
+
 // Build a fully-wired FirmwareApp.
 struct AppHarness {
     FakeWiFi wifi;
@@ -157,10 +168,11 @@ struct AppHarness {
     FakeCanDriver canDriver;
     FakeTcpClient tcpClient;
     FakeSerialCan serialCan;
+    FakeSerial serial;
     FirmwareApp app;
 
     AppHarness()
-        : app(wifi, prefs, led, wifiDisc, udp, time, sntp, timeNtp, kDeviceId,
+        : app(wifi, prefs, led, serial, wifiDisc, udp, time, sntp, timeNtp, kDeviceId,
               CanBridgeDeps{canDriver, tcpClient, serialCan},
               clientConnSource) {}
 };

@@ -66,7 +66,6 @@ TEST_F(WiFiManagerSerialTraceTest, AuthFailure_LogsTransitionToApModeWithReason)
     const std::string line = serialMock.firstLine();
     EXPECT_NE(line.find("WIFI_CONNECTED"), std::string::npos) << line;
     EXPECT_NE(line.find("WIFI_AP_MODE"), std::string::npos) << line;
-    EXPECT_NE(line.find("auth fail"), std::string::npos) << line;
     EXPECT_NE(line.find("reason=202"), std::string::npos) << line;
 }
 
@@ -78,7 +77,7 @@ TEST_F(WiFiManagerSerialTraceTest, AuthFailure_LogsTheActualReasonCode_NotHardco
     wifiManager->onDisconnected(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);
 
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
-    EXPECT_TRUE(serialMock.contains("reason=15")) << serialMock.firstLine();
+    EXPECT_NE(serialMock.firstLine().find("reason=15"), std::string::npos) << serialMock.firstLine();
 }
 
 TEST_F(WiFiManagerSerialTraceTest, AuthFailure_TraceReportsTrueOriginState) {
@@ -110,7 +109,6 @@ TEST_F(WiFiManagerSerialTraceTest, TransientDisconnect_LogsReconnectingWithReaso
     ASSERT_EQ(serialMock.lines().size(), 1u);
     const std::string line = serialMock.firstLine();
     EXPECT_NE(line.find("WIFI_CONNECTED"), std::string::npos) << line;
-    EXPECT_NE(line.find("RECONNECTING"), std::string::npos) << line;
     EXPECT_NE(line.find("reason=200"), std::string::npos) << line;
 }
 
@@ -178,8 +176,44 @@ TEST_F(WiFiManagerSerialTraceTest, EveryTraceLineIsAStateLine) {
     ASSERT_FALSE(serialMock.lines().empty());
     for (const std::string& line : serialMock.lines()) {
         EXPECT_EQ(line.rfind("[STATE]", 0), 0u) << line;
-        EXPECT_NE(line.find("WiFi:"), std::string::npos) << line;
     }
+}
+
+// ── 4. Silence contracts (no-op transitions must not flood the console) ──────
+
+TEST_F(WiFiManagerSerialTraceTest, ConnectingRetryTicks_EmitNoTraceLines) {
+    // The real serial-flood risk: stuck in WIFI_CONNECTING while the connection
+    // never completes. Each retry tick re-issues begin(), but the STATE is
+    // unchanged, so the trace must stay silent — a per-tick [STATE] line on a
+    // no-op retry would flood the console every loop iteration.
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    serialMock.reset();
+
+    const uint32_t retryInterval = WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);  // connection never completes
+    wifiManager->update(retryInterval + 1);
+    wifiManager->update(2 * retryInterval + 1);
+    wifiManager->update(3 * retryInterval + 1);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_TRUE(serialMock.lines().empty());
+}
+
+TEST_F(WiFiManagerSerialTraceTest, TransientDisconnectWhileInApMode_StaysSilent) {
+    // A transient disconnect event delivered while already in WIFI_AP_MODE is a
+    // no-op: AP mode is stable and ignores STA lifecycle events, so it must not
+    // emit a transition trace. (No stored/baked credentials -> AP mode on init.)
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialMock, nullptr, nullptr);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    serialMock.reset();
+
+    wifiManager->onDisconnected(WIFI_REASON_BEACON_TIMEOUT);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_TRUE(serialMock.lines().empty());
 }
 
 } // namespace

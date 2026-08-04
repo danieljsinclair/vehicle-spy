@@ -118,13 +118,25 @@ public:
     void clear() override { ssid.clear(); pass.clear(); cleared = true; }
 };
 
+// No-op ISerial: WiFiManager's serial-trace contract is exercised by the
+// dedicated WiFiManagerSerialTraceTest suite. These behavior tests are
+// agnostic to trace output, so the fake simply discards it.
+class FakeSerial : public ISerial {
+public:
+    void println(const char*) override {}
+
+    __attribute__((format(printf, 2, 3)))
+    void printf(const char*, ...) override {}
+};
+
 struct Harness {
     FakeWiFi wifi;
     FakePreferences prefs;
+    FakeSerial serial;
     std::unique_ptr<WiFiManager> mgr;
 
     void build(const char* bakedSsid = nullptr, const char* bakedPass = nullptr) {
-        mgr = std::make_unique<WiFiManager>(wifi, prefs, bakedSsid, bakedPass);
+        mgr = std::make_unique<WiFiManager>(wifi, prefs, serial, bakedSsid, bakedPass);
     }
 };
 
