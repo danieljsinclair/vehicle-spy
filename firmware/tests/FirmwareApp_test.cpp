@@ -18,7 +18,7 @@ using namespace esp32_firmware::firmwareapp_test;
 TEST_F(FirmwareAppTest, Ctor_DoesNotThrow) {
     // Constructor should not throw with valid dependencies
     EXPECT_NO_THROW({
-        FirmwareApp app(wifiMock, prefsMock, statusLedMock,
+        FirmwareApp app(wifiMock, prefsMock, statusLedMock, serialTraceMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
                        testDeviceId, canDeps,
@@ -29,7 +29,7 @@ TEST_F(FirmwareAppTest, Ctor_DoesNotThrow) {
 TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_DoesNotThrow) {
     // Constructor with baked credentials should not throw
     EXPECT_NO_THROW({
-        FirmwareApp app(wifiMock, prefsMock, statusLedMock,
+        FirmwareApp app(wifiMock, prefsMock, statusLedMock, serialTraceMock,
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
                        testDeviceId, canDeps,
@@ -324,7 +324,7 @@ TEST_F(FirmwareAppTest, ClearCredentials_NoCredentials_ReturnsTrue) {
 
 TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_HasStoredReturnsFalse) {
     // Baked credentials should NOT count as stored credentials
-    FirmwareApp app(wifiMock, prefsMock, statusLedMock,
+    FirmwareApp app(wifiMock, prefsMock, statusLedMock, serialTraceMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
                    testDeviceId, canDeps,
@@ -336,7 +336,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_HasStoredReturnsFalse) {
 
 TEST_F(FirmwareAppTest, StoreCredentials_OverridesBaked_WhenStored) {
     // Stored credentials should take precedence over baked
-    FirmwareApp app(wifiMock, prefsMock, statusLedMock,
+    FirmwareApp app(wifiMock, prefsMock, statusLedMock, serialTraceMock,
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
                    testDeviceId, canDeps,

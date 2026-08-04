@@ -99,6 +99,7 @@ target_link_libraries(esp32-firmware-lib PUBLIC Threads::Threads)
 add_executable(esp32-firmware-tests
     tests/test_main.cpp
     tests/WiFiManager_test.cpp
+    tests/WiFiManager_SerialTrace_test.cpp
     tests/DiscoveryManager_test.cpp
     tests/NtpTimeSync_test.cpp
     tests/CanBridge_test.cpp

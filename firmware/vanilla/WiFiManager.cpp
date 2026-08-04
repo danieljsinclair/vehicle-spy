@@ -177,9 +177,9 @@ struct ConnectedApStateHandler : public IWiFiStateHandler {
 
 // WiFiManager implementation
 
-WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs,
+WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs, ISerial& serial,
                          const char* bakedSsid, const char* bakedPass)
-    : wifi_(wifi), prefs_(prefs)
+    : wifi_(wifi), prefs_(prefs), serial_(serial)
     , bakedSsid_(bakedSsid), bakedPass_(bakedPass) {
     // Initialize state handlers (RECONNECTING merged into connectingHandler_)
     disconnectedHandler_ = std::make_unique<DisconnectedStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
@@ -232,6 +232,8 @@ bool WiFiManager::clearCredentials() {
 }
 
 void WiFiManager::onDisconnected(int reason) {
+    // Captured before any mutation so the trace reports the true origin state.
+    const WiFiState::State from = ctx_.state;
     ctx_.lastDisconnectReason = reason;
 
     // Definitive auth failure: the SSID/PSK combination was cryptographically
@@ -258,6 +260,8 @@ void WiFiManager::onDisconnected(int reason) {
         ctx_.state = WiFiState::State::WIFI_AP_MODE;
         ctx_.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
         ctx_.escalatedToApReason = reason;   // Record the definitive-auth reason
+        serial_.printf("[STATE] WiFi: %s -> WIFI_AP_MODE (auth fail reason=%d)\r\n",
+                       stateName(from), reason);
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
         // The state transition to WIFI_AP_MODE will be reflected on the next
         // FirmwareApp::update() tick (selectLedPattern returns AP_MODE for
@@ -269,6 +273,12 @@ void WiFiManager::onDisconnected(int reason) {
         ctx_.state = WiFiState::State::WIFI_CONNECTING;
         ctx_.tcpServerNeedsRestart = true;
         ctx_.lastRetryMs = 0;  // Will be set on next update
+        // Transient/recoverable disconnect: the stack re-associates rather than
+        // abandoning STA. Logged as RECONNECTING because that is the semantic
+        // role of this re-entry into WIFI_CONNECTING from a live connection
+        // (the dedicated RECONNECTING state was merged into WIFI_CONNECTING).
+        serial_.printf("[STATE] WiFi: %s -> RECONNECTING (reason=%d)\r\n",
+                       stateName(from), reason);
     }
 }
 
@@ -359,7 +369,12 @@ void WiFiManager::applyStateTransition(const StateTransition& transition) {
         ctx_.lastConnectedIp = wifi_.localIP();
     }
 
+    const WiFiState::State from = ctx_.state;
     ctx_.state = transition.nextState;
+
+    // Every state-machine-driven transition is traced here. The early-return
+    // above guarantees from != ctx_.state, so this never logs a self-transition.
+    serial_.printf("[STATE] WiFi: %s -> %s\r\n", stateName(from), stateName(ctx_.state));
 
     // LED pattern is now owned by FirmwareApp via selectLedPattern(wifiState, clientConnected).
     // WiFiManager no longer drives setPattern() — this was the first of two parallel

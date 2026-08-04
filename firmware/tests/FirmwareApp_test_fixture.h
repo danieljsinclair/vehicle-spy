@@ -20,6 +20,7 @@
 #include "mocks/WiFiMock.h"
 #include "mocks/PreferencesMock.h"
 #include "mocks/ArduinoMock.h"
+#include "mocks/SerialDebugMock.h"
 #include "vanilla/DiscoveryManager.h"
 
 namespace esp32_firmware {
@@ -147,6 +148,8 @@ protected:
     WiFiMock wifiMock;
     PreferencesMock prefsMock;
     NiceMock<MockStatusLED> statusLedMock;
+    // WiFi transition-trace sink, forwarded to the owned WiFiManager.
+    SerialDebugMock serialTraceMock;
     NiceMock<MockClientConnectionSource> clientConnSourceMock;
     NiceMock<MockUdp> udpMock;
     NiceMock<MockTime> timeMock;
@@ -212,7 +215,7 @@ protected:
     std::unique_ptr<FirmwareApp> createFirmwareApp(const char* bakedSsid = nullptr, const char* bakedPass = nullptr) {
         CanBridgeDeps canDeps{canDriverStub, tcpClientStub, serialStub};
         return std::make_unique<FirmwareApp>(
-            wifiMock, prefsMock, statusLedMock,
+            wifiMock, prefsMock, statusLedMock, serialTraceMock,
             wifiMock,  // WiFiMock implements both IWiFi and IWiFiDiscovery
             udpMock, timeMock,
             sntpMock, timeNtpMock,

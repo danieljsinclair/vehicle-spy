@@ -10,7 +10,7 @@
 
 namespace esp32_firmware {
 
-FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
+FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed, ISerial& serial,
                          IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
                          ISntp& sntp, ITimeNtp& timeNtp,
                          const std::array<uint8_t, 16>& deviceId,
@@ -35,7 +35,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     // loop() after the netif is up. This is the cpp:S1820 forward: the PASSED-ONLY
     // refs are forwarded straight into the owning manager's constructor instead of
     // being stored as FirmwareApp members.
-    constructManagers(deviceId, prefs, udp, wifiDiscovery, time, sntp, timeNtp);
+    constructManagers(deviceId, prefs, serial, udp, wifiDiscovery, time, sntp, timeNtp);
 }
 
 // Helper: emit a [EVENT] line through the centralized logger (no-op if no logger
@@ -68,15 +68,16 @@ void FirmwareApp::init() {
 }
 
 void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
-                                     IPreferences& prefs, IUdp& udp,
+                                     IPreferences& prefs, ISerial& serial, IUdp& udp,
                                      IWiFiDiscovery& wifiDiscovery, ITime& time,
                                      ISntp& sntp, ITimeNtp& timeNtp) {
     // Create WiFiManager (primary state machine driver). Construction only stores
     // the injected refs; the WiFi.begin() it performs lives in WiFiManager::init(),
     // which init() defers to setup()-time. Forwards the PASSED-ONLY prefs ref
     // (received by this ctor, passed straight through) — no longer stored as a
-    // FirmwareApp member.
-    wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs,
+    // FirmwareApp member. The ISerial ref is forwarded the same PASSED-ONLY way:
+    // WiFiManager owns the WiFi transition tracing, so FirmwareApp never stores it.
+    wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs, serial,
                                                    bakedSsid_, bakedPass_);
 
     // Create DiscoveryManager (UDP broadcast discovery). Forwards the PASSED-ONLY

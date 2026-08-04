@@ -101,6 +101,26 @@ struct IStatusLED {
     virtual ~IStatusLED() = default;
 };
 
+// Serial debug-output interface (DI-injected for testability).
+//
+// This is a LOW-LEVEL transport seam for WiFi state-transition tracing, distinct
+// from IEventLogger (ISerialEventLogger.h), which carries the structured
+// [EVENT]/[STATE] observability contract owned by FirmwareApp. ISerial exists so
+// WiFiManager can emit human-readable transition traces (including the disconnect
+// reason code) without a hard dependency on Arduino's global Serial object.
+//
+// printf is variadic to match the Arduino Serial API it adapts; the format
+// attribute lets -Wformat verify call sites at compile time (index 2/3 because
+// index 1 is the implicit `this`).
+struct ISerial {
+    virtual void println(const char* msg) = 0;
+
+    __attribute__((format(printf, 2, 3)))
+    virtual void printf(const char* fmt, ...) = 0;
+
+    virtual ~ISerial() = default;
+};
+
 // Configuration constants
 struct WiFiConfig {
     static constexpr uint32_t WIFI_CONNECT_RETRY_INTERVAL_MS = 5000;
@@ -124,7 +144,7 @@ public:
     // Callback for TCP server restart notification
     using TcpServerRestartCallback = std::function<void()>;
 
-    WiFiManager(IWiFi& wifi, IPreferences& prefs,
+    WiFiManager(IWiFi& wifi, IPreferences& prefs, ISerial& serial,
                 const char* bakedSsid = nullptr, const char* bakedPass = nullptr);
 
     // Initialize the WiFi state machine
@@ -171,6 +191,7 @@ public:
 private:
     IWiFi& wifi_;
     IPreferences& prefs_;
+    ISerial& serial_;
     const char* bakedSsid_;
     const char* bakedPass_;
 
