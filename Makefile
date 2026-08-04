@@ -1125,6 +1125,7 @@ define run_sonar_scan
 	@SONAR_TOKEN="$${SONAR_TOKEN_ES}" sonar-scanner \
 		-Dproject.settings=$(SS_PROPERTIES) \
 		-Dsonar.working.directory=$(SS_BUILD_DIR)/.sonar \
+		-Dsonar.scm.disabled=true \
 		> $(SS_SCANNER_LOG) 2>&1; \
 		rc=$$?; \
 		if [ $$rc -ne 0 ]; then \
