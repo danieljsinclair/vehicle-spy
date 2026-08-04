@@ -105,8 +105,20 @@ def _matches_any_glob(rel_path: str, globs: Iterable[str]) -> bool:
 def build_coverage_xml(
     lcov_text: str, project_root: str, src_roots: Iterable[str],
     exclude_globs: Iterable[str] = (),
+    absolute_paths: bool = False,
 ) -> ET.Element:
-    """Build the ``<coverage>`` XML element from lcov text."""
+    """Build the ``<coverage>`` XML element from lcov text.
+
+    By default ``path`` attributes are relative to ``project_root`` (the
+    historical behaviour used for on-disk inspection). When ``absolute_paths``
+    is True the emitted ``path`` is the absolute source path — this is required
+    for SonarCloud's CFamily sensor, which indexes each file under the ABSOLUTE
+    path recorded in its ``compile_commands.json``. A relative XML path that
+    does not exactly match the indexed (absolute) key attaches to ZERO files,
+    so every line reads as uncovered (dashboard coverage = 0.0% even though the
+    local lcov shows real hits). See root-cause RCA in the commit that enabled
+    this flag from the Makefile.
+    """
     root = ET.Element("coverage", {"version": "1"})
     files = _parse_lcov(lcov_text)
     roots = [r for r in src_roots if r]
@@ -149,18 +161,27 @@ def build_coverage_xml(
         if os.path.islink(resolved):
             dropped_symlink += 1
             continue
-        # A file that survives the src filter but still cannot be relativised
-        # to the project root would emit an absolute path the scanner cannot
-        # match to a module file — flag it instead of silently writing a path
-        # that yields 0% coverage on the dashboard.
-        if os.path.isabs(rel):
-            dropped_unrelativisable += 1
-            print(
-                f"warning: {abs_path} could not be relativised to "
-                f"{project_root!r}; emitting absolute path",
-                file=sys.stderr,
-            )
-        file_el = ET.SubElement(root, "file", {"path": rel})
+        # The emitted path must match the key SonarCloud's analyser indexes the
+        # file under. CFamily indexes via compile_commands.json ABSOLUTE paths;
+        # when absolute_paths is set (the SonarCloud default) emit the absolute
+        # form so the coverage attaches to the real module. Otherwise emit the
+        # relative form (used for local on-disk inspection).
+        if absolute_paths:
+            emit_path = resolved
+        else:
+            # A file that survives the src filter but still cannot be relativised
+            # to the project root would emit an absolute path the scanner cannot
+            # match to a module file — flag it instead of silently writing a path
+            # that yields 0% coverage on the dashboard.
+            if os.path.isabs(rel):
+                dropped_unrelativisable += 1
+                print(
+                    f"warning: {abs_path} could not be relativised to "
+                    f"{project_root!r}; emitting absolute path",
+                    file=sys.stderr,
+                )
+            emit_path = rel
+        file_el = ET.SubElement(root, "file", {"path": emit_path})
         for line_no in sorted(lines.keys()):
             covered = "true" if lines[line_no] > 0 else "false"
             ET.SubElement(
@@ -203,6 +224,7 @@ def _parse_args(argv) -> tuple:
     project_root = os.getcwd()
     src_roots = ["src"]
     exclude_globs: list[str] = []
+    absolute_paths = True
     rest = argv[3:]
     i = 0
     while i < len(rest):
@@ -218,13 +240,19 @@ def _parse_args(argv) -> tuple:
         elif rest[i] == "--exclude-glob" and i + 1 < len(rest):
             exclude_globs.append(rest[i + 1])
             i += 2
+        elif rest[i] == "--absolute-paths":
+            absolute_paths = True
+            i += 1
+        elif rest[i] == "--relative-paths":
+            absolute_paths = False
+            i += 1
         else:
             i += 1
-    return input_path, output_path, project_root, src_roots, exclude_globs
+    return input_path, output_path, project_root, src_roots, exclude_globs, absolute_paths
 
 
 def convert(lcov_path: str, xml_path: str, project_root: str, src_roots,
-            exclude_globs: Iterable[str] = ()) -> None:
+            exclude_globs: Iterable[str] = (), absolute_paths: bool = True) -> None:
     """Read lcov, write generic coverage XML, print a one-line summary."""
     try:
         with open(lcov_path, "r", encoding="utf-8") as handle:
@@ -233,7 +261,9 @@ def convert(lcov_path: str, xml_path: str, project_root: str, src_roots,
         print(f"error: failed to read {lcov_path!r}: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    root = build_coverage_xml(lcov_text, project_root, src_roots, exclude_globs)
+    root = build_coverage_xml(
+        lcov_text, project_root, src_roots, exclude_globs, absolute_paths
+    )
     ET.indent(root, space="  ")
     payload = ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
@@ -257,10 +287,10 @@ def convert(lcov_path: str, xml_path: str, project_root: str, src_roots,
 
 # Backwards-compatible module-level entry point.
 def main(argv=None) -> int:
-    input_path, output_path, project_root, src_roots, exclude_globs = _parse_args(
-        sys.argv if argv is None else argv
-    )
-    convert(input_path, output_path, project_root, src_roots, exclude_globs)
+    (input_path, output_path, project_root, src_roots, exclude_globs,
+     absolute_paths) = _parse_args(sys.argv if argv is None else argv)
+    convert(input_path, output_path, project_root, src_roots, exclude_globs,
+            absolute_paths)
     return 0
 
 

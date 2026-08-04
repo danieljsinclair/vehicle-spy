@@ -197,12 +197,20 @@ def build_coverage_xml(
     report: dict, project_root: str, exclude_targets: Iterable[str],
     include_roots: Iterable[str], xcresult: Optional[str] = None,
     exclude_globs: Iterable[str] = (),
+    absolute_paths: bool = False,
 ) -> ET.Element:
     """Build the ``<coverage>`` XML element from an xccov report dict.
 
     When ``xcresult`` is given, emit TRUE per-line coverage (one
     ``<lineToCover`` per executable source line, ``covered`` from
     ``executionCount > 0``) by calling ``xcrun xccov view --archive --file``.
+
+    The ``path`` attribute is relative to ``project_root`` by default. Set
+    ``absolute_paths`` True to emit the absolute source path: SonarCloud's
+    Swift/CFamily analysis indexes each file under its ABSOLUTE path (from the
+    xcodebuild-derived report), so a relative ``path`` never matches the
+    indexed key and attaches to zero files — yielding a 0.0% dashboard figure
+    even when local xccov shows real coverage.
     This is the same fidelity as the C++ lcov path and makes SonarCloud agree
     with local xccov. When a per-file fetch fails, that file falls back to
     function-level coverage so a single unruly file does not abort the report.
@@ -215,7 +223,8 @@ def build_coverage_xml(
         report, exclude_targets, project_root, include_roots, exclude_globs
     ):
         rel = _relative_path(file_cov.path, project_root)
-        file_el = ET.SubElement(root, "file", {"path": rel})
+        emit_path = file_cov.path if absolute_paths else rel
+        file_el = ET.SubElement(root, "file", {"path": emit_path})
         emitted = 0
         if xcresult:
             lines = fetch_per_line_coverage(file_cov.path, xcresult)
@@ -319,6 +328,23 @@ def _parse_args(argv: Optional[list] = None) -> argparse.Namespace:
             "side. The raw xccov report still carries them for inspection."
         ),
     )
+    parser.add_argument(
+        "--absolute-paths",
+        action="store_true",
+        default=True,
+        help=(
+            "Emit ABSOLUTE file paths in the coverage XML (default). Required "
+            "so SonarCloud attaches coverage to the files it indexes under "
+            "their absolute paths. Use --relative-paths only for local "
+            "on-disk inspection."
+        ),
+    )
+    parser.add_argument(
+        "--relative-paths",
+        action="store_false",
+        dest="absolute_paths",
+        help="Emit paths relative to --project-root (local inspection only).",
+    )
     return parser.parse_args(argv)
 
 
@@ -336,7 +362,7 @@ def main(argv: Optional[list] = None) -> int:
 
     root = build_coverage_xml(
         report, args.project_root, exclude_targets, args.include_roots,
-        args.xcresult, exclude_globs,
+        args.xcresult, exclude_globs, args.absolute_paths,
     )
     payload = serialize(root)
 

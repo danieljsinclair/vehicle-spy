@@ -741,7 +741,8 @@ $(COVERAGE_XML_CPP): $(COVERAGE_LCOV) scripts/lcov_to_xml.py scripts/manifest_qu
 		$(COVERAGE_XML_CPP) \
 		--project-root "$(CURDIR)" \
 		$$(python3 scripts/manifest_query.py --mode src-roots vehicle-spy) \
-		--exclude-glob '**/*.mm'
+		--exclude-glob '**/*.mm' \
+		--absolute-paths
 
 coverage-clean:
 	@rm -f $(COVERAGE_LCOV) $(COVERAGE_XML_CPP) $(BUILD_COV_DIR)/coverage.profdata $(BUILD_COV_DIR)/coverage.txt
@@ -933,7 +934,8 @@ $(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-i
 			--exclude-targets VehicleSimTests.xctest \
 			--include-roots vehicle-sim-ios \
 			$${_exclude_args} \
-			--xcresult "$$_bundle"; \
+			--xcresult "$$_bundle" \
+			--absolute-paths; \
 	fi
 
 coverage-ios: $(COVERAGE_XML_IOS)
@@ -1052,7 +1054,8 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 		$(FIRMWARE_COVERAGE_LCOV) \
 		$(FIRMWARE_COVERAGE_XML) \
 		--project-root "$(CURDIR)" \
-		$$(python3 scripts/manifest_query.py --mode src-roots vehicle-spy-esp32)
+		$$(python3 scripts/manifest_query.py --mode src-roots vehicle-spy-esp32) \
+		--absolute-paths
 
 
 coverage-firmware: $(FIRMWARE_COVERAGE_LCOV)
