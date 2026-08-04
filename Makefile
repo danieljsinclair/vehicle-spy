@@ -735,7 +735,13 @@ coverage-run: $(COVERAGE_LCOV)
 # run_coverage_tests.sh).  This guarantees the gate always has a fresh XML that
 # matches the current lcov.info before the sonar scan consumes it via
 # sonar.coverageReportPaths.
-$(COVERAGE_XML_CPP): $(COVERAGE_LCOV) scripts/lcov_to_xml.py scripts/manifest_query.py
+# coverage-manifest.toml IS a real input: the recipe shells out to
+# manifest_query.py --mode src-roots, so a manifest edit (e.g. adding
+# `include` as a src-root) changes the XML content. Without the manifest as a
+# prerequisite Make considered a stale XML "up to date", so an XML generated
+# under the OLD roots survived — 72 files / 0 covered lines — and that
+# all-uncovered XML was uploaded, showing 0.0% coverage on SonarCloud.
+$(COVERAGE_XML_CPP): $(COVERAGE_LCOV) scripts/lcov_to_xml.py scripts/manifest_query.py coverage-manifest.toml
 	@python3 scripts/lcov_to_xml.py \
 		$(COVERAGE_LCOV) \
 		$(COVERAGE_XML_CPP) \
@@ -884,7 +890,9 @@ ios-test-gate:
 # (A deterministic app crash -- e.g. misaligned-pointer in DiscoveryPacket.parse
 # -- currently prevents iOS coverage; fixing that is a separate product item.)
 IOS_XCRESULT_DIR := $(BUILD_IOS_DIR)/xcresults
-$(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-ios.properties
+# coverage-manifest.toml is a real input (manifest_query.py --mode
+# coverage-exclude-glob-args drives the converter's exclusions).
+$(COVERAGE_XML_IOS): $(IOS_COV_INPUTS) scripts/xccov_to_sonar.py sonar-project-ios.properties scripts/manifest_query.py coverage-manifest.toml
 	@echo "=== [vehicle-spy] Running iOS tests with coverage ==="
 	@mkdir -p $(IOS_XCRESULT_DIR)
 	@_run=$$(date +%Y%m%d-%H%M%S); \
@@ -1011,7 +1019,9 @@ $(FIRMWARE_TEST_REPORT): $(FIRMWARE_TEST_INPUTS)
 # coverage-firmware: build with llvm-cov instrumentation, run tests, export lcov.
 # Re-runs only when inputs or the CMakeLists change. The lcov covers
 # firmware/vanilla/*.cpp (the extracted SOLID C++ surface) + .ino files.
-$(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scripts/lcov_to_xml.py scripts/lcov_add_uninstrumented.py
+# coverage-manifest.toml is a real input here too (the recipe calls
+# manifest_query.py for --mode coverage-exclude-args and --mode src-roots).
+$(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scripts/lcov_to_xml.py scripts/lcov_add_uninstrumented.py scripts/manifest_query.py coverage-manifest.toml
 	@echo "=== [firmware] Building host tests with coverage (llvm-cov) ==="
 	@mkdir -p $(FIRMWARE_BUILD_DIR)
 	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
@@ -1122,10 +1132,15 @@ define run_sonar_scan
 	fi
 	@echo "=== [$(SS_LABEL)] Running sonar-scanner ==="
 	@mkdir -p $$(dirname $(SS_SCANNER_LOG))
+	@# NOTE: do NOT add -Dsonar.scm.disabled=true here. The scanner uses the SCM
+	@# (git) provider to honour .gitignore during file indexing. With SCM
+	@# disabled, gitignored BUILD ARTEFACTS are indexed as sources — the esp32
+	@# scan pulled in firmware/can-bridge/build/*.bin/.elf/.map (58 files indexed
+	@# instead of 46), which made SonarCloud return an EMPTY measures array for
+	@# vehicle-spy-esp32. Keeping SCM enabled restores 46 files / 78.7% coverage.
 	@SONAR_TOKEN="$${SONAR_TOKEN_ES}" sonar-scanner \
 		-Dproject.settings=$(SS_PROPERTIES) \
 		-Dsonar.working.directory=$(SS_BUILD_DIR)/.sonar \
-		-Dsonar.scm.disabled=true \
 		> $(SS_SCANNER_LOG) 2>&1; \
 		rc=$$?; \
 		if [ $$rc -ne 0 ]; then \
