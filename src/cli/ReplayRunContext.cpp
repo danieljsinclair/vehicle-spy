@@ -1,6 +1,9 @@
 #include "vehicle-sim/cli/ReplayRunContext.h"
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/pipeline/ConsoleProgressReporter.h"
+#include "vehicle-sim/pipeline/CompositeProgressReporter.h"
+#include "vehicle-sim/pipeline/CsvStdoutReporter.h"
+#include "vehicle-sim/telemetry/CsvStdoutSink.h"
 #include "vehicle-sim/pipeline/FileTransport.h"
 #include "vehicle-sim/pipeline/CaptureNormaliser.h"
 #include "vehicle-sim/pipeline/DecodedCsvSink.h"
@@ -17,7 +20,12 @@ int ReplayRunContext::run(
     const std::string& filePath,
     const std::string& vehicleType,
     const std::string& logBase,
-    domain::DBCTranslationService& translationService) {
+    domain::DBCTranslationService& translationService,
+    bool stdoutCsv) {
+
+    // With --stdout-csv, stdout belongs to the CSV stream alone; every
+    // human-readable line moves to stderr so the pipe stays parseable.
+    std::ostream& narrative = stdoutCsv ? std::cerr : std::cout;
 
     // resolveVehicleContext loads the vehicle's DBC as a side effect
     // (VehicleConfigResolver::resolve calls service.loadVehicle). Essential
@@ -55,23 +63,35 @@ int ReplayRunContext::run(
     // lack a pre-existing source file will pass a non-null rawSink here.
     pipeline::CaptureNormaliser normaliser;
 
-    std::cout << "Replaying " << filePath << "\n";
+    narrative << "Replaying " << filePath << "\n";
 
     // Streaming progress: uniform across transports. The reporter lives in the
     // pipeline seam (not the decoder) and throttles itself, so a fast file
     // replay renders a live progress line without flooding the console while a
     // live TCP/BLE stream shows the same view naturally.
-    pipeline::ConsoleProgressReporter progress(std::cout);
+    pipeline::ConsoleProgressReporter progress(narrative);
+
+    // --stdout-csv adds a SECOND observer on the same seam rather than
+    // replacing the console one: the composite fans each decoded frame to both
+    // (Open/Closed — runReplay is unchanged).
+    auto stdoutSink = telemetry::createStdoutSink(stdoutCsv, std::cout,
+                                                  translationService.getVehicleId());
+    pipeline::CsvStdoutReporter csvReporter(*stdoutSink);
+    pipeline::CompositeProgressReporter reporters;
+    reporters.add(&progress);
+    if (stdoutCsv) {
+        reporters.add(&csvReporter);
+    }
 
     auto stats = pipeline::runReplay(transport, normaliser, translationService,
                                      decodedSink.get(), /*rawSink=*/nullptr,
-                                     &progress);
+                                     &reporters);
 
-    std::cout << "  lines=" << stats.linesRead
+    narrative << "  lines=" << stats.linesRead
               << " frames decoded=" << stats.framesDecoded
               << " skipped=" << stats.skippedLines
               << " malformed=" << stats.malformedLines << "\n";
-    std::cout << "Decoded " << stats.framesDecoded << " frames\n";
+    narrative << "Decoded " << stats.framesDecoded << " frames\n";
     return 0;
 }
 

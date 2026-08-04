@@ -4,8 +4,12 @@
 
 namespace vehicle_sim::cli {
 
+void printBanner(std::ostream& out) {
+    out << "vehicle-sim v1.0.0 - Vehicle OBD2 Telemetry Display\n";
+}
+
 void printBanner() {
-    std::cout << "vehicle-sim v1.0.0 - Vehicle OBD2 Telemetry Display\n";
+    printBanner(std::cout);
 }
 
 bool handleEarlyExit(

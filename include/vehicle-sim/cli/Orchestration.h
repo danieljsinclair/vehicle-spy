@@ -10,6 +10,13 @@ namespace vehicle_sim::cli {
 /**
  * Print application banner
  */
+/**
+ * Print the startup banner.
+ *
+ * @param out Destination stream. Defaults to std::cout; --stdout-csv passes
+ *            std::cerr so the banner never contaminates the CSV on stdout.
+ */
+void printBanner(std::ostream& out);
 void printBanner();
 
 /**

@@ -26,13 +26,17 @@ public:
      * @param vehicleType Vehicle type whose DBC should decode the frames
      * @param logBase     Base path for decoded output ("<base>.csv"). Empty to skip.
      * @param translationService DBC translation service (vehicle DBC loaded as side effect)
+     * @param stdoutCsv   When true, stream decoded CSV rows to stdout and move
+     *                    the human-readable progress/summary to stderr, so the
+     *                    stdout stream stays a clean pipeable CSV.
      * @return 0 on success, 1 on failure (file missing, logger invalid, unknown vehicle)
      */
     static int run(
         const std::string& filePath,
         const std::string& vehicleType,
         const std::string& logBase,
-        domain::DBCTranslationService& translationService
+        domain::DBCTranslationService& translationService,
+        bool stdoutCsv = false
     );
 };
 

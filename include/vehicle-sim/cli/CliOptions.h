@@ -37,6 +37,10 @@ struct CliOptions {
     // old flag; mapped onto log_base / raw-output semantics in main.cpp.
     std::string log_csv;
     std::string log_raw;
+    // Emit decoded CSV rows to stdout (same schema as <base>.csv). When set,
+    // human-readable progress/banners move to stderr so stdout stays a clean,
+    // pipeable CSV stream.
+    bool stdout_csv = false;
 
     // Set on parse error — caller should print and exit(1).
     std::string error_message;

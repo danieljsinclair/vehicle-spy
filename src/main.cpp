@@ -165,12 +165,15 @@ std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
 int main(int argc, char* argv[]) {
     using namespace vehicle_sim;
 
-    cli::printBanner();
+    // Parse BEFORE the banner: --stdout-csv decides which stream the banner
+    // belongs on, and a banner already written to stdout cannot be recalled.
+    auto opts = cli::parseArgs(argc, argv);
+
+    cli::printBanner(opts.stdout_csv ? std::cerr : std::cout);
 
     domain::DBCTranslationService translationService;
     domain::DefaultVehicleConfigs::registerAll(translationService.registry());
 
-    auto opts = cli::parseArgs(argc, argv);
     if (!opts.error_message.empty()) {
         std::cerr << opts.error_message << "\n";
         return 1;
@@ -214,7 +217,8 @@ int main(int argc, char* argv[]) {
         std::string path = opts.connect_target.substr(5);
         std::string logBase = resolveLogBase(opts);
         return cli::ReplayRunContext::run(path, opts.vehicle_type,
-                                          logBase, translationService);
+                                          logBase, translationService,
+                                          opts.stdout_csv);
     }
 
     if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
@@ -227,7 +231,8 @@ int main(int argc, char* argv[]) {
         std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
             opts.connect_target, opts.adapter_protocol);
         return cli::LiveRunContext::run(opts.connect_target, opts.vehicle_type,
-                                        protocol, logBase, translationService);
+                                        protocol, logBase, translationService,
+                                        opts.stdout_csv);
     }
 
     if (opts.isBLE()) {

@@ -48,6 +48,7 @@ add_executable(vehicle-sim-tests
     integration/TeslaCANLiveDecoding.test.cpp
     integration/AudiOBD2LiveDecoding.test.cpp
     telemetry/TraceLogger.test.cpp
+    telemetry/CsvStdoutSink.test.cpp
     pipeline/RawFrameNormaliser.test.cpp
     pipeline/Elm327Normaliser.test.cpp
     pipeline/CaptureNormaliser.test.cpp

@@ -44,9 +44,7 @@ TEST_F(TelemetryRunnerTest, RunWithNullConfig_ReturnsError) {
     int exitCode = TelemetryRunner::run(
         std::move(mockSource),
         nullptr,
-        "",
-        "",
-        10,
+        TelemetryRunOptions{.logCsvPath = "", .logRawPath = "", .pollIntervalMs = 10},
         stop_
     );
 
@@ -63,9 +61,10 @@ TEST_F(TelemetryRunnerTest, RunWithInvalidLogPath_ReturnsError) {
         TelemetryRunner::run(
             std::move(mockSource),
             config_.get(),
-            "/nonexistent/directory/output.csv",
-            "",
-            10,
+            TelemetryRunOptions{
+                .logCsvPath = "/nonexistent/directory/output.csv",
+                .logRawPath = "",
+                .pollIntervalMs = 10},
             stop_
         );
         FAIL() << "Should have thrown for invalid output path";
@@ -91,9 +90,7 @@ TEST_F(TelemetryRunnerTest, RunWithValidConfig_StopsWhenRequested) {
     int exitCode = TelemetryRunner::run(
         std::move(mockSource),
         config_.get(),
-        "",
-        "",
-        10,
+        TelemetryRunOptions{.logCsvPath = "", .logRawPath = "", .pollIntervalMs = 10},
         stop_
     );
 
@@ -148,9 +145,8 @@ TEST_F(TelemetryRunnerTest, RunWithValidPaths_WritesCsvAndRawAndReturnsZero) {
     int exitCode = TelemetryRunner::run(
         std::move(mockSource),
         config_.get(),
-        csvPath,
-        rawPath,
-        /*pollIntervalMs=*/1,
+        TelemetryRunOptions{
+            .logCsvPath = csvPath, .logRawPath = rawPath, .pollIntervalMs = 1},
         stop_
     );
     watcher.join();
