@@ -92,6 +92,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/RawLogSink.cpp
     src/pipeline/DecodedCsvSink.cpp
     src/pipeline/ConsoleProgressReporter.cpp
+    src/pipeline/CsvStdoutReporter.cpp
+    src/pipeline/CompositeProgressReporter.cpp
     src/pipeline/PipelineReplay.cpp
     src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
@@ -106,6 +108,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/boundary/OBD2Protocol.cpp
     src/telemetry/TraceLogger.cpp
     src/telemetry/RawTraceLogger.cpp
+    src/telemetry/CsvRowFormatter.cpp
+    src/telemetry/CsvStdoutSink.cpp
     src/util/SystemClock.cpp
     src/discovery/DiscoveryPacket.cpp
     src/discovery/DiscoveryVerifier.cpp

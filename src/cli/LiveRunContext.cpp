@@ -1,6 +1,9 @@
 #include "vehicle-sim/cli/LiveRunContext.h"
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/pipeline/ConsoleProgressReporter.h"
+#include "vehicle-sim/pipeline/CompositeProgressReporter.h"
+#include "vehicle-sim/pipeline/CsvStdoutReporter.h"
+#include "vehicle-sim/telemetry/CsvStdoutSink.h"
 #include "vehicle-sim/pipeline/DecodedCsvSink.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "vehicle-sim/pipeline/PipelineReplay.h"
@@ -44,7 +47,12 @@ int LiveRunContext::run(
     const std::string& vehicleType,
     const std::string& adapterProtocol,
     const std::string& logBase,
-    domain::DBCTranslationService& translationService) {
+    domain::DBCTranslationService& translationService,
+    bool stdoutCsv) {
+
+    // With --stdout-csv, stdout belongs to the CSV stream alone; every
+    // human-readable line moves to stderr so the pipe stays parseable.
+    std::ostream& narrative = stdoutCsv ? std::cerr : std::cout;
 
     // One cooperative stop signal shared by this run-context and every live
     // transport it builds. The signal handler flips it via the broker; the
@@ -91,22 +99,35 @@ int LiveRunContext::run(
         }
     }
 
-    std::cout << "Streaming " << connectTarget << " (" << vehicleType << ")\n";
-    std::cout << "Press Ctrl+C to stop\n\n";
+    narrative << "Streaming " << connectTarget << " (" << vehicleType << ")\n";
+    narrative << "Press Ctrl+C to stop\n\n";
 
     // The SAME runReplay loop serves file replay and live — uniform across
     // transports (Open/Closed). For live TCP the loop ends when the stop flag
     // makes nextLine() return nullopt; for bounded demo it ends at EOF.
-    pipeline::ConsoleProgressReporter progress(std::cout, translationService.getVehicleId());
+    pipeline::ConsoleProgressReporter progress(narrative, translationService.getVehicleId());
+
+    // --stdout-csv adds a SECOND observer on the same seam rather than
+    // replacing the console one: the composite fans each decoded frame to both
+    // (Open/Closed — runReplay is unchanged).
+    auto stdoutSink = telemetry::createStdoutSink(stdoutCsv, std::cout,
+                                                  translationService.getVehicleId());
+    pipeline::CsvStdoutReporter csvReporter(*stdoutSink);
+    pipeline::CompositeProgressReporter reporters;
+    reporters.add(&progress);
+    if (stdoutCsv) {
+        reporters.add(&csvReporter);
+    }
+
     auto stats = pipeline::runReplay(*source.transport, *source.normaliser,
                                      translationService, decodedSink.get(),
-                                     rawSink.get(), &progress);
+                                     rawSink.get(), &reporters);
 
-    std::cout << "\n  lines=" << stats.linesRead
+    narrative << "\n  lines=" << stats.linesRead
               << " frames decoded=" << stats.framesDecoded
               << " skipped=" << stats.skippedLines
               << " malformed=" << stats.malformedLines << "\n";
-    std::cout << "Goodbye!\n";
+    narrative << "Goodbye!\n";
     return 0;
 }
 

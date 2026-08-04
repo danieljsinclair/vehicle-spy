@@ -53,6 +53,9 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_option("--log-raw", opts.log_raw,
                    "(deprecated, use --log <base>) Log raw hex/TWAI data to file")
         ->expected(1);
+    app.add_flag("--stdout-csv", opts.stdout_csv,
+                 "Emit decoded CSV rows to stdout (same schema as <base>.csv); "
+                 "progress output moves to stderr so stdout stays pipeable");
 
     try {
         app.parse(argc, argv);
@@ -84,6 +87,8 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  --adapter-protocol <p> Adapter protocol: raw (default) or elm327\n"
         << "  --log-csv <file>      (deprecated, use --log) Log decoded CSV to file\n"
         << "  --log-raw <file>      (deprecated, use --log) Log raw hex to file\n"
+        << "  --stdout-csv          Emit decoded CSV rows to stdout (same schema as\n"
+        << "                        <base>.csv); progress moves to stderr so stdout pipes cleanly\n"
         << "  --help                Show this help message\n\n";
 
     if (auto vehicles = registry.getRegisteredVehicles(); !vehicles.empty()) {
@@ -105,6 +110,7 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  vehicle-sim --connect tcp:192.168.4.1:3333 --vehicle tesla --log-raw x.raw --log-csv x.csv\n"
         << "  vehicle-sim --connect usb:/dev/cu.usbserial-110 --vehicle tesla --log captures/SecondDrive\n"
         << "  vehicle-sim --connect tcp:192.168.4.1 --vehicle tesla\n"
+        << "  vehicle-sim --connect file:capture.csv --vehicle tesla --stdout-csv | head -20\n"
         << "  vehicle-sim --connect <addr> --vehicle tesla\n"
         << "  vehicle-sim --connect <addr> --vehicle auto\n"
         << "  vehicle-sim --scan\n"

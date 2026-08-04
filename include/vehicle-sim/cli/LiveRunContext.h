@@ -34,6 +34,9 @@ public:
      * @param logBase         Base path for output ("<base>.raw.txt" + "<base>.csv").
      *                        Empty disables both sinks.
      * @param translationService DBC service (vehicle DBC loaded as a side effect)
+     * @param stdoutCsv   When true, stream decoded CSV rows to stdout and move
+     *                    the human-readable progress/summary to stderr, so the
+     *                    stdout stream stays a clean pipeable CSV.
      * @return 0 on success, 1 on failure (unsupported target, transport open fail)
      */
     static int run(
@@ -41,7 +44,8 @@ public:
         const std::string& vehicleType,
         const std::string& adapterProtocol,
         const std::string& logBase,
-        domain::DBCTranslationService& translationService
+        domain::DBCTranslationService& translationService,
+        bool stdoutCsv = false
     );
 };
 
