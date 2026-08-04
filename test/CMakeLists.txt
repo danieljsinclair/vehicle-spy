@@ -35,6 +35,7 @@ add_executable(vehicle-sim-tests
     presentation/VehicleSignalFormatter.test.cpp
     cli/CliOptions.test.cpp
     cli/TelemetryRunner.test.cpp
+    cli/TelemetryRunnerStdoutCsv.test.cpp
     cli/Orchestration.test.cpp
     cli/ReplayRunContext.test.cpp
     boundary/TeslaBLETransport.test.cpp
@@ -48,6 +49,7 @@ add_executable(vehicle-sim-tests
     integration/TeslaCANLiveDecoding.test.cpp
     integration/AudiOBD2LiveDecoding.test.cpp
     telemetry/TraceLogger.test.cpp
+    telemetry/CsvShape.h
     telemetry/CsvStdoutSink.test.cpp
     pipeline/RawFrameNormaliser.test.cpp
     pipeline/Elm327Normaliser.test.cpp
@@ -67,6 +69,7 @@ add_executable(vehicle-sim-tests
     pipeline/Sinks.test.cpp
     pipeline/PipelineReplay.test.cpp
     pipeline/ConsoleProgressReporter.test.cpp
+    pipeline/CsvStdoutReporters.test.cpp
     discovery/DiscoveryPacket.test.cpp
     discovery/DiscoveryVerifier.test.cpp
     discovery/UDPDiscovery.test.cpp

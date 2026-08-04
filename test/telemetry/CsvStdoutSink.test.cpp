@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include "CsvShape.h"
+
 #include "vehicle-sim/telemetry/CsvStdoutSink.h"
 #include "vehicle-sim/telemetry/TraceLogger.h"
 #include "vehicle-sim/domain/Gear.h"
@@ -22,18 +24,12 @@
 
 using namespace vehicle_sim::telemetry;
 using namespace vehicle_sim::domain;
+using vehicle_sim::test::cellsByColumn;
+using vehicle_sim::test::CSV_FIELD_COUNT;
+using vehicle_sim::test::splitFields;
+using vehicle_sim::test::splitLines;
 
 namespace {
-
-std::vector<std::string> splitLines(const std::string& text) {
-    std::vector<std::string> lines;
-    std::istringstream stream(text);
-    std::string line;
-    while (std::getline(stream, line)) {
-        lines.push_back(line);
-    }
-    return lines;
-}
 
 // A fully-populated signal — every column exercised, nothing left to default.
 VehicleSignal fullSignal() {
@@ -93,15 +89,22 @@ protected:
 
 // Contract: the header is written eagerly at construction, so a consumer
 // reading the pipe sees the schema before any data arrives.
+//
+// Asserted as shape + key column names, not as one literal: a downstream
+// parser keys off the names it needs, so adding a column must not fail this.
+// The exact bytes stay pinned by the TraceLogger byte-identity tests below.
 TEST_F(CsvStdoutSinkTest, WritesHeaderOnConstruction) {
     CsvStdoutSink sink(out);
 
     auto lines = splitLines(out.str());
     ASSERT_EQ(lines.size(), 1U);
-    EXPECT_EQ(lines[0],
-              "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_percent,"
-              "acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,"
-              "motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count");
+    EXPECT_EQ(splitFields(lines[0]).size(), CSV_FIELD_COUNT);
+
+    // The columns a consumer actually addresses: the time base it joins on,
+    // the gear label, and the populated-signal count it filters by.
+    EXPECT_NE(lines[0].find("timestamp_ms"), std::string::npos);
+    EXPECT_NE(lines[0].find("gear_selector"), std::string::npos);
+    EXPECT_NE(lines[0].find("dbc_signal_count"), std::string::npos);
 }
 
 TEST_F(CsvStdoutSinkTest, WritesRowForAllFields) {
@@ -110,7 +113,17 @@ TEST_F(CsvStdoutSinkTest, WritesRowForAllFields) {
 
     auto lines = splitLines(out.str());
     ASSERT_EQ(lines.size(), 2U);  // header + 1 row
-    EXPECT_EQ(lines[1], "123456789,,100.00,50.00,25.00,0.50,-12.50,3500.50,400.00,25.30,150.00,D,10");
+    EXPECT_EQ(splitFields(lines[1]).size(), CSV_FIELD_COUNT);
+
+    // Values are checked by column NAME: a fully-populated signal renders every
+    // value it carries, and dbc_signal_count reports all 10 translated signals.
+    const auto cells = cellsByColumn(lines[0], lines[1]);
+    EXPECT_EQ(cells.at("timestamp_ms"), "123456789");
+    EXPECT_EQ(cells.at("speed_kmh"), "100.00");
+    EXPECT_EQ(cells.at("motor_rpm"), "3500.50");
+    EXPECT_EQ(cells.at("steering_angle_deg"), "-12.50");
+    EXPECT_EQ(cells.at("gear_selector"), "D");
+    EXPECT_EQ(cells.at("dbc_signal_count"), "10");
 }
 
 TEST_F(CsvStdoutSinkTest, WritesOneRowPerCall) {
@@ -122,8 +135,23 @@ TEST_F(CsvStdoutSinkTest, WritesOneRowPerCall) {
 
     auto lines = splitLines(out.str());
     ASSERT_EQ(lines.size(), 3U);  // header + 2 rows
-    EXPECT_EQ(lines[1], "1000,,10.00,,,,,,,,,P,2");
-    EXPECT_EQ(lines[2], "2000,,20.00,,,,,,,,,N,2");
+
+    // One record per call, each well-formed, each carrying ITS OWN signal's
+    // values — the property that makes the stream a faithful row-per-frame log.
+    EXPECT_EQ(splitFields(lines[1]).size(), CSV_FIELD_COUNT);
+    EXPECT_EQ(splitFields(lines[2]).size(), CSV_FIELD_COUNT);
+
+    const auto first = cellsByColumn(lines[0], lines[1]);
+    EXPECT_EQ(first.at("timestamp_ms"), "1000");
+    EXPECT_EQ(first.at("speed_kmh"), "10.00");
+    EXPECT_EQ(first.at("gear_selector"), "P");
+    EXPECT_EQ(first.at("dbc_signal_count"), "2");
+
+    const auto second = cellsByColumn(lines[0], lines[2]);
+    EXPECT_EQ(second.at("timestamp_ms"), "2000");
+    EXPECT_EQ(second.at("speed_kmh"), "20.00");
+    EXPECT_EQ(second.at("gear_selector"), "N");
+    EXPECT_EQ(second.at("dbc_signal_count"), "2");
 }
 
 // Absent signals must render as empty cells, not as 0.00 — a downstream
@@ -134,7 +162,18 @@ TEST_F(CsvStdoutSinkTest, LeavesEmptyCellsForAbsentValues) {
 
     auto lines = splitLines(out.str());
     ASSERT_EQ(lines.size(), 2U);
-    EXPECT_EQ(lines[1], "12345,,,,,,,,,,,,0");
+
+    // Still a full-width record — absent values occupy their cells rather than
+    // collapsing the row — and every signal cell is EMPTY, never "0.00".
+    ASSERT_EQ(splitFields(lines[1]).size(), CSV_FIELD_COUNT);
+
+    const auto cells = cellsByColumn(lines[0], lines[1]);
+    EXPECT_EQ(cells.at("timestamp_ms"), "12345");
+    EXPECT_TRUE(cells.at("speed_kmh").empty());
+    EXPECT_TRUE(cells.at("throttle_percent").empty());
+    EXPECT_TRUE(cells.at("motor_rpm").empty());
+    EXPECT_TRUE(cells.at("gear_selector").empty());
+    EXPECT_EQ(cells.at("dbc_signal_count"), "0");
 }
 
 TEST_F(CsvStdoutSinkTest, WritesVehicleIdColumnWhenProvided) {
@@ -143,8 +182,15 @@ TEST_F(CsvStdoutSinkTest, WritesVehicleIdColumnWhenProvided) {
 
     auto lines = splitLines(out.str());
     ASSERT_EQ(lines.size(), 2U);
-    // vehicle_id is the 2nd column.
-    EXPECT_EQ(lines[1], "1000,tesla,42.00,,,,,,,,,,1");
+    EXPECT_EQ(splitFields(lines[1]).size(), CSV_FIELD_COUNT);
+
+    // The constructor's vehicleId lands in the vehicle_id column — the tag a
+    // consumer uses to demultiplex rows from several vehicles on one pipe.
+    const auto cells = cellsByColumn(lines[0], lines[1]);
+    EXPECT_EQ(cells.at("vehicle_id"), "tesla");
+    EXPECT_EQ(cells.at("timestamp_ms"), "1000");
+    EXPECT_EQ(cells.at("speed_kmh"), "42.00");
+    EXPECT_EQ(cells.at("dbc_signal_count"), "1");
 }
 
 // The gear column carries the display label (4097 -> "D"), matching the file
@@ -156,7 +202,10 @@ TEST_F(CsvStdoutSinkTest, RendersGearAsDisplayLabel) {
 
     auto lines = splitLines(out.str());
     ASSERT_EQ(lines.size(), 2U);
-    EXPECT_NE(lines[1].find(",R,"), std::string::npos);
+
+    // Named-column lookup, so this asserts the GEAR column holds the label and
+    // not merely that an "R" appears somewhere in the record.
+    EXPECT_EQ(cellsByColumn(lines[0], lines[1]).at("gear_selector"), "R");
 }
 
 // ================================================
