@@ -78,6 +78,8 @@
 		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };
 		B1P00016 /* SystemClock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00016 /* SystemClock.cpp */; };
 		B1P00017 /* IClock.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00017 /* IClock.h */; };
+		B1P00022 /* ExecutablePath.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00022 /* ExecutablePath.cpp */; };
+		B1P00023 /* CsvRowFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00023 /* CsvRowFormatter.cpp */; };
 		B1P00021 /* PosixSocket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00021 /* PosixSocket.cpp */; };
 		T1000001 /* DiscoveryPacketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000001 /* DiscoveryPacketTests.swift */; };
 		T1000002 /* DiscoveryVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = T2000002 /* DiscoveryVerifierTests.swift */; };
@@ -188,6 +190,8 @@
 		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
 		B2P00016 /* SystemClock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SystemClock.cpp; path = ../../src/util/SystemClock.cpp; sourceTree = "<group>"; };
 		B2P00017 /* IClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IClock.h; path = "../../include/vehicle-sim/util/IClock.h"; sourceTree = "<group>"; };
+		B2P00022 /* ExecutablePath.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ExecutablePath.cpp; path = ../../src/util/ExecutablePath.cpp; sourceTree = "<group>"; };
+		B2P00023 /* CsvRowFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CsvRowFormatter.cpp; path = ../../src/telemetry/CsvRowFormatter.cpp; sourceTree = "<group>"; };
 		B2P00021 /* PosixSocket.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PosixSocket.cpp; path = ../../src/pipeline/PosixSocket.cpp; sourceTree = "<group>"; };
 		ED39D8AAB147FDFF14F8ABA3 /* VehicleSimAppAppTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VehicleSimAppAppTests.swift; path = ../VehicleSimTests/VehicleSimAppAppTests.swift; sourceTree = "<group>"; };
 		T2000001 /* DiscoveryPacketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DiscoveryPacketTests.swift; path = ../VehicleSimTests/DiscoveryPacketTests.swift; sourceTree = "<group>"; };
@@ -342,6 +346,8 @@
 				B2P00015 /* ITransportOutput.cpp */,
 				B2P00016 /* SystemClock.cpp */,
 				B2P00017 /* IClock.h */,
+				B2P00022 /* ExecutablePath.cpp */,
+				B2P00023 /* CsvRowFormatter.cpp */,
 			);
 			name = "Core (C++)";
 			sourceTree = "<group>";
@@ -539,6 +545,8 @@
 				B1A0001C /* Elm327Session.h in Sources */,
 				B1P00016 /* SystemClock.cpp in Sources */,
 				B1P00017 /* IClock.h in Sources */,
+				B1P00022 /* ExecutablePath.cpp in Sources */,
+				B1P00023 /* CsvRowFormatter.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
