@@ -29,6 +29,7 @@
 // ── FirmwareApp Components ───────────────────────────────────────────────────────────
 // Vanilla firmware orchestrator (WiFi/LED state machine + callback seams)
 #include "ArduinoWiFi.h"
+#include "ArduinoDebugSerial.h"
 #include "ArduinoPreferences.h"
 #include "ArduinoUdp.h"
 #include "ArduinoTime.h"
@@ -280,6 +281,13 @@ StatusLED& statusLed() { static StatusLED inst(&ledOutput()); return inst; }
 // Preferences / UDP Arduino adapters injected into FirmwareApp).
 ArduinoWiFi& arduinoWiFi() { static ArduinoWiFi inst; return inst; }
 ArduinoPreferences& arduinoPrefs() { static ArduinoPreferences inst; return inst; }
+
+// WiFi state-transition trace sink (ISerial), injected into WiFiManager via
+// FirmwareApp. Function-local static accessor (cpp:S5421).
+esp32_firmware::ArduinoDebugSerial& arduinoDebugSerial() {
+    static esp32_firmware::ArduinoDebugSerial inst;
+    return inst;
+}
 ArduinoUdp& arduinoUdp() { static ArduinoUdp inst; return inst; }
 // cpp:S5421 (composite): were 3 mutable globals (arduinoTime/Sntp/TimeNtp).
 // Grouped into a struct held by a function-local static accessor — the struct
@@ -346,7 +354,7 @@ AtAdapters& atAdapters() { static AtAdapters inst; return inst; }
 // ArduinoWiFi implements both IWiFi and IWiFiDiscovery
 // NTP is routed through FirmwareApp (owns NtpTimeSync + ArduinoSntp/ArduinoTimeNtp)
 // CanBridge is constructed inside FirmwareApp from the adapter bundle above.
-FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(),
+FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(), arduinoDebugSerial(),
                               arduinoWiFi(), arduinoUdp(), timeAdapters().time,
                               timeAdapters().sntp, timeAdapters().timeNtp,
                               discoveryDeviceId(),

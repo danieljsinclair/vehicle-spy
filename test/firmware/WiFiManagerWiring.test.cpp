@@ -203,6 +203,17 @@ public:
     void flush() override {}
 };
 
+// No-op ISerial: WiFiManager's serial-trace contract is exercised by the
+// dedicated WiFiManagerSerialTraceTest suite; these wiring tests are agnostic
+// to trace output, so the fake discards it.
+class FakeSerial : public ISerial {
+public:
+    void println(const char*) override {}
+
+    __attribute__((format(printf, 2, 3)))
+    void printf(const char*, ...) override {}
+};
+
 // Harness with optional baked-in credentials (Stage 4 exercises both the
 // stored-NVS path and the baked-in fallback).
 struct WiringHarness {
@@ -218,11 +229,12 @@ struct WiringHarness {
     FakeCanDriver canDriver;
     FakeTcpClient tcpClient;
     FakeSerialCan serialCan;
+    FakeSerial serial;
     std::unique_ptr<FirmwareApp> app;
 
     void build(const char* bakedSsid = nullptr, const char* bakedPass = nullptr) {
         app = std::make_unique<FirmwareApp>(
-            wifi, prefs, led, wifiDisc, udp, time, sntp, timeNtp,
+            wifi, prefs, led, serial, wifiDisc, udp, time, sntp, timeNtp,
             kDeviceId, CanBridgeDeps{canDriver, tcpClient, serialCan},
             clientConnSource,
             bakedSsid, bakedPass);

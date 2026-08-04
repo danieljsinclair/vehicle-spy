@@ -80,7 +80,7 @@ public:
     //   TcpServerManager (eliminates the global-WiFiClient desync that fed
     //   selectLedPattern with stale connection state)
     // - bakedSsid/bakedPass: optional compile-time WiFi credentials
-    FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed,
+    FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed, ISerial& serial,
                 IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
                 ISntp& sntp, ITimeNtp& timeNtp,
                 const std::array<uint8_t, 16>& deviceId,
@@ -297,8 +297,8 @@ private:
     // It performs construction ONLY — no hardware/netif work — so it is safe at
     // static-init time. The hardware-touching init() calls are deferred to init().
     void constructManagers(const std::array<uint8_t, 16>& deviceId, IPreferences& prefs,
-                           IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime& time,
-                           ISntp& sntp, ITimeNtp& timeNtp);
+                           ISerial& serial, IUdp& udp, IWiFiDiscovery& wifiDiscovery,
+                           ITime& time, ISntp& sntp, ITimeNtp& timeNtp);
     void setupCallbacks();
 
     // Emit a single [EVENT] line through the centralized logger (no-op if no

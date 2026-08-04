@@ -75,6 +75,17 @@ public:
     void update(uint32_t) override { ++updateCalls; }
 };
 
+// No-op ISerial: WiFiManager's serial-trace contract is exercised by the
+// dedicated WiFiManagerSerialTraceTest suite. These state-machine / credential
+// tests are agnostic to trace output, so the fake simply discards it.
+class FakeSerial : public ISerial {
+public:
+    void println(const char*) override {}
+
+    __attribute__((format(printf, 2, 3)))
+    void printf(const char*, ...) override {}
+};
+
 // ── Pure-function tests ────────────────────────────────────────────────────────
 
 TEST(WiFiPureTest, DetermineCredentialSourceStoredNvs) {
@@ -147,7 +158,8 @@ TEST(WiFiPureTest, LoadCredentialsImplReturnsFalseWhenEmpty) {
 
 TEST(WiFiCredentialApiTest, StoreThenHasThenLoad) {
     FakeWiFi wifi; FakePreferences prefs;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
 
     EXPECT_FALSE(mgr.hasStoredCredentials());
     EXPECT_TRUE(mgr.storeCredentials("MyNet", "secret"));
@@ -161,7 +173,8 @@ TEST(WiFiCredentialApiTest, StoreThenHasThenLoad) {
 
 TEST(WiFiCredentialApiTest, ClearCredentialsRemovesStored) {
     FakeWiFi wifi; FakePreferences prefs;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
 
     mgr.storeCredentials("net", "pw");
     ASSERT_TRUE(mgr.hasStoredCredentials());
@@ -171,7 +184,8 @@ TEST(WiFiCredentialApiTest, ClearCredentialsRemovesStored) {
 
 TEST(WiFiCredentialApiTest, FactoryResetClearsCredentials) {
     FakeWiFi wifi; FakePreferences prefs;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.storeCredentials("net", "pw");
     EXPECT_TRUE(mgr.factoryReset());
     EXPECT_TRUE(prefs.cleared);
@@ -182,14 +196,16 @@ TEST(WiFiCredentialApiTest, FactoryResetClearsCredentials) {
 
 TEST(WiFiStateMachineTest, ConstructionStartsDisconnected) {
     FakeWiFi wifi; FakePreferences prefs;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     // Before the first tick, the manager is in DISCONNECTED.
     EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_DISCONNECTED);
 }
 
 TEST(WiFiStateMachineTest, InitWithNoCredentialsLandsInApMode) {
     FakeWiFi wifi; FakePreferences prefs;  // empty -> no creds
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.init();  // first tick runs DISCONNECTED handler -> AP mode (no creds)
     EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
     EXPECT_EQ(wifi.mode, 2);  // WIFI_AP
@@ -198,7 +214,8 @@ TEST(WiFiStateMachineTest, InitWithNoCredentialsLandsInApMode) {
 TEST(WiFiStateMachineTest, DisconnectedWithStoredCredsBeginsStaConnecting) {
     FakeWiFi wifi; FakePreferences prefs;
     prefs.ssid = "net"; prefs.pass = "pw";
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.init();  // ticks DISCONNECTED handler
     EXPECT_EQ(wifi.mode, 1);  // WIFI_STA
     EXPECT_EQ(wifi.lastSsid, "net");
@@ -208,7 +225,8 @@ TEST(WiFiStateMachineTest, DisconnectedWithStoredCredsBeginsStaConnecting) {
 
 TEST(WiFiStateMachineTest, DisconnectedWithNoCredsGoesToApMode) {
     FakeWiFi wifi; FakePreferences prefs;  // empty creds
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.init();
     EXPECT_EQ(wifi.mode, 2);  // WIFI_AP
     EXPECT_EQ(wifi.lastSsid, WiFiConfig::AP_SSID);
@@ -219,7 +237,8 @@ TEST(WiFiStateMachineTest, ConnectingTransitionsToConnectedStaOnConnectedStatus)
     FakeWiFi wifi; FakePreferences prefs;
     prefs.ssid = "net"; prefs.pass = "pw";
     bool ntpCalled = false;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.setNtpInitCallback([&]() { ntpCalled = true; });
     mgr.init();  // -> CONNECTING
 
@@ -231,7 +250,8 @@ TEST(WiFiStateMachineTest, ConnectingTransitionsToConnectedStaOnConnectedStatus)
 
 TEST(WiFiStateMachineTest, OnDisconnectedAuthFailGoesToApImmediately) {
     FakeWiFi wifi; FakePreferences prefs;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.init();
     mgr.onDisconnected(WIFI_REASON_AUTH_FAIL);
     EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
@@ -240,7 +260,8 @@ TEST(WiFiStateMachineTest, OnDisconnectedAuthFailGoesToApImmediately) {
 
 TEST(WiFiStateMachineTest, OnDisconnectedFromStaGoesToReconnectingAndFlagsTcpRestart) {
     FakeWiFi wifi; FakePreferences prefs;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.init();
     // Force into CONNECTED_STA artificially to simulate a live connection drop.
     mgr.update(0);  // harmless tick in DISCONNECTED
@@ -258,7 +279,8 @@ TEST(WiFiStateMachineTest, OnDisconnectedFromStaGoesToReconnectingAndFlagsTcpRes
 
 TEST(WiFiStateMachineTest, ShouldRestartTcpServerFlagCanBeCleared) {
     FakeWiFi wifi; FakePreferences prefs;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.init();
     prefs.ssid = "net"; prefs.pass = "pw";
     mgr.init();
@@ -281,7 +303,8 @@ TEST(WiFiStateMachineTest, StateNameRoundTripsAllStates) {
 TEST(WiFiStateMachineTest, TcpRestartCallbackFiresOnSetFlagTransition) {
     FakeWiFi wifi; FakePreferences prefs;
     bool tcpRestart = false;
-    WiFiManager mgr(wifi, prefs);
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
     mgr.setTcpServerRestartCallback([&]() { tcpRestart = true; });
     mgr.init();
     prefs.ssid = "net"; prefs.pass = "pw";
