@@ -205,8 +205,15 @@ public:
 
     // Connection/reconnect constants (public for utility function access)
     static constexpr int MAX_RETRIES = 60;              // Bounded retry: ~60s total wait
-    static constexpr int BASE_RETRY_DELAY_MS = 1000;   // Initial reconnect delay
+    static constexpr int BASE_RETRY_DELAY_MS = 1000;   // Initial EXPONENTIAL reconnect delay
     static constexpr int MAX_RETRY_DELAY_MS = 10000;   // Max exponential backoff
+    // Aggressive immediate-retry phase (spec: "immediately retries the last-known
+    // IP:port ... minimal backoff for first retries"). The host hammers the
+    // last-known IP:port RAPID_RETRIES times with minimal backoff BEFORE falling
+    // back to the exponential backoff loop — so a recoverable glitch (network
+    // blip) reconnects within milliseconds, not after a 1s wait.
+    static constexpr int RAPID_RETRIES = 5;            // Aggressive immediate retries of last-known IP
+    static constexpr int RAPID_RETRY_DELAY_MS = 50;    // Minimal backoff between rapid retries (1st is 0)
     // Legacy alias for compatibility
     static constexpr int RETRY_DELAY_MS = BASE_RETRY_DELAY_MS;
 
@@ -259,6 +266,16 @@ private:
     // Returns loopDone; sets reconnected=true on an old-IP win.
     bool backoffThenAttemptReconnect(int delayMs, const std::atomic<bool>& discoveryFound,
                                      bool& reconnected);
+    // Aggressive immediate-retry phase: hammers the last-known IP:port
+    // RAPID_RETRIES times with minimal (RAPID_RETRY_DELAY_MS) backoff BEFORE the
+    // exponential backoff loop — so a recoverable glitch reconnects within
+    // milliseconds rather than after BASE_RETRY_DELAY_MS (1s). Runs in parallel
+    // with the discovery hunt (caller owns the discovery thread). Returns true
+    // the instant the last-known IP reconnects (sets reconnected=true); returns
+    // false to hand off to the exponential backoff loop. Each attempt is
+    // stop- and discovery-interruptible (a discovery win or requestStop aborts
+    // the rapid phase immediately).
+    bool rapidReconnect(const std::atomic<bool>& discoveryFound, bool& reconnected);
     // Post-loop outcome: old-IP win, discovery-win (switch host_ then connect,
     // G11-pinned), or give-up. Resets retryCount_ on success.
     bool finalizeHunt(const std::atomic<bool>& discoveryFound,
@@ -275,6 +292,7 @@ private:
                         std::string_view discoveredHex) const;
     bool backoffThenAttemptReconnect(int delayMs, const std::atomic<bool>& discoveryFound,
                                      bool& reconnected);
+    bool rapidReconnect(const std::atomic<bool>& discoveryFound, bool& reconnected);
     bool finalizeHunt(const std::atomic<bool>& discoveryFound,
                       std::string_view discoveredIp, bool reconnected);
 #endif
