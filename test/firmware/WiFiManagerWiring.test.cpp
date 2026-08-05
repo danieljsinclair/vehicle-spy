@@ -386,14 +386,16 @@ TEST(WiFiManagerWiringTest, RetriesBeginWithStoredCredsAfterDisconnectInterval) 
     // jump straight back to CONNECTED_STA (no re-begin) — masking the retry path.
     h.wifi.statusVal = WL_CONNECT_FAILED;
 
-    // Shortly after disconnect: no retry yet (well under the retry interval, with
-    // margin so the assertion does not depend on the exact lastRetryMs anchor).
+    // RESILIENT RECONNECT (req-1): shortly after disconnect the first retry fires
+    // IMMEDIATELY (aggressive window, interval 0) — the ESP32 radio reset typically
+    // re-associates on the next begin(), so we must not wait the old 5000ms backoff.
     h.app->update(2000);
-    EXPECT_EQ(h.wifi.beginCalls, beginsBeforeDisconnect);
+    EXPECT_GT(h.wifi.beginCalls, beginsBeforeDisconnect);
+    EXPECT_EQ(h.wifi.lastSsid, "net");
+    EXPECT_EQ(h.wifi.lastPass, "pw");
 
-    // Well past the retry interval: a re-begin with the stored creds must have
-    // fired. Uses a comfortable margin (10s >> 5s interval) rather than pinning
-    // the boundary, so the test is robust to the internal lastRetryMs semantics.
+    // Well past the retry interval: the re-begin with stored creds is still the
+    // active path (kept for the original intent of the test).
     h.app->update(10000);
     EXPECT_GT(h.wifi.beginCalls, beginsBeforeDisconnect);
     EXPECT_EQ(h.wifi.lastSsid, "net");

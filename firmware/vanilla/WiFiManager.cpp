@@ -61,21 +61,33 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
     IPreferences& prefs_;
     const char* bakedSsid_;
     const char* bakedPass_;
+    // Reset discovery backoff on (re)connect so the app finds the possibly-new IP
+    // fast (resilient-reconnect req-2). Optional (empty = no-op) for headless tests.
+    std::function<void()> resetDiscoveryBackoff_;
 
-    ConnectingStateHandler(IWiFi& wifi, IPreferences& prefs, const char* bakedSsid, const char* bakedPass)
-        : wifi_(wifi), prefs_(prefs), bakedSsid_(bakedSsid), bakedPass_(bakedPass) {}
+    ConnectingStateHandler(IWiFi& wifi, IPreferences& prefs, const char* bakedSsid, const char* bakedPass,
+                           std::function<void()> resetDiscoveryBackoff = {})
+        : wifi_(wifi), prefs_(prefs), bakedSsid_(bakedSsid), bakedPass_(bakedPass),
+          resetDiscoveryBackoff_(std::move(resetDiscoveryBackoff)) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         int status = wifi_.status();
         uint32_t connectDuration = now - ctx.connectStartTime;
 
         if (status == 3) {  // WL_CONNECTED
-            // IP-aware tcpRestart: only restart the TCP server when the STA IP
-            // changed, it's the first-ever connect, or the outage exceeded the
-            // safety threshold. Same IP after a brief blip → keep the socket.
+            // IP-aware tcpRestart: always restart (hardened) so the listening socket
+            // is guaranteed re-bound after a radio reset (resilient-reconnect req-3).
             uint32_t outageMs = (ctx.disconnectStartMs > 0) ? (now - ctx.disconnectStartMs) : 0;
             bool restartTcp = shouldRestartTcpServerForReconnect(wifi_.localIP(), ctx.lastConnectedIp, outageMs);
+            // RESILIENT RECONNECT (req-2): a (re)connect means the IP may have
+            // changed (or the radio reset) — reset discovery backoff so the app is
+            // re-broadcast at the SHORT/FAST cadence instead of resuming a long
+            // backoff tier. This is what lets the app re-find the ESP32 quickly.
+            if (resetDiscoveryBackoff_) {
+                resetDiscoveryBackoff_();
+            }
             ctx.reconnectPending = false;
+            ctx.reconnectAttempts = 0;
             return StateTransition(WiFiState::State::WIFI_CONNECTED, restartTcp, true);
         }
 
@@ -88,7 +100,7 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
                 return StateTransition(WiFiState::State::WIFI_AP_MODE);
             }
 
-            if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs)) {
+            if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs, ctx.reconnectAttempts)) {
                 std::string storedSsid;
                 std::string storedPass;
                 bool hasStored = (source == CredentialSource::STORED_NVS) &&
@@ -101,6 +113,7 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
                     wifi_.begin(bakedSsid_, bakedPass_);
                 }
                 ctx.lastRetryMs = now;
+                ++ctx.reconnectAttempts;
             }
         } else if (status == 0 && !isInitialConnectTimeout(connectDuration)) {
             // WL_IDLE_STATUS — RECONNECTING merged into WIFI_CONNECTING.
@@ -109,7 +122,7 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
             // re-associates. lastRetryMs is then armed to prevent rapid re-entry.
             // The !isInitialConnectTimeout guard ensures the initial-connect
             // timeout path (fallback to AP / continue for BAKED_IN) is reachable.
-            if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs)) {
+            if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs, ctx.reconnectAttempts)) {
                 CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
                 std::string storedSsid;
                 std::string storedPass;
@@ -122,6 +135,7 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
                     wifi_.begin(bakedSsid_, bakedPass_);
                 }
                 ctx.lastRetryMs = now;
+                ++ctx.reconnectAttempts;
             }
         } else if (isInitialConnectTimeout(connectDuration)) {
             CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
@@ -183,7 +197,12 @@ WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs, ISerial& serial,
     , bakedSsid_(bakedSsid), bakedPass_(bakedPass) {
     // Initialize state handlers (RECONNECTING merged into connectingHandler_)
     disconnectedHandler_ = std::make_unique<DisconnectedStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
-    connectingHandler_ = std::make_unique<ConnectingStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_);
+    connectingHandler_ = std::make_unique<ConnectingStateHandler>(wifi_, prefs_, bakedSsid_, bakedPass_,
+        [this]() {
+            if (discoveryResetCallback_) {
+                discoveryResetCallback_();
+            }
+        });
     connectedStaHandler_ = std::make_unique<ConnectedStaStateHandler>(wifi_);
     connectedApHandler_ = std::make_unique<ConnectedApStateHandler>();
 }
@@ -273,6 +292,7 @@ void WiFiManager::onDisconnected(int reason) {
         ctx_.state = WiFiState::State::WIFI_CONNECTING;
         ctx_.tcpServerNeedsRestart = true;
         ctx_.lastRetryMs = 0;  // Will be set on next update
+        ctx_.reconnectAttempts = 0;  // Restart aggressive-first-retries window (req-1)
         // Transient/recoverable disconnect: the stack re-associates rather than
         // abandoning STA. Logged as RECONNECTING because that is the semantic
         // role of this re-entry into WIFI_CONNECTING from a live connection
@@ -320,13 +340,21 @@ bool isInitialConnectTimeout(uint32_t connectDurationMs) {
                                 WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS);
 }
 
-bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry) {
+bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry, uint32_t reconnectAttempts) {
     // WIFI_CONNECTING covers both first-connect and reconnect (RECONNECTING merged).
     if (state != WiFiState::State::WIFI_DISCONNECTED &&
         state != WiFiState::State::WIFI_CONNECTING) {
         return false;
     }
-    return (now - lastRetry) >= WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
+    // RESILIENT RECONNECT (req-1): on a dropped STA connection, retry the last WiFi
+    // IMMEDIATELY for the first few reconnect attempts (no backoff). A WiFi radio
+    // reset on the ESP32 typically re-associates on the very next begin(), so a long
+    // 5s backoff needlessly extends the mid-drive connectivity gap. After the
+    // aggressive window passes, fall back to the normal retry interval.
+    const uint32_t intervalMs = (reconnectAttempts < WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT)
+        ? WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_MS
+        : WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
+    return (now - lastRetry) >= intervalMs;
 }
 
 bool loadCredentialsImpl(IPreferences& prefs, std::string& ssid, std::string& pass) {
@@ -345,13 +373,24 @@ bool loadCredentialsImpl(IPreferences& prefs, std::string& ssid, std::string& pa
 }
 
 bool shouldRestartTcpServerForReconnect(const std::string& newIp, const std::string& lastConnectedIp, uint32_t outageMs) {
-    // Restart the TCP server when:
-    //   - first-ever connect (no lastConnectedIp recorded yet), or
-    //   - the new STA IP differs from the last-known IP (e.g. DHCP gave a new lease), or
-    //   - the disconnect lasted longer than LONG_OUTAGE_MS (socket likely stale).
-    // Same IP after a brief blip → the listening socket may have survived → keep it
-    // (faster recovery, maintains connectivity).
-    return lastConnectedIp.empty() || newIp != lastConnectedIp || outageMs > WiFiConfig::LONG_OUTAGE_MS;
+    // HARDENING (host-TDD): ALWAYS restart the listening TCP server on a reconnect.
+    //
+    // Previous logic skipped the restart when the STA IP was unchanged after a
+    // brief blip ("the listening socket may have survived"). That optimization is
+    // unsafe: an ESP32 WiFiServer's listening socket is NOT guaranteed to survive
+    // a WiFi radio reset, so skipping re-begin() on a same-IP reconnect could
+    // leave the TCP server silently NOT listening — i.e. a TCP REFUSAL of every
+    // subsequent client until the next IP change. Re-begin() is idempotent and
+    // cheap; guaranteeing the socket is listening after every reconnect removes
+    // that silent-failure mode entirely.
+    //
+    // The IP/outage inputs remain in the signature (kept as the documented,
+    // future-extensible contract and to avoid churning callers); the always-true
+    // return is the deliberate hardening decision.
+    (void)newIp;
+    (void)lastConnectedIp;
+    (void)outageMs;
+    return true;
 }
 
 void WiFiManager::applyStateTransition(const StateTransition& transition) {

@@ -195,17 +195,25 @@ TEST(WiFiBehaviorInitialTimeoutTest, AtExactCapBoundaryIsFalse) {
 // §4 shouldRetryWiFi — boundaries
 // ════════════════════════════════════════════════════════════════════════════
 
-TEST(WiFiBehaviorRetryTest, ConnectingAtExactIntervalBoundaryIsTrue) {
-    // now - lastRetry == 5000 -> true (>= boundary).
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 5000, 0));
+TEST(WiFiBehaviorRetryTest, ConnectingAggressiveWindowRetriesImmediately) {
+    // RESILIENT RECONNECT (req-1): within the aggressive first-retries window
+    // (reconnectAttempts=0 < WIFI_CONNECT_FIRST_RETRIES_COUNT) the retry interval
+    // is 0, so a reconnect is retried IMMEDIATELY — no backoff.
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 1, 0, 0));
 }
 
-TEST(WiFiBehaviorRetryTest, ConnectingJustBelowIntervalIsFalse) {
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 4999, 0));
+TEST(WiFiBehaviorRetryTest, ConnectingAfterAggressiveWindowUsesInterval) {
+    // Once the aggressive window is exhausted, the normal 5000ms interval applies.
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 4999, 0,
+                                WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT));
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 5000, 0,
+                               WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT));
 }
 
 TEST(WiFiBehaviorRetryTest, ReconnectingAtExactIntervalIsTrue) {
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 5000, 0));
+    // Post-window boundary check (non-aggressive) — now-lastRetry == 5000 -> true.
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 5000, 0,
+                                WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -319,7 +327,9 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedRetryElapsedReBeginsWithStoredCred
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
-TEST(WiFiBehaviorConnectingTest, ConnectFailedRetryNotElapsedStaysConnectingNoBegin) {
+TEST(WiFiBehaviorConnectingTest, ConnectFailedAggressiveRetryReBeginsImmediately) {
+    // RESILIENT RECONNECT (req-1): on a failed connect the very first retry happens
+    // IMMEDIATELY (aggressive window, no backoff) — not after the 5000ms interval.
     Harness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
@@ -327,9 +337,10 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedRetryNotElapsedStaysConnectingNoBe
     const int beginsBefore = h.wifi.beginCalls;
 
     h.wifi.statusVal = WL_CONNECT_FAILED;
-    h.mgr->update(1000);  // well under retry interval
+    h.mgr->update(1000);  // well under old 5000ms interval
 
-    EXPECT_EQ(h.wifi.beginCalls, beginsBefore);  // no new begin
+    EXPECT_GT(h.wifi.beginCalls, beginsBefore);  // aggressive retry fires now
+    EXPECT_EQ(h.wifi.lastSsid, "net");
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
@@ -413,7 +424,10 @@ TEST(WiFiBehaviorReconnectingTest, RetryElapsedReBeginsWithStoredCreds) {
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
-TEST(WiFiBehaviorReconnectingTest, RetryNotElapsedStaysReconnectingNoBegin) {
+TEST(WiFiBehaviorReconnectingTest, RetryAggressiveReBeginsImmediatelyAfterDrop) {
+    // RESILIENT RECONNECT (req-1): after a live-connection drop the first reconnect
+    // retry fires IMMEDIATELY (aggressive window) — the ESP32 radio reset typically
+    // re-associates on the next begin(), so we must not wait the 5000ms backoff.
     Harness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
@@ -425,8 +439,8 @@ TEST(WiFiBehaviorReconnectingTest, RetryNotElapsedStaysReconnectingNoBegin) {
 
     const int beginsBefore = h.wifi.beginCalls;
     h.wifi.statusVal = WL_IDLE_STATUS;
-    h.mgr->update(1100);  // < retry interval
-    EXPECT_EQ(h.wifi.beginCalls, beginsBefore);
+    h.mgr->update(1100);  // < old retry interval
+    EXPECT_GT(h.wifi.beginCalls, beginsBefore);  // aggressive retry fires now
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
@@ -718,6 +732,146 @@ TEST(WiFiBehaviorCredentialsTest, FactoryResetClearsCredentialsViaClearCall) {
     EXPECT_TRUE(h.mgr->factoryReset());
     EXPECT_TRUE(h.prefs.cleared);
     EXPECT_FALSE(h.mgr->hasStoredCredentials());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §14 RESILIENT RECONNECT — req-1: AGGRESSIVE WIFI RECONNECT
+//   On a WiFi drop, retry the last WiFi IMMEDIATELY (no backoff for the first
+//   few reconnect attempts) so a mid-drive connectivity gap is closed instantly.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(WiFiBehaviorResilientReconnectTest, DropReconnectsImmediatelyNoBackoff) {
+    // A live-connected ESP32 drops and re-associates on the next tick. The first
+    // reconnect attempt must retry begin() IMMEDIATELY (aggressive window,
+    // interval 0) — NOT wait out the 5000ms backoff.
+    Harness h;
+    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.build();
+    h.mgr->init();
+    h.wifi.statusVal = WL_CONNECTED;
+    h.mgr->update(1000);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Drop, then a single tick later the stack still reports idle (not yet re-associated).
+    h.mgr->onDisconnected(WIFI_REASON_UNSPECIFIED);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
+    const int beginsBefore = h.wifi.beginCalls;
+    h.wifi.statusVal = WL_IDLE_STATUS;
+
+    // Tiny delta (1ms) — far below the old 5000ms backoff — must already re-begin.
+    h.mgr->update(1001);
+    EXPECT_GT(h.wifi.beginCalls, beginsBefore)
+        << "reconnect must retry begin() immediately (no backoff, req-1)";
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
+}
+
+TEST(WiFiBehaviorResilientReconnectTest, AggressiveWindowExhaustedFallsBackToBackoff) {
+    // After the first few reconnect attempts the interval returns to 5000ms, so a
+    // tick just past the aggressive window with a small delta does NOT re-begin.
+    Harness h;
+    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.build();
+    h.mgr->init();
+    h.wifi.statusVal = WL_CONNECT_FAILED;  // straight to CONNECTING with a failure
+
+    // Exhaust the aggressive window by firing the first N (count) retries. Each
+    // tick at 0ms delta advances reconnectAttempts once it begins.
+    for (uint32_t i = 0; i < WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT; ++i) {
+        h.mgr->update(i);  // aggressive: interval 0 → begin fires each tick
+    }
+    // Next tick is in the post-window: interval is back to 5000ms.
+    const int beginsBefore = h.wifi.beginCalls;
+    h.mgr->update(WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT);  // delta 0 < 5000
+    EXPECT_EQ(h.wifi.beginCalls, beginsBefore)
+        << "after aggressive window, 5000ms backoff must resume (req-1)";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §15 RESILIENT RECONNECT — req-2: RE-BROADCAST DISCOVERY ON RECONNECT
+//   On WiFi (re)connect, reset discovery backoff so the app finds the possibly-
+//   new IP at the SHORT/FAST cadence immediately (not resume a long backoff tier).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(WiFiBehaviorResilientReconnectTest, ReconnectResetsDiscoveryBackoff) {
+    Harness h;
+    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.build();
+    int discoveryResets = 0;
+    h.mgr->setDiscoveryResetCallback([&]() { ++discoveryResets; });
+    h.mgr->init();
+    h.wifi.statusVal = WL_CONNECTED;
+    h.mgr->update(1000);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // A reconnect (drop → re-associate) must invoke the discovery-reset callback.
+    h.mgr->onDisconnected(WIFI_REASON_UNSPECIFIED);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
+    const int resetsBefore = discoveryResets;
+    h.wifi.statusVal = WL_CONNECTED;
+    h.mgr->update(1001);  // re-associate
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
+    EXPECT_GT(discoveryResets, resetsBefore)
+        << "reconnect must reset discovery backoff (fast re-broadcast, req-2)";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §16 RESILIENT RECONNECT — req-3: CLOSE THE TCP RE-LISTEN GAP
+//   shouldRestartTcpServerForReconnect must RE-LISTEN the TCP server on EVERY
+//   reconnect — including a same-IP/short-outage reconnect that previously skipped
+//   re-begin() (the silent TCP-refusal mode).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(WiFiBehaviorResilientReconnectTest, SameIpReconnectReListsTcpServer) {
+    Harness h;
+    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.build();
+    h.mgr->init();
+    h.wifi.statusVal = WL_CONNECTED;
+    h.mgr->update(1000);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
+    h.mgr->clearTcpServerRestartFlag();
+    ASSERT_FALSE(h.mgr->shouldRestartTcpServer());
+
+    // Drop then re-associate with the SAME IP (brief blip).
+    h.mgr->onDisconnected(WIFI_REASON_UNSPECIFIED);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
+    h.wifi.statusVal = WL_CONNECTED;  // same IP (FakeWiFi.localIP() unchanged)
+    h.mgr->update(1001);
+
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
+    EXPECT_TRUE(h.mgr->shouldRestartTcpServer())
+        << "same-IP reconnect MUST re-listen the TCP server (req-3)";
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §17 RESILIENT RECONNECT — req-4: ALWAYS ALLOW CONNECT (last-wins)
+//   The TCP accept path must NEVER refuse or hold a taken slot: every new accept
+//   evicts the prior client (last-wins) and is adopted, so a reconnecting app is
+//   always accepted regardless of any stale client handle.
+//   (Behaviour lives in TcpServerManager::cycle; asserted there. This pins the
+//   WiFiManager/TCP integration contract: a reconnect never blocks a new accept.)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+TEST(WiFiBehaviorResilientReconnectTest, ReconnectNeverRefusesTcpConnect) {
+    // A same-IP reconnect re-lists the TCP server (req-3) AND the manager still
+    // accepts a fresh client afterwards (req-4): the listening socket is bound and
+    // no slot is held against the app. We assert the re-listen flag here; the
+    // last-wins accept is covered by TcpServerManager tests.
+    Harness h;
+    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.build();
+    h.mgr->init();
+    h.wifi.statusVal = WL_CONNECTED;
+    h.mgr->update(1000);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
+    h.mgr->clearTcpServerRestartFlag();
+
+    // App disconnects and (re)connects — the ESP32 must re-listen and stay ready.
+    h.mgr->onDisconnected(WIFI_REASON_UNSPECIFIED);
+    h.wifi.statusVal = WL_CONNECTED;
+    h.mgr->update(1001);
+    EXPECT_TRUE(h.mgr->shouldRestartTcpServer())
+        << "reconnect re-lists TCP (req-3) so a new connect is always accepted (req-4)";
 }
 
 } // namespace

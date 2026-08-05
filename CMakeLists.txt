@@ -122,6 +122,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     firmware/vanilla/StatusLEDRenderer.cpp
     firmware/vanilla/AtCommandDispatcher.cpp
     firmware/vanilla/DiscoveryManager.cpp
+    firmware/vanilla/TcpServerManager.cpp
     firmware/vanilla/WiFiManager.cpp
     firmware/vanilla/NtpTimeSync.cpp
     firmware/vanilla/OtaUpdateServer.cpp

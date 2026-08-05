@@ -30,6 +30,7 @@ namespace WiFiState {
         std::string lastConnectedIp;    // STA IP captured at the last WIFI_CONNECTED entry (empty before first connect)
         bool reconnectPending = false;   // true after a drop, until the re-connect IP check resolves
         uint32_t disconnectStartMs = 0;  // timestamp of the most recent drop (for outage-duration safety check)
+        uint32_t reconnectAttempts = 0;  // consecutive reconnect (re-begin) attempts since the last drop
     };
 }
 
@@ -124,6 +125,12 @@ struct ISerial {
 // Configuration constants
 struct WiFiConfig {
     static constexpr uint32_t WIFI_CONNECT_RETRY_INTERVAL_MS = 5000;
+    // RESILIENT RECONNECT (req-1): first N reconnect attempts retry the last WiFi
+    // IMMEDIATELY (minimal/no backoff) so a dropped STA connection is re-associated
+    // without waiting. The radio reset on the ESP32 often succeeds on the very next
+    // begin(), so a long 5s backoff needlessly extends a mid-drive connectivity gap.
+    static constexpr uint32_t WIFI_CONNECT_FIRST_RETRIES_MS = 0;
+    static constexpr uint32_t WIFI_CONNECT_FIRST_RETRIES_COUNT = 5;
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
     static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 60;  // 5 minutes at 5s interval
     static constexpr const char* AP_SSID = "ESP32-CAN";
@@ -144,6 +151,10 @@ public:
     // Callback for TCP server restart notification
     using TcpServerRestartCallback = std::function<void()>;
 
+    // Callback invoked on (re)connect to reset discovery backoff so the app is
+    // found at the possibly-new IP quickly (resilient-reconnect req-2).
+    using DiscoveryResetCallback = std::function<void()>;
+
     WiFiManager(IWiFi& wifi, IPreferences& prefs, ISerial& serial,
                 const char* bakedSsid = nullptr, const char* bakedPass = nullptr);
 
@@ -162,6 +173,7 @@ public:
     // Set callbacks
     void setNtpInitCallback(NtpInitCallback cb) { ntpInitCallback_ = std::move(cb); }
     void setTcpServerRestartCallback(TcpServerRestartCallback cb) { tcpServerRestartCallback_ = std::move(cb); }
+    void setDiscoveryResetCallback(DiscoveryResetCallback cb) { discoveryResetCallback_ = std::move(cb); }
 
     // Factory reset - clear stored credentials
     bool factoryReset();
@@ -198,6 +210,7 @@ private:
     WiFiState::Context ctx_;
     NtpInitCallback ntpInitCallback_;
     TcpServerRestartCallback tcpServerRestartCallback_;
+    DiscoveryResetCallback discoveryResetCallback_;
 
     // State handlers (RECONNECTING merged into connectingHandler_)
     std::unique_ptr<IWiFiStateHandler> disconnectedHandler_;
@@ -213,7 +226,7 @@ private:
 CredentialSource determineCredentialSource(IPreferences& prefs, const char* bakedSsid, const char* bakedPass);
 bool shouldFallbackToApMode(CredentialSource source, uint32_t connectDurationMs);
 bool isInitialConnectTimeout(uint32_t connectDurationMs);
-bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry);
+bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry, uint32_t reconnectAttempts);
 bool loadCredentialsImpl(IPreferences& prefs, std::string& ssid, std::string& pass);
 bool shouldRestartTcpServerForReconnect(const std::string& newIp, const std::string& lastConnectedIp, uint32_t outageMs);
 
