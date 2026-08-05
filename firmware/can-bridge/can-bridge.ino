@@ -57,6 +57,14 @@
 #include "FactoryReset.h"
 #include "FactoryResetCheck.h"
 #include "ArduinoResetAdapters.h"
+
+// VEHICLE_SIM_ENABLE_TWAI must default to ON (production failsafe) and be defined
+// BEFORE ArduinoCanAdapters.h consumes it below. Only host tests override to 0 (-D).
+// (Include-order bug: previously #defined at line ~243, AFTER this include, so the
+//  stub ArduinoCanDriver — receive() returns -1 — was compiled into production.)
+#ifndef VEHICLE_SIM_ENABLE_TWAI
+#define VEHICLE_SIM_ENABLE_TWAI 1
+#endif
 #include "ArduinoCanAdapters.h"
 #include "ArduinoAtAdapters.h"
 #include "ArduinoSerialSource.h"
@@ -591,6 +599,14 @@ void setup() {
     // Still call initialize() so the disabled-path log is emitted.
     (void)twaiInit.initialize(nullptr, nullptr, nullptr);
 #endif
+
+    // [CAN] receive-adapter mode at boot — the definitive TWAI indicator.
+    // "TWAI started" above is NOT sufficient: the HW-init path runs even when the
+    // receive adapter is the no-op stub (the include-order bug). This line tells
+    // you production has the REAL receiver.
+    Serial.printf("[CAN] receive adapter: %s (VEHICLE_SIM_ENABLE_TWAI=%d)\r\n",
+                  VEHICLE_SIM_ENABLE_TWAI ? "REAL twai_receive" : "STUB returns-1 NO-FRAMES",
+                  VEHICLE_SIM_ENABLE_TWAI);
 
     // NOTE: WiFi state machine is driven by FirmwareApp (WiFiManager). init() ran
     // the first state-machine tick; loop() drives subsequent ticks via update().
