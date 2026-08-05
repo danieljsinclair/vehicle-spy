@@ -22,6 +22,11 @@ namespace esp32_firmware {
 // The TWAI enabled/disabled branch is guarded at compile time; the enabled body
 // calls ::twai_receive directly, the disabled body returns -1 stubs.
 #if VEHICLE_SIM_ENABLE_TWAI
+#pragma message("ArduinoCanAdapters: REAL twai_receive compiled (VEHICLE_SIM_ENABLE_TWAI=1)")
+#else
+#pragma message("ArduinoCanAdapters: STUB receive compiled (VEHICLE_SIM_ENABLE_TWAI=0) - NO FRAMES IN PRODUCTION")
+#endif
+#if VEHICLE_SIM_ENABLE_TWAI
 struct ArduinoCanDriver : public ICanDriver {
     int driverInstall(CanGeneralConfig*, CanTimingConfig*, CanFilterConfig*) override { return 0; }  // done in setup()
     int start() override { return 0; }                              // done in setup()
@@ -35,6 +40,14 @@ struct ArduinoCanDriver : public ICanDriver {
     }
 };
 #else
+// COMPILE-TIME BUILD-GATE: the STUB driver returns -1 from receive() and decodes
+// zero CAN frames. It is only valid for host (PC) unit tests, never for a device
+// build. If this branch ever compiles while ARDUINO is defined (target firmware),
+// fail the build loudly so production can never silently ship a no-frame receiver
+// again (regression defence for the include-order bug).
+#ifdef ARDUINO
+#error STUB ArduinoCanDriver compiled in a DEVICE build - would decode 0 CAN frames
+#endif
 struct ArduinoCanDriver : public ICanDriver {
     int driverInstall(CanGeneralConfig*, CanTimingConfig*, CanFilterConfig*) override { return -1; }
     int start() override { return -1; }
