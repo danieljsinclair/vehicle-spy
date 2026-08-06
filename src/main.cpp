@@ -2,6 +2,7 @@
 #include <memory>
 #include <string_view>
 #include <csignal>
+#include <cstdio>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/Orchestration.h"
@@ -168,6 +169,16 @@ int main(int argc, char* argv[]) {
     // Parse BEFORE the banner: --stdout-csv decides which stream the banner
     // belongs on, and a banner already written to stdout cannot be recalled.
     auto opts = cli::parseArgs(argc, argv);
+
+    // When --stdout-csv is active, make the C stdio layer line-buffered so each
+    // CSV row (newline-terminated) is flushed through the pipe immediately.
+    // std::cout carries both a C++ iostream buffer and a C stdio FILE* buffer;
+    // out_.flush() (in CsvStdoutSink) only flushes the iostream layer. The C
+    // layer remains block-buffered when piped, causing ~0.5s latency bursts.
+    // setvbuf must be called before any I/O on the stream.
+    if (opts.stdout_csv) {
+        std::setvbuf(stdout, nullptr, _IOLBF, 0);
+    }
 
     cli::printBanner(opts.stdout_csv ? std::cerr : std::cout);
 
