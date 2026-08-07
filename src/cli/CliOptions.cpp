@@ -94,6 +94,7 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "OPTIONS:\n"
         << "  -c,--connect <target> Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>',\n"
         << "                        'usb:<path>', 'auto' (auto-discover ESP32), or BLE adapter address\n"
+        << "      --connect-file <path>  Synonym for '--connect file:<path>'\n"
         << "  -v,--vehicle <type>   Vehicle type (required, or 'auto' to detect)\n"
         << "  -s,--scan             Scan for BLE OBD2 adapters\n"
         << "  -l,--list             List supported signals for each vehicle\n"
@@ -107,6 +108,8 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  --log-raw <file>      (deprecated, use --log) Log raw hex to file\n"
         << "  --stdout-csv          Emit decoded CSV rows to stdout (same schema as\n"
         << "                        <base>.csv); progress moves to stderr so stdout pipes cleanly\n"
+        << "  -k,--interactive      Keyboard-driven bench mode: throttle 1-9/0, arrows\n"
+        << "                        gear/steer, b=brake, q=quit; emits CSV on stdout\n"
         << "  --help                Show this help message\n\n";
 
     if (auto vehicles = registry.getRegisteredVehicles(); !vehicles.empty()) {
@@ -125,6 +128,8 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  vehicle-sim --discover\n"
         << "  vehicle-sim --connect auto --vehicle tesla\n"
         << "  vehicle-sim --connect file:capture.csv --vehicle tesla --log-csv decoded.csv\n"
+        << "  vehicle-sim --connect-file capture.csv --vehicle tesla --stdout-csv | head -20\n"
+        << "  vehicle-sim --interactive --stdout-csv --vehicle tesla --interval 20\n"
         << "  vehicle-sim --connect tcp:192.168.4.1:3333 --vehicle tesla --log-raw x.raw --log-csv x.csv\n"
         << "  vehicle-sim --connect usb:/dev/cu.usbserial-110 --vehicle tesla --log captures/SecondDrive\n"
         << "  vehicle-sim --connect tcp:192.168.4.1 --vehicle tesla\n"
