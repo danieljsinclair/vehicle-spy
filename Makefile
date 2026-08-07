@@ -41,8 +41,17 @@ ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -o
 # `sonar-scan` (vehicle-spy = C++ core), `sonar-scan-ios` (vehicle-spy-ios = iOS
 # app), and `sonar-scan-esp32` (vehicle-spy-esp32 = ESP32) are each
 # dependency-gated: a scan runs only when THAT project's inputs change.
+# Sonar scans run by default. Pass SKIP_SONAR=1 for a faster local build that
+# skips all three SonarCloud scans (the commit `gate` target always includes
+# them, so skipping here never weakens the enforced commit gate). DRY: the leg
+# is computed once and spliced into the `all` dependency list below.
+SONAR_LEG = sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary
+ifeq ($(SKIP_SONAR),1)
+  SONAR_LEG =
+endif
+
 # `summary` (the THREE-LINE headline, one per project) is ALWAYS the last output.
-all: header test firmware ios coverage-run coverage-ios coverage-firmware sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary coverage-scorecard coverage-summary summary
+all: header test firmware ios coverage-run coverage-ios coverage-firmware $(SONAR_LEG) coverage-scorecard coverage-summary summary
 
 # Commit gate — the FULL pipeline every commit must pass 100% green before it
 # lands (CLAUDE.md COMMIT GATE rule). Each leg is an independent check; if any
