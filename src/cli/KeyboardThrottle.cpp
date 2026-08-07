@@ -54,18 +54,10 @@ KeyboardThrottle::State KeyboardThrottle::poll() {
             m_state.throttle_percent = 0.0;   // braking releases the pedal
         } else if (key == 27) {
             // Arrow keys arrive as the escape sequence 27, '[', <letter>.
-            int b = getKey();
-            int c = getKey();
+            const int b = getKey();
+            const int c = getKey();
             if (b == '[') {
-                if (c == 'A') {            // Up    → gear up
-                    m_state.gear = std::min(m_state.gear + static_cast<int>(GEAR_STEP), GEAR_MAX);
-                } else if (c == 'B') {     // Down  → gear down
-                    m_state.gear = std::max(m_state.gear - static_cast<int>(GEAR_STEP), GEAR_MIN);
-                } else if (c == 'C') {     // Right → steer +
-                    m_state.steering_angle_deg = std::min(m_state.steering_angle_deg + STEER_STEP_DEG, STEER_LIMIT_DEG);
-                } else if (c == 'D') {     // Left  → steer -
-                    m_state.steering_angle_deg = std::max(m_state.steering_angle_deg - STEER_STEP_DEG, -STEER_LIMIT_DEG);
-                }
+                applyArrow(c);
             }
         } else {
             // Any other key releases the brake (momentary brake model: brake
@@ -77,7 +69,28 @@ KeyboardThrottle::State KeyboardThrottle::poll() {
     return m_state;
 }
 
-int KeyboardThrottle::getKey() {
+void KeyboardThrottle::applyArrow(int letter) {
+    switch (letter) {
+        case 'A':   // Up    → gear up
+            m_state.gear = std::min(m_state.gear + static_cast<int>(GEAR_STEP), GEAR_MAX);
+            break;
+        case 'B':   // Down  → gear down
+            m_state.gear = std::max(m_state.gear - static_cast<int>(GEAR_STEP), GEAR_MIN);
+            break;
+        case 'C':   // Right → steer +
+            m_state.steering_angle_deg =
+                std::min(m_state.steering_angle_deg + STEER_STEP_DEG, STEER_LIMIT_DEG);
+            break;
+        case 'D':   // Left  → steer -
+            m_state.steering_angle_deg =
+                std::max(m_state.steering_angle_deg - STEER_STEP_DEG, -STEER_LIMIT_DEG);
+            break;
+        default:
+            break;
+    }
+}
+
+int KeyboardThrottle::getKey() const {
     return m_keyboard ? m_keyboard->getKey() : -1;
 }
 
@@ -101,7 +114,7 @@ bool KeyboardThrottle::setupTerminal() {
     return true;
 }
 
-void KeyboardThrottle::restoreTerminal() {
+void KeyboardThrottle::restoreTerminal() const {
     if (m_initialized) {
         tcsetattr(STDIN_FILENO, TCSANOW, &m_oldSettings);
     }

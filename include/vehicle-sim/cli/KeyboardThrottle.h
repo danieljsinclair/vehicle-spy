@@ -53,11 +53,14 @@ public:
     State poll();
 
 private:
-    int getKey();
+    /** Apply an arrow-key command (the <letter> of the 27,'[',<letter> sequence). */
+    void applyArrow(int letter);
+
+    int getKey() const;
 
 #ifndef _WIN32
     bool setupTerminal();
-    void restoreTerminal();
+    void restoreTerminal() const;
 
     termios m_oldSettings{};
     bool    m_initialized{false};

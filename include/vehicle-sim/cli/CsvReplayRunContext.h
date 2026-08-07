@@ -6,6 +6,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace vehicle_sim::cli {
 
@@ -40,7 +41,7 @@ public:
      */
     static int run(
         std::unique_ptr<vehicle_sim::io::CsvTelemetrySource> source,
-        const std::string& vehicleId,
+        std::string_view vehicleId,
         int intervalMs,
         std::ostream& out,
         vehicle_sim::util::IClock& clock,

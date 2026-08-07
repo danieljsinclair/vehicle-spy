@@ -1,6 +1,7 @@
 // FileCsvTelemetrySource.cpp - Decoded-CSV file reader for replay mode
 
 #include "vehicle-sim/io/FileCsvTelemetrySource.h"
+#include "vehicle-sim/domain/VehicleSimExceptions.h"
 
 #include <algorithm>
 #include <cctype>
@@ -10,16 +11,17 @@
 namespace vehicle_sim::io {
 
 namespace {
-std::string trim(const std::string& s) {
-    size_t start = s.find_first_not_of(" \t\r\n");
+std::string trim(std::string_view s) {
+    const size_t start = s.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) return {};
-    size_t end = s.find_last_not_of(" \t\r\n");
-    return s.substr(start, end - start + 1);
+    const size_t end = s.find_last_not_of(" \t\r\n");
+    return std::string(s.substr(start, end - start + 1));
 }
 
-std::vector<std::string> splitCsv(const std::string& line) {
+std::vector<std::string> splitCsv(std::string_view line) {
     std::vector<std::string> fields;
-    std::stringstream ss(line);
+    std::string lineStr(line);
+    std::stringstream ss(lineStr);
     std::string field;
     while (std::getline(ss, field, ',')) {
         fields.push_back(trim(field));
@@ -27,28 +29,32 @@ std::vector<std::string> splitCsv(const std::string& line) {
     return fields;
 }
 
-int findColumn(const std::vector<std::string>& headers, const std::string& name) {
+int findColumn(const std::vector<std::string>& headers, std::string_view name) {
     auto it = std::find_if(headers.begin(), headers.end(),
         [&](const std::string& h) { return h == name; });
     return it != headers.end() ? static_cast<int>(std::distance(headers.begin(), it)) : -1;
 }
 
-double toDouble(const std::string& s, double fallback) {
+double toDouble(std::string_view s, double fallback) {
     try {
         size_t idx;
-        double v = std::stod(s, &idx);
+        const double v = std::stod(std::string(s), &idx);
         return idx > 0 ? v : fallback;
-    } catch (...) {
+    } catch (const std::invalid_argument&) {
+        return fallback;
+    } catch (const std::out_of_range&) {
         return fallback;
     }
 }
 
-int toInt(const std::string& s, int fallback) {
+int toInt(std::string_view s, int fallback) {
     try {
         size_t idx;
-        int v = std::stoi(s, &idx);
+        const int v = std::stoi(std::string(s), &idx);
         return idx > 0 ? v : fallback;
-    } catch (...) {
+    } catch (const std::invalid_argument&) {
+        return fallback;
+    } catch (const std::out_of_range&) {
         return fallback;
     }
 }
@@ -59,13 +65,13 @@ FileCsvTelemetrySource::FileCsvTelemetrySource(std::string filePath)
 {
     m_in.open(m_filePath);
     if (!m_in.is_open()) {
-        throw std::runtime_error("Cannot open telemetry CSV: " + m_filePath);
+        throw domain::TelemetryFileException(m_filePath);
     }
 
     // Read and parse header (column order is irrelevant; names are matched).
     std::string headerLine;
     if (!std::getline(m_in, headerLine)) {
-        throw std::runtime_error("Empty telemetry CSV: " + m_filePath);
+        throw domain::TelemetryFileException(m_filePath);
     }
     m_headers = splitCsv(headerLine);
 
@@ -105,8 +111,8 @@ bool FileCsvTelemetrySource::hasNext() const {
     return true;
 }
 
-bool FileCsvTelemetrySource::parseRow(const std::string& line,
-                                      vehicle_sim::telemetry::CsvTelemetryRow& out) {
+bool FileCsvTelemetrySource::parseRow(std::string_view line,
+                                      vehicle_sim::telemetry::CsvTelemetryRow& out) const {
     auto fields = splitCsv(line);
     if (fields.empty()) return false;
 
@@ -114,17 +120,17 @@ bool FileCsvTelemetrySource::parseRow(const std::string& line,
         fields.resize(m_headers.size());
     }
 
-    const auto get = [&](int col, double fallback) -> double {
+    const auto get = [&](int col, double fallback) {
         return (col >= 0 && col < static_cast<int>(fields.size()))
                    ? toDouble(fields[col], fallback)
                    : fallback;
     };
-    const auto getInt = [&](int col, int fallback) -> int {
+    const auto getInt = [&](int col, int fallback) {
         return (col >= 0 && col < static_cast<int>(fields.size()))
                    ? toInt(fields[col], fallback)
                    : fallback;
     };
-    const auto getStr = [&](int col) -> std::string {
+    const auto getStr = [&](int col) {
         return (col >= 0 && col < static_cast<int>(fields.size()))
                    ? fields[col]
                    : std::string{};

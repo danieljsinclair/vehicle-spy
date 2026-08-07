@@ -5,12 +5,13 @@
 
 #include <chrono>
 #include <iostream>
+#include <string_view>
 
 namespace vehicle_sim::cli {
 
 int CsvReplayRunContext::run(
     std::unique_ptr<vehicle_sim::io::CsvTelemetrySource> source,
-    const std::string& vehicleId,
+    std::string_view vehicleId,
     int intervalMs,
     std::ostream& out,
     vehicle_sim::util::IClock& clock,

@@ -55,7 +55,7 @@ private:
         int dbc_signal_count{-1};
     };
 
-    bool parseRow(const std::string& line, vehicle_sim::telemetry::CsvTelemetryRow& out);
+    bool parseRow(std::string_view line, vehicle_sim::telemetry::CsvTelemetryRow& out) const;
 
     // Look-ahead buffering: m_pending holds the next real data row (when
     // engaged) and m_eof marks true end-of-stream. hasNext() pulls the next

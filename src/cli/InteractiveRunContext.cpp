@@ -11,18 +11,19 @@
 
 namespace vehicle_sim::cli {
 
-std::function<std::unique_ptr<IKeyboardInput>()> InteractiveRunContext::defaultKeyboard() {
+InteractiveRunContext::KeyboardFactory InteractiveRunContext::defaultKeyboard() {
     return []() -> std::unique_ptr<IKeyboardInput> {
         return std::make_unique<KeyboardInput>();
     };
 }
 
-int InteractiveRunContext::run(
+template <typename KeyboardFactoryT>
+int InteractiveRunContext::runImpl(
     const std::string& vehicleId,
     int intervalMs,
     std::ostream& out,
     vehicle_sim::util::IClock& clock,
-    std::function<std::unique_ptr<IKeyboardInput>()> makeKeyboard)
+    KeyboardFactoryT makeKeyboard)
 {
     using namespace vehicle_sim::telemetry;
 
@@ -47,5 +48,16 @@ int InteractiveRunContext::run(
 
     return 0;
 }
+
+// The only factory type used in practice is KeyboardFactory (std::function);
+// both main.cpp (default factory) and the tests (fake factory) instantiate the
+// template with this type, so a single explicit instantiation keeps the
+// template definition out of the header.
+template int InteractiveRunContext::runImpl<InteractiveRunContext::KeyboardFactory>(
+    const std::string&,
+    int,
+    std::ostream&,
+    vehicle_sim::util::IClock&,
+    InteractiveRunContext::KeyboardFactory);
 
 } // namespace vehicle_sim::cli
