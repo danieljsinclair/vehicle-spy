@@ -148,6 +148,14 @@ void FirmwareApp::setupCallbacks() {
     wifiManager_->setNtpInitCallback([this]() {
         ntpStarted_ = true;
     });
+
+    // RESILIENT RECONNECT (req-2): on every WiFi (re)connect, reset the discovery
+    // backoff so the app is re-broadcast at the SHORT/FAST gap immediately — the
+    // possibly-new IP is found without waiting out the long backoff tier.
+    wifiManager_->setDiscoveryResetCallback([this]() {
+        assert(discoveryManager_ && "discoveryReset callback before init()");
+        discoveryManager_->resetBackoff();
+    });
 }
 
 void FirmwareApp::update(uint32_t now) {

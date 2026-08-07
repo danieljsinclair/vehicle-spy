@@ -83,6 +83,7 @@ add_executable(vehicle-sim-tests
     firmware/WiFiManagerBehavior.test.cpp
     firmware/WiFiManagerWiring.test.cpp
     firmware/FirmwareApp.test.cpp
+    firmware/TcpServerManager.test.cpp
 )
 
 target_link_libraries(vehicle-sim-tests

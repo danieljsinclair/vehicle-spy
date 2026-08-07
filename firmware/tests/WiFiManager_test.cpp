@@ -107,14 +107,14 @@ TEST_F(WiFiManagerTest, IsInitialConnectTimeout_WithinMaxRetries_ReturnsFalse) {
 TEST_F(WiFiManagerTest, ShouldRetryWiFi_DisconnectedState_ReturnsTrueAfterInterval) {
     uint32_t now = WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
     bool result = shouldRetryWiFi(
-        WiFiState::State::WIFI_DISCONNECTED, now, 0
+        WiFiState::State::WIFI_DISCONNECTED, now, 0, /*reconnectAttempts=*/0
     );
     EXPECT_TRUE(result);
 }
 
 TEST_F(WiFiManagerTest, ShouldRetryWiFi_ConnectedState_ReturnsFalse) {
     bool result = shouldRetryWiFi(
-        WiFiState::State::WIFI_CONNECTED, 10000, 0
+        WiFiState::State::WIFI_CONNECTED, 10000, 0, /*reconnectAttempts=*/0
     );
     EXPECT_FALSE(result);
 }
@@ -690,9 +690,11 @@ TEST_F(WiFiManagerTest, testFirstConnectRestartsTcpServer) {
         << "lastConnectedIp must be captured on first connect";
 }
 
-TEST_F(WiFiManagerTest, testReconnectSameIpKeepsTcpServer) {
-    // Same IP after a brief drop → tcpRestart does NOT fire (socket survives,
-    // fastest recovery, maintains connectivity).
+TEST_F(WiFiManagerTest, testReconnectSameIpAlwaysRestartsTcpServer) {
+    // RESILIENT RECONNECT (req-3): Same IP after a brief drop MUST re-listen the
+    // TCP server. The ESP32 WiFiServer listening socket is not guaranteed to
+    // survive a WiFi radio reset, so always re-begin() — never skip a same-IP
+    // reconnect. (Previously this asserted the socket "kept" and did NOT restart.)
     prefsMock.setValue("wifi", "ssid", "test-ssid");
     prefsMock.setValue("wifi", "pass", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
@@ -713,7 +715,7 @@ TEST_F(WiFiManagerTest, testReconnectSameIpKeepsTcpServer) {
     wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
     wifiManager->update(200);
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
-    // Drop path: tcpRestart=false, reconnectPending=true.
+    // Drop path: tcpRestart=false, reconnectPending=true (deferred to re-connect).
     EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
         << "same-IP drop must NOT set tcpRestart (deferred to re-connect)";
 
@@ -722,9 +724,9 @@ TEST_F(WiFiManagerTest, testReconnectSameIpKeepsTcpServer) {
     wifiManager->update(201);
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
 
-    // Same IP + short outage → shouldRestartTcpServerForReconnect returns false.
-    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
-        << "same-IP reconnect after brief blip must NOT restart TCP server";
+    // Same IP + short outage → shouldRestartTcpServerForReconnect ALWAYS returns true.
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "same-IP reconnect after brief blip MUST re-listen TCP server (req-3)";
 }
 
 TEST_F(WiFiManagerTest, testReconnectDifferentIpRestartsTcpServer) {
@@ -801,17 +803,25 @@ TEST_F(WiFiManagerTest, testShouldRestartTcpServerForReconnect_PureHelper) {
     // Direct unit test of the pure helper across the 2x2 matrix
     // (empty/filled lastIp × same/different newIp) + the long-outage branch.
     // No fixture needed — fast, deterministic.
+    //
+    // RESILIENT RECONNECT (req-3) HARDENING: shouldRestartTcpServerForReconnect
+    // ALWAYS returns true — even for the same-IP/short-outage case that previously
+    // returned false. The ESP32 WiFiServer's listening socket is NOT guaranteed to
+    // survive a WiFi radio reset, so skipping re-begin() on a same-IP reconnect
+    // could leave the TCP server silently NOT listening (a TCP refusal). Re-begin()
+    // is idempotent and cheap, so guaranteeing a re-listen on every reconnect removes
+    // that silent-failure mode.
 
     // First-ever connect: lastConnectedIp empty → always restart.
     EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "", 0));
     EXPECT_TRUE(shouldRestartTcpServerForReconnect("0.0.0.0", "", 0));
 
-    // Same IP, short outage → no restart (boundary: LONG_OUTAGE_MS is NOT long).
-    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100", 0));
-    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100", 1000));
-    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
+    // Same IP, short outage → ALWAYS restart now (was: no restart).
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100", 0));
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100", 1000));
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
         WiFiConfig::LONG_OUTAGE_MS - 1));
-    EXPECT_FALSE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
         WiFiConfig::LONG_OUTAGE_MS));
 
     // Different IP → always restart (regardless of outage).
@@ -820,7 +830,7 @@ TEST_F(WiFiManagerTest, testShouldRestartTcpServerForReconnect_PureHelper) {
     EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.105", "192.168.1.100",
         WiFiConfig::LONG_OUTAGE_MS + 1));
 
-    // Same IP, long outage → restart (safety).
+    // Same IP, long outage → restart.
     EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
         WiFiConfig::LONG_OUTAGE_MS + 1));
     EXPECT_TRUE(shouldRestartTcpServerForReconnect("192.168.1.100", "192.168.1.100",
@@ -828,11 +838,11 @@ TEST_F(WiFiManagerTest, testShouldRestartTcpServerForReconnect_PureHelper) {
 }
 
 TEST_F(WiFiManagerTest, testUserFacingSerialDoesNotLeakRestartDetail) {
-    // On a same-IP reconnect, the WiFiManager must NOT set tcpServerNeedsRestart
-    // (so can-bridge.ino won't emit any "Restarting TCP server" / "IP change"
-    // serial line — the [STATE]/[EVENT] stream already conveys the reconnect).
-    // On a different-IP reconnect, the flag IS set (the restart is real) but
-    // the serial message is omitted/relabeled in can-bridge.ino.
+    // RESILIENT RECONNECT (req-3): the WiFiManager now arms tcpServerNeedsRestart on
+    // EVERY reconnect (same-IP or different-IP) so the listening socket is always
+    // re-bound after a radio reset. The serial trace is still controlled by
+    // can-bridge.ino (it omits the user-facing message regardless). This test now
+    // pins that BOTH same-IP and different-IP reconnects arm the flag.
     prefsMock.setValue("wifi", "ssid", "test-ssid");
     prefsMock.setValue("wifi", "pass", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
@@ -845,15 +855,15 @@ TEST_F(WiFiManagerTest, testUserFacingSerialDoesNotLeakRestartDetail) {
     wifiManager->update(100);
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
 
-    // --- Same-IP reconnect: flag must NOT be set (no serial leak) ---
+    // --- Same-IP reconnect: flag MUST be set (always re-listen, req-3) ---
     wifiManager->clearTcpServerRestartFlag();
     wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
     wifiManager->update(200);
     wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
     wifiManager->update(201);
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
-    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
-        << "same-IP reconnect must not arm tcpServerNeedsRestart (no serial leak)";
+    EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
+        << "same-IP reconnect must arm tcpServerNeedsRestart (always re-listen, req-3)";
 
     // --- Different-IP reconnect: flag IS set (restart is real, message omitted) ---
     wifiManager->clearTcpServerRestartFlag();

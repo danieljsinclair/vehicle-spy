@@ -52,8 +52,11 @@ bool TcpServerManager::isValidAuthToken(const std::string& received,
 
 void TcpServerManager::cycle(uint32_t /*nowMs*/) {
     // ── 1. Probe for a new connection every tick ─────────────────────────────
-    // A new arrival replaces any current client (connected or not): the old
-    // client is stop()'d, the new one is adopted and pushed through auth.
+    // ALWAYS-ALLOW-CONNECT (resilient-reconnect req-4): the firmware never refuses
+    // or holds the single client slot. A new arrival replaces any current client
+    // (connected or not) — LAST-WINS — so the ESP32 and app stay magnetic/sticky
+    // regardless of connect order. The old client is stop()'d, the new one is
+    // adopted and pushed through auth. There is no "slot taken" refusal path.
     std::unique_ptr<ITcpServerClient> next = server_.accept();
     if (next) {
         if (current_) {

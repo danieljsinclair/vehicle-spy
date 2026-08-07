@@ -129,14 +129,18 @@ TEST(WiFiPureTest, IsInitialConnectTimeout) {
 }
 
 TEST(WiFiPureTest, ShouldRetryWiFiOnlyForTransientStates) {
-    // Connected states never retry.
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTED, 10000, 0));
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_AP_MODE, 10000, 0));
-    // Transient states retry after interval.
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_DISCONNECTED, 1000, 0));  // < 5000
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_DISCONNECTED, 6000, 0));    // >= 5000
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 6000, 0));
-    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 6000, 0));
+    // Connected states never retry (regardless of attempts/window).
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTED, 10000, 0, 0));
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_AP_MODE, 10000, 0, 0));
+    // RESILIENT RECONNECT (req-1): in the aggressive first-retries window
+    // (reconnectAttempts < WIFI_CONNECT_FIRST_RETRIES_COUNT) the retry interval is
+    // 0, so a transient state retries IMMEDIATELY (no backoff) even at now=1ms.
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_DISCONNECTED, 1, 0, 0));    // aggressive: immediate
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 1000, 0, 0));   // aggressive: immediate
+    // Once the aggressive window is exhausted, the normal 5000ms interval applies.
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_DISCONNECTED, 1000, 0, WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT)); // < 5000
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_DISCONNECTED, 6000, 0, WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT));   // >= 5000
+    EXPECT_TRUE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, 6000, 0, WiFiConfig::WIFI_CONNECT_FIRST_RETRIES_COUNT));
 }
 
 TEST(WiFiPureTest, LoadCredentialsImplReturnsStored) {
@@ -312,6 +316,43 @@ TEST(WiFiStateMachineTest, TcpRestartCallbackFiresOnSetFlagTransition) {
     wifi.statusVal = 3;
     mgr.update(1);  // CONNECTED_STA sets restart flag + ntp
     EXPECT_TRUE(tcpRestart);
+}
+
+// RESILIENT RECONNECT (req-2): on a (re)connect the WiFiManager must invoke the
+// discovery-reset callback so the app is re-broadcast at the SHORT/FAST cadence
+// (reset any backoff tier) and re-finds the possibly-new IP quickly.
+TEST(WiFiStateMachineTest, DiscoveryResetFiresOnFirstConnect) {
+    FakeWiFi wifi; FakePreferences prefs;
+    int discoveryResets = 0;
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
+    mgr.setDiscoveryResetCallback([&]() { ++discoveryResets; });
+    prefs.ssid = "net"; prefs.pass = "pw";
+    mgr.init();  // -> CONNECTING
+    EXPECT_EQ(discoveryResets, 0);  // not yet connected
+    wifi.statusVal = 3;  // WL_CONNECTED
+    mgr.update(1);  // -> CONNECTED_STA
+    EXPECT_EQ(discoveryResets, 1);  // discovery backoff reset on connect
+}
+
+TEST(WiFiStateMachineTest, DiscoveryResetFiresOnReconnectAfterDrop) {
+    FakeWiFi wifi; FakePreferences prefs;
+    int discoveryResets = 0;
+    FakeSerial serial;
+    WiFiManager mgr(wifi, prefs, serial);
+    mgr.setDiscoveryResetCallback([&]() { ++discoveryResets; });
+    prefs.ssid = "net"; prefs.pass = "pw";
+    mgr.init();
+    wifi.statusVal = 3;
+    mgr.update(1);  // -> CONNECTED_STA (1 reset)
+    ASSERT_EQ(discoveryResets, 1);
+
+    // Drop to RECONNECTING, then re-associate.
+    mgr.onDisconnected(WIFI_REASON_UNSPECIFIED);
+    ASSERT_EQ(mgr.getState(), WiFiState::State::WIFI_CONNECTING);
+    wifi.statusVal = 3;  // re-associated (possibly new IP)
+    mgr.update(2);  // -> CONNECTED_STA again
+    EXPECT_EQ(discoveryResets, 2);  // discovery backoff reset AGAIN on reconnect
 }
 
 } // namespace
