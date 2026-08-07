@@ -8,7 +8,7 @@
 namespace vehicle_sim::io {
 
 InteractiveCsvTelemetrySource::InteractiveCsvTelemetrySource(
-    std::unique_ptr<vehicle_sim::cli::KeyboardThrottle> throttle,
+    std::unique_ptr<vehicle_sim::interactive::KeyboardThrottle> throttle,
     vehicle_sim::util::IClock& clock,
     std::string vehicleId,
     int intervalMs

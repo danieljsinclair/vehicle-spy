@@ -1,6 +1,6 @@
 #include "vehicle-sim/io/InteractiveCsvTelemetrySource.h"
-#include "vehicle-sim/cli/KeyboardThrottle.h"
-#include "vehicle-sim/cli/IKeyboardInput.h"
+#include "vehicle-sim/interactive/KeyboardThrottle.h"
+#include "vehicle-sim/interactive/IKeyboardInput.h"
 #include "vehicle-sim/util/IClock.h"
 
 #include <gtest/gtest.h>
@@ -10,7 +10,7 @@
 
 namespace {
 
-class ScriptedKeyboard : public vehicle_sim::cli::IKeyboardInput {
+class ScriptedKeyboard : public vehicle_sim::interactive::IKeyboardInput {
 public:
     explicit ScriptedKeyboard(std::queue<int> keys) : keys_{std::move(keys)} {}
     int getKey() override {
@@ -36,11 +36,11 @@ protected:
                                    time_point) const override { return false; }
 };
 
-std::unique_ptr<vehicle_sim::cli::KeyboardThrottle> throttleWith(
+std::unique_ptr<vehicle_sim::interactive::KeyboardThrottle> throttleWith(
     std::initializer_list<int> keys) {
     std::queue<int> q;
     for (int k : keys) q.push(k);
-    return std::make_unique<vehicle_sim::cli::KeyboardThrottle>(
+    return std::make_unique<vehicle_sim::interactive::KeyboardThrottle>(
         std::make_unique<ScriptedKeyboard>(std::move(q)));
 }
 

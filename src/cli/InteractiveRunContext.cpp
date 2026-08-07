@@ -1,8 +1,8 @@
 // InteractiveRunContext.cpp - Interactive emission loop
 
 #include "vehicle-sim/cli/InteractiveRunContext.h"
-#include "vehicle-sim/cli/KeyboardInput.h"
-#include "vehicle-sim/cli/KeyboardThrottle.h"
+#include "vehicle-sim/interactive/KeyboardInput.h"
+#include "vehicle-sim/interactive/KeyboardThrottle.h"
 #include "vehicle-sim/io/InteractiveCsvTelemetrySource.h"
 #include "vehicle-sim/telemetry/CsvRowFormatter.h"
 
@@ -12,8 +12,8 @@
 namespace vehicle_sim::cli {
 
 InteractiveRunContext::KeyboardFactory InteractiveRunContext::defaultKeyboard() {
-    return []() -> std::unique_ptr<IKeyboardInput> {
-        return std::make_unique<KeyboardInput>();
+    return []() -> std::unique_ptr<interactive::IKeyboardInput> {
+        return std::make_unique<interactive::KeyboardInput>();
     };
 }
 
@@ -31,7 +31,7 @@ int InteractiveRunContext::runImpl(
     if (!keyboard) {
         return 1;
     }
-    auto throttle = std::make_unique<KeyboardThrottle>(std::move(keyboard));
+    auto throttle = std::make_unique<interactive::KeyboardThrottle>(std::move(keyboard));
     auto source = std::make_unique<io::InteractiveCsvTelemetrySource>(
         std::move(throttle),
         clock,

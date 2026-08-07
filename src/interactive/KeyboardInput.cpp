@@ -1,7 +1,7 @@
-// KeyboardInput.cpp - Non-blocking terminal keyboard input
-// Ported from engine-sim-cli's KeyboardInput (shared logic, DRY).
+// KeyboardInput.cpp - Non-blocking terminal keyboard input.
+// Concrete POSIX terminal adapter for the bridge's IKeyboardInput contract.
 
-#include "vehicle-sim/cli/KeyboardInput.h"
+#include "vehicle-sim/interactive/KeyboardInput.h"
 
 #ifndef _WIN32
 
@@ -9,7 +9,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-namespace vehicle_sim::cli {
+namespace vehicle_sim::interactive {
 
 KeyboardInput::KeyboardInput()
     : m_initialized{setupTerminal()}
@@ -49,6 +49,6 @@ bool KeyboardInput::setupTerminal() {
     return true;
 }
 
-} // namespace vehicle_sim::cli
+} // namespace vehicle_sim::interactive
 
 #endif // _WIN32

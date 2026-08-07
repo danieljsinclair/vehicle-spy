@@ -1,17 +1,20 @@
 #pragma once
 
-#include "vehicle-sim/cli/IKeyboardInput.h"
+#include "vehicle-sim/interactive/IKeyboardInput.h"
 
 #ifndef _WIN32
 #include <termios.h>
 #endif
 
-namespace vehicle_sim::cli {
+namespace vehicle_sim::interactive {
 
 /**
  * Terminal-backed keyboard input — non-blocking, raw-mode on POSIX.
  * Wraps termios + fcntl(O_NONBLOCK) so callers see a simple int getKey().
- * Ported verbatim from engine-sim-cli's KeyboardInput (shared logic, DRY).
+ *
+ * This is the one piece that is genuinely vehicle-sim's own: it is the
+ * concrete POSIX terminal adapter implementing the bridge's IKeyboardInput
+ * contract. The bridge supplies the interface; we supply the terminal.
  */
 class KeyboardInput final : public IKeyboardInput {
 public:
@@ -34,4 +37,4 @@ private:
 #endif
 };
 
-} // namespace vehicle_sim::cli
+} // namespace vehicle_sim::interactive

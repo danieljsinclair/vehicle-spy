@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vehicle-sim/cli/KeyboardThrottle.h"
+#include "vehicle-sim/interactive/KeyboardThrottle.h"
 #include "vehicle-sim/io/CsvTelemetrySource.h"
 #include "vehicle-sim/util/IClock.h"
 
@@ -27,7 +27,7 @@ public:
      * @param intervalMs Tick interval in milliseconds (default 20 ms = 50 Hz).
      */
     InteractiveCsvTelemetrySource(
-        std::unique_ptr<vehicle_sim::cli::KeyboardThrottle> throttle,
+        std::unique_ptr<vehicle_sim::interactive::KeyboardThrottle> throttle,
         vehicle_sim::util::IClock& clock,
         std::string vehicleId,
         int intervalMs = 20
@@ -40,7 +40,7 @@ public:
     std::string name() const override { return "interactive"; }
 
 private:
-    std::unique_ptr<vehicle_sim::cli::KeyboardThrottle> m_throttle;
+    std::unique_ptr<vehicle_sim::interactive::KeyboardThrottle> m_throttle;
     vehicle_sim::util::IClock&                          m_clock;
     std::string                                         m_vehicleId;
     int                                                 m_intervalMs;

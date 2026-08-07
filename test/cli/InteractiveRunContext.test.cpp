@@ -5,7 +5,7 @@
 // cleanly on 'q'. We inject a scripted keyboard (no terminal) and a FakeClock
 // (no real-time sleeps) so the test is deterministic.
 
-#include "vehicle-sim/cli/IKeyboardInput.h"
+#include "vehicle-sim/interactive/IKeyboardInput.h"
 #include "vehicle-sim/cli/InteractiveRunContext.h"
 #include "vehicle-sim/telemetry/CsvRowFormatter.h"
 #include "vehicle-sim/util/IClock.h"
@@ -21,7 +21,7 @@
 
 namespace {
 
-class FakeKeyboard : public vehicle_sim::cli::IKeyboardInput {
+class FakeKeyboard : public vehicle_sim::interactive::IKeyboardInput {
 public:
     explicit FakeKeyboard(std::vector<int> keys) : keys_{std::move(keys)} {}
     int getKey() override {
@@ -36,9 +36,9 @@ private:
 
 // Factory that returns a fresh FakeKeyboard each call (matches the injected
 // factory signature used by InteractiveRunContext::run).
-std::function<std::unique_ptr<vehicle_sim::cli::IKeyboardInput>()> fakeKeyboardFactory(
+std::function<std::unique_ptr<vehicle_sim::interactive::IKeyboardInput>()> fakeKeyboardFactory(
     std::vector<int> keys) {
-    return [keys]() -> std::unique_ptr<vehicle_sim::cli::IKeyboardInput> {
+    return [keys]() -> std::unique_ptr<vehicle_sim::interactive::IKeyboardInput> {
         return std::make_unique<FakeKeyboard>(keys);
     };
 }
@@ -72,8 +72,8 @@ TEST(InteractiveRunContextTest, EmitsCanonicalHeaderAndQuitsOnQ) {
 
 TEST(InteractiveRunContextTest, ReturnsErrorWhenKeyboardFactoryYieldsNull) {
     vehicle_sim::util::FakeClock clock;
-    std::function<std::unique_ptr<vehicle_sim::cli::IKeyboardInput>()> nullFactory =
-        []() -> std::unique_ptr<vehicle_sim::cli::IKeyboardInput> { return nullptr; };
+    std::function<std::unique_ptr<vehicle_sim::interactive::IKeyboardInput>()> nullFactory =
+        []() -> std::unique_ptr<vehicle_sim::interactive::IKeyboardInput> { return nullptr; };
 
     std::ostringstream out;
     const int rc = vehicle_sim::cli::InteractiveRunContext::run(

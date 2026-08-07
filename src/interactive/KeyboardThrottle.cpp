@@ -1,7 +1,8 @@
-// KeyboardThrottle.cpp - Keyboard-to-throttle mapper
-// Ported from engine-sim-cli's KeyboardInputProvider throttle logic (DRY).
+// KeyboardThrottle.cpp - Keyboard-to-throttle mapper.
+// Consumes the bridge's IKeyboardInput contract by injection; the key source
+// is substitutable, so this maps keys to state without touching a terminal.
 
-#include "vehicle-sim/cli/KeyboardThrottle.h"
+#include "vehicle-sim/interactive/KeyboardThrottle.h"
 
 #include <algorithm>
 
@@ -11,7 +12,7 @@
 #include <unistd.h>
 #endif
 
-namespace vehicle_sim::cli {
+namespace vehicle_sim::interactive {
 
 namespace {
 constexpr double GEAR_STEP = 1.0;        // gear is an integer 1..9
@@ -122,4 +123,4 @@ void KeyboardThrottle::restoreTerminal() const {
 
 #endif // _WIN32
 
-} // namespace vehicle_sim::cli
+} // namespace vehicle_sim::interactive

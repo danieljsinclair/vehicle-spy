@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vehicle-sim/cli/IKeyboardInput.h"
+#include "vehicle-sim/interactive/IKeyboardInput.h"
 
 #include <memory>
 
@@ -8,12 +8,13 @@
 #include <termios.h>
 #endif
 
-namespace vehicle_sim::cli {
+namespace vehicle_sim::interactive {
 
 /**
  * Keyboard-to-throttle mapper — shared between CSV replay and interactive
- * modes, and ported from engine-sim-cli's KeyboardInputProvider throttle
- * logic (DRY).
+ * modes. Depends on the bridge's IKeyboardInput contract by injection
+ * (see IKeyboardInput.h in this folder), so the key-reading source is
+ * substitutable and the mapper is testable without a terminal.
  *
  * The mapper is STATEFUL: it accumulates throttle/gear/brake/steering across
  * polls so a key pressed once stays applied until changed or released. Each
@@ -70,4 +71,4 @@ private:
     State                           m_state;   // accumulated across polls
 };
 
-} // namespace vehicle_sim::cli
+} // namespace vehicle_sim::interactive
