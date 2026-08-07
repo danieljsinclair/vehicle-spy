@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vehicle-sim/domain/VehicleSignal.h"
+#include "vehicle-sim/telemetry/CsvTelemetryRow.h"
 
 #include <string>
 
@@ -39,5 +40,17 @@ namespace vehicle_sim::telemetry {
  */
 [[nodiscard]] std::string csvRowLine(const domain::VehicleSignal& signal,
                                      const std::string& vehicleId);
+
+/**
+ * One CSV data row for a `CsvTelemetryRow`, without a trailing newline.
+ *
+ * Overload for the bench-replay / interactive telemetry path (CSV replay and
+ * interactive modes). Renders the same 13-column schema as the
+ * `VehicleSignal` overload so a piped stdout stream is byte-identical to the
+ * live `--stdout-csv` output (single source of truth, DRY).
+ *
+ * @param row       Pre-computed telemetry row to render.
+ */
+[[nodiscard]] std::string csvRowLine(const CsvTelemetryRow& row);
 
 } // namespace vehicle_sim::telemetry

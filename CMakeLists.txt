@@ -103,6 +103,12 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/cli/BLERunContext.cpp
     src/cli/ReplayRunContext.cpp
     src/cli/LiveRunContext.cpp
+    src/cli/CsvReplayRunContext.cpp
+    src/cli/InteractiveRunContext.cpp
+    src/cli/KeyboardInput.cpp
+    src/cli/KeyboardThrottle.cpp
+    src/io/FileCsvTelemetrySource.cpp
+    src/io/InteractiveCsvTelemetrySource.cpp
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp
     src/boundary/OBD2Protocol.cpp

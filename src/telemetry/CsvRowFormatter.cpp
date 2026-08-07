@@ -73,4 +73,23 @@ std::string csvRowLine(const domain::VehicleSignal& signal,
     return row.str();
 }
 
+std::string csvRowLine(const CsvTelemetryRow& row) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2);
+    oss << row.timestamp_ms << ","
+        << row.vehicle_id << ","
+        << row.speed_kmh << ","
+        << row.throttle_percent << ","
+        << row.brake_percent << ","
+        << row.acceleration_g << ","
+        << row.steering_angle_deg << ","
+        << row.motor_rpm << ","
+        << row.motor_hv_voltage << ","
+        << row.motor_hv_current << ","
+        << row.motor_torque_nm << ","
+        << row.gear_selector << ","
+        << row.dbc_signal_count;
+    return oss.str();
+}
+
 } // namespace vehicle_sim::telemetry

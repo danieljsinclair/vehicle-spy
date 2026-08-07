@@ -1,4 +1,5 @@
 #include "vehicle-sim/domain/DBCFileParser.h"
+#include "vehicle-sim/util/ExecutablePath.h"
 
 #include <charconv>
 #include <fstream>
@@ -366,7 +367,10 @@ DBCParseResult DBCFileParser::parseFile(
     const std::string& dbcFilePath
 ) const noexcept {
     try {
-        std::ifstream file(dbcFilePath);
+        // Resolve the DBC path relative to the running executable so the binary
+        // works from any CWD (same approach as loadVehicle in DBCTranslationService).
+        const std::string resolvedPath = util::ExecutablePath::resolveResource(dbcFilePath);
+        std::ifstream file(resolvedPath);
         if (!file.is_open()) return DBCParseResult{};
 
         std::stringstream buffer;
