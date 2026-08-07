@@ -399,6 +399,46 @@ bool TCPTransport::backoffThenAttemptReconnect(int delayMs,
     return false;  // keep retrying
 }
 
+// Aggressive immediate-retry phase (spec: "immediately retries the last-known
+// IP:port ... minimal backoff for first retries"). Hammers the last-known IP:port
+// RAPID_RETRIES times with RAPID_RETRY_DELAY_MS between attempts — the FIRST
+// attempt fires with zero backoff (immediate) so a recoverable glitch reconnects
+// within milliseconds, not after BASE_RETRY_DELAY_MS (1s). Runs in parallel with
+// the discovery hunt (enterHuntingState owns the discovery thread). Each attempt
+// is stop- and discovery-interruptible: a discovery win or requestStop aborts the
+// rapid phase immediately and yields (discovery drives the switch).
+bool TCPTransport::rapidReconnect(const std::atomic<bool>& discoveryFound, bool& reconnected) {
+    for (int attempt = 0; attempt < RAPID_RETRIES; ++attempt) {
+        // Abort the rapid phase the instant discovery wins or we're told to stop.
+        if (discoveryFound.load() || stop_->stopRequested()) {
+            return false;  // hand off to finalizeHunt (discovery drives the switch)
+        }
+
+        // First attempt is immediate (zero backoff); subsequent rapid retries
+        // use minimal backoff. All sleeps route through IClock (FakeClock =
+        // instant in tests, SystemClock = real sleep in production).
+        if (attempt > 0) {
+            clock_->sleepFor(std::chrono::milliseconds(RAPID_RETRY_DELAY_MS));
+            if (discoveryFound.load() || stop_->stopRequested()) {
+                return false;
+            }
+        }
+
+        output_->err("[tcp] reconnecting: rapid retry " + std::to_string(attempt + 1) + "/" +
+                     std::to_string(RAPID_RETRIES) + " to last-known " + host_ + ":" +
+                     std::to_string(port_) + kClientTag + "...");
+
+        if (connectAndAuth()) {
+            reconnected = true;
+            output_->out("[tcp] hunting: reconnected to old IP " + host_ + ":" +
+                         std::to_string(port_) + kClientTag);
+            retryCount_ = 0;
+            return true;  // last-known IP reconnected — hunt complete.
+        }
+    }
+    return false;  // rapid phase exhausted — fall through to exponential backoff.
+}
+
 // Decide the hunt outcome after the retry loop + discovery have settled.
 // Single exit: returns the hunt result and resets retryCount_ on success.
 bool TCPTransport::finalizeHunt(const std::atomic<bool>& discoveryFound,
@@ -456,6 +496,21 @@ bool TCPTransport::enterHuntingState() {
     // is a no-op, so production behavior is unchanged.
     if (hunt_.onHuntStarted) {
         hunt_.onHuntStarted();
+    }
+
+    // Aggressive immediate-retry phase FIRST: hammer the last-known IP:port with
+    // minimal backoff (first attempt has zero delay) — so a recoverable glitch
+    // reconnects within milliseconds, in parallel with the discovery hunt below.
+    // If the last-known IP comes back, we're done before exponential backoff even
+    // starts. Runs before the discovery thread is joined, so a discovery win
+    // (or requestStop) interrupts the rapid phase and hands off to finalizeHunt.
+    if (rapidReconnect(discoveryFound, reconnected)) {
+        // Stop + join the discovery thread (exactly once) before returning.
+        shouldStopDiscovery.store(true);
+        if (discoveryListener.joinable()) {
+            discoveryListener.join();
+        }
+        return finalizeHunt(discoveryFound, discoveredIp, reconnected);
     }
 
     while (!loopDone && retryCount_ < MAX_RETRIES && !discoveryFound.load() && !stop_->stopRequested()) {
