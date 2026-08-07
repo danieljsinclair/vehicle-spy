@@ -5,7 +5,7 @@
 // cleanly on 'q'. We inject a scripted keyboard (no terminal) and a FakeClock
 // (no real-time sleeps) so the test is deterministic.
 
-#include "vehicle-sim/interactive/IKeyboardInput.h"
+#include "input/IKeyboardInput.h"
 #include "vehicle-sim/cli/InteractiveRunContext.h"
 #include "vehicle-sim/telemetry/CsvRowFormatter.h"
 #include "vehicle-sim/util/IClock.h"
@@ -21,12 +21,18 @@
 
 namespace {
 
-class FakeKeyboard : public vehicle_sim::interactive::IKeyboardInput {
+class FakeKeyboard : public ::IKeyboardInput {
 public:
     explicit FakeKeyboard(std::vector<int> keys) : keys_{std::move(keys)} {}
+    // An embedded -1 is consumed and reported as "no key left this frame",
+    // which ends the bridge's drain loop — that is how a script expresses a
+    // frame boundary. Past the end, -1 is returned forever.
     int getKey() override {
-        if (pos_ < keys_.size()) return keys_[pos_++];
-        return -1;
+        int key = -1;
+        if (pos_ < keys_.size()) {
+            key = keys_[pos_++];
+        }
+        return key;
     }
 
 private:
@@ -36,9 +42,9 @@ private:
 
 // Factory that returns a fresh FakeKeyboard each call (matches the injected
 // factory signature used by InteractiveRunContext::run).
-std::function<std::unique_ptr<vehicle_sim::interactive::IKeyboardInput>()> fakeKeyboardFactory(
+std::function<std::unique_ptr<::IKeyboardInput>()> fakeKeyboardFactory(
     std::vector<int> keys) {
-    return [keys]() -> std::unique_ptr<vehicle_sim::interactive::IKeyboardInput> {
+    return [keys]() -> std::unique_ptr<::IKeyboardInput> {
         return std::make_unique<FakeKeyboard>(keys);
     };
 }
@@ -46,9 +52,14 @@ std::function<std::unique_ptr<vehicle_sim::interactive::IKeyboardInput>()> fakeK
 } // namespace
 
 TEST(InteractiveRunContextTest, EmitsCanonicalHeaderAndQuitsOnQ) {
-    // Press '4' (40% throttle) once, then 'q' to quit.
+    // Press '4' (40% throttle) for a frame, then 'q' to quit.
+    //
+    // The -1 between them matters: it ends the bridge provider's per-frame
+    // drain loop, so '4' and 'q' land in SEPARATE frames. The bridge's
+    // processKeys() returns early once quit is seen, so a same-frame '4','q'
+    // would quit before any throttle was applied and never emit a 40% row.
     vehicle_sim::util::FakeClock clock;
-    std::vector<int> keys{'4', 'q'};
+    std::vector<int> keys{'4', -1, 'q'};
 
     std::ostringstream out;
     const int rc = vehicle_sim::cli::InteractiveRunContext::run(
@@ -72,8 +83,8 @@ TEST(InteractiveRunContextTest, EmitsCanonicalHeaderAndQuitsOnQ) {
 
 TEST(InteractiveRunContextTest, ReturnsErrorWhenKeyboardFactoryYieldsNull) {
     vehicle_sim::util::FakeClock clock;
-    std::function<std::unique_ptr<vehicle_sim::interactive::IKeyboardInput>()> nullFactory =
-        []() -> std::unique_ptr<vehicle_sim::interactive::IKeyboardInput> { return nullptr; };
+    std::function<std::unique_ptr<::IKeyboardInput>()> nullFactory =
+        []() -> std::unique_ptr<::IKeyboardInput> { return nullptr; };
 
     std::ostringstream out;
     const int rc = vehicle_sim::cli::InteractiveRunContext::run(

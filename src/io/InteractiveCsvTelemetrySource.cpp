@@ -1,6 +1,7 @@
 // InteractiveCsvTelemetrySource.cpp - Keyboard-driven telemetry source
 
 #include "vehicle-sim/io/InteractiveCsvTelemetrySource.h"
+#include "vehicle-sim/interactive/SteeringFilterKeyboard.h"
 
 #include <algorithm>
 #include <chrono>
@@ -8,12 +9,17 @@
 namespace vehicle_sim::io {
 
 InteractiveCsvTelemetrySource::InteractiveCsvTelemetrySource(
-    std::unique_ptr<vehicle_sim::interactive::KeyboardThrottle> throttle,
+    std::unique_ptr<::IKeyboardInput> keyboard,
     vehicle_sim::util::IClock& clock,
     std::string vehicleId,
     int intervalMs
 )
-    : m_throttle{std::move(throttle)}
+    // Arrow keys are peeled off first (the bridge would read byte 27 as quit),
+    // then every remaining key is mapped by the bridge's own provider.
+    : m_provider{std::make_unique<input::KeyboardInputProvider>(
+          std::make_unique<vehicle_sim::interactive::SteeringFilterKeyboard>(
+              std::move(keyboard), &m_target),
+          &m_target)}
     , m_clock{clock}
     , m_vehicleId{std::move(vehicleId)}
     , m_intervalMs{intervalMs > 0 ? intervalMs : 20}
@@ -34,7 +40,12 @@ vehicle_sim::telemetry::CsvTelemetryRow InteractiveCsvTelemetrySource::next() {
         m_clock.sleepFor(std::chrono::milliseconds(m_intervalMs));
     }
 
-    auto state = m_throttle->poll();
+    // Drive the bridge provider one frame. It drains the keyboard, applies its
+    // own hold/snap-back timing (KeyHoldBridge, untouched) and calls back into
+    // m_target. dt is seconds; the interval is milliseconds.
+    m_provider->OnUpdateSimulation(static_cast<double>(m_intervalMs) / 1000.0);
+
+    const auto& state = m_target.state();
     m_quit = state.quit;
 
     // Advance the deterministic simulated timestamp by the tick interval.

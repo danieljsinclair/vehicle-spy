@@ -2,7 +2,6 @@
 
 #include "vehicle-sim/cli/InteractiveRunContext.h"
 #include "vehicle-sim/interactive/KeyboardInput.h"
-#include "vehicle-sim/interactive/KeyboardThrottle.h"
 #include "vehicle-sim/io/InteractiveCsvTelemetrySource.h"
 #include "vehicle-sim/telemetry/CsvRowFormatter.h"
 
@@ -12,7 +11,7 @@
 namespace vehicle_sim::cli {
 
 InteractiveRunContext::KeyboardFactory InteractiveRunContext::defaultKeyboard() {
-    return []() -> std::unique_ptr<interactive::IKeyboardInput> {
+    return []() -> std::unique_ptr<::IKeyboardInput> {
         return std::make_unique<interactive::KeyboardInput>();
     };
 }
@@ -31,9 +30,10 @@ int InteractiveRunContext::runImpl(
     if (!keyboard) {
         return 1;
     }
-    auto throttle = std::make_unique<interactive::KeyboardThrottle>(std::move(keyboard));
+    // The raw key source goes straight to the telemetry source, which builds
+    // the bridge's KeyboardInputProvider around it.
     auto source = std::make_unique<io::InteractiveCsvTelemetrySource>(
-        std::move(throttle),
+        std::move(keyboard),
         clock,
         vehicleId,
         intervalMs);

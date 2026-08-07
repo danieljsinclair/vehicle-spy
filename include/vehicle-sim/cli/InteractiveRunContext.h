@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vehicle-sim/interactive/IKeyboardInput.h"
+#include "input/IKeyboardInput.h"
 #include "vehicle-sim/util/IClock.h"
 
 #include <functional>
@@ -28,7 +28,7 @@ namespace vehicle_sim::cli {
 class InteractiveRunContext {
 public:
     /// Default factory: produces the real terminal-backed KeyboardInput.
-    using KeyboardFactory = std::function<std::unique_ptr<interactive::IKeyboardInput>()>;
+    using KeyboardFactory = std::function<std::unique_ptr<::IKeyboardInput>()>;
 
     /**
      * Run interactive mode.

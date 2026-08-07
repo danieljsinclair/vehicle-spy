@@ -38,7 +38,7 @@ add_executable(vehicle-sim-tests
     cli/TelemetryRunnerStdoutCsv.test.cpp
     cli/Orchestration.test.cpp
     cli/ReplayRunContext.test.cpp
-    interactive/KeyboardThrottle.test.cpp
+    interactive/BridgeKeyboardIntegration.test.cpp
     cli/CsvReplayRunContext.test.cpp
     cli/InteractiveRunContext.test.cpp
     boundary/TeslaBLETransport.test.cpp

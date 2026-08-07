@@ -106,7 +106,13 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/cli/CsvReplayRunContext.cpp
     src/cli/InteractiveRunContext.cpp
     src/interactive/KeyboardInput.cpp
-    src/interactive/KeyboardThrottle.cpp
+    src/interactive/CsvKeyActionTarget.cpp
+    src/interactive/SteeringFilterKeyboard.cpp
+    # Keyboard mapping + hold/snap-back timing, compiled straight from the
+    # engine-sim-bridge submodule. Narrow consume: these two translation units
+    # only, never add_subdirectory of the bridge's own 12-target CMake.
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/engine-sim-bridge/src/input/KeyboardInputProvider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/engine-sim-bridge/src/input/KeyHoldBridge.cpp
     src/io/FileCsvTelemetrySource.cpp
     src/io/InteractiveCsvTelemetrySource.cpp
     src/presentation/VehicleSignalFormatter.cpp
