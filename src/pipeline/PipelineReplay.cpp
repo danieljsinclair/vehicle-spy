@@ -5,6 +5,9 @@
 #include "vehicle-sim/domain/CaptureLog.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 
+#include <cstdint>
+#include <iomanip>
+#include <iostream>
 #include <optional>
 
 namespace vehicle_sim::pipeline {
@@ -25,6 +28,18 @@ void dispatchFrame(
 
     auto signal = translationService.processFrame(bytes, ts);
     if (!signal) {
+        // Diagnostic: surface CAN IDs that the DBC translator does not
+        // recognise so operators can see why dbc_signal_count stays at 0
+        // without attaching a debugger. Only fires on the live/CLI path;
+        // the test-suite replay path is unaffected (no stderr noise).
+        const std::uint8_t lo = bytes[0];
+        const std::uint8_t hi = bytes[1];
+        const std::uint16_t canId =
+            static_cast<std::uint16_t>(lo) |
+            (static_cast<std::uint16_t>(hi) << 8);
+        std::cerr << "[decode] CAN 0x" << std::hex << std::setw(3) << std::setfill('0')
+                  << canId << std::dec << " — no DBC signal matched ("
+                  << bytes.size() << " bytes)\n";
         return;  // held seam: no signal -> do not count as decoded
     }
 

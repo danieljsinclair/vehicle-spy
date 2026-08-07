@@ -54,11 +54,48 @@ public:
     }
 };
 
+// ── Non-owning client handle handed to the SUT ─────────────────────────────────
+// ITcpServer::accept() transfers OWNERSHIP of its return value to
+// TcpServerManager, which destroys that object the moment it evicts/replaces a
+// client (`current_ = std::move(next)`). Tests, however, must keep observing the
+// recorded wire state (stopped_, written_, flushed_) AFTER an eviction — that is
+// precisely what the last-wins/always-allow-connect contract asserts.
+//
+// Handing the manager the mock itself therefore created a heap-use-after-free:
+// the manager freed the mock, then the test read `a->stopped_` off freed memory.
+// That is UB — it happened to read back the pre-free value in some builds and
+// garbage (`false`) in others, so the eviction tests failed non-deterministically
+// by build configuration rather than by any defect in TcpServerManager.
+//
+// Fix: MockTcpServer OWNS the mocks for the whole test; accept() hands out this
+// thin forwarding handle instead. Destroying the handle frees only the forwarder,
+// never the observed mock, so the manager's ownership contract is honoured
+// exactly as production does while test observations stay valid.
+class MockTcpClientHandle : public ITcpServerClient {
+public:
+    explicit MockTcpClientHandle(MockTcpClient& target) : target_(target) {}
+
+    bool connected() const override { return target_.connected(); }
+    void stop() override { target_.stop(); }
+    void setTimeout(uint32_t ms) override { target_.setTimeout(ms); }
+    int available() const override { return target_.available(); }
+    std::string readLine(char delimiter) override { return target_.readLine(delimiter); }
+    void println(const std::string& line) override { target_.println(line); }
+    void flush() override { target_.flush(); }
+    std::string remoteIP() const override { return target_.remoteIP(); }
+
+private:
+    MockTcpClient& target_;
+};
+
 // ── Mock TCP server ─────────────────────────────────────────────────────────────
-// Returns the next queued client on accept(); nullptr when the queue is empty.
+// Returns a handle to the next queued client on accept(); nullptr when the queue
+// is empty. Owns every mock it ever handed out (owned_) so the test's raw
+// pointers stay valid for the server's whole lifetime — every test declares
+// `MockTcpServer srv` BEFORE `TcpServerManager mgr`, so the mocks outlive the
+// manager and reverse-order destruction cannot dangle.
 class MockTcpServer : public ITcpServer {
 public:
-    std::vector<std::unique_ptr<MockTcpClient>> pending_;
     bool beginCalled_ = false;
     bool endCalled_ = false;
     size_t acceptCount_ = 0;
@@ -70,18 +107,26 @@ public:
         if (pending_.empty()) {
             return nullptr;
         }
-        auto c = std::move(pending_.front());
+        MockTcpClient* next = pending_.front();
         pending_.erase(pending_.begin());
-        return std::unique_ptr<ITcpServerClient>(c.release());
+        return std::make_unique<MockTcpClientHandle>(*next);
     }
     // Enqueue a freshly-connected client to be returned by the next accept().
+    // The returned pointer stays valid for the lifetime of this server.
     MockTcpClient* enqueueClient(const std::string& ip) {
         auto c = std::make_unique<MockTcpClient>();
         c->remoteIp_ = ip;
         auto* raw = c.get();
-        pending_.push_back(std::move(c));
+        owned_.push_back(std::move(c));
+        pending_.push_back(raw);
         return raw;
     }
+
+private:
+    // Every mock ever created, kept alive for the whole test (stable addresses).
+    std::vector<std::unique_ptr<MockTcpClient>> owned_;
+    // Not-yet-accepted clients, in arrival order (non-owning views into owned_).
+    std::vector<MockTcpClient*> pending_;
 };
 
 // ── Mock host callbacks ────────────────────────────────────────────────────────
@@ -428,13 +473,17 @@ TEST(TcpReconnectTest, ShouldRestartTcpServerForReconnectReturnsTrueAtFirstConne
     EXPECT_TRUE(shouldRestartTcpServerForReconnect("1.2.3.4", "", 0));
 }
 
-TEST(TcpReconnectTest, ShouldRestartTcpServerForReconnectAlwaysTrueHardened) {
-    // HARDENING: the function now ALWAYS returns true — even same-IP brief blip
-    // (outage below LONG_OUTAGE_MS) — so the listening socket is always rebound
-    // on reconnect. This eliminates the silent-refusal mode where a same-IP
-    // blip left the socket un-rebound.
-    EXPECT_TRUE(shouldRestartTcpServerForReconnect("10.0.0.5", "10.0.0.5", 1000));
-    EXPECT_TRUE(shouldRestartTcpServerForReconnect("10.0.0.5", "10.0.0.5", 0));
+TEST(TcpReconnectTest, ShouldRestartTcpServerForReconnectIpAware) {
+    // IP-aware restart: the listening socket is re-bound only when the STA IP
+    // actually changed, on first-ever connect (no last IP), or after a long
+    // outage (socket likely stale). A same-IP brief blip (outage below
+    // LONG_OUTAGE_MS) keeps the existing bound socket — re-begin() mid-handshake
+    // would otherwise tear down the port and drop an in-progress host AUTH.
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("", "10.0.0.5", 0));             // first-ever connect
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("10.0.0.9", "10.0.0.5", 0));    // IP changed
+    EXPECT_TRUE(shouldRestartTcpServerForReconnect("10.0.0.5", "10.0.0.5",
+                                                   WiFiConfig::LONG_OUTAGE_MS + 1)); // long outage
+    EXPECT_FALSE(shouldRestartTcpServerForReconnect("10.0.0.5", "10.0.0.5", 1000)); // same-IP short blip
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

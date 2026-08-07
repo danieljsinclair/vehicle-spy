@@ -25,6 +25,7 @@
 #include <cstring>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -197,6 +198,134 @@ TEST(TCPTransportHuntingTest, DiscoverySameIpAsOldHost_DoesNotSwitch) {
     EXPECT_EQ(transport->host_, std::string(kLoopbackIp))
         << "discovery at the same IP must NOT switch host_";
     EXPECT_EQ(sock.connectCount(), 1);
+}
+
+// Capturing output sink: stores every out()/err() string for later assertion.
+class CapturingOutput : public ITransportOutput {
+public:
+    void out(const std::string& msg) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        lines_.push_back(msg);
+    }
+    void err(const std::string& msg) override {
+        std::lock_guard<std::mutex> lk(mu_);
+        lines_.push_back(msg);
+    }
+    std::string blob() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        std::string s;
+        for (const auto& l : lines_) { s += l; s += "\n"; }
+        return s;
+    }
+private:
+    mutable std::mutex mu_;
+    std::vector<std::string> lines_;
+};
+
+// Build a transport wired to a scripted FakeSocket + instant FakeClock + the
+// given discovery factory, using a capturing output sink (for message asserts).
+std::unique_ptr<TCPTransport> makeTransportCapturing(
+    test::FakeSocket& sock, const std::string& host, int port,
+    std::shared_ptr<StopToken> stop, HuntResilienceConfig hunt,
+    std::shared_ptr<CapturingOutput> cap) {
+    auto clock = std::make_shared<util::FakeClock>();
+    return std::make_unique<TCPTransport>(
+        TransportEndpoint{host, port, "raw"},
+        cap, TcpReadTiming{}, std::move(stop),
+        std::move(hunt), std::move(clock),
+        std::shared_ptr<ISocket>(&sock, [](ISocket*) {}));
+}
+
+// Spec 5: AGGRESSIVE IMMEDIATE RETRY — last-known IP:port is retried with
+// MINIMAL backoff (first retry has zero delay), succeeding within RAPID_RETRIES
+// before the exponential backoff loop ever starts. With FakeClock the whole
+// rapid phase is instant, proving the reconnect path does NOT wait
+// BASE_RETRY_DELAY_MS (1000ms) on the first reconnect.
+TEST(TCPTransportHuntingTest, RapidReconnect_ImmediateRetryReconnectsLastKnownIp) {
+    test::FakeSocket sock;
+    // First rapid attempt succeeds (last-known IP is reachable again).
+    sock.enqueue(kLoopbackIp, test::handshakeConnect());
+
+    auto stop = makeStop();
+    // No-op discovery: rapid phase wins purely on last-known-IP retry.
+    auto transport = makeTransport(sock, kLoopbackIp, 3333, stop,
+                                   HuntResilienceConfig{noOpDiscoveryFactory(), {}});
+
+    bool result = transport->enterHuntingState();
+
+    EXPECT_TRUE(result) << "rapid reconnect to last-known IP should succeed";
+    EXPECT_EQ(transport->host_, std::string(kLoopbackIp))
+        << "host_ must NOT switch on a rapid last-known-IP win";
+    EXPECT_EQ(sock.connectCount(), 1)
+        << "exactly one connect expected (immediate rapid retry, no backoff)";
+}
+
+// Spec 6: RAPID RETRY MESSAGE — the hunt emits a distinct "rapid retry" message
+// so the operator can see the aggressive immediate-retry phase firing (vs the
+// slower exponential backoff that follows it). Asserts on the intent/marker of
+// the message, not exact wording.
+TEST(TCPTransportHuntingTest, RapidReconnect_EmitsRapidRetryMessage) {
+    test::FakeSocket sock;
+    sock.enqueue(kLoopbackIp, test::handshakeConnect());  // rapid attempt 1 succeeds
+
+    auto stop = makeStop();
+    auto cap = std::make_shared<CapturingOutput>();
+    auto transport = makeTransportCapturing(sock, kLoopbackIp, 3333, stop,
+                                             HuntResilienceConfig{noOpDiscoveryFactory(), {}},
+                                             cap);
+
+    bool result = transport->enterHuntingState();
+
+    EXPECT_TRUE(result);
+    std::string msgs = cap->blob();
+    EXPECT_NE(msgs.find("rapid retry"), std::string::npos)
+        << "aggressive immediate-retry phase must emit a 'rapid retry' marker; "
+        << "blob:\n" << msgs;
+    // Rapid-phase success reuses the existing last-known-IP reconnect marker.
+    EXPECT_NE(msgs.find("reconnected to old IP"), std::string::npos)
+        << "rapid-phase success must emit a reconnect marker; blob:\n" << msgs;
+}
+
+// Spec 7: RAPID PHASE EXHAUSTS INTO DISCOVERY SWITCH — when the last-known IP is
+// unreachable for all RAPID_RETRIES attempts, the hunt must NOT give up but fall
+// through to the discovery-driven switch and eventually succeed (order-
+// independent, self-recovering). Discovery supplies the new IP after the rapid
+// phase fails, proving the two phases are chained, not exclusive.
+TEST(TCPTransportHuntingTest, RapidReconnect_ExhaustsThenDiscoverySwitches) {
+    test::FakeSocket sock;
+    // All RAPID_RETRIES attempts fail on the old (unreachable) IP (FakeSocket: a
+    // failConnect does NOT increment connectCount — only successful connects do).
+    for (int i = 0; i < TCPTransport::RAPID_RETRIES; ++i) {
+        sock.enqueue(kUnreachableIp, test::failConnect());
+    }
+    // ...then discovery reports a new reachable IP, and the post-rapid connect wins.
+    sock.enqueue(kLoopbackIp, test::handshakeConnect());
+
+    auto stop = makeStop();
+    auto cap = std::make_shared<CapturingOutput>();
+    auto transport = makeTransportCapturing(sock, kUnreachableIp, 3333, stop,
+                                             HuntResilienceConfig{sameIpDiscoveryFactory(kLoopbackIp), {}},
+                                             cap);
+
+    bool result = transport->enterHuntingState();
+
+    EXPECT_TRUE(result) << "hunt must recover after rapid phase via discovery switch";
+    EXPECT_EQ(transport->host_, std::string(kLoopbackIp))
+        << "host_ must switch to the discovered IP after rapid phase exhausts";
+    std::string msgs = cap->blob();
+    // The rapid phase must have fired FIRST (at least one "rapid retry" marker)
+    // before discovery won — proving the aggressive immediate-retry runs before
+    // the discovery-driven switch. The rapid phase is discovery-interruptible by
+    // design (it aborts the instant discovery finds a new IP), so we assert >=1
+    // rather than exactly RAPID_RETRIES here.
+    int rapidMarkers = 0;
+    size_t pos = 0;
+    while ((pos = msgs.find("rapid retry", pos)) != std::string::npos) { ++rapidMarkers; pos += 1; }
+    EXPECT_GE(rapidMarkers, 1)
+        << "rapid phase must fire before discovery wins; blob:\n" << msgs;
+    // ...and discovery then drove the switch.
+    EXPECT_NE(msgs.find("switching to discovered IP"), std::string::npos)
+        << "discovery must drive the switch after the rapid phase fires";
 }
 
 #endif // VEHICLE_SIM_HUNTING_ENABLED
