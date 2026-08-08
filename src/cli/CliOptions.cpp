@@ -38,6 +38,10 @@ CliOptions parseArgs(int argc, char* argv[]) {
                    "Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', "
                    "'auto' (auto-discover ESP32), or BLE adapter address")
         ->expected(1);
+    app.add_option("--connect-file", opts.connect_file,
+                   "Synonym for '--connect file:<path>'. Equivalent to "
+                   "--connect file:PATH; PATH is used verbatim (relative to CWD)")
+        ->expected(1);
     app.add_option("-v,--vehicle", opts.vehicle_type, "Vehicle type (required)")
         ->expected(1);
     app.add_option("-f,--format", opts.format, "Output format: json, csv, or plain")
@@ -81,6 +85,13 @@ CliOptions parseArgs(int argc, char* argv[]) {
         opts.help_requested = true;
     } catch (const CLI::ParseError& e) {
         opts.error_message = e.what();
+    }
+
+    // `--connect-file PATH` is a synonym for `--connect file:PATH`. Fold it into
+    // connect_target so every downstream consumer (isFile(), main.cpp) sees a
+    // single source of truth. If both are given, --connect wins.
+    if (!opts.connect_file.empty() && opts.connect_target.empty()) {
+        opts.connect_target = "file:" + opts.connect_file;
     }
 
     return opts;
