@@ -41,8 +41,7 @@ int SteeringFilterKeyboard::getKey() {
             // Not (part of) an arrow sequence. If a provisionally swallowed
             // ESC is pending, surface that first — it is the earlier keypress,
             // and the current byte will come back round on the next call.
-            const int replay = m_target->takeReplayKey();
-            if (replay >= 0) {
+            if (auto replay = m_target->takeReplayKey(); replay >= 0) {
                 m_pendingKey = key;
                 key = replay;
             }
