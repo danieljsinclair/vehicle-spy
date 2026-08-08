@@ -9,3 +9,6 @@
 [submodule "external/opendbc"]
 	path = external/opendbc
 	url = https://github.com/commaai/opendbc.git
+[submodule "external/engine-sim-bridge"]
+	path = external/engine-sim-bridge
+	url = https://github.com/danieljsinclair/engine-sim-bridge.git

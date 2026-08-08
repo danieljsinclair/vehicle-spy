@@ -27,6 +27,7 @@ struct CliOptions {
     bool discover_mode = false;
     bool help_requested = false;
     bool led_diag = false;  // Show StatusLED pattern help
+    bool interactive_mode = false;  // Keyboard-driven CSV emission (bench testing)
     std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", "usb:<path>", or "auto"
     std::string connect_file;     // `--connect-file <path>` synonym for `--connect file:<path>`
     std::string format = DEFAULT_FORMAT;

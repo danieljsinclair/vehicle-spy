@@ -38,6 +38,9 @@ add_executable(vehicle-sim-tests
     cli/TelemetryRunnerStdoutCsv.test.cpp
     cli/Orchestration.test.cpp
     cli/ReplayRunContext.test.cpp
+    interactive/BridgeKeyboardIntegration.test.cpp
+    cli/CsvReplayRunContext.test.cpp
+    cli/InteractiveRunContext.test.cpp
     boundary/TeslaBLETransport.test.cpp
     boundary/OBD2Transport.test.cpp
     boundary/ELM327Protocol.test.cpp
@@ -51,6 +54,9 @@ add_executable(vehicle-sim-tests
     telemetry/TraceLogger.test.cpp
     telemetry/CsvShape.h
     telemetry/CsvStdoutSink.test.cpp
+    telemetry/CsvRowFormatter.test.cpp
+    io/FileCsvTelemetrySource.test.cpp
+    io/InteractiveCsvTelemetrySource.test.cpp
     pipeline/RawFrameNormaliser.test.cpp
     pipeline/Elm327Normaliser.test.cpp
     pipeline/CaptureNormaliser.test.cpp

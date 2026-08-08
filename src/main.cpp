@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <memory>
 #include <string_view>
 #include <csignal>
@@ -9,6 +10,10 @@
 #include "vehicle-sim/cli/BLERunContext.h"
 #include "vehicle-sim/cli/ReplayRunContext.h"
 #include "vehicle-sim/cli/LiveRunContext.h"
+#include "vehicle-sim/cli/CsvReplayRunContext.h"
+#include "vehicle-sim/cli/InteractiveRunContext.h"
+#include "vehicle-sim/io/FileCsvTelemetrySource.h"
+#include "vehicle-sim/util/IClock.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
@@ -19,6 +24,18 @@
 namespace {
 
 constexpr int BLE_SCAN_TIMEOUT_S = 10;
+
+// A decoded-telemetry CSV (for CSV replay mode) is distinguished from a raw
+// CAN capture by its header: the decoded schema leads with "timestamp_ms".
+// Raw CAN captures never do. Used to route --connect file:<csv> to the right
+// replay path without a separate flag.
+bool isDecodedTelemetryCsv(const std::string& path) {
+    std::ifstream in(path);
+    if (!in.is_open()) return false;
+    std::string header;
+    if (!std::getline(in, header)) return false;
+    return header.find("timestamp_ms") != std::string::npos;
+}
 
 int runScan(vehicle_sim::BLEManager& bleManager) {
     using namespace vehicle_sim;
@@ -208,6 +225,17 @@ int main(int argc, char* argv[]) {
         return runDiscovery();
     }
 
+    // Interactive bench mode: keyboard-driven CSV emission, no vehicle registry
+    // or live transport required. Deterministic pace via a real SystemClock.
+    if (opts.interactive_mode) {
+        vehicle_sim::util::SystemClock systemClock;
+        return cli::InteractiveRunContext::run(
+            opts.vehicle_type.empty() ? std::string{"tesla"} : opts.vehicle_type,
+            opts.update_interval_ms,
+            std::cout,
+            systemClock);
+    }
+
     // Handle --connect auto: discover ESP32 and connect
     if (opts.isAuto()) {
         std::cout << "Auto-discovering ESP32...\n";
@@ -222,10 +250,24 @@ int main(int argc, char* argv[]) {
     }
 
     if (opts.isFile()) {
-        // File replay through the canonical seam: FileTransport →
+        std::string path = opts.connect_target.substr(5);
+
+        // Decoded-telemetry CSV (CSV replay mode) routes to CsvReplayRunContext,
+        // which replays the recorded rows as if they were live CAN — feeding the
+        // same --stdout-csv schema used for latency testing. Raw CAN captures
+        // keep the existing DBC-translation replay path.
+        if (isDecodedTelemetryCsv(path)) {
+            auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
+            vehicle_sim::util::SystemClock systemClock;
+            return cli::CsvReplayRunContext::run(
+                std::move(source), opts.vehicle_type,
+                opts.update_interval_ms, std::cout, systemClock,
+                opts.stdout_csv);
+        }
+
+        // Raw CAN replay through the canonical seam: FileTransport →
         // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
         // file is the raw source of truth, so we write ONLY <base>.csv.
-        std::string path = opts.connect_target.substr(5);
         std::string logBase = resolveLogBase(opts);
         return cli::ReplayRunContext::run(path, opts.vehicle_type,
                                           logBase, translationService,

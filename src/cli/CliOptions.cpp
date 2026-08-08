@@ -9,7 +9,20 @@
 #include <string>
 #include <vector>
 
+#include <fstream>
+
 namespace vehicle_sim::cli {
+
+// A decoded-telemetry CSV (for CSV replay mode) is distinguished from a raw
+// CAN capture by its header: the decoded schema leads with "timestamp_ms".
+// Raw CAN captures never do. Used to relax validation for bench replay.
+static bool isDecodedTelemetryCsv(const std::string& path) {
+    std::ifstream in(path);
+    if (!in.is_open()) return false;
+    std::string header;
+    if (!std::getline(in, header)) return false;
+    return header.find("timestamp_ms") != std::string::npos;
+}
 
 CliOptions parseArgs(int argc, char* argv[]) {
     CliOptions opts;
@@ -37,7 +50,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_option("-i,--interval", opts.update_interval_ms, "Update interval in milliseconds")
         ->expected(1)
         ->capture_default_str()
-        ->check(CLI::PositiveNumber);
+        ->check(CLI::Range(0, 60000));
     // Canonical logging flag — base path. Phase 1 file replay writes only
     // <base>.csv; the raw stream is not duplicated (input file is source of
     // truth). Later phases write <base>.raw.txt for live transports.
@@ -60,6 +73,11 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("--stdout-csv", opts.stdout_csv,
                  "Emit decoded CSV rows to stdout (same schema as <base>.csv); "
                  "progress output moves to stderr so stdout stays pipeable");
+    app.add_flag("-k,--interactive", opts.interactive_mode,
+                 "Keyboard-driven bench mode: read throttle/gear/steering/brake "
+                 "from the keyboard (1-9 = 10-90% throttle, 0 = 100%, arrows = "
+                 "gear/steering, b = brake, q = quit) and emit CSV rows on stdout "
+                 "at --interval Hz. Use with --stdout-csv for a clean pipe.");
 
     try {
         app.parse(argc, argv);
@@ -101,6 +119,8 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  --log-raw <file>      (deprecated, use --log) Log raw hex to file\n"
         << "  --stdout-csv          Emit decoded CSV rows to stdout (same schema as\n"
         << "                        <base>.csv); progress moves to stderr so stdout pipes cleanly\n"
+        << "  -k,--interactive      Keyboard-driven bench mode: throttle 1-9/0, arrows\n"
+        << "                        gear/steer, b=brake, q=quit; emits CSV on stdout\n"
         << "  --help                Show this help message\n\n";
 
     if (auto vehicles = registry.getRegisteredVehicles(); !vehicles.empty()) {
@@ -119,6 +139,8 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  vehicle-sim --discover\n"
         << "  vehicle-sim --connect auto --vehicle tesla\n"
         << "  vehicle-sim --connect file:capture.csv --vehicle tesla --log-csv decoded.csv\n"
+        << "  vehicle-sim --connect-file capture.csv --vehicle tesla --stdout-csv | head -20\n"
+        << "  vehicle-sim --interactive --stdout-csv --vehicle tesla --interval 20\n"
         << "  vehicle-sim --connect tcp:192.168.4.1:3333 --vehicle tesla --log-raw x.raw --log-csv x.csv\n"
         << "  vehicle-sim --connect usb:/dev/cu.usbserial-110 --vehicle tesla --log captures/SecondDrive\n"
         << "  vehicle-sim --connect tcp:192.168.4.1 --vehicle tesla\n"
@@ -178,9 +200,26 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
         return oss.str();
     }
 
-    // --connect is required for telemetry
-    if (opts.connect_target.empty()) {
+    // --connect is required for telemetry (interactive mode supplies its own
+    // synthetic source, so it is exempt).
+    if (opts.connect_target.empty() && !opts.interactive_mode) {
         return "--connect is required. Use --connect demo, --connect auto, or --connect <address>";
+    }
+
+    // Interactive mode is self-contained: no vehicle registry lookup needed.
+    if (opts.interactive_mode) {
+        return "";
+    }
+
+    // CSV replay of a decoded-telemetry file is bench testing: --vehicle is
+    // only a label stamped onto each emitted row, so it need not be a real
+    // registered vehicle. Raw CAN replay (file:<raw>) still requires a valid
+    // vehicle for DBC translation, handled below.
+    if (opts.isFile()) {
+        std::string path = opts.connect_target.substr(5);
+        if (isDecodedTelemetryCsv(path)) {
+            return "";
+        }
     }
 
     // --vehicle is required

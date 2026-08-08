@@ -64,6 +64,9 @@ test/Makefile
 # External modules and submodules
 engine-sim/
 engine-sim-bridge/
+# ...but external/engine-sim-bridge IS a tracked submodule (keyboard input
+# source of truth). The bare rule above still guards stray sibling checkouts.
+!external/engine-sim-bridge
 _deps/
 .claude/
 .claude-flow/

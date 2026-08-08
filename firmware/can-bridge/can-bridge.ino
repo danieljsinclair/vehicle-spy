@@ -479,8 +479,17 @@ static void restartTcpServerIfNeeded() {
         tcpServer().begin();
         firmwareApp.clearTcpServerRestartFlag();
 
-        // Disconnect any existing client since the listening socket was rebound.
-        if (client().connected()) {
+        // Disconnect any existing client ONLY when the listening socket was
+        // genuinely rebound (a reconnect/IP-change). The manager owns the single
+        // authoritative client slot (TcpServerManager::hasClient()), so we must
+        // not stomp a live, mid-handshake client that belongs to the manager.
+        // The unconditional client().stop() here was the regression: moving the
+        // restart decision to "always restart on (re)connect" (resilient-reconnect)
+        // turned the old reconnect-only stomp into a perpetual client kill —
+        // the socket rebinds every transition and client().stop() severs the
+        // connection before the AUTH handshake can complete, so the host sees
+        // client_connected then an immediate reason=0 disconnect with no reply.
+        if (clientConnectionSource().isClientConnected() && client().connected()) {
             client().stop();
         }
     }

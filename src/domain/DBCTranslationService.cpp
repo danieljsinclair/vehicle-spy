@@ -97,7 +97,8 @@ bool DBCTranslationService::loadVehicleFromPath(const std::string& vehicleId, Ve
         if (!config) {
             return false;
         }
-        pImpl->parseResult_ = pImpl->parser_.parseFile(dbcAbsolutePath);
+        const std::string dbcPath = util::ExecutablePath::resolveResource(dbcAbsolutePath);
+        pImpl->parseResult_ = pImpl->parser_.parseFile(dbcPath);
         if (pImpl->parseResult_.signalsByCanId.empty()) {
             return false;
         }

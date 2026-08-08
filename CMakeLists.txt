@@ -103,6 +103,18 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/cli/BLERunContext.cpp
     src/cli/ReplayRunContext.cpp
     src/cli/LiveRunContext.cpp
+    src/cli/CsvReplayRunContext.cpp
+    src/cli/InteractiveRunContext.cpp
+    src/interactive/KeyboardInput.cpp
+    src/interactive/CsvKeyActionTarget.cpp
+    src/interactive/SteeringFilterKeyboard.cpp
+    # Keyboard mapping + hold/snap-back timing, compiled straight from the
+    # engine-sim-bridge submodule. Narrow consume: these two translation units
+    # only, never add_subdirectory of the bridge's own 12-target CMake.
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/engine-sim-bridge/src/input/KeyboardInputProvider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/engine-sim-bridge/src/input/KeyHoldBridge.cpp
+    src/io/FileCsvTelemetrySource.cpp
+    src/io/InteractiveCsvTelemetrySource.cpp
     src/presentation/VehicleSignalFormatter.cpp
     src/boundary/ELM327Transport.cpp
     src/boundary/OBD2Protocol.cpp
@@ -174,10 +186,24 @@ endif()
 
 # L2: firmware/can-bridge paths kept PRIVATE here (not propagated to consumers);
 # test/CMakeLists.txt re-adds them explicitly for StatusLED.test.cpp.
+# engine-sim-bridge submodule: consumed NARROWLY, by include path only.
+# Deliberately NOT add_subdirectory() — the bridge's own CMakeLists declares 12
+# targets and pulls find_package(Boost REQUIRED) plus FetchContent(googletest).
+# Importing all of that to reuse a header-only input contract would bloat and
+# destabilise this build. We take the interface; we do not take the build.
+# The bridge is read-only upstream: nothing here writes to it.
+set(ENGINE_SIM_BRIDGE_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/external/engine-sim-bridge/include)
+if(NOT EXISTS ${ENGINE_SIM_BRIDGE_INCLUDE}/input/IKeyboardInput.h)
+    message(FATAL_ERROR
+        "engine-sim-bridge submodule missing or not initialised. "
+        "Run: git submodule update --init --recursive external/engine-sim-bridge")
+endif()
+
 target_include_directories(vehicle-sim-lib
     PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${ENGINE_SIM_BRIDGE_INCLUDE}
     PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/firmware
