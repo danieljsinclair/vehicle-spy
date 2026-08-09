@@ -271,7 +271,8 @@ int main(int argc, char* argv[]) {
         std::string logBase = resolveLogBase(opts);
         return cli::ReplayRunContext::run(path, opts.vehicle_type,
                                           logBase, translationService,
-                                          opts.stdout_csv);
+                                          opts.stdout_csv,
+                                          opts.start_from_s);
     }
 
     if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {

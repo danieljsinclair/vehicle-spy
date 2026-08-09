@@ -29,6 +29,9 @@ public:
      * @param stdoutCsv   When true, stream decoded CSV rows to stdout and move
      *                    the human-readable progress/summary to stderr, so the
      *                    stdout stream stays a clean pipeable CSV.
+     * @param startFromS  Replay-only: skip rows whose recorded timestamp is
+     *                    before this many seconds. Negative means "no skip".
+     *                    Paces the replay to the file's recorded timestamps.
      * @return 0 on success, 1 on failure (file missing, logger invalid, unknown vehicle)
      */
     static int run(
@@ -36,7 +39,8 @@ public:
         const std::string& vehicleType,
         const std::string& logBase,
         domain::DBCTranslationService& translationService,
-        bool stdoutCsv = false
+        bool stdoutCsv = false,
+        double startFromS = -1.0
     );
 };
 

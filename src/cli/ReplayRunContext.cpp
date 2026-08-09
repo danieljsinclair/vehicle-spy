@@ -21,7 +21,8 @@ int ReplayRunContext::run(
     const std::string& vehicleType,
     const std::string& logBase,
     domain::DBCTranslationService& translationService,
-    bool stdoutCsv) {
+    bool stdoutCsv,
+    double startFromS) {
 
     // With --stdout-csv, stdout belongs to the CSV stream alone; every
     // human-readable line moves to stderr so the pipe stays parseable.
@@ -83,9 +84,15 @@ int ReplayRunContext::run(
         reporters.add(&csvReporter);
     }
 
+    // REPLAY mode: pace output to the file's recorded timestamps and skip
+    // blank rows + --start-from-prior rows. The live path (LiveRunContext)
+    // stays Unpaced so it reflects reality (dump as fast as possible).
     auto stats = pipeline::runReplay(transport, normaliser, translationService,
                                      decodedSink.get(), /*rawSink=*/nullptr,
-                                     &reporters);
+                                     &reporters,
+                                     pipeline::ReplayMode::Paced,
+                                     pipeline::defaultReplayClock(),
+                                     startFromS);
 
     narrative << "  lines=" << stats.linesRead
               << " frames decoded=" << stats.framesDecoded

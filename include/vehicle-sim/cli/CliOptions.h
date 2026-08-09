@@ -44,6 +44,11 @@ struct CliOptions {
     // pipeable CSV stream.
     bool stdout_csv = false;
 
+    // Replay-only: skip rows whose recorded timestamp is before this many
+    // seconds. Negative/unset means "no skip". Mirrors engine-sim-cli's
+    // setStartFromS. Applied only to file (replay) replay, not live feeds.
+    double start_from_s = -1.0;
+
     // Set on parse error — caller should print and exit(1).
     std::string error_message;
 
