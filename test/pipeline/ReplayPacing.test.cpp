@@ -3,6 +3,7 @@
 #include "vehicle-sim/pipeline/FileTransport.h"
 #include "vehicle-sim/pipeline/CaptureNormaliser.h"
 #include "vehicle-sim/pipeline/DecodedCsvSink.h"
+#include "vehicle-sim/pipeline/RawLogSink.h"
 #include "vehicle-sim/pipeline/ReplayPacing.h"
 #include "vehicle-sim/pipeline/IProgressReporter.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
@@ -289,10 +290,150 @@ TEST(ReplayPacingIntegrationTest, PacedReplayStartFromSkipsEarlyRows) {
                            nullptr, ReplayMode::Paced, clock, /*startFromS=*/2.0);
 
     EXPECT_EQ(stats.framesDecoded, 2u);
+    // Pins the `waitMs < 0 => ++skippedLines` translation: the CSV header plus
+    // the two pre-threshold frames (0ms, 1000ms) are all counted as skipped.
+    // Without this, an extraction could drop the pre-start-from rows silently
+    // (still not decoding them, but no longer accounting for them).
+    EXPECT_EQ(stats.skippedLines, 3u);
     auto ts = decodedTimestamps(dir.read("sf.csv"));
     ASSERT_EQ(ts.size(), 2u);
     EXPECT_EQ(ts[0], 2000u);
     EXPECT_EQ(ts[1], 3000u);
+}
+
+// --- Phase-1 characterisation tests (pre-refactor safety net) -------------
+// These pin behaviour that the PacedFrameScheduler / ReplayOutputs extractions
+// directly own. They pass on the un-refactored code by construction; their job
+// is to FAIL if an extraction changes the observable contract.
+
+// Contract: the pacing baseline anchors on the first NON-BLANK frame, not on
+// the first frame of any kind. A leading blank row must not become the
+// baseline.
+//
+// Why the sleep COUNT is the load-bearing assertion: with a correct baseline
+// (anchored at 1000ms) the only scheduled gap is 1000->2000, so exactly one
+// wait occurs. If a blank row wrongly anchored the baseline at 0ms, BOTH real
+// frames would sit in the future (1000ms and 2000ms ahead) and the run would
+// record two sleeps. The count discriminates the two baselines; the durations
+// confirm which one was chosen.
+TEST(ReplayPacingIntegrationTest, PacedReplay_AnchorsBaselineOnFirstNonBlankFrame) {
+    TempDir dir;
+    std::string content =
+        "timestamp_ms,can_id,dlc,data_hex\n"
+        "0,000,0,\n"                          // leading blank -> must NOT anchor
+        "1000,118,8,3C00180004A001FF\n"       // first real frame -> the baseline
+        "2000,118,8,3C00180004A001FF\n";
+    auto capture = dir.writeCapture("baseline.csv", content);
+
+    DBCTranslationService service;
+    DefaultVehicleConfigs::registerAll(service.registry());
+    ASSERT_TRUE(service.loadVehicle("tesla", VehicleProtocol::CAN));
+
+    FileTransport transport(capture);
+    ASSERT_TRUE(transport.open());
+    CaptureNormaliser normaliser;
+
+    std::string base = dir.base("baseline_out");
+    DecodedCsvSink sink(base);
+    ASSERT_TRUE(sink.isValid());
+
+    RecordingClock clock;
+    auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
+                           nullptr, ReplayMode::Paced, clock, /*startFromS=*/-1.0);
+
+    EXPECT_EQ(stats.framesDecoded, 2u) << "both real frames must decode";
+
+    // Load-bearing: exactly one inter-frame wait proves the baseline anchored
+    // on the 1000ms frame rather than on the leading blank.
+    ASSERT_EQ(clock.sleeps().size(), 1u)
+        << "a blank row must not anchor the pacing baseline";
+    EXPECT_EQ(clock.sleeps().front().count(), 1000)
+        << "the single wait should span the 1000ms->2000ms recorded gap";
+
+    auto ts = decodedTimestamps(dir.read("baseline_out.csv"));
+    ASSERT_EQ(ts.size(), 2u);
+    EXPECT_EQ(ts[0], 1000u);
+    EXPECT_EQ(ts[1], 2000u);
+}
+
+// Contract: in paced mode a malformed row is routed to malformedLines ONLY —
+// it is not additionally counted as skipped, and it is not decoded. Pins the
+// full routing rather than a single count, so a refactor cannot quietly
+// reclassify malformed rows as skips.
+TEST(ReplayPacingIntegrationTest, PacedReplay_MalformedRow_RoutedToMalformedNotSkippedOrDecoded) {
+    TempDir dir;
+    std::string content =
+        "timestamp_ms,can_id,dlc,data_hex\n"
+        "1000,118,8,3C00180004A001FF\n"
+        "999,GG,8,00112233\n"                 // malformed CAN id
+        "2000,118,8,3C00180004A001FF\n";
+    auto capture = dir.writeCapture("malformed.csv", content);
+
+    DBCTranslationService service;
+    DefaultVehicleConfigs::registerAll(service.registry());
+    ASSERT_TRUE(service.loadVehicle("tesla", VehicleProtocol::CAN));
+
+    FileTransport transport(capture);
+    ASSERT_TRUE(transport.open());
+    CaptureNormaliser normaliser;
+
+    std::string base = dir.base("malformed_out");
+    DecodedCsvSink sink(base);
+    ASSERT_TRUE(sink.isValid());
+
+    RecordingClock clock;
+    auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
+                           nullptr, ReplayMode::Paced, clock, /*startFromS=*/-1.0);
+
+    EXPECT_EQ(stats.malformedLines, 1u) << "the bad row must be counted malformed";
+    EXPECT_EQ(stats.skippedLines, 1u)
+        << "only the CSV header is a skip — malformed must not double-count";
+    EXPECT_EQ(stats.framesDecoded, 2u) << "the malformed row must not decode";
+}
+
+// Contract: the raw sink records a row VERBATIM before the pacing/skip
+// decision, so a row skipped for decode still appears in the raw capture.
+//
+// This is the ordering invariant the ReplayOutputs extraction can break: if
+// the raw write were moved after the skip decision, skipped rows would vanish
+// from the verbatim capture and the raw file would stop being a faithful
+// replay source. Existing cover pinned this only in UNPACED mode.
+TEST(ReplayPacingIntegrationTest, PacedReplay_RawSinkRecordsSkippedRowBeforeSkipDecision) {
+    TempDir dir;
+    std::string content =
+        "timestamp_ms,can_id,dlc,data_hex\n"
+        "0,000,0,\n"                          // blank -> skipped for decode
+        "1000,118,8,3C00180004A001FF\n";
+    auto capture = dir.writeCapture("raworder.csv", content);
+
+    DBCTranslationService service;
+    DefaultVehicleConfigs::registerAll(service.registry());
+    ASSERT_TRUE(service.loadVehicle("tesla", VehicleProtocol::CAN));
+
+    FileTransport transport(capture);
+    ASSERT_TRUE(transport.open());
+    CaptureNormaliser normaliser;
+
+    std::string base = dir.base("raworder_out");
+    DecodedCsvSink decoded(base);
+    ASSERT_TRUE(decoded.isValid());
+    RawLogSink raw(base);
+    ASSERT_TRUE(raw.isValid());
+
+    RecordingClock clock;
+    auto stats = runReplay(transport, normaliser, service, &decoded, &raw,
+                           nullptr, ReplayMode::Paced, clock, /*startFromS=*/-1.0);
+
+    // The blank row was genuinely skipped for decode...
+    EXPECT_EQ(stats.framesDecoded, 1u) << "the blank row must not decode";
+
+    // ...yet its verbatim text is still present in the raw capture, proving the
+    // raw write happened BEFORE the skip decision.
+    auto rawContent = dir.read("raworder_out.raw.txt");
+    EXPECT_NE(rawContent.find("0,000,0,"), std::string::npos)
+        << "a row skipped for decode must still be captured verbatim by the raw sink";
+    EXPECT_NE(rawContent.find("1000,118,8,3C00180004A001FF"), std::string::npos)
+        << "the decoded row must also be captured verbatim";
 }
 
 TEST(ReplayPacingIntegrationTest, EofTerminatesPacedReplayCleanly) {
