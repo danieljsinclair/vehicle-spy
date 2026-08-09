@@ -87,8 +87,7 @@ TEST(DemoTransportTest, FramesDecodeThroughTeslaDbcIntoVehicleSignals) {
     bool sawGear = false;
     int decoded = 0;
 
-    auto stats = runReplay(transport, normaliser, service,
-                           /*decodedSink=*/nullptr, /*rawSink=*/nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{});
     (void)stats;
 
     // Re-run to inspect the decoded signals (runReplay consumed the transport).

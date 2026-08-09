@@ -93,7 +93,7 @@ TEST(PipelineReplayTest, FileReplayWritesOnlyCsv_NoRawTxt) {
     DecodedCsvSink sink(base);
     ASSERT_TRUE(sink.isValid());
 
-    auto stats = runReplay(transport, normaliser, service, &sink, /*rawSink=*/nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{.decoded = &sink});
 
     // Invariants for Phase 1 file replay.
     EXPECT_TRUE(dir.exists("out.csv"));
@@ -128,7 +128,8 @@ TEST(PipelineReplayTest, RawSinkWhenProvidedRecordsVerbatimLines) {
     DecodedCsvSink decoded(base);
     RawLogSink raw(base);
 
-    auto stats = runReplay(transport, normaliser, service, &decoded, &raw);
+    auto stats = runReplay(transport, normaliser, service,
+                           ReplayOutputs{.decoded = &decoded, .raw = &raw});
     EXPECT_GE(stats.linesRead, 1u);
 
     EXPECT_TRUE(dir.exists("live.csv"));
@@ -161,7 +162,7 @@ TEST(PipelineReplayTest, ReplayPreservesCaptureTimestampsInCsv) {
     std::string base = dir.base("ts_out");
     DecodedCsvSink sink(base);
 
-    auto stats = runReplay(transport, normaliser, service, &sink, nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{.decoded = &sink});
     EXPECT_EQ(stats.framesDecoded, 2u);
 
     auto csv = dir.read("ts_out.csv");
@@ -201,7 +202,7 @@ TEST(PipelineReplayTest, LivePathTimestampsComeFromWallClock) {
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count());
 
-    auto stats = runReplay(transport, normaliser, service, &sink, nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{.decoded = &sink});
 
     auto after = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -243,8 +244,7 @@ TEST(PipelineReplayTest, NullDecodedSinkRunsDecodeWithoutOutput) {
     ASSERT_TRUE(transport.open());
     CaptureNormaliser normaliser;
 
-    auto stats = runReplay(transport, normaliser, service,
-                           /*decodedSink=*/nullptr, /*rawSink=*/nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{});
     EXPECT_EQ(stats.linesRead, 1u);
     // A frame-shaped line still decodes (we just don't persist it).
     EXPECT_FALSE(dir.exists("anything.csv"));
@@ -286,8 +286,7 @@ TEST(PipelineReplayTest, FrameWithUnknownCanId_StillCountsAsDecoded) {
     ASSERT_TRUE(transport.open());
     CaptureNormaliser normaliser;
 
-    auto stats = runReplay(transport, normaliser, service,
-                           /*decodedSink=*/nullptr, /*rawSink=*/nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{});
 
     EXPECT_EQ(stats.linesRead, 1u);
     EXPECT_EQ(stats.framesDecoded, 1u);
@@ -315,8 +314,7 @@ TEST(PipelineReplayTest, NullProgressReporter_DecodesAndWritesCsvWithoutDeref) {
     DecodedCsvSink sink(base);
     ASSERT_TRUE(sink.isValid());
 
-    auto stats = runReplay(transport, normaliser, service, &sink,
-                           /*rawSink=*/nullptr, /*progressReporter=*/nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{.decoded = &sink});
 
     EXPECT_EQ(stats.linesRead, 1u);
     EXPECT_EQ(stats.framesDecoded, 1u);
@@ -343,8 +341,7 @@ TEST(PipelineReplayTest, NullRawSink_WritesDecodedCsvAndRecordsNoRaw) {
     DecodedCsvSink sink(base);
     ASSERT_TRUE(sink.isValid());
 
-    auto stats = runReplay(transport, normaliser, service, &sink,
-                           /*rawSink=*/nullptr);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{.decoded = &sink});
 
     EXPECT_EQ(stats.framesDecoded, 1u);
     EXPECT_TRUE(dir.exists("noraw.csv"));

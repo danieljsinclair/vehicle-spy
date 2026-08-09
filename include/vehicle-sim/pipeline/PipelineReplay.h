@@ -40,6 +40,31 @@ struct ReplayStats {
 const util::IClock& defaultReplayClock() noexcept;
 
 /**
+ * The optional output seams of a replay run, grouped because they are one
+ * cohesive concern: "where does this run's output go?". Each is independently
+ * nullable — a run may persist decoded rows, mirror verbatim lines, report
+ * progress, any combination, or none.
+ *
+ * Deliberately NOT a god-struct: the DI seams (transport, normaliser,
+ * translator) and the run configuration (mode, clock, start-from) stay as
+ * explicit parameters. Bundling those in too would hide the very SRP violation
+ * this refactor removes, rather than expressing a real grouping.
+ */
+struct ReplayOutputs {
+    /** Decoded CSV sink, or nullptr to skip decoded output. */
+    DecodedCsvSink* decoded = nullptr;
+    /** Raw verbatim sink, or nullptr to skip raw output. */
+    RawLogSink* raw = nullptr;
+    /**
+     * Streaming progress observer, or nullptr to run silently. When supplied,
+     * onFrame() fires after each decoded frame and onComplete() once the
+     * transport is exhausted. Uniform across transports: it consumes the
+     * decoded VehicleSignal, not transport bytes.
+     */
+    IProgressReporter* progress = nullptr;
+};
+
+/**
  * Pacing mode for a replay run.
  *   - Unpaced: emit each frame as soon as it is read (LIVE feeds reflect
  *     reality — dump as fast as possible, no timestamp pacing, no blank skip).
@@ -59,16 +84,10 @@ enum class ReplayMode {
  * @param transport          Opened transport (open() must already have succeeded).
  * @param normaliser         Adapter-protocol normaliser (e.g. RawFrameNormaliser).
  * @param translationService DBC decoder (vehicle DBC must already be loaded).
- * @param decodedSink        Decoded CSV sink, or nullptr to skip decoded output.
- * @param rawSink            Raw verbatim sink, or nullptr to skip raw output.
- * @param progressReporter   Optional streaming progress observer, or nullptr
- *                           to run silently (the Phase 1 default for any path
- *                           that does not want live console output). When
- *                           supplied, onFrame() is called after each decoded
- *                           frame and onComplete() once the transport is
- *                           exhausted. Uniform across transports — the same
- *                           reporter serves file/tcp/ble because it consumes
- *                           the decoded VehicleSignal, not transport bytes.
+ * @param outputs            Where this run's output goes (decoded sink, raw
+ *                           sink, progress reporter) — each independently
+ *                           nullable. Brace-init at the call site, e.g.
+ *                           `{&decoded, nullptr, &reporter}`.
  * @param mode               Pacing mode. Unpaced for live feeds (dump as fast
  *                           as possible); Paced for replay (sleep to recorded
  *                           timestamps, skip blanks + --start-from-prior rows).
@@ -84,9 +103,7 @@ enum class ReplayMode {
     ITransport& transport,
     IAdapterNormaliser& normaliser,
     const domain::DBCTranslationService& translationService,
-    DecodedCsvSink* decodedSink,
-    RawLogSink* rawSink,
-    IProgressReporter* progressReporter = nullptr,
+    const ReplayOutputs& outputs,
     ReplayMode mode = ReplayMode::Unpaced,
     const util::IClock& clock = defaultReplayClock(),
     double startFromS = -1.0

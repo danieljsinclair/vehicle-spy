@@ -192,8 +192,8 @@ TEST(ReplayPacingIntegrationTest, PacedReplaySpacesRowsByRecordedTimestamps) {
     ASSERT_TRUE(sink.isValid());
 
     RecordingClock clock;
-    auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
-                           /*progressReporter=*/nullptr, ReplayMode::Paced, clock,
+    auto stats = runReplay(transport, normaliser, service,
+                           ReplayOutputs{.decoded = &sink}, ReplayMode::Paced, clock,
                            /*startFromS=*/-1.0);
 
     // All 4 frames decoded.
@@ -241,8 +241,9 @@ TEST(ReplayPacingIntegrationTest, PacedReplaySkipsBlankRows) {
         ASSERT_TRUE(sink.isValid());
 
         RecordingClock clock;
-        auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
-                               nullptr, ReplayMode::Paced, clock, -1.0);
+        auto stats = runReplay(transport, normaliser, service,
+                               ReplayOutputs{.decoded = &sink}, ReplayMode::Paced,
+                               clock, -1.0);
         EXPECT_EQ(stats.framesDecoded, 2u) << "blank row must be skipped in replay";
         // 2 skips = 1 CSV header + 1 blank row.
         EXPECT_EQ(stats.skippedLines, 2u);
@@ -261,8 +262,8 @@ TEST(ReplayPacingIntegrationTest, PacedReplaySkipsBlankRows) {
         DecodedCsvSink sink(base);
         ASSERT_TRUE(sink.isValid());
 
-        auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
-                               nullptr, ReplayMode::Unpaced);
+        auto stats = runReplay(transport, normaliser, service,
+                               ReplayOutputs{.decoded = &sink}, ReplayMode::Unpaced);
         EXPECT_EQ(stats.framesDecoded, 3u) << "live path must NOT skip blank rows";
     }
 }
@@ -286,8 +287,9 @@ TEST(ReplayPacingIntegrationTest, PacedReplayStartFromSkipsEarlyRows) {
     ASSERT_TRUE(sink.isValid());
 
     RecordingClock clock;
-    auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
-                           nullptr, ReplayMode::Paced, clock, /*startFromS=*/2.0);
+    auto stats = runReplay(transport, normaliser, service,
+                           ReplayOutputs{.decoded = &sink}, ReplayMode::Paced, clock,
+                           /*startFromS=*/2.0);
 
     EXPECT_EQ(stats.framesDecoded, 2u);
     // Pins the `waitMs < 0 => ++skippedLines` translation: the CSV header plus
@@ -338,8 +340,9 @@ TEST(ReplayPacingIntegrationTest, PacedReplay_AnchorsBaselineOnFirstNonBlankFram
     ASSERT_TRUE(sink.isValid());
 
     RecordingClock clock;
-    auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
-                           nullptr, ReplayMode::Paced, clock, /*startFromS=*/-1.0);
+    auto stats = runReplay(transport, normaliser, service,
+                           ReplayOutputs{.decoded = &sink}, ReplayMode::Paced, clock,
+                           /*startFromS=*/-1.0);
 
     EXPECT_EQ(stats.framesDecoded, 2u) << "both real frames must decode";
 
@@ -382,8 +385,9 @@ TEST(ReplayPacingIntegrationTest, PacedReplay_MalformedRow_RoutedToMalformedNotS
     ASSERT_TRUE(sink.isValid());
 
     RecordingClock clock;
-    auto stats = runReplay(transport, normaliser, service, &sink, nullptr,
-                           nullptr, ReplayMode::Paced, clock, /*startFromS=*/-1.0);
+    auto stats = runReplay(transport, normaliser, service,
+                           ReplayOutputs{.decoded = &sink}, ReplayMode::Paced, clock,
+                           /*startFromS=*/-1.0);
 
     EXPECT_EQ(stats.malformedLines, 1u) << "the bad row must be counted malformed";
     EXPECT_EQ(stats.skippedLines, 1u)
@@ -421,8 +425,9 @@ TEST(ReplayPacingIntegrationTest, PacedReplay_RawSinkRecordsSkippedRowBeforeSkip
     ASSERT_TRUE(raw.isValid());
 
     RecordingClock clock;
-    auto stats = runReplay(transport, normaliser, service, &decoded, &raw,
-                           nullptr, ReplayMode::Paced, clock, /*startFromS=*/-1.0);
+    auto stats = runReplay(transport, normaliser, service,
+                           ReplayOutputs{.decoded = &decoded, .raw = &raw},
+                           ReplayMode::Paced, clock, /*startFromS=*/-1.0);
 
     // The blank row was genuinely skipped for decode...
     EXPECT_EQ(stats.framesDecoded, 1u) << "the blank row must not decode";
@@ -452,8 +457,8 @@ TEST(ReplayPacingIntegrationTest, EofTerminatesPacedReplayCleanly) {
     CaptureNormaliser normaliser;
 
     FakeClock clock; // never advanced externally -> any sleepFor returns instantly
-    auto stats = runReplay(transport, normaliser, service, nullptr, nullptr,
-                           nullptr, ReplayMode::Paced, clock, -1.0);
+    auto stats = runReplay(transport, normaliser, service, ReplayOutputs{},
+                           ReplayMode::Paced, clock, -1.0);
     EXPECT_EQ(stats.framesDecoded, 3u); // all rows emitted, loop exited at EOF
     EXPECT_EQ(stats.linesRead, 4u);    // header + 3 frames
 }

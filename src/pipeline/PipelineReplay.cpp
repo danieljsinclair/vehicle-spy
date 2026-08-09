@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <iostream>
 #include <optional>
+#include <string>
 
 namespace vehicle_sim::pipeline {
 
@@ -22,6 +23,19 @@ namespace {
 // thread-safe and stateless beyond the steady_clock read.
 static const util::SystemClock g_defaultReplayClock;
 
+// Count a transport line and mirror it verbatim to the raw sink.
+//
+// The raw write happens BEFORE normalisation and before any pacing/skip
+// decision, so the raw capture stays a faithful replay source: a row skipped
+// for decode is still recorded. Shared by both loops so the two cannot drift.
+void recordRawLine(ReplayStats& stats, const std::string& line,
+                   const ReplayOutputs& outputs) {
+    ++stats.linesRead;
+    if (outputs.raw) {
+        outputs.raw->writeLine(line);
+    }
+}
+
 // Translate one normalised frame and dispatch the result to the optional sinks.
 // The `signal` falsy arm (processFrame returns nullopt) intentionally skips the
 // framesDecoded increment — a defensive seam for future translators (the shipped
@@ -31,8 +45,7 @@ void dispatchFrame(
     const domain::DBCTranslationService& translationService,
     const std::vector<std::uint8_t>& bytes,
     std::optional<std::uint64_t> ts,
-    DecodedCsvSink* decodedSink,
-    IProgressReporter* progressReporter) {
+    const ReplayOutputs& outputs) {
 
     auto signal = translationService.processFrame(bytes, ts);
     if (!signal) {
@@ -53,14 +66,14 @@ void dispatchFrame(
 
     ++stats.framesDecoded;
 
-    if (decodedSink) {
-        decodedSink->write(*signal);
+    if (outputs.decoded) {
+        outputs.decoded->write(*signal);
     }
 
     // Progress is reported AFTER the decoded sink is written, so the console
     // never races ahead of the persisted output. The reporter owns throttling.
-    if (progressReporter) {
-        progressReporter->onFrame(*signal, stats.framesDecoded - 1, 0);
+    if (outputs.progress) {
+        outputs.progress->onFrame(*signal, stats.framesDecoded - 1, 0);
     }
 }
 
@@ -72,13 +85,11 @@ void emitFrame(
     const std::vector<std::uint8_t>& bytes,
     bool hasTimestamp,
     std::uint64_t timestampMs,
-    DecodedCsvSink* decodedSink,
-    IProgressReporter* progressReporter) {
+    const ReplayOutputs& outputs) {
     std::optional<std::uint64_t> ts = hasTimestamp
         ? std::optional<std::uint64_t>(timestampMs)
         : std::nullopt;
-    dispatchFrame(stats, translationService, bytes, ts,
-                  decodedSink, progressReporter);
+    dispatchFrame(stats, translationService, bytes, ts, outputs);
 }
 
 // Unpaced loop: dump every frame as fast as it is read (LIVE behaviour).
@@ -87,27 +98,19 @@ ReplayStats runReplayUnpaced(
     ITransport& transport,
     IAdapterNormaliser& normaliser,
     const domain::DBCTranslationService& translationService,
-    DecodedCsvSink* decodedSink,
-    RawLogSink* rawSink,
-    IProgressReporter* progressReporter) {
+    const ReplayOutputs& outputs) {
 
     ReplayStats stats;
 
     while (auto line = transport.nextLine()) {
-        ++stats.linesRead;
-
-        // The raw sink records the verbatim transport line BEFORE normalisation
-        // so the capture is a faithful replay source.
-        if (rawSink) {
-            rawSink->writeLine(*line);
-        }
+        recordRawLine(stats, *line, outputs);
 
         auto result = normaliser.normalise(*line);
         switch (result.kind) {
             case NormaliserResultKind::Frame: {
                 auto bytes = domain::toTwaiFrame(result.frame);
                 emitFrame(stats, translationService, bytes, result.hasTimestamp,
-                          result.frame.timestampMs, decodedSink, progressReporter);
+                          result.frame.timestampMs, outputs);
                 break;
             }
             case NormaliserResultKind::Skip:
@@ -120,8 +123,8 @@ ReplayStats runReplayUnpaced(
         }
     }
 
-    if (progressReporter) {
-        progressReporter->onComplete(stats);
+    if (outputs.progress) {
+        outputs.progress->onComplete(stats);
     }
 
     return stats;
@@ -141,9 +144,7 @@ ReplayStats runReplayPaced(
     ITransport& transport,
     IAdapterNormaliser& normaliser,
     const domain::DBCTranslationService& translationService,
-    DecodedCsvSink* decodedSink,
-    RawLogSink* rawSink,
-    IProgressReporter* progressReporter,
+    const ReplayOutputs& outputs,
     const util::IClock& clock,
     double startFromS) {
 
@@ -155,13 +156,7 @@ ReplayStats runReplayPaced(
     std::uint64_t baselineTsMs = 0;
 
     while (auto line = transport.nextLine()) {
-        ++stats.linesRead;
-
-        // Verbatim capture is recorded BEFORE pacing/skip so the raw source of
-        // truth is preserved regardless of replay decisions.
-        if (rawSink) {
-            rawSink->writeLine(*line);
-        }
+        recordRawLine(stats, *line, outputs);
 
         auto result = normaliser.normalise(*line);
         switch (result.kind) {
@@ -204,7 +199,7 @@ ReplayStats runReplayPaced(
 
                 auto bytes = domain::toTwaiFrame(frame);
                 emitFrame(stats, translationService, bytes, result.hasTimestamp,
-                          frame.timestampMs, decodedSink, progressReporter);
+                          frame.timestampMs, outputs);
                 break;
             }
             case NormaliserResultKind::Skip:
@@ -217,8 +212,8 @@ ReplayStats runReplayPaced(
         }
     }
 
-    if (progressReporter) {
-        progressReporter->onComplete(stats);
+    if (outputs.progress) {
+        outputs.progress->onComplete(stats);
     }
 
     return stats;
@@ -234,20 +229,16 @@ ReplayStats runReplay(
     ITransport& transport,
     IAdapterNormaliser& normaliser,
     const domain::DBCTranslationService& translationService,
-    DecodedCsvSink* decodedSink,
-    RawLogSink* rawSink,
-    IProgressReporter* progressReporter,
+    const ReplayOutputs& outputs,
     ReplayMode mode,
     const util::IClock& clock,
     double startFromS) noexcept {
 
     if (mode == ReplayMode::Paced) {
         return runReplayPaced(transport, normaliser, translationService,
-                              decodedSink, rawSink, progressReporter,
-                              clock, startFromS);
+                              outputs, clock, startFromS);
     }
-    return runReplayUnpaced(transport, normaliser, translationService,
-                            decodedSink, rawSink, progressReporter);
+    return runReplayUnpaced(transport, normaliser, translationService, outputs);
 }
 
 } // namespace vehicle_sim::pipeline
