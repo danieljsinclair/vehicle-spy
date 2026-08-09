@@ -31,13 +31,18 @@ struct ReplayStats {
 
 /**
  * Process-wide default clock for replay pacing. A single SystemClock instance
- * shared by all replay runs (pacing only reads now()/sleeps via sleepFor, which
- * are thread-safe and stateless apart from the steady_clock read). Lives in the
+ * shared by all replay runs (pacing only reads now() and sleeps via sleepFor,
+ * both thread-safe and stateless beyond the steady_clock read). Lives in the
  * pipeline so the no-clock overload of runReplay can default to real wall-clock
  * pacing without every caller injecting a clock. Declared before runReplay so it
  * is visible as a default-argument value.
+ *
+ * Returns a NON-const reference because pacing must call sleepFor(), which is a
+ * mutating operation on the IClock interface (a FakeClock advances its virtual
+ * time). The instance is a function-local static rather than a mutable global,
+ * so there is no non-const global state.
  */
-const util::IClock& defaultReplayClock() noexcept;
+util::IClock& defaultReplayClock() noexcept;
 
 /**
  * The optional output seams of a replay run, grouped because they are one
@@ -91,9 +96,10 @@ enum class ReplayMode {
  * @param mode               Pacing mode. Unpaced for live feeds (dump as fast
  *                           as possible); Paced for replay (sleep to recorded
  *                           timestamps, skip blanks + --start-from-prior rows).
- * @param clock              Clock used for Paced-mode sleeps. Unused in Unpaced
- *                           mode. Defaults to a real SystemClock when omitted,
- *                           so existing callers need not inject one.
+ * @param clock              Clock used for Paced-mode elapsed-time reads and
+ *                           sleeps. Unused in Unpaced mode. Defaults to a real
+ *                           SystemClock when omitted, so existing callers need
+ *                           not inject one.
  * @param startFromS         Skip rows whose recorded timestamp is before this
  *                           many seconds (REPLAY --start-from). Negative means
  *                           "not set" (skip nothing). Ignored in Unpaced mode.
@@ -105,7 +111,7 @@ enum class ReplayMode {
     const domain::DBCTranslationService& translationService,
     const ReplayOutputs& outputs,
     ReplayMode mode = ReplayMode::Unpaced,
-    const util::IClock& clock = defaultReplayClock(),
+    util::IClock& clock = defaultReplayClock(),
     double startFromS = -1.0
 ) noexcept;
 

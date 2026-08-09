@@ -2,6 +2,7 @@
 #include "vehicle-sim/pipeline/DecodedCsvSink.h"
 #include "vehicle-sim/pipeline/IProgressReporter.h"
 #include "vehicle-sim/pipeline/RawLogSink.h"
+#include "vehicle-sim/pipeline/PacedFrameScheduler.h"
 #include "vehicle-sim/pipeline/ReplayPacing.h"
 #include "vehicle-sim/domain/CaptureLog.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
@@ -18,10 +19,8 @@ namespace vehicle_sim::pipeline {
 
 namespace {
 
-// Process-wide default replay clock (see defaultReplayClock() declaration in
-// the header). One real SystemClock; pacing only reads now()/sleeps, both
-// thread-safe and stateless beyond the steady_clock read.
-static const util::SystemClock g_defaultReplayClock;
+// (The process-wide default clock is a function-local static in
+// defaultReplayClock() below — see that definition for why.)
 
 // Count a transport line and mirror it verbatim to the raw sink.
 //
@@ -130,78 +129,57 @@ ReplayStats runReplayUnpaced(
     return stats;
 }
 
+// Handle one normalised frame in paced mode: ask the scheduler whether the
+// frame is due (it performs any required wait inline), then emit or count it
+// as skipped. Extracted so the paced loop reads as a flat switch rather than
+// inlining the pacing state machine.
+void handlePacedFrame(
+    ReplayStats& stats,
+    const NormaliserResult& result,
+    PacedFrameScheduler& scheduler,
+    const domain::DBCTranslationService& translationService,
+    const ReplayOutputs& outputs) {
+
+    const auto& frame = result.frame;
+
+    if (scheduler.consider(frame) == PacedFrameScheduler::Action::Skip) {
+        ++stats.skippedLines;
+        return;
+    }
+
+    auto bytes = domain::toTwaiFrame(frame);
+    emitFrame(stats, translationService, bytes, result.hasTimestamp,
+              frame.timestampMs, outputs);
+}
+
 // Paced loop: REPLAY behaviour. Honour the file's recorded timestamps by
 // sleeping until each row's scheduled time arrives relative to replay start;
 // skip blank rows (zero timestamp AND zero payload) and rows before
 // --start-from. The raw sink (if any) still records verbatim lines BEFORE the
 // pacing/skip decision so the capture remains a faithful source.
 //
-// Pacing design (per directive): capture the first emitted frame's recorded
-// timestamp as the baseline; for each subsequent frame, sleep until
-// (now - replayStart) >= (frame.timestampMs - baseline). Uses a steady_clock
-// via the injected IClock. Simple and correct; Live mode stays unpaced.
+// The pacing state machine itself lives in PacedFrameScheduler (which composes
+// the pure ReplayPacing policy); this loop only routes normaliser results.
 ReplayStats runReplayPaced(
     ITransport& transport,
     IAdapterNormaliser& normaliser,
     const domain::DBCTranslationService& translationService,
     const ReplayOutputs& outputs,
-    const util::IClock& clock,
+    util::IClock& clock,
     double startFromS) {
 
     ReplayStats stats;
-    ReplayPacing pacing(startFromS);
-
-    const auto replayStart = clock.now();
-    bool baselineSet = false;
-    std::uint64_t baselineTsMs = 0;
+    PacedFrameScheduler scheduler(ReplayPacing(startFromS), clock);
 
     while (auto line = transport.nextLine()) {
         recordRawLine(stats, *line, outputs);
 
         auto result = normaliser.normalise(*line);
         switch (result.kind) {
-            case NormaliserResultKind::Frame: {
-                const auto& frame = result.frame;
-
-                // Anchor the baseline on the first frame carrying telemetry
-                // (non-blank). Blank rows do not advance the baseline.
-                if (!baselineSet && !ReplayPacing::isFrameBlank(frame)) {
-                    baselineTsMs = frame.timestampMs;
-                    baselineSet = true;
-                }
-
-                // Skip blank rows (REPLAY-only: the live path records everything).
-                if (ReplayPacing::isFrameBlank(frame)) {
-                    ++stats.skippedLines;
-                    break;
-                }
-
-                // Pace: sleep until this row's scheduled time arrives. Before the
-                // baseline is known (first real frame) we surface immediately.
-                if (baselineSet) {
-                    const auto elapsed =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            clock.now() - replayStart).count();
-                    const std::int64_t waitMs =
-                        pacing.classifyFrame(frame, baselineTsMs,
-                                            static_cast<std::uint64_t>(
-                                                elapsed < 0 ? 0 : elapsed));
-                    if (waitMs > 0) {
-                        const_cast<util::IClock&>(clock).sleepFor(
-                            std::chrono::milliseconds(waitMs));
-                    }
-                    // waitMs < 0 => before --start-from: skip (counted as skipped).
-                    if (waitMs < 0) {
-                        ++stats.skippedLines;
-                        break;
-                    }
-                }
-
-                auto bytes = domain::toTwaiFrame(frame);
-                emitFrame(stats, translationService, bytes, result.hasTimestamp,
-                          frame.timestampMs, outputs);
+            case NormaliserResultKind::Frame:
+                handlePacedFrame(stats, result, scheduler, translationService,
+                                 outputs);
                 break;
-            }
             case NormaliserResultKind::Skip:
                 ++stats.skippedLines;
                 break;
@@ -221,8 +199,15 @@ ReplayStats runReplayPaced(
 
 } // namespace
 
-const util::IClock& defaultReplayClock() noexcept {
-    return g_defaultReplayClock;
+util::IClock& defaultReplayClock() noexcept {
+    // Function-local static, not a global: it is initialised on first use
+    // (thread-safe under C++11 magic statics) and is not mutable global state,
+    // so it satisfies "global variables should be const" without forcing a
+    // const_cast at the call site. SystemClock carries no members — sleepFor()
+    // and now() are stateless beyond the steady_clock read — so sharing one
+    // instance across concurrent replays is safe.
+    static util::SystemClock clock;
+    return clock;
 }
 
 ReplayStats runReplay(
@@ -231,7 +216,7 @@ ReplayStats runReplay(
     const domain::DBCTranslationService& translationService,
     const ReplayOutputs& outputs,
     ReplayMode mode,
-    const util::IClock& clock,
+    util::IClock& clock,
     double startFromS) noexcept {
 
     if (mode == ReplayMode::Paced) {
