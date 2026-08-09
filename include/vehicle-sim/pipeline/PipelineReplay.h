@@ -2,6 +2,7 @@
 
 #include "vehicle-sim/pipeline/IAdapterNormaliser.h"
 #include "vehicle-sim/pipeline/ITransport.h"
+#include "vehicle-sim/util/IClock.h"
 #include <cstddef>
 #include <memory>
 
@@ -29,6 +30,30 @@ struct ReplayStats {
 };
 
 /**
+ * Process-wide default clock for replay pacing. A single SystemClock instance
+ * shared by all replay runs (pacing only reads now()/sleeps via sleepFor, which
+ * are thread-safe and stateless apart from the steady_clock read). Lives in the
+ * pipeline so the no-clock overload of runReplay can default to real wall-clock
+ * pacing without every caller injecting a clock. Declared before runReplay so it
+ * is visible as a default-argument value.
+ */
+const util::IClock& defaultReplayClock() noexcept;
+
+/**
+ * Pacing mode for a replay run.
+ *   - Unpaced: emit each frame as soon as it is read (LIVE feeds reflect
+ *     reality — dump as fast as possible, no timestamp pacing, no blank skip).
+ *   - Paced:   honour the file's recorded timestamps — sleep until each row's
+ *     scheduled time arrives relative to replay start (REPLAY mode). In Paced
+ *     mode blank rows (zero timestamp AND zero payload) are skipped, and rows
+ *     before --start-from are skipped.
+ */
+enum class ReplayMode {
+    Unpaced,
+    Paced,
+};
+
+/**
  * Run a bounded replay through the pipeline.
  *
  * @param transport          Opened transport (open() must already have succeeded).
@@ -44,6 +69,15 @@ struct ReplayStats {
  *                           exhausted. Uniform across transports — the same
  *                           reporter serves file/tcp/ble because it consumes
  *                           the decoded VehicleSignal, not transport bytes.
+ * @param mode               Pacing mode. Unpaced for live feeds (dump as fast
+ *                           as possible); Paced for replay (sleep to recorded
+ *                           timestamps, skip blanks + --start-from-prior rows).
+ * @param clock              Clock used for Paced-mode sleeps. Unused in Unpaced
+ *                           mode. Defaults to a real SystemClock when omitted,
+ *                           so existing callers need not inject one.
+ * @param startFromS         Skip rows whose recorded timestamp is before this
+ *                           many seconds (REPLAY --start-from). Negative means
+ *                           "not set" (skip nothing). Ignored in Unpaced mode.
  * @return                   Aggregate stats for the run.
  */
 [[nodiscard]] ReplayStats runReplay(
@@ -52,7 +86,10 @@ struct ReplayStats {
     const domain::DBCTranslationService& translationService,
     DecodedCsvSink* decodedSink,
     RawLogSink* rawSink,
-    IProgressReporter* progressReporter = nullptr
+    IProgressReporter* progressReporter = nullptr,
+    ReplayMode mode = ReplayMode::Unpaced,
+    const util::IClock& clock = defaultReplayClock(),
+    double startFromS = -1.0
 ) noexcept;
 
 } // namespace vehicle_sim::pipeline
