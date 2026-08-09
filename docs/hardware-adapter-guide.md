@@ -228,6 +228,70 @@ Colours follow the OBD2 harness (the fixed constraint) so each signal keeps one 
 >
 > **Pin 13 trap:** pin 13 carries a black/white wire that is vendor-specific, NOT CAN-L. CAN-L is pin 14 (brown/white). They look similar — wiring CAN-L to the black/white (pin 13) wire gives power-but-no-data.
 
+---
+
+## Amplifier Power (XH-M542 / TPA3116D2 100W mono)
+
+The ESP32 + CAN bridge (above) draws ~150-200mA and runs off the OBD2 pin-16 12V via the LM2596. The **audio amplifier is a separate, high-current load** and must NOT share the thin OBD2 harness wires.
+
+### Amp current budget
+
+XH-M542 = Texas Instruments TPA3116D2, bridged mono, rated 100W, >90% efficient.
+
+| Condition | 12V input draw | Source |
+|-----------|----------------|--------|
+| Rated spec | 3A | Vendor listing |
+| 100W into 4Ω, full output | ~6-8A | calc (P/η/V) |
+| Music with bass peaks into 2Ω | up to ~12A+ | calc — worst case |
+| 20V (DeWalt drill battery) | ~2-4A for same power | lower current at higher V |
+
+**Use a 10A inline fuse** minimum; for a 2Ω sub, the rear 12V socket's 12A continuous rating may be marginal — prefer the 26-pin vehicle-end tap (below) or a fused battery tap with a relay.
+
+### Recommended source: Rear 12V socket (cigarette lighter) feed
+
+- Per Tesla owner's manual + TeslaTap: the socket is rated **12A continuous, 16A peak**, fused by Tesla.
+- Co-located with the speaker in the boot → short, clean power run.
+- Tap the **feed wire behind the panel**, not the socket itself. Splice in a **10A blade fuse holder** between the socket feed and the amp, then run to the amp VIN.
+
+#### Sleep / power-down behaviour (community consensus)
+
+| Car state | 12V socket | Evidence |
+|-----------|------------|----------|
+| Normal deep sleep (locked, idle 15-30 min) | **OFF (0V)** | Reddit r/TeslaModel3, TMC — "outlet shuts off when car sleeps" |
+| Sentry Mode on | ON (car kept awake) | Reddit r/TeslaModel3 |
+| Camp Mode / Dog Mode | ON (by design) | TMC camp-mode threads |
+| Charging (plugged, not actively charging) | Car may sleep → OFF | Reddit r/TeslaModel3 |
+| Software 2024.32+ | Sockets disabled when vehicle off/unoccupied unless Camp Mode/Sentry | evmagz.com, notateslaapp.com |
+
+> **Historically** (pre-2024.32) some builds left the socket always-on; a later update switched it off on exit; community complaints brought back "Accessory Power" (Camp/Sentry or occupied). Net: **under normal sleep it powers down** — exactly what we want (no always-hot drain of the small Tesla 12V battery).
+>
+> **⚠️ Physical verification required:** multimeter the socket with the car fully asleep (doors locked, 15+ min). It must read 0V. If it reads 12V asleep, the socket is always-hot on your build/firmware and fails the "not always-hot" requirement — fall back to the 26-pin vehicle-end tap (awake-only by design).
+
+### Alternative: 26-pin diagnostic connector, vehicle-end 12V (awake-only)
+
+The 26-pin **vehicle** connector (behind rear console) carries proper vehicle-grade, thick-gauge 12V (pin 15) and GND (pin 26). These are NOT the thin OBD2-harness wires. Our inline harness's vehicle-end wires are the full-CSA type — tapping there is electrically sound and is awake-only by design.
+
+- **Downside:** this 12V is the same electronically-fused diagnostic circuit Tesla monitors. An 8A amp load shares that e-fuse and may trip it or flag a diagnostic fault. Unknown exact rating → not guaranteed.
+- **Use only if** the rear socket proves always-hot on your car.
+
+### Rejected: direct 12V battery / rear-seat red cable
+
+Always-hot. On a Tesla the 12V battery is small — an always-on amp can discharge it, the car won't wake, and that is the real "game over". Explicitly avoided: we require awake-only power.
+
+### Grounding the amp
+
+Keep the amp's high-current ground **separate at the splice** but tie it to the same common GND star point as the ESP32/signal ground. Use the boot-panel ground point or run back to the common ground node already built. Do not loop the amp's return current through the thin OBD2 signal ground wires.
+
+### Wiring summary
+
+```
+Rear 12V socket feed (behind panel)
+   ──► [10A inline blade fuse] ──► XH-M542 VIN
+XH-M542 GND ──► boot ground point ──► common GND star (shared with ESP32)
+```
+
+> Before calling it permanent: verify socket is 0V asleep (above), add the 10A fuse, and confirm amp draw under real load doesn't exceed 12A (derate for 2Ω speakers).
+
 ### Wire Colour Reference
 
 Colours follow the OBD2 harness (the fixed constraint) so each signal keeps one colour across all three boards. This deliberately breaks the usual black=GND convention — go by the table, not by colour convention.
