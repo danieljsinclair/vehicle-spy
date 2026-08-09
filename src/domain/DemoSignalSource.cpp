@@ -21,10 +21,16 @@ VehicleSignal DemoSignalSource::latestSignal() const noexcept {
 }
 
 void DemoSignalSource::start() noexcept {
-    if (running_.load()) return;
-
-    worker_ = std::thread(&DemoSignalSource::generateSignals, this);
-    running_.store(true);
+    // Publish the run flag BEFORE spawning the worker. generateSignals() opens
+    // with `while (running_.load())`, so spawning first is a lost-wakeup race:
+    // if the new thread reaches that check before the parent's store lands, it
+    // observes false, exits immediately, and the source is left permanently
+    // dead while isRunning() reports true. Storing first makes the flag a
+    // happens-before publication for the worker's very first read.
+    if (!running_.load()) {
+        running_.store(true);
+        worker_ = std::thread(&DemoSignalSource::generateSignals, this);
+    }
 }
 
 void DemoSignalSource::stop() noexcept {
