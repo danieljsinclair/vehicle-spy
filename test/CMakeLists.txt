@@ -74,6 +74,7 @@ add_executable(vehicle-sim-tests
     pipeline/FileTransport.test.cpp
     pipeline/Sinks.test.cpp
     pipeline/PipelineReplay.test.cpp
+    pipeline/ReplayPacing.test.cpp
     pipeline/ConsoleProgressReporter.test.cpp
     pipeline/CsvStdoutReporters.test.cpp
     discovery/DiscoveryPacket.test.cpp
