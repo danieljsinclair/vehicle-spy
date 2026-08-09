@@ -52,11 +52,12 @@ void dispatchFrame(
         // recognise so operators can see why dbc_signal_count stays at 0
         // without attaching a debugger. Only fires on the live/CLI path;
         // the test-suite replay path is unaffected (no stderr noise).
-        const std::uint8_t lo = static_cast<std::uint8_t>(bytes[0]);
-        const std::uint8_t hi = static_cast<std::uint8_t>(bytes[1]);
-        const std::uint16_t canId =
-            static_cast<std::uint16_t>(lo) |
-            (static_cast<std::uint16_t>(hi) << 8);
+        const auto lo = static_cast<std::uint16_t>(bytes[0]);
+        const auto hi = static_cast<std::uint16_t>(bytes[1]);
+        // Widen to uint16 BEFORE shifting: `hi << 8` on a uint8 integer-promotes
+        // to int, so the result must be cast back down, which is the narrowing
+        // conversion Sonar flags. Doing the arithmetic in uint16 avoids it.
+        const auto canId = static_cast<std::uint16_t>(lo | (hi << 8));
         std::cerr << "[decode] CAN 0x" << std::hex << std::setw(3) << std::setfill('0')
                   << canId << std::dec << " — no DBC signal matched ("
                   << bytes.size() << " bytes)\n";
