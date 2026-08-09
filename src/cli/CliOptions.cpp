@@ -73,6 +73,11 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("--stdout-csv", opts.stdout_csv,
                  "Emit decoded CSV rows to stdout (same schema as <base>.csv); "
                  "progress output moves to stderr so stdout stays pipeable");
+    app.add_option("--start-from", opts.start_from_s,
+                   "Replay-only: skip rows whose recorded timestamp is before "
+                   "this many seconds (mirrors engine-sim-cli --start-from)")
+        ->expected(1)
+        ->capture_default_str();
     app.add_flag("-k,--interactive", opts.interactive_mode,
                  "Keyboard-driven bench mode: read throttle/gear/steering/brake "
                  "from the keyboard (1-9 = 10-90% throttle, 0 = 100%, arrows = "
@@ -119,6 +124,7 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         << "  --log-raw <file>      (deprecated, use --log) Log raw hex to file\n"
         << "  --stdout-csv          Emit decoded CSV rows to stdout (same schema as\n"
         << "                        <base>.csv); progress moves to stderr so stdout pipes cleanly\n"
+        << "  --start-from <sec>    Replay-only: skip rows before this recorded time\n"
         << "  -k,--interactive      Keyboard-driven bench mode: throttle 1-9/0, arrows\n"
         << "                        gear/steer, b=brake, q=quit; emits CSV on stdout\n"
         << "  --help                Show this help message\n\n";

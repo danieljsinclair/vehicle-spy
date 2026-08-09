@@ -95,6 +95,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/CsvStdoutReporter.cpp
     src/pipeline/CompositeProgressReporter.cpp
     src/pipeline/PipelineReplay.cpp
+    src/pipeline/ReplayPacing.cpp
+    src/pipeline/PacedFrameScheduler.cpp
     src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
     src/cli/Orchestration.cpp

@@ -119,9 +119,14 @@ int LiveRunContext::run(
         reporters.add(&csvReporter);
     }
 
+    const pipeline::ReplayOutputs outputs{
+        .decoded = decodedSink.get(),
+        .raw = rawSink.get(),
+        .progress = &reporters,
+    };
+
     auto stats = pipeline::runReplay(*source.transport, *source.normaliser,
-                                     translationService, decodedSink.get(),
-                                     rawSink.get(), &reporters);
+                                     translationService, outputs);
 
     narrative << "\n  lines=" << stats.linesRead
               << " frames decoded=" << stats.framesDecoded

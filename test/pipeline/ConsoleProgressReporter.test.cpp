@@ -107,7 +107,8 @@ TEST(PipelineReplayProgressTest, ReporterReceivesOneFrameCallPerDecodedFrameAndO
     ASSERT_TRUE(sink.isValid());
 
     RecordingReporter reporter;
-    auto stats = runReplay(transport, normaliser, h.service, &sink, /*rawSink=*/nullptr, &reporter);
+    auto stats = runReplay(transport, normaliser, h.service,
+                           ReplayOutputs{.decoded = &sink, .progress = &reporter});
 
     // At least the two frames decoded produced two onFrame calls; onComplete exactly once.
     EXPECT_GE(reporter.frameCalls, 2u);
@@ -126,7 +127,7 @@ TEST(PipelineReplayProgressTest, NullReporterRunsSilentlyWithoutCrashing) {
     DecodedCsvSink sink(h.base("out2"));
     ASSERT_TRUE(sink.isValid());
 
-    auto stats = runReplay(transport, normaliser, h.service, &sink, /*rawSink=*/nullptr);
+    auto stats = runReplay(transport, normaliser, h.service, ReplayOutputs{.decoded = &sink});
     EXPECT_GE(stats.framesDecoded, 1u);
 }
 
