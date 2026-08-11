@@ -64,6 +64,8 @@
 		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
 		B1P00002 /* RawFrameNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00002 /* RawFrameNormaliser.cpp */; };
 		B1P00003 /* PipelineReplay.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00003 /* PipelineReplay.cpp */; };
+		B1P00024 /* PacedFrameScheduler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00024 /* PacedFrameScheduler.cpp */; };
+		B1P00025 /* ReplayPacing.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00025 /* ReplayPacing.cpp */; };
 		B1P00004 /* PipelineFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00004 /* PipelineFactory.cpp */; };
 		B1P00005 /* CaptureNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00005 /* CaptureNormaliser.cpp */; };
 		B1P00006 /* DecodedCsvSink.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00006 /* DecodedCsvSink.cpp */; };
@@ -176,6 +178,8 @@
 		B2P00001 /* TCPTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TCPTransport.cpp; path = ../../src/pipeline/TCPTransport.cpp; sourceTree = "<group>"; };
 		B2P00002 /* RawFrameNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawFrameNormaliser.cpp; path = ../../src/pipeline/RawFrameNormaliser.cpp; sourceTree = "<group>"; };
 		B2P00003 /* PipelineReplay.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineReplay.cpp; path = ../../src/pipeline/PipelineReplay.cpp; sourceTree = "<group>"; };
+		B2P00024 /* PacedFrameScheduler.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PacedFrameScheduler.cpp; path = ../../src/pipeline/PacedFrameScheduler.cpp; sourceTree = "<group>"; };
+		B2P00025 /* ReplayPacing.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ReplayPacing.cpp; path = ../../src/pipeline/ReplayPacing.cpp; sourceTree = "<group>"; };
 		B2P00004 /* PipelineFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineFactory.cpp; path = ../../src/pipeline/PipelineFactory.cpp; sourceTree = "<group>"; };
 		B2P00005 /* CaptureNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CaptureNormaliser.cpp; path = ../../src/pipeline/CaptureNormaliser.cpp; sourceTree = "<group>"; };
 		B2P00006 /* DecodedCsvSink.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DecodedCsvSink.cpp; path = ../../src/pipeline/DecodedCsvSink.cpp; sourceTree = "<group>"; };
@@ -332,6 +336,8 @@
 				B2P00021 /* PosixSocket.cpp */,
 				B2P00002 /* RawFrameNormaliser.cpp */,
 				B2P00003 /* PipelineReplay.cpp */,
+				B2P00024 /* PacedFrameScheduler.cpp */,
+				B2P00025 /* ReplayPacing.cpp */,
 				B2P00004 /* PipelineFactory.cpp */,
 				B2P00005 /* CaptureNormaliser.cpp */,
 				B2P00006 /* DecodedCsvSink.cpp */,
@@ -529,6 +535,8 @@
 				B1P00021 /* PosixSocket.cpp in Sources */,
 				B1P00002 /* RawFrameNormaliser.cpp in Sources */,
 				B1P00003 /* PipelineReplay.cpp in Sources */,
+				B1P00024 /* PacedFrameScheduler.cpp in Sources */,
+				B1P00025 /* ReplayPacing.cpp in Sources */,
 				B1P00004 /* PipelineFactory.cpp in Sources */,
 				B1P00005 /* CaptureNormaliser.cpp in Sources */,
 				B1P00006 /* DecodedCsvSink.cpp in Sources */,
