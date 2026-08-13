@@ -31,19 +31,8 @@ public:
      */
     explicit RawLogSink(const std::string& base);
 
-    RawLogSink(const RawLogSink&) = delete;
-    RawLogSink& operator=(const RawLogSink&) = delete;
-    RawLogSink(RawLogSink&&) noexcept;
-    RawLogSink& operator=(RawLogSink&&) noexcept;
-
-    /**
-     * Closes the raw output file. This class manages a file handle with custom
-     * move semantics (the move-assign already closes its prior file), so an
-     * explicit destructor completes the Rule-of-Five. Closing an already-closed
-     * std::ofstream is a safe no-op, so this is behaviour-identical to the
-     * implicit member destruction.
-     */
-    ~RawLogSink();
+    // rule of zero: std::ofstream owns the file; the compiler-generated special
+    // members (move/copy + dtor) are correct and noexcept where needed.
 
     /**
      * Write one raw transport line prefixed with a wall-clock UTC millisecond

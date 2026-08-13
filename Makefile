@@ -733,6 +733,12 @@ $(BUILD_COV_DIR)/CMakeCache.txt: CMakeLists.txt
 $(BUILD_COV_STAMP): $(COV_BUILD_INPUTS) $(BUILD_COV_DIR)/CMakeCache.txt
 	@echo "=== [vehicle-spy] Building coverage ($(BUILD_COV_DIR), RelWithDebInfo+instr) ==="
 	@cmake --build $(BUILD_COV_DIR) --target vehicle-sim-lib vehicle-sim-tests --parallel
+	@echo "=== [vehicle-spy] Regenerating compile_commands.json ==="
+	@cd $(BUILD_COV_DIR) && cmake \
+		-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+		-DCMAKE_CXX_FLAGS="-fprofile-instr-generate -fcoverage-mapping -g" \
+		-DCMAKE_EXE_LINKER_FLAGS="-fprofile-instr-generate" \
+		-DBUILD_IOS=OFF -DBUILD_TESTS=ON .
 	@touch $@
 
 # coverage-run: run the C++ tests under llvm-cov, merge profdata, export lcov,

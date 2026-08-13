@@ -15,12 +15,6 @@ TraceLogger::TraceLogger(const std::string& filePath, std::string vehicleId)
     writeHeader();
 }
 
-TraceLogger::~TraceLogger() {
-    if (file_.is_open()) {
-        file_.close();
-    }
-}
-
 void TraceLogger::operator()(const domain::VehicleSignal& signal) noexcept {
     if (!file_.is_open()) {
         return;
@@ -43,21 +37,6 @@ void TraceLogger::writeHeader() {
 void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
     file_ << csvRowLine(signal, vehicleId_) << "\n";
     file_.flush();
-}
-
-TraceLogger::TraceLogger(TraceLogger&& other) noexcept
-    : file_(std::move(other.file_))
-    , vehicleId_(std::move(other.vehicleId_)) {}
-
-TraceLogger& TraceLogger::operator=(TraceLogger&& other) noexcept {
-    if (this != &other) {
-        if (file_.is_open()) {
-            file_.close();
-        }
-        file_ = std::move(other.file_);
-        vehicleId_ = std::move(other.vehicleId_);
-    }
-    return *this;
 }
 
 }
