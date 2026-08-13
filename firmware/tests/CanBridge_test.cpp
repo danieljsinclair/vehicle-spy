@@ -402,6 +402,52 @@ TEST_F(CanBridgeTest, SetMonitorActive_UpdatesState) {
     EXPECT_FALSE(canBridge->isMonitorActive());
 }
 
+// Phase 1 latency: each CAN frame written to the TCP client must be flushed
+// immediately. Without an explicit flush the ESP32 WiFiClient buffers the bytes
+// and Nagle + the LwIP send buffer can hold them up to the delayed-ACK window —
+// the dominant source of variable >100 ms stalls on the link.
+TEST_F(CanBridgeTest, ProcessFrames_TcpStream_FlushesEachFrame) {
+    canBridge->init();
+    ON_CALL(tcpClientMock, connected()).WillByDefault(Return(true));
+
+    // Count flush() calls on the TCP path precisely (no delegateToDummy no-op).
+    int flushCalls = 0;
+    EXPECT_CALL(tcpClientMock, flush()).WillRepeatedly([&flushCalls]() { ++flushCalls; });
+
+    CanFrame msg1, msg2;
+    msg1.identifier = 0x401; msg1.data_length_code = 1; msg1.data[0] = 0x55;
+    msg2.identifier = 0x402; msg2.data_length_code = 1; msg2.data[0] = 0x66;
+    canDriverMock.pushFrame(msg1);
+    canDriverMock.pushFrame(msg2);
+
+    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1000, 0);
+
+    // Two frames streamed -> two explicit flushes (one per frame).
+    EXPECT_EQ(flushCalls, 2)
+        << "every TCP-streamed frame must be flushed immediately, not batched";
+}
+
+// Phase 1 latency: flush must NOT be skipped when a frame is streamed. Regression
+// guard asserting the per-frame flush is not conditional on serial quiet state.
+TEST_F(CanBridgeTest, ProcessFrames_TcpStream_FlushesEvenDuringSerialQuiet) {
+    canBridge->init();
+    ON_CALL(tcpClientMock, connected()).WillByDefault(Return(true));
+
+    int flushCalls = 0;
+    EXPECT_CALL(tcpClientMock, flush()).WillRepeatedly([&flushCalls]() { ++flushCalls; });
+
+    CanFrame msg;
+    msg.identifier = 0x403; msg.data_length_code = 1; msg.data[0] = 0x77;
+    canDriverMock.pushFrame(msg);
+
+    // Serial is in its quiet window — TCP must still flush.
+    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1100,
+                             /*serialQuietUntilMs=*/1250);
+
+    EXPECT_EQ(flushCalls, 1)
+        << "TCP flush must be independent of the serial quiet window";
+}
+
 TEST_F(CanBridgeTest, ProcessFrames_UpdatesMonitorState) {
     canBridge->init();
     EXPECT_FALSE(canBridge->isMonitorActive());

@@ -203,10 +203,30 @@ public:
      */
     const std::string& getDeviceId() const noexcept { return deviceIdHex_; }
 
+    /**
+     * Application-level keepalive: send "PING <seq>\r" and block up to
+     * `timeoutMs` for the matching "PONG <seq>\r". Returns the round-trip time in
+     * milliseconds on success (>= 0), or -1 on timeout / send failure / no match.
+     * Reuses the existing line/recv seam (no new socket), so it doubles as a
+     * proactive dead-link detector: a -1 result means the link is stalled and
+     * nextLine()'s next recv will (or already did) drive the hunt.
+     *
+     * The firmware's TcpServerManager answers PING with PONG (echo of the seq
+     * token) — see that file. The macOS latency benchmark reuses this same frame
+     * contract against the fixed firmware.
+     */
+    long performPing(int seq, int timeoutMs);
+
     // Connection/reconnect constants (public for utility function access)
     static constexpr int MAX_RETRIES = 60;              // Bounded retry: ~60s total wait
     static constexpr int BASE_RETRY_DELAY_MS = 1000;   // Initial EXPONENTIAL reconnect delay
     static constexpr int MAX_RETRY_DELAY_MS = 10000;   // Max exponential backoff
+    // Initial-connect resilience (Phase 3: ordering-independent connect). When
+    // the ESP32/WiFi/router is not yet up at client start, open() must NOT fail
+    // hard — it retries with this bounded backoff so whichever boots first wins.
+    static constexpr int CONNECT_FIRST_RETRY_MS = 250;   // first-try backoff floor
+    static constexpr int CONNECT_MAX_RETRY_MS = 5000;    // capped backoff for first-connect
+    static constexpr int CONNECT_FIRST_BUDGET_MS = 30000; // total first-connect retry budget
     // Aggressive immediate-retry phase (spec: "immediately retries the last-known
     // IP:port ... minimal backoff for first retries"). The host hammers the
     // last-known IP:port RAPID_RETRIES times with minimal backoff BEFORE falling
@@ -228,6 +248,13 @@ private:
     int perCommandDelayMs(int cmdDelayMs) const;
     bool connectAndAuth();
     void closeConnection() noexcept;
+    // Phase 3: ordering-independent first connect. Retries connectAndAuth() with
+    // a bounded exponential backoff (CONNECT_FIRST_RETRY_MS -> CONNECT_MAX_RETRY_MS,
+    // budget CONNECT_FIRST_BUDGET_MS) until the peer comes up. Honours stop_ so a
+    // requestStop() aborts promptly. Returns true on first success; false only
+    // after the whole budget is exhausted (so the legacy LiveRunContext exit(1)
+    // becomes a true last-resort, not a first-connect death).
+    bool connectUntilUp();
     bool performHeloHandshake();
 
     // Under VEHICLE_SIM_HUNTING_ENABLED the spec-first test harness drives the

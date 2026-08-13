@@ -427,7 +427,10 @@ TEST(WiFiManagerWiringTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
 
 // Spec: an auth-failure disconnect reason is unrecoverable for STA — FirmwareApp
 // must transition directly to AP mode (mirrors WiFiManager::onDisconnected).
-TEST(WiFiManagerWiringTest, AuthFailureDisconnectFallsToApMode) {
+TEST(WiFiManagerWiringTest, AuthFailureDisconnectArmsCampaign_StaysConnecting) {
+    // RESILIENT AUTH: a single AUTH_FAIL (202) must NOT bail to AP mode. It arms
+    // a retry campaign and stays WIFI_CONNECTING. Model the radio dropping
+    // (statusVal = WL_DISABLLED) so the next update() drives the campaign.
     WiringHarness h;
     h.build();
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
@@ -436,9 +439,10 @@ TEST(WiFiManagerWiringTest, AuthFailureDisconnectFallsToApMode) {
     h.app->update(1000);
     ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTED));
 
+    h.wifi.statusVal = WL_IDLE_STATUS;
     h.app->onWiFiDisconnected(WIFI_REASON_AUTH_FAIL);
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
-    EXPECT_FALSE(h.app->shouldRestartTcpServer());  // AP fallback does not restart TCP
+    h.app->update(2000);
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
 }
 
 } // namespace

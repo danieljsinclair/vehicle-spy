@@ -54,36 +54,42 @@ protected:
     }
 };
 
-// ── 1. Definitive auth failure → AP mode ─────────────────────────────────────
+// ── 1. Auth-mechanism failure → campaign armed (NOT instant AP) ──────────────
 
-TEST_F(WiFiManagerSerialTraceTest, AuthFailure_LogsTransitionToApModeWithReason) {
+TEST_F(WiFiManagerSerialTraceTest, AuthFailure_LogsConnectingCampaign_NotApMode) {
+    // RESILIENT AUTH: a single auth-mechanism failure (AUTH_FAIL 202) must NOT
+    // bail to AP mode. It arms a retry campaign and stays WIFI_CONNECTING, and
+    // the trace must report the auth outcome with the strategy/loop counters so
+    // "why still connecting" is answerable at a glance.
     driveToConnectedAndClearTrace();
 
     wifiManager->onDisconnected(WIFI_REASON_AUTH_FAIL);
 
-    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
     ASSERT_EQ(serialMock.lines().size(), 1u);
     const std::string line = serialMock.firstLine();
     EXPECT_NE(line.find("WIFI_CONNECTED"), std::string::npos) << line;
-    EXPECT_NE(line.find("WIFI_AP_MODE"), std::string::npos) << line;
-    EXPECT_NE(line.find("reason=202"), std::string::npos) << line;
+    EXPECT_NE(line.find("WIFI_CONNECTING"), std::string::npos) << line;
+    EXPECT_NE(line.find("auth fail reason=202"), std::string::npos) << line;
+    EXPECT_NE(line.find("strategy=0/3"), std::string::npos) << line;
+    EXPECT_NE(line.find("loop=0/3"), std::string::npos) << line;
 }
 
 TEST_F(WiFiManagerSerialTraceTest, AuthFailure_LogsTheActualReasonCode_NotHardcoded) {
     // The reason in the trace must be the code that actually drove the
-    // escalation — a hardcoded value would pass the test above but fail here.
+    // campaign — a hardcoded value would pass the test above but fail here.
     driveToConnectedAndClearTrace();
 
     wifiManager->onDisconnected(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);
 
-    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
-    EXPECT_NE(serialMock.firstLine().find("reason=15"), std::string::npos) << serialMock.firstLine();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_NE(serialMock.firstLine().find("auth fail reason=15"), std::string::npos) << serialMock.firstLine();
 }
 
 TEST_F(WiFiManagerSerialTraceTest, AuthFailure_TraceReportsTrueOriginState) {
-    // Escalating from WIFI_CONNECTING (not WIFI_CONNECTED) must report
-    // WIFI_CONNECTING as the from-state — proving the origin is captured before
-    // the state is mutated rather than read back afterwards.
+    // Escalating from WIFI_CONNECTING must report WIFI_CONNECTING as the
+    // from-state — proving the origin is captured before the state is mutated
+    // rather than read back afterwards. The campaign is armed, not AP mode.
     wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
     wifiManager->init();
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
@@ -91,11 +97,10 @@ TEST_F(WiFiManagerSerialTraceTest, AuthFailure_TraceReportsTrueOriginState) {
 
     wifiManager->onDisconnected(WIFI_REASON_802_1X_AUTH_FAILED);
 
-    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
     const std::string line = serialMock.firstLine();
     EXPECT_NE(line.find("WIFI_CONNECTING"), std::string::npos) << line;
-    EXPECT_NE(line.find("WIFI_AP_MODE"), std::string::npos) << line;
-    EXPECT_NE(line.find("reason=23"), std::string::npos) << line;
+    EXPECT_NE(line.find("auth fail reason=23"), std::string::npos) << line;
 }
 
 // ── 2. Transient disconnect → RECONNECTING ───────────────────────────────────

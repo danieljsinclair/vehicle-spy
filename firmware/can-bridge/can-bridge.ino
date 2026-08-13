@@ -568,6 +568,13 @@ void setup() {
     // ── Initialize FirmwareApp (replaces inline WiFi state machine) ───────────────
     // FirmwareApp.init() sets up WiFiManager and drives initial connection
     firmwareApp.init();
+
+    // Latency fix (Phase 1): disable WiFi modem-sleep on the CAN path. With
+    // sleep enabled the ESP32 radios can gate the link between beacons, adding
+    // 10-100ms of scheduling latency to every burst — exactly the variable
+    // stalls we are trying to remove. WIFI_PS_NONE keeps the radio awake.
+    WiFi.setSleep(false);
+
     firmwareApp.setCallbacks(esp32_firmware::FirmwareCallbacks{
         .restartTcpServer = onRestartTcpServer,
         .broadcastDiscovery = onBroadcastDiscovery
@@ -678,7 +685,9 @@ void loop() {
                        firmwareApp.isMonitorActive(),
                        firmwareApp.getClientIp(),
                        firmwareApp.getDiscoveryCadence(millis()),
-                       firmwareApp.getCurrentLedPattern())) {
+                       firmwareApp.getCurrentLedPattern(),
+                       firmwareApp.getWiFiDiagnostic().targetSsid,
+                       firmwareApp.getWiFiDiagnostic().authCampaignDetail)) {
         Serial.print(heartbeat.snapshot().c_str());
     }
 

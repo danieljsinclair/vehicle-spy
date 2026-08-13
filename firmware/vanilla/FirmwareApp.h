@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <array>
+#include <cassert>
 #include "WiFiManager.h"
 #include "DiscoveryManager.h"
 #include "NtpTimeSync.h"
@@ -147,6 +148,21 @@ public:
     // ── Observability getters (called by .ino for LoopHeartbeat enrichment) ─────
     // Remote IP of the currently-adopted TCP client, or empty string when none.
     std::string getClientIp() const { return observability_.clientIp; }
+
+    // WiFi diagnostic snapshot for the [STATE] heartbeat: the SSID the radio is
+    // trying to associate with (stored or baked) and, when an auth-mechanism
+    // failure campaign is in progress, the per-strategy/loop retry detail. Both
+    // fields are empty when not applicable. Consolidated into one getter to keep
+    // the public surface small (cpp:S1448).
+    struct WiFiDiagnostic {
+        std::string targetSsid;
+        std::string authCampaignDetail;
+    };
+    WiFiDiagnostic getWiFiDiagnostic() const {
+        assert(wifiManager_ && "FirmwareApp::getWiFiDiagnostic called before init()");
+        return WiFiDiagnostic{wifiManager_->resolveTargetSsid(),
+                              wifiManager_->getAuthCampaignDetail()};
+    }
 
     // Current discovery broadcast cadence as a human string (e.g. "500ms", "10s").
     // Computed from DiscoveryManager's backoff state + the supplied nowMs.

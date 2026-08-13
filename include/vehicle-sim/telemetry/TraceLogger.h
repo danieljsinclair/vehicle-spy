@@ -10,14 +10,11 @@ namespace vehicle_sim::telemetry {
 class TraceLogger {
 public:
     explicit TraceLogger(const std::string& filePath, std::string vehicleId = "");
-    ~TraceLogger();
+
+    // rule of zero: std::ofstream owns the file; the compiler-generated special
+    // members (move/copy + dtor) are correct and noexcept where needed.
 
     void operator()(const domain::VehicleSignal& signal) noexcept;
-
-    TraceLogger(const TraceLogger&) = delete;
-    TraceLogger& operator=(const TraceLogger&) = delete;
-    TraceLogger(TraceLogger&&) noexcept;
-    TraceLogger& operator=(TraceLogger&&) noexcept;
 
     [[nodiscard]] bool isValid() const noexcept;
 
@@ -30,4 +27,3 @@ private:
 };
 
 }
-

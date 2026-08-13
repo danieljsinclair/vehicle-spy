@@ -2,6 +2,7 @@
 #include "vehicle-sim/ble/BLEManagerBase.h"  // for OBD2PIDs / OBD2_MODE_LIVE_DATA constants
 #include "vehicle-sim/boundary/ELM327Transport.h"
 
+#include <array>
 #include <chrono>
 #include <iostream>
 #include <thread>
@@ -102,7 +103,7 @@ void Elm327Session::obd2PollingLoop() {
 
     // PID order is preserved by construction — do NOT reorder (the contract
     // suite locks the first PID of each cycle: BATTERY_VOLTAGE first).
-    const uint8_t pids[] = {
+    const std::array<uint8_t, 6> pids = {
         OBD2PIDs::BATTERY_VOLTAGE,
         OBD2PIDs::ENGINE_LOAD,
         OBD2PIDs::COOLANT_TEMP,

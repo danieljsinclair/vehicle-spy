@@ -17,12 +17,6 @@ RawTraceLogger::RawTraceLogger(const std::string& filePath)
     file_.flush();
 }
 
-RawTraceLogger::~RawTraceLogger() {
-    if (file_.is_open()) {
-        file_.close();
-    }
-}
-
 void RawTraceLogger::write(std::uint64_t timestampMs, const std::vector<std::uint8_t>& data) noexcept {
     if (!file_.is_open()) {
         return;
@@ -40,19 +34,6 @@ void RawTraceLogger::write(std::uint64_t timestampMs, const std::vector<std::uin
 
 bool RawTraceLogger::isValid() const noexcept {
     return file_.is_open();
-}
-
-RawTraceLogger::RawTraceLogger(RawTraceLogger&& other) noexcept
-    : file_(std::move(other.file_)) {}
-
-RawTraceLogger& RawTraceLogger::operator=(RawTraceLogger&& other) noexcept {
-    if (this != &other) {
-        if (file_.is_open()) {
-            file_.close();
-        }
-        file_ = std::move(other.file_);
-    }
-    return *this;
 }
 
 } // namespace vehicle_sim::telemetry

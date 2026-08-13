@@ -89,41 +89,43 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnectedThenReconnect_ReArmsTcpRestartFlag) {
         << "reconnect must keep the TCP restart flag armed";
 }
 
-TEST_F(FirmwareAppTest, CredentialFailure_DoesNotReconnect_SettlesInApMode) {
-    // CONTRACT (refactor-safety net for cpp:S1820): a *permanent* credential/auth
-    // rejection (bad SSID/PSK) MUST NOT re-enter the connect cycle against the
-    // same credentials — retrying a refused SSID/PSK is guaranteed-futile. From a
-    // CONNECTED_STA state, the disconnect must settle in AP mode and leave the
-    // TCP-restart flag CLEARED (no STA connection to serve). Pins the three
-    // definitive auth failures (AUTH_FAIL=202, 4WAY_HANDSHAKE_TIMEOUT=15,
-    // 802_1X_AUTH_FAILED=23 — real ESP-IDF codes), so a god-struct split cannot
-    // silently drop any of them back into RECONNECTING.
+TEST_F(FirmwareAppTest, AuthFailArmsCampaign_StaysConnecting_NotApMode) {
+    // CONTRACT (refactor-safety net for cpp:S1820 — RESILIENT AUTH fix): an
+    // auth-MECHANISM failure (AUTH_FAIL=202, 4WAY_HANDSHAKE_TIMEOUT=15,
+    // 802_1X_AUTH_FAILED=23 — real ESP-IDF codes) is NOT proof of a wrong
+    // password. The verified field diagnosis shows the password is CORRECT (a
+    // button-reset connects), so these codes here are spurious/transient or a
+    // wrong-mechanism failure we cannot distinguish at this layer. Therefore a
+    // single such failure MUST NOT bail to AP mode — it arms an auth-fail
+    // CAMPAIGN and stays in WIFI_CONNECTING, rotating through progressively-
+    // harder reset/retry strategies and looping 3× before any AP escalation.
+    // Pins all three reasons so a god-struct split cannot silently promote any
+    // of them back into the instant-AP set.
     //
     // Each reason is exercised from a fresh CONNECTED_STA precondition (a new
-    // FirmwareApp per reason, initialized exactly once), because once the app is
-    // in AP mode a connect-success event is correctly ignored by the state
-    // machine — that is real behavior, not a setup the test should fight.
-    // Time is driven by a FakeClock advanced explicitly (no realtime waits), so
-    // the whole loop completes in ~0ms.
+    // FirmwareApp per reason). Time is driven by a FakeClock (no realtime waits).
     for (int reason : {202, 15, 23}) {
         firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
         firmwareApp->init();
         firmwareApp->setCallbacks(callbackSpies);
 
         FakeClock clock;
-        // Establish CONNECTED_STA with the TCP-restart flag armed.
+        // Establish CONNECTED_STA.
         wifiMock.simulateConnectSuccess();
         firmwareApp->update(clock.now());
-        ASSERT_TRUE(firmwareApp->shouldRestartTcpServer())
-            << "precondition: connect arms the TCP restart flag (reason " << reason << ")";
+        ASSERT_EQ(firmwareApp->getWiFiState(),
+                  static_cast<int>(WiFiState::State::WIFI_CONNECTED))
+            << "precondition: connected (reason " << reason << ")";
 
-        // The credential failure must NOT keep the flag armed.
+        // The auth-mechanism failure must STAY in CONNECTING and NOT settle in AP.
         clock.advance(1000);  // deterministic advance, no realtime wait
+        wifiMock.simulateDisconnect(reason);  // model the radio dropping
         firmwareApp->onWiFiDisconnected(reason);
         firmwareApp->update(clock.now());
-        EXPECT_FALSE(firmwareApp->shouldRestartTcpServer())
-            << "permanent auth failure (reason " << reason
-            << ") must settle in AP mode and leave the TCP restart flag cleared";
+        EXPECT_EQ(firmwareApp->getWiFiState(),
+                  static_cast<int>(WiFiState::State::WIFI_CONNECTING))
+            << "auth-mechanism failure (reason " << reason
+            << ") must NOT bail to AP — it arms a retry campaign and stays CONNECTING";
     }
 }
 

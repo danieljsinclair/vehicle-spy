@@ -9,7 +9,6 @@ namespace {
 // extracted behaviour matches the inline loop exactly. Local to this TU so
 // the manager owns no .ino dependency.
 constexpr uint32_t TCP_AUTH_TIMEOUT_MS    = 5000;
-constexpr uint32_t TCP_COMMAND_TIMEOUT_MS = 100;
 
 // Trim leading/trailing ASCII whitespace from a line read off the wire.
 // Mirrors Arduino String::trim() (space, \t, \r, \n, \f, \v). Applied before
@@ -66,7 +65,12 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         // so it is available for observability events regardless of result.
         clientIp_ = next->remoteIP();
         current_ = std::move(next);
+        // Latency fix (Phase 1): disable Nagle on the stream client immediately
+        // at accept so each CAN frame is sent without waiting for the delayed-ACK
+        // window. Mirrors the client-side socket_->setNoDelay(true).
+        current_->setNoDelay(true);
         host_.setMonitorActive(false);
+        partialLine_.clear();  // fresh client: no leftover partial command
 
         current_->setTimeout(TCP_AUTH_TIMEOUT_MS);
         std::string firstLine = trim(current_->readLine('\r'));
@@ -102,12 +106,45 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
     const bool haveClient = current_ && current_->connected();
 
     if (haveClient) {
-        // Command mode: read+dispatch one line when bytes are waiting.
+        // Command mode: NON-BLOCKING line assembly. readAvailableLine() only
+        // consumes bytes already in the receive buffer and never blocks up to
+        // the Stream timeout — so a partially-arrived command cannot stall this
+        // cycle() and delay CanBridge::processFrames (the CAN-TX path). We
+        // accumulate partial bytes in partialLine_ and dispatch only on a
+        // complete (delimiter-terminated) line. This removes the per-tick TX
+        // starvation that the blocking readStringUntil (TCP_COMMAND_TIMEOUT_MS
+        // = 100ms ceiling) introduced.
         if (current_->available() > 0) {
-            current_->setTimeout(TCP_COMMAND_TIMEOUT_MS);
-            const std::string cmd = trim(current_->readLine('\r'));
-            if (!cmd.empty()) {
-                host_.handleTcpAtCommand(cmd);
+            // readAvailableLine() is NON-BLOCKING: it returns whatever bytes are
+            // already buffered (delimiter NOT stripped) and never waits. We
+            // accumulate them in partialLine_ and dispatch every complete
+            // (delimiter-terminated) command, keeping any trailing partial for
+            // the next tick. This removes the per-tick TX starvation that the
+            // blocking readStringUntil (TCP_COMMAND_TIMEOUT_MS = 100ms ceiling)
+            // introduced.
+            partialLine_ += current_->readAvailableLine('\r');
+            const auto delim = partialLine_.find('\r');
+            if (delim != std::string::npos) {
+                // One or more complete commands may be coalesced. Dispatch each.
+                std::string::size_type pos = 0;
+                while ((pos = partialLine_.find('\r')) != std::string::npos) {
+                    const std::string cmd = trim(partialLine_.substr(0, pos));
+                    partialLine_.erase(0, pos + 1);  // consume through delimiter
+                    if (!cmd.empty()) {
+                        // Keepalive contract (Phase 1): PING <seq> -> PONG <seq>.
+                        // Handled here (not the generic AT dispatcher) because it
+                        // is a transport-health frame, not a CAN/AT command — and
+                        // it must round-trip with minimal latency, mirroring the
+                        // macOS client's performPing() RTT probe.
+                        if (cmd.rfind("PING ", 0) == 0) {
+                            const std::string seq = cmd.substr(5);
+                            current_->println("PONG " + seq);
+                            current_->flush();
+                        } else {
+                            host_.handleTcpAtCommand(cmd);
+                        }
+                    }
+                }
             }
         }
         return;
@@ -120,6 +157,8 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         host_.setMonitorActive(false);
         host_.resetDiscoveryBackoff();
         host_.onClientDisconnected(clientIp_, 0);
+
+        partialLine_.clear();  // dropped client: discard any partial command
 
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
         // IClientConnectionSource (backed by TcpServerManager::hasClient())

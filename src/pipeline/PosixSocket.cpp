@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -204,6 +205,12 @@ bool PosixSocket::sendAll(std::string_view data) {
         sent += static_cast<std::size_t>(n);
     }
     return true;
+}
+
+bool PosixSocket::setNoDelay(bool enable) {
+    if (fd_ < 0) return false;
+    const int flag = enable ? 1 : 0;
+    return setsockopt(fd_, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) == 0;
 }
 
 } // namespace vehicle_sim::pipeline

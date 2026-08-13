@@ -263,14 +263,19 @@ TEST(FirmwareAppTest, OnDisconnectedFromConnectedStaFlagsTcpRestart) {
     EXPECT_FALSE(h.app.shouldRestartTcpServer());
 }
 
-TEST(FirmwareAppTest, OnDisconnectedAuthFailGoesToApMode) {
+TEST(FirmwareAppTest, OnDisconnectedAuthFailArmsCampaign_StaysConnecting) {
+    // RESILIENT AUTH: a single AUTH_FAIL (202) must NOT bail to AP mode. It arms
+    // a retry campaign and stays WIFI_CONNECTING. Model the radio dropping
+    // (statusVal = 0 / WL_IDLE_STATUS) so the next update() drives the campaign.
     AppHarness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
     h.app.init();
     h.wifi.statusVal = 3;
     h.app.update(1000);  // -> CONNECTED_STA
+    h.wifi.statusVal = 0;  // WL_IDLE_STATUS (radio dropped, not connected)
     h.app.onWiFiDisconnected(WIFI_REASON_AUTH_FAIL);
-    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
+    h.app.update(2000);
+    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
 }
 
 // ── LED animation driven each tick ────────────────────────────────────────────

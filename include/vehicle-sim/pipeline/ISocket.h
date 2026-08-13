@@ -70,6 +70,17 @@ public:
      * (every byte sent), false on a send error. Mirrors TCPTransport::sendAll.
      */
     virtual bool sendAll(std::string_view data) = 0;
+
+    /**
+     * Toggle TCP_NODELAY on the connected fd (disable Nagle's algorithm).
+     * Returns true on success. On a small-frame CAN stream this is the single
+     * most important latency lever: without it, the LwIP/OS TCP stack can hold
+     * a < MSS frame for up to the delayed-ACK window (~40-200 ms), which is the
+     * dominant cause of variable >100 ms stalls measured on this link.
+     *
+     * Set true on BOTH ends of the stream (client + firmware CAN client).
+     */
+    virtual bool setNoDelay(bool enable) = 0;
 };
 
 } // namespace vehicle_sim::pipeline

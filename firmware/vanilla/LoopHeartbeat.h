@@ -31,7 +31,8 @@ public:
     // Defaults preserve the pre-observability signature for existing callers.
     bool tick(uint32_t nowMs, int wifiState, bool monitorActive,
               const std::string& clientIp = "", const std::string& discoveryCadence = "none",
-              int ledPattern = 0);
+              int ledPattern = 0, const std::string& targetSsid = "",
+              const std::string& authDetail = "");
 
     // Access the last formatted snapshot line. Valid only after tick() returned
     // true on the most recent call.

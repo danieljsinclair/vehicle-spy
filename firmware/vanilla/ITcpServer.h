@@ -31,11 +31,26 @@ public:
     // delimiter itself is consumed but not returned.
     virtual std::string readLine(char delimiter) = 0;
 
+    // NON-BLOCKING line read for the command-mode path. Only consumes bytes
+    // already in the receive buffer; returns "" (and does NOT block) when no
+    // complete line is buffered yet. The manager accumulates partial lines in
+    // its own buffer and only dispatches a command once a delimiter arrives.
+    // This is the fix for the per-tick TX starvation: readLine() (readStringUntil)
+    // can block up to the Stream timeout when a line is only partially present,
+    // which delays CanBridge::processFrames (the CAN-TX path) by that window.
+    virtual std::string readAvailableLine(char delimiter) = 0;
+
     // Write a line (newline appended) to the client.
     virtual void println(const std::string& line) = 0;
 
     // Flush any buffered output to the client.
     virtual void flush() = 0;
+
+    // Toggle TCP_NODELAY on the underlying client socket (disable Nagle's
+    // algorithm). The single most important latency lever for the CAN stream:
+    // without it a <MSS frame can sit in the LwIP send buffer up to the
+    // delayed-ACK window (~40-200 ms). Set true on accept for every client.
+    virtual void setNoDelay(bool enable) = 0;
 
     // Remote IP address of the connected peer as a string ("ipv4" or "ipv6").
     // Empty string when not connected. Used by TcpServerManager to capture the
