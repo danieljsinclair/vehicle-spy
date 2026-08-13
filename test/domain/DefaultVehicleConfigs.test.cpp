@@ -114,10 +114,17 @@ TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsSCCMSteeringAngle) {
     EXPECT_EQ(it->second, "steeringAngleDeg");
 }
 
-TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsBrakePedalState) {
-    auto it = teslaConfig_->signalMappings.find("DI_brakePedalState");
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsVCLEFTBrakeLightStatusToBrakeLight) {
+    auto it = teslaConfig_->signalMappings.find("VCLEFT_brakeLightStatus");
     ASSERT_NE(it, teslaConfig_->signalMappings.end());
-    EXPECT_EQ(it->second, "brakePercent");
+    EXPECT_EQ(it->second, "brakeLight");
+}
+
+// DI_brakePedalState is deliberately unmapped: measured on a real Model 3 it
+// is a constant drive-ready flag, not pedal data (known-YAGNI removal).
+TEST_F(DefaultVehicleConfigsTest, TeslaConfig_DoesNotMapBrakePedalState) {
+    EXPECT_EQ(teslaConfig_->signalMappings.find("DI_brakePedalState"),
+              teslaConfig_->signalMappings.end());
 }
 
 TEST_F(DefaultVehicleConfigsTest, TeslaConfig_MapsDIGearToGearSelector) {

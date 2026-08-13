@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace vehicle_sim::telemetry {
@@ -11,7 +12,7 @@ namespace vehicle_sim::telemetry {
  * byte-identical to the live --stdout-csv output.
  *
  * Fields correspond to:
- *   timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_percent,
+ *   timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_light,
  *   acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,
  *   motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count
  */
@@ -20,7 +21,7 @@ struct CsvTelemetryRow {
     std::string   vehicle_id;
     double        speed_kmh{0.0};
     double        throttle_percent{0.0};
-    double        brake_percent{0.0};
+    std::optional<int> brake_light;  // 1=on, 0=off, nullopt=not reported
     double        acceleration_g{0.0};
     double        steering_angle_deg{0.0};
     double        motor_rpm{0.0};

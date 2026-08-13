@@ -20,9 +20,12 @@ namespace vehicle_sim::io {
  * which keeps this class deterministic and testable.
  *
  * Schema (header names matched case-sensitively):
- *   timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_percent,
+ *   timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_light,
  *   acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,
  *   motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count
+ *
+ * Old captures carrying a brake_percent column still load: unknown columns
+ * are ignored, and brake_light then stays nullopt for every row.
  */
 class FileCsvTelemetrySource final : public CsvTelemetrySource {
 public:
@@ -44,7 +47,7 @@ private:
         int vehicle_id{-1};
         int speed_kmh{-1};
         int throttle_percent{-1};
-        int brake_percent{-1};
+        int brake_light{-1};
         int acceleration_g{-1};
         int steering_angle_deg{-1};
         int motor_rpm{-1};

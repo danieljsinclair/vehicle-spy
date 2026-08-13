@@ -58,6 +58,21 @@ int toInt(std::string_view s, int fallback) {
         return fallback;
     }
 }
+
+// Blank or unparseable cells are "not reported" (nullopt) — distinct from a
+// definite 0. Mirrors the brake-light column's tri-state contract.
+std::optional<int> toOptionalInt(std::string_view s) {
+    try {
+        size_t idx;
+        const int v = std::stoi(std::string(s), &idx);
+        if (idx == 0) return std::nullopt;
+        return v;
+    } catch (const std::invalid_argument&) {
+        return std::nullopt;
+    } catch (const std::out_of_range&) {
+        return std::nullopt;
+    }
+}
 } // anonymous
 
 FileCsvTelemetrySource::FileCsvTelemetrySource(std::string filePath)
@@ -79,7 +94,7 @@ FileCsvTelemetrySource::FileCsvTelemetrySource(std::string filePath)
     m_col.vehicle_id         = findColumn(m_headers, "vehicle_id");
     m_col.speed_kmh          = findColumn(m_headers, "speed_kmh");
     m_col.throttle_percent   = findColumn(m_headers, "throttle_percent");
-    m_col.brake_percent      = findColumn(m_headers, "brake_percent");
+    m_col.brake_light        = findColumn(m_headers, "brake_light");
     m_col.acceleration_g     = findColumn(m_headers, "acceleration_g");
     m_col.steering_angle_deg = findColumn(m_headers, "steering_angle_deg");
     m_col.motor_rpm          = findColumn(m_headers, "motor_rpm");
@@ -135,12 +150,17 @@ bool FileCsvTelemetrySource::parseRow(std::string_view line,
                    ? fields[col]
                    : std::string{};
     };
+    const auto getOptInt = [&](int col) {
+        return (col >= 0 && col < static_cast<int>(fields.size()))
+                   ? toOptionalInt(fields[col])
+                   : std::optional<int>{};
+    };
 
     out.timestamp_ms       = static_cast<std::uint64_t>(get(m_col.timestamp_ms, 0));
     out.vehicle_id         = getStr(m_col.vehicle_id);
     out.speed_kmh          = get(m_col.speed_kmh, 0.0);
     out.throttle_percent   = get(m_col.throttle_percent, 0.0);
-    out.brake_percent      = get(m_col.brake_percent, 0.0);
+    out.brake_light        = getOptInt(m_col.brake_light);
     out.acceleration_g     = get(m_col.acceleration_g, 0.0);
     out.steering_angle_deg = get(m_col.steering_angle_deg, 0.0);
     out.motor_rpm          = get(m_col.motor_rpm, 0.0);

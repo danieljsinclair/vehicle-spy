@@ -7,6 +7,7 @@ VehicleSignal::VehicleSignal(Params params) noexcept
     , m_speedKmh(std::move(params.speedKmh))
     , m_accelerationG(std::move(params.accelerationG))
     , m_brakePercent(std::move(params.brakePercent))
+    , m_brakeLight(std::move(params.brakeLight))
     , m_steeringAngleDeg(std::move(params.steeringAngleDeg))
     , m_motorRpm(std::move(params.motorRpm))
     , m_motorHvVoltage(std::move(params.motorHvVoltage))
@@ -35,6 +36,11 @@ const std::optional<double>& VehicleSignal::getAccelerationG() const noexcept
 const std::optional<double>& VehicleSignal::getBrakePercent() const noexcept
 {
     return m_brakePercent;
+}
+
+const std::optional<bool>& VehicleSignal::getBrakeLight() const noexcept
+{
+    return m_brakeLight;
 }
 
 const std::optional<double>& VehicleSignal::getSteeringAngleDeg() const noexcept

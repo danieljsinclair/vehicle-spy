@@ -486,3 +486,18 @@ VAL_ 325 ESP_ptcTargetState 0 "FAULT" 1 "BACKUP" 2 "ON" 3 "SNA";
 VAL_ 325 ESP_stabilityControlSts2 0 "INIT" 1 "ON" 2 "ENGAGED" 3 "FAULTED";
 VAL_ 325 ESP_steeringAngleQF 0 "UNDEFINABLE_ACCURACY" 1 "IN_SPEC";
 VAL_ 325 ESP_yawRateQF 0 "UNDEFINABLE_ACCURACY" 1 "IN_SPEC";
+
+// --- Overlaid message (the only hand-edit to this otherwise-verbatim opendbc
+// tesla_model3_party.dbc copy) ---
+// Provenance: BO_ 994 ID3E2VCLEFT_lightStatus + its SG_/VAL_ lines copied
+// verbatim from github.com/joshwardell/model3dbc Model3CAN.dbc (MIT licence),
+// submodule external/model3dbc @ c56c113c353d09b1a5dd57677461f02fe8b7c6ca.
+// The party DBC lacks the 0x3E2 light-status message; VCLEFT_brakeLightStatus
+// (bit 0, len 2, Intel; 0=LIGHT_OFF 1=LIGHT_ON 2=LIGHT_FAULT 3=LIGHT_SNA) is
+// the measured brake-pedal proxy. The full joshwardell DBC could not replace
+// this file: it splits DI_torque into DIF_/DIR_ axle messages and renames
+// SCCM_steeringAngle to SteeringAngle129, breaking both existing mappings.
+BO_ 994 ID3E2VCLEFT_lightStatus: 7 VehicleBus
+ SG_ VCLEFT_brakeLightStatus : 0|2@1+ (1,0) [0|3] ""  Receiver
+
+VAL_ 994 VCLEFT_brakeLightStatus 2 "LIGHT_FAULT" 0 "LIGHT_OFF" 1 "LIGHT_ON" 3 "LIGHT_SNA" ;

@@ -20,6 +20,7 @@ protected:
                 {"DIR_torqueActual", "motorTorqueNm"},
                 {"DI_accelPedalPos", "throttlePercent"},
                 {"DI_brakePedal", "brakePercent"},
+                {"VCLEFT_brakeLightStatus", "brakeLight"},
                 {"SteeringAngle129", "steeringAngleDeg"}
             },
             "",  // canBus
@@ -37,6 +38,11 @@ protected:
         });
         parseResult_.signalsByCanId[297].emplace_back(DBCSignalParams{
             297, "SteeringAngle129", 16, 14, DBCByteOrder::Motorola, 0.1, -819.2, false, "deg", -819.2, 819.1
+        });
+        // Brake-light enum on CAN 0x3E2 (994), bit 0 len 2 Intel, scale 1 —
+        // mirroring the measured joshwardell Model3CAN.dbc definition.
+        parseResult_.signalsByCanId[994].emplace_back(DBCSignalParams{
+            994, "VCLEFT_brakeLightStatus", 0, 2, DBCByteOrder::Intel, 1.0, 0.0, false, "", 0.0, 3.0
         });
     }
 
@@ -300,6 +306,82 @@ TEST_F(VehicleSignalFactoryTest, GearCodeSevenReturnsNullopt) {
     auto signal = factory.build(frames, 1234567890);
 
     EXPECT_FALSE(signal.getGearSelector().has_value());
+}
+
+// --- Brake-light enum (VCLEFT_brakeLightStatus, CAN 994 bit 0 len 2) ---
+// Only LIGHT_ON (1) is a pressed pedal; OFF (0), FAULT (2) and SNA (3) all
+// read as light-off. A missing 994 frame leaves the field absent (nullopt).
+
+TEST_F(VehicleSignalFactoryTest, BrakeLightOnMapsTrue) {
+    VehicleSignalFactory factory(*config_, parseResult_);
+
+    std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
+    frames[994] = {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};  // enum 1 = LIGHT_ON
+
+    auto signal = factory.build(frames, 1234567890);
+    ASSERT_TRUE(signal.getBrakeLight().has_value());
+    EXPECT_TRUE(*signal.getBrakeLight());
+}
+
+TEST_F(VehicleSignalFactoryTest, BrakeLightOffMapsFalse) {
+    VehicleSignalFactory factory(*config_, parseResult_);
+
+    std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
+    frames[994] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};  // enum 0 = LIGHT_OFF
+
+    auto signal = factory.build(frames, 1234567890);
+    ASSERT_TRUE(signal.getBrakeLight().has_value());
+    EXPECT_FALSE(*signal.getBrakeLight());  // definite OFF, not nullopt
+}
+
+TEST_F(VehicleSignalFactoryTest, BrakeLightFaultAndSnaMapFalse) {
+    VehicleSignalFactory factory(*config_, parseResult_);
+
+    std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
+    frames[994] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};  // enum 2 = LIGHT_FAULT
+
+    auto signal = factory.build(frames, 1234567890);
+    ASSERT_TRUE(signal.getBrakeLight().has_value());
+    EXPECT_FALSE(*signal.getBrakeLight());
+
+    frames[994] = {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};  // enum 3 = LIGHT_SNA
+    signal = factory.build(frames, 1234567891);
+    ASSERT_TRUE(signal.getBrakeLight().has_value());
+    EXPECT_FALSE(*signal.getBrakeLight());
+}
+
+TEST_F(VehicleSignalFactoryTest, BrakeLightFrameAbsent_LeavesNullopt) {
+    VehicleSignalFactory factory(*config_, parseResult_);
+
+    // A frame map with no 994 entry: the light state is unknown, not off.
+    std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
+    frames[264] = {0x00, 0x00, 0x00, 0x00, 0x00, 0xA8, 0x61, 0x00};
+
+    auto signal = factory.build(frames, 1234567890);
+    EXPECT_FALSE(signal.getBrakeLight().has_value());
+}
+
+TEST_F(VehicleSignalFactoryTest, BrakeLightUnmapped_LeavesNullopt) {
+    // Config without the brake-light mapping: the 994 frame is present but not
+    // decoded — no error, field stays absent.
+    auto config = std::make_unique<VehicleConfig>(
+        "tesla_model3.dbc",
+        "tesla_model3.dbc",
+        "Tesla Model Y",
+        std::unordered_map<std::string, std::string>{
+            {"DI_accelPedalPos", "throttlePercent"}
+        },
+        "",
+        false
+    );
+
+    VehicleSignalFactory factory(*config, parseResult_);
+
+    std::unordered_map<std::uint16_t, std::vector<std::uint8_t>> frames;
+    frames[994] = {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    auto signal = factory.build(frames, 1234567890);
+    EXPECT_FALSE(signal.getBrakeLight().has_value());
 }
 
 // --- Blind characterisation contracts for S134 (resolveMappings/build) ---

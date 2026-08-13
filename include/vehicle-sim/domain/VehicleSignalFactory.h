@@ -48,6 +48,7 @@ private:
     enum class FieldKind {
         Numeric,    // scaled double signal (throttle, speed, torque, ...)
         Gear,       // gear-selector enum (value-table decode)
+        BrakeLight, // brake-light enum (LIGHT_ON=1 -> true; 0/2/3 -> false)
         Ignored,    // mapped field the VehicleSignal does not expose (e.g. gearRequested)
     };
 

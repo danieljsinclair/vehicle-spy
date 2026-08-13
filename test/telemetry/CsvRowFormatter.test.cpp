@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <sstream>
 
 namespace {
@@ -21,7 +22,7 @@ vehicle_sim::telemetry::CsvTelemetryRow sampleRow() {
     r.vehicle_id         = "tesla";
     r.speed_kmh          = 50.0;
     r.throttle_percent   = 30.0;
-    r.brake_percent      = 0.0;
+    r.brake_light        = 1;
     r.acceleration_g     = 0.15;
     r.steering_angle_deg = 2.5;
     r.motor_rpm          = 3000.0;
@@ -43,6 +44,8 @@ TEST(CsvRowFormatterTelemetryRowTest, HeaderMatchesCanonicalSchema) {
     EXPECT_EQ(names.size(), vehicle_sim::test::CSV_FIELD_COUNT);
     EXPECT_EQ(names[0], "timestamp_ms");
     EXPECT_EQ(names[12], "dbc_signal_count");
+    EXPECT_NE(std::find(names.begin(), names.end(), "brake_light"), names.end());
+    EXPECT_EQ(std::find(names.begin(), names.end(), "brake_percent"), names.end());
 }
 
 TEST(CsvRowFormatterTelemetryRowTest, RowHasThirteenFields) {
@@ -60,7 +63,7 @@ TEST(CsvRowFormatterTelemetryRowTest, RowValuesByColumn) {
     EXPECT_EQ(cells.at("vehicle_id"), "tesla");
     EXPECT_EQ(cells.at("speed_kmh"), "50.00");
     EXPECT_EQ(cells.at("throttle_percent"), "30.00");
-    EXPECT_EQ(cells.at("brake_percent"), "0.00");
+    EXPECT_EQ(cells.at("brake_light"), "1");
     EXPECT_EQ(cells.at("acceleration_g"), "0.15");
     EXPECT_EQ(cells.at("steering_angle_deg"), "2.50");
     EXPECT_EQ(cells.at("motor_rpm"), "3000.00");
@@ -71,6 +74,23 @@ TEST(CsvRowFormatterTelemetryRowTest, RowValuesByColumn) {
     EXPECT_EQ(cells.at("dbc_signal_count"), "42");
 }
 
+// brake_light is a BINARY column: no 2-decimal formatting, tri-state rendering.
+TEST(CsvRowFormatterTelemetryRowTest, BrakeLightFalseRendersZero) {
+    vehicle_sim::telemetry::CsvTelemetryRow r = sampleRow();
+    r.brake_light = 0;
+    const auto cells = vehicle_sim::test::cellsByColumn(
+        vehicle_sim::telemetry::csvHeaderLine(), vehicle_sim::telemetry::csvRowLine(r));
+    EXPECT_EQ(cells.at("brake_light"), "0");
+}
+
+TEST(CsvRowFormatterTelemetryRowTest, BrakeLightAbsentRendersBlank) {
+    vehicle_sim::telemetry::CsvTelemetryRow r = sampleRow();
+    r.brake_light = std::nullopt;
+    const auto cells = vehicle_sim::test::cellsByColumn(
+        vehicle_sim::telemetry::csvHeaderLine(), vehicle_sim::telemetry::csvRowLine(r));
+    EXPECT_EQ(cells.at("brake_light"), "");  // nullopt renders empty, not "0.00"
+}
+
 TEST(CsvRowFormatterTelemetryRowTest, DoublesRenderWithTwoDecimals) {
     vehicle_sim::telemetry::CsvTelemetryRow r = sampleRow();
     r.speed_kmh = 7.0;   // integer-valued double must still show two decimals
@@ -78,4 +98,16 @@ TEST(CsvRowFormatterTelemetryRowTest, DoublesRenderWithTwoDecimals) {
     const auto cells = vehicle_sim::test::cellsByColumn(
         vehicle_sim::telemetry::csvHeaderLine(), row);
     EXPECT_EQ(cells.at("speed_kmh"), "7.00");
+}
+
+// dbc_signal_count counts brakeLight among the 10 translated columns.
+TEST(CsvRowFormatterVehicleSignalTest, DbcSignalCountCountsBrakeLight) {
+    const vehicle_sim::domain::VehicleSignal signal(
+        vehicle_sim::domain::VehicleSignal::Params{
+            .timestampUtcMs = 1ULL, .brakeLight = true});
+    const auto cells = vehicle_sim::test::cellsByColumn(
+        vehicle_sim::telemetry::csvHeaderLine(),
+        vehicle_sim::telemetry::csvRowLine(signal, ""));
+    EXPECT_EQ(cells.at("brake_light"), "1");
+    EXPECT_EQ(cells.at("dbc_signal_count"), "1");
 }

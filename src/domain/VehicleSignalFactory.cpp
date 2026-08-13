@@ -24,21 +24,29 @@ constexpr std::size_t IDX_HV_CURRENT   = 7;
 constexpr std::size_t IDX_TORQUE       = 8;
 constexpr std::size_t IDX_GEAR         = 9; // int slot, parallel array
 
-// Maps a VehicleSignal field name to its numeric output slot, or nullopt when
-// the field is not one the factory emits. Replaces the previous build()-time
-// if/else-if chain with a load-time decision (Open/Closed: the table is the
-// single point of extension for new numeric fields).
-[[nodiscard]] std::optional<std::size_t> numericSlotFor(std::string_view fieldName) {
-    if (fieldName == "throttlePercent")   return IDX_THROTTLE;
-    if (fieldName == "speedKmh")          return IDX_SPEED;
-    if (fieldName == "accelerationG")     return IDX_ACCEL;
-    if (fieldName == "brakePercent")      return IDX_BRAKE;
-    if (fieldName == "steeringAngleDeg")  return IDX_STEERING;
-    if (fieldName == "motorRpm")          return IDX_RPM;
-    if (fieldName == "motorHvVoltage")    return IDX_HV_VOLTAGE;
-    if (fieldName == "motorHvCurrent")    return IDX_HV_CURRENT;
-    if (fieldName == "motorTorqueNm")     return IDX_TORQUE;
-    return std::nullopt;
+// Maps a VehicleSignal field name to its decode kind + numeric output slot.
+// nullopt slot with a kind means the field uses its own decode path (Open/
+// Closed: the table is the single point of extension for new fields).
+enum class DecodeKind { Numeric, Gear, BrakeLight, Ignored };
+
+struct FieldTarget {
+    DecodeKind kind = DecodeKind::Ignored;
+    std::size_t numericSlot = 0;  // valid only when kind == Numeric
+};
+
+[[nodiscard]] FieldTarget targetFor(std::string_view fieldName) {
+    if (fieldName == "throttlePercent")   return {DecodeKind::Numeric, IDX_THROTTLE};
+    if (fieldName == "speedKmh")          return {DecodeKind::Numeric, IDX_SPEED};
+    if (fieldName == "accelerationG")     return {DecodeKind::Numeric, IDX_ACCEL};
+    if (fieldName == "brakePercent")      return {DecodeKind::Numeric, IDX_BRAKE};
+    if (fieldName == "steeringAngleDeg")  return {DecodeKind::Numeric, IDX_STEERING};
+    if (fieldName == "motorRpm")          return {DecodeKind::Numeric, IDX_RPM};
+    if (fieldName == "motorHvVoltage")    return {DecodeKind::Numeric, IDX_HV_VOLTAGE};
+    if (fieldName == "motorHvCurrent")    return {DecodeKind::Numeric, IDX_HV_CURRENT};
+    if (fieldName == "motorTorqueNm")     return {DecodeKind::Numeric, IDX_TORQUE};
+    if (fieldName == "gearSelector")      return {DecodeKind::Gear, 0};
+    if (fieldName == "brakeLight")        return {DecodeKind::BrakeLight, 0};
+    return {DecodeKind::Ignored, 0};
 }
 
 } // namespace
@@ -72,10 +80,9 @@ void VehicleSignalFactory::resolveMappings() {
     // build() then pays O(mappings) per frame instead of O(mappings × frames)
     // with repeated hash probes.
     for (const auto& [signalName, fieldName] : config_.signalMappings) {
-        const auto numericSlot = numericSlotFor(fieldName);
-        const bool isGear = (fieldName == "gearSelector");
+        const FieldTarget target = targetFor(fieldName);
 
-        if (!numericSlot.has_value() && !isGear) {
+        if (target.kind == DecodeKind::Ignored) {
             // Mapped to a field VehicleSignal does not expose (e.g. gearRequested).
             resolved_.push_back({FieldKind::Ignored, 0, nullptr, 0});
             continue;
@@ -90,8 +97,15 @@ void VehicleSignalFactory::resolveMappings() {
             continue;
         }
 
-        const std::size_t outIdx = isGear ? IDX_GEAR : *numericSlot;
-        const FieldKind kind = isGear ? FieldKind::Gear : FieldKind::Numeric;
+        FieldKind kind;
+        if (target.kind == DecodeKind::Gear) {
+            kind = FieldKind::Gear;
+        } else if (target.kind == DecodeKind::BrakeLight) {
+            kind = FieldKind::BrakeLight;
+        } else {
+            kind = FieldKind::Numeric;
+        }
+        const std::size_t outIdx = target.kind == DecodeKind::Numeric ? target.numericSlot : 0;
         resolved_.push_back({kind, located.canId, located.def, outIdx});
     }
 }
@@ -100,10 +114,11 @@ VehicleSignal VehicleSignalFactory::build(
     const std::unordered_map<std::uint16_t, std::vector<std::uint8_t>>& frames,
     std::uint64_t timestampUtcMs
 ) const noexcept {
-    // Parallel output buffers: 9 numeric slots + 1 gear slot. Defaults
-    // (nullopt) match the previous per-call initialisation.
+    // Parallel output buffers: 9 numeric slots + 1 gear slot + 1 brake-light
+    // flag. Defaults (nullopt) match the previous per-call initialisation.
     std::array<std::optional<double>, IDX_GEAR> numeric;  // 9 numeric slots (indices 0..8)
     std::optional<std::int32_t> gear;
+    std::optional<bool> brakeLight;
 
     for (const auto& field : resolved_) {
         if (field.kind == FieldKind::Ignored || field.def == nullptr) {
@@ -132,6 +147,13 @@ VehicleSignal VehicleSignalFactory::build(
             if (gearValue.has_value()) {
                 gear = *gearValue;
             }
+        } else if (field.kind == FieldKind::BrakeLight) {
+            // Frame present: a definite light state. Only LIGHT_ON (1) is
+            // pressed; OFF (0), FAULT (2) and SNA (3) all read as not lit.
+            auto value = DBCSignalMapper::mapSignal(frameIt->second, *field.def);
+            if (value.has_value()) {
+                brakeLight = (*value == 1.0);
+            }
         } else {
             auto value = DBCSignalMapper::mapSignal(frameIt->second, *field.def);
             if (value.has_value()) {
@@ -146,6 +168,7 @@ VehicleSignal VehicleSignalFactory::build(
         .speedKmh = numeric[IDX_SPEED],
         .accelerationG = numeric[IDX_ACCEL],
         .brakePercent = numeric[IDX_BRAKE],
+        .brakeLight = brakeLight,
         .steeringAngleDeg = numeric[IDX_STEERING],
         .motorRpm = numeric[IDX_RPM],
         .motorHvVoltage = numeric[IDX_HV_VOLTAGE],
