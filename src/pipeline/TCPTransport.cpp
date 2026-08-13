@@ -202,6 +202,10 @@ bool TCPTransport::connectAndAuth() {
     if (socket_->connect(host_, port_, stop_.get()) < 0) return false;
     connected_ = true;
     if (!socket_->setRecvTimeout(socketRecvTimeoutMs_)) return false;
+    // Latency fix (Phase 1): disable Nagle on the stream socket so a small CAN
+    // frame is sent immediately instead of waiting for the delayed-ACK window.
+    // Set on BOTH ends; the firmware sets it at accept (TcpServerManager::cycle).
+    if (!socket_->setNoDelay(true)) return false;
 
     // Authenticate: send token, expect "OK" back
     if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(authCmd)) { closeConnection(); return false; }
@@ -540,12 +544,44 @@ void TCPTransport::closeConnection() noexcept {
     connected_ = false;
 }
 
+long TCPTransport::performPing(int seq, int timeoutMs) {
+    if (!connected_) return -1;
+    const std::string frame = "PING " + std::to_string(seq) + "\r";
+    const auto t0 = std::chrono::steady_clock::now();
+    if (!sendAll(frame)) return -1;
+
+    // Read lines until we get a matching PONG (or the timeout elapses). We reuse
+    // the recv seam via selectReadable + readSocketIntoPending + takeBufferedLine
+    // so a stray CAN frame in-flight can't desync the keepalive.
+    const auto deadline = t0 + std::chrono::milliseconds(timeoutMs);
+    const std::string want = "PONG " + std::to_string(seq);
+    while (std::chrono::steady_clock::now() < deadline) {
+        const int ready = selectReady();
+        if (ready < 0) return -1;
+        if (ready == 0) continue;
+        if (readSocketIntoPending() <= 0) return -1;  // link stalled
+        std::optional<std::string> line;
+        while ((line = takeBufferedLine()).has_value()) {
+            if (line->substr(0, want.size()) == want) {
+                const auto t1 = std::chrono::steady_clock::now();
+                return static_cast<long>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+            }
+        }
+    }
+    return -1;  // PONG not seen within timeout
+}
+
 bool TCPTransport::open() {
     if (opened_) return !exhausted_;
     opened_ = true;
     retryCount_ = 0;
-    if (!connectAndAuth()) {
-        output_->err("[tcp] Failed to connect to " + host_ + ":" + std::to_string(port_));
+    // Phase 3: ordering-independent connect. If the ESP32/WiFi/router is not up
+    // yet, retry with a bounded backoff instead of failing hard — whichever
+    // boots first converges. Only returns false after the whole budget is spent.
+    if (!connectUntilUp()) {
+        output_->err("[tcp] Failed to connect to " + host_ + ":" + std::to_string(port_) +
+                     " within the first-connect budget");
         return false;
     }
     if (!deviceIdHex_.empty()) {
@@ -555,6 +591,31 @@ bool TCPTransport::open() {
     }
     pending_.reserve(256);
     return true;
+}
+
+bool TCPTransport::connectUntilUp() {
+    // Budget + elapsed are measured on the INJECTED clock so a FakeClock makes
+    // the first-connect retry loop deterministic (instant) under test, while
+    // production (SystemClock) sees real wall-clock time.
+    const auto start = clock_->now();
+    int attempt = 0;
+    int backoffMs = CONNECT_FIRST_RETRY_MS;
+    for (;;) {
+        if (stop_->stopRequested()) return false;
+        if (connectAndAuth()) return true;
+
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            clock_->now() - start).count();
+        if (elapsed >= CONNECT_FIRST_BUDGET_MS) return false;  // budget exhausted
+
+        const auto remaining = static_cast<int>(CONNECT_FIRST_BUDGET_MS - elapsed);
+        const auto sleepMs = std::min({backoffMs, remaining, 100});  // 100ms-sliced, stop-checked
+        output_->err("[tcp] connect not up yet (attempt " + std::to_string(++attempt) +
+                     "), retrying in " + std::to_string(sleepMs) + "ms" + kClientTag);
+        clock_->sleepFor(std::chrono::milliseconds(sleepMs));
+        // Exponential backoff capped at CONNECT_MAX_RETRY_MS.
+        backoffMs = std::min(backoffMs * 2, CONNECT_MAX_RETRY_MS);
+    }
 }
 
 bool TCPTransport::isOpen() const noexcept {

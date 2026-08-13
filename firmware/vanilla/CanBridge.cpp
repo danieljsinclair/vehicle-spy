@@ -49,6 +49,12 @@ void CanBridge::processFrames(bool monitorActive, uint32_t nowMs, uint32_t seria
             std::array<char, CanConfig::CAN_FRAME_BUFFER_SIZE> buf{};
             buildFrameString(msg, buf.data(), buf.size());
             tcpClient_.print(buf.data());
+            // Latency fix (Phase 1): flush each frame immediately. On the ESP32
+            // WiFiClient, print() buffers; without an explicit flush the bytes
+            // can linger in the LwIP send buffer until the Nagle timer/buffer
+            // fills — the dominant source of variable >100 ms stalls. Combined
+            // with setNoDelay(true) at accept this makes per-frame latency tight.
+            tcpClient_.flush();
         }
     }
 }

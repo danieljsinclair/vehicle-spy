@@ -231,12 +231,13 @@ TEST_F(FirmwareAppSerialObservabilityTest, NoLoggerInjected_EmitsDoNotCrash) {
 // §9  [EVENT] wifi_ap_fallback — emitted when WiFi escalates to AP mode
 // ══════════════════════════════════════════════════════════════════════════════
 
-TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsSerialEvent_WithReason) {
-    // CONTRACT: when a definitive auth failure (e.g. 4WAY_HANDSHAKE_TIMEOUT=15)
-    // drives the WiFi state machine from WIFI_CONNECTED to WIFI_AP_MODE,
-    // FirmwareApp must emit [EVENT] wifi_ap_fallback reason=<n> via the
-    // injected IEventLogger. The reason is sourced from WiFiManager's
-    // ctx.escalatedToApReason field (set in onDisconnected).
+TEST_F(FirmwareAppSerialObservabilityTest, AuthFail_SingleFailureStaysConnecting_NotApFallback) {
+    // CONTRACT (RESILIENT AUTH): a single auth-mechanism failure (15 /
+    // 4WAY_HANDSHAKE_TIMEOUT) does NOT immediately escalate to AP mode, so the
+    // wifi_ap_fallback [EVENT] must NOT be emitted on the first failure. Instead
+    // the manager arms a retry campaign and stays WIFI_CONNECTING, and the
+    // [STATE] heartbeat must carry the auth-campaign detail (reason + strategy +
+    // loop) so "which SSID, why still connecting" is answerable at a glance.
     initWithLogger();
 
     // Use STA mode so localIP() returns a real address and the connect
@@ -249,24 +250,34 @@ TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsSerialEvent_WithReason
     ASSERT_EQ(firmwareApp->getWiFiState(),
               static_cast<int>(WiFiState::State::WIFI_CONNECTED));
 
-    // Definitive auth failure → AP mode. FirmwareApp::onWiFiDisconnected
-    // delegates to WiFiManager::onDisconnected (which sets
-    // escalatedToApReason=15 and transitions to AP), then update() detects
-    // the state transition and emits wifi_ap_fallback. onWiFiDisconnected
-    // also emits a wifi_drop event (once directly, once from the state
-    // transition detection in update()).
+    // The campaign detail must be empty before any auth failure.
+    ASSERT_EQ(firmwareApp->getWiFiDiagnostic().authCampaignDetail, std::string());
+
+    // Single auth-mechanism failure → stays CONNECTING (no AP fallback yet).
+    // onWiFiDisconnected delegates to WiFiManager::onDisconnected (arms the
+    // campaign), then update() observes CONNECTING — no wifi_ap_fallback event.
     EXPECT_CALL(eventLoggerMock,
                 logEvent("wifi_drop", HasSubstr("reason=15"))).Times(2);
-    EXPECT_CALL(eventLoggerMock,
-                logEvent("wifi_ap_fallback", HasSubstr("reason=15")));
+    wifiMock.simulateDisconnect(15);  // model the radio dropping
     firmwareApp->onWiFiDisconnected(15);  // 4WAY_HANDSHAKE_TIMEOUT
     firmwareApp->update(6000);
+
+    EXPECT_EQ(firmwareApp->getWiFiState(),
+              static_cast<int>(WiFiState::State::WIFI_CONNECTING))
+        << "single auth-mechanism failure must NOT bail to AP";
+    EXPECT_THAT(firmwareApp->getWiFiDiagnostic().authCampaignDetail, HasSubstr("reason=15"))
+        << "heartbeat must report the active auth campaign detail";
+    EXPECT_THAT(firmwareApp->getWiFiDiagnostic().authCampaignDetail, HasSubstr("strategy="))
+        << "heartbeat must report the current strategy within the 3-strategy list";
+    EXPECT_THAT(firmwareApp->getWiFiDiagnostic().authCampaignDetail, HasSubstr("loop=0/3"))
+        << "heartbeat must report the campaign is on the first loop";
 }
 
-TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsCorrectReason_AuthFail202) {
-    // CONTRACT: the wifi_ap_fallback event must carry the EXACT reason code
-    // that triggered the AP escalation (not a hardcoded value). Verifies
-    // reason 202 (AUTH_FAIL) is emitted correctly.
+TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsCorrectReason_AfterCampaignExhausted) {
+    // CONTRACT (RESILIENT AUTH): only AFTER the auth-fail campaign is EXHAUSTED
+    // (3 strategies × 3 loops = 9 attempts) does the manager escalate to AP mode
+    // and emit [EVENT] wifi_ap_fallback reason=<n> via the injected IEventLogger.
+    // The reason is sourced from WiFiManager's ctx.escalatedToApReason field.
     initWithLogger();
 
     wifiMock.setMode(1);  // WIFI_STA
@@ -275,12 +286,27 @@ TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsCorrectReason_AuthFail
     ASSERT_EQ(firmwareApp->getWiFiState(),
               static_cast<int>(WiFiState::State::WIFI_CONNECTED));
 
-    EXPECT_CALL(eventLoggerMock,
-                logEvent("wifi_drop", HasSubstr("reason=202"))).Times(2);
-    EXPECT_CALL(eventLoggerMock,
-                logEvent("wifi_ap_fallback", HasSubstr("reason=202")));
+    // Arm the campaign.
+    wifiMock.simulateDisconnect(202);  // model the radio dropping
     firmwareApp->onWiFiDisconnected(202);  // AUTH_FAIL
     firmwareApp->update(6000);
+    ASSERT_EQ(firmwareApp->getWiFiState(),
+              static_cast<int>(WiFiState::State::WIFI_CONNECTING));
+
+    // The AP-fallback event fires when the transition to AP mode is detected,
+    // which happens on the update() that exhausts the campaign.
+    EXPECT_CALL(eventLoggerMock,
+                logEvent("wifi_ap_fallback", HasSubstr("reason=202")));
+
+    // Exhaust the campaign: 9 retry ticks, each advancing past the 5s interval.
+    for (int i = 0; i < 9; ++i) {
+        wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+        firmwareApp->update(6000 + (i + 1) * (WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1));
+    }
+
+    EXPECT_EQ(firmwareApp->getWiFiState(),
+              static_cast<int>(WiFiState::State::WIFI_AP_MODE))
+        << "after 3 full loops the campaign must escalate to AP mode";
 }
 
 } // namespace

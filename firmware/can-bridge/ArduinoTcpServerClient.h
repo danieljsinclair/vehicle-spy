@@ -59,11 +59,39 @@ public:
         return std::string(line.c_str());
     }
 
+    std::string readAvailableLine(char delimiter) override {
+        // NON-BLOCKING: consume ONLY bytes already in the receive buffer and
+        // return them verbatim (delimiter NOT stripped). Never calls read() past
+        // what is available, so it cannot block up to the Stream timeout. The
+        // manager owns the line-splitting (it accumulates partial bytes in its
+        // own buffer and dispatches on the delimiter), which is what keeps
+        // cycle() from stalling the CAN-TX path. The delimiter arg is accepted
+        // for interface parity with readLine() but splitting happens in the
+        // manager.
+        (void)delimiter;
+        const int avail = client_.available();
+        if (avail <= 0) return {};
+        std::string buf;
+        buf.reserve(static_cast<size_t>(avail));
+        for (int i = 0; i < avail; ++i) {
+            const int c = client_.read();
+            if (c < 0) break;
+            buf.push_back(static_cast<char>(c));
+        }
+        return buf;
+    }
+
     void println(const std::string& line) override {
         client_.println(line.c_str());
     }
 
     void flush() override { client_.flush(); }
+
+    void setNoDelay(bool enable) override {
+        // WiFiClient has no setNoDelay(bool); the Arduino core exposes it as
+        // setNoDelay(bool) on WiFiClient (ESP32). We forward directly.
+        client_.setNoDelay(enable);
+    }
 
     std::string remoteIP() const override {
         // WiFiClient::remoteIP() returns an IPAddress; toString() yields "ipv4"

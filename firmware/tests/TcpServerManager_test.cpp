@@ -44,8 +44,10 @@ public:
     MOCK_METHOD(void, setTimeout, (uint32_t ms), (override));
     MOCK_METHOD(int, available, (), (const, override));
     MOCK_METHOD(std::string, readLine, (char delimiter), (override));
+    MOCK_METHOD(std::string, readAvailableLine, (char delimiter), (override));
     MOCK_METHOD(void, println, (const std::string& line), (override));
     MOCK_METHOD(void, flush, (), (override));
+    MOCK_METHOD(void, setNoDelay, (bool enable), (override));
     MOCK_METHOD(std::string, remoteIP, (), (const, override));
 };
 
@@ -217,6 +219,23 @@ TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_MonitorEndsActive) {
         << "an authenticated raw-protocol client must be streaming without needing ATMA";
 }
 
+// Phase 1 latency: TCP_NODELAY must be requested on the adopted client at the
+// instant of accept (before auth), so the CAN stream never stalls behind Nagle.
+TEST_F(TcpServerManagerTest, Cycle_AcceptValidAuth_RequestsNoDelayOnClient) {
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(host_, setMonitorActive(_)).Times(AnyNumber());
+
+    // The manager must disable Nagle on the stream client at accept.
+    EXPECT_CALL(client, setNoDelay(true));
+
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+
+    manager_.cycle(/*nowMs=*/1000);
+}
+
 TEST_F(TcpServerManagerTest, Cycle_AcceptInvalidAuth_MonitorEndsInactive) {
     // Negative control for the auto-activation: a rejected client must NOT be
     // handed the CAN stream. Pins that auto-activate sits on the success branch
@@ -300,12 +319,42 @@ TEST_F(TcpServerManagerTest, Cycle_AuthenticatedClientWithCommand_ForwardsToHost
     manager_.cycle(/*nowMs=*/1000);
 
     // Second cycle: client connected, monitor inactive, a command is available.
+    // The manager now reads NON-BLOCKING (readAvailableLine), which returns the
+    // buffered bytes verbatim (delimiter retained); the manager splits on '\r'.
     EXPECT_CALL(client, connected()).WillRepeatedly(Return(true));
-    EXPECT_CALL(client, available()).WillOnce(Return(4));  // bytes waiting
-    EXPECT_CALL(client, readLine(_)).WillOnce(Return(std::string("AT+HELLO")));
+    EXPECT_CALL(client, available()).WillOnce(Return(9));  // "AT+HELLO\r"
+    EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("AT+HELLO\r")));
     EXPECT_CALL(host_, handleTcpAtCommand(std::string("AT+HELLO")));
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));  // no new client
     manager_.cycle(/*nowMs=*/2000);
+}
+
+// Phase 1 TX-starvation fix: a PARTIALLY-arrived command (no delimiter buffered
+// yet) must NOT block cycle() and must NOT dispatch. The manager retains the
+// partial bytes and dispatches only once the delimiter arrives on a later tick.
+TEST_F(TcpServerManagerTest, Cycle_PartialCommand_DoesNotDispatchOrBlock) {
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(host_, setMonitorActive(_)).Times(AnyNumber());
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+    manager_.cycle(/*nowMs=*/1000);
+
+    // Tick 2: only "AT+HE" has arrived (no '\r'). readAvailableLine returns it
+    // verbatim; the manager must accumulate and NOT call handleTcpAtCommand.
+    EXPECT_CALL(client, connected()).WillRepeatedly(Return(true));
+    EXPECT_CALL(client, available()).WillOnce(Return(5));
+    EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("AT+HE")));
+    EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
+    manager_.cycle(/*nowMs=*/2000);  // must return promptly, no dispatch
+
+    // Tick 3: the rest arrives with the delimiter. Now the full command dispatches.
+    EXPECT_CALL(client, available()).WillOnce(Return(5));  // "LLO\r"
+    EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("LLO\r")));
+    EXPECT_CALL(host_, handleTcpAtCommand(std::string("AT+HELLO")));
+    EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
+    manager_.cycle(/*nowMs=*/3000);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

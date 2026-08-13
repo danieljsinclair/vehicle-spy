@@ -27,6 +27,7 @@ public:
     void close() noexcept override;
     bool setRecvTimeout(int ms) override;
     bool sendAll(std::string_view data) override;
+    bool setNoDelay(bool enable) override;
 
 private:
     int fd_ = -1;

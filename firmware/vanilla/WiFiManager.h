@@ -31,6 +31,18 @@ namespace WiFiState {
         bool reconnectPending = false;   // true after a drop, until the re-connect IP check resolves
         uint32_t disconnectStartMs = 0;  // timestamp of the most recent drop (for outage-duration safety check)
         uint32_t reconnectAttempts = 0;  // consecutive reconnect (re-begin) attempts since the last drop
+        // RESILIENT AUTH (firmware bug fix): an auth-failure reason (AUTH_FAIL 202,
+        // 4WAY_HANDSHAKE_TIMEOUT 15, 802_1X_AUTH_FAILED 23) is NOT proof of a wrong
+        // password — at this layer we cannot distinguish wrong-PSK from a
+        // wrong-mechanism (e.g. WPA3/SAE rejecting a WPA2 client) or a transient.
+        // So we must exhaust connection opportunities BEFORE escalating to AP mode.
+        // While an auth-fail campaign is active we rotate through progressively
+        // harder reset/retry STRATEGIES (best-first, least-good last) and loop
+        // that list a bounded number of times. These counters are reset on a
+        // successful WL_CONNECTED so a genuine later drop starts fresh.
+        bool pendingAuthFail = false;  // an auth-mechanism failure is in progress; rotate strategies instead of bailing
+        int authFailStrategyIndex = 0; // index into the strategy list (0 = best/least-disruptive)
+        int authFailStrategyLoop = 0;  // how many full passes through the strategy list we have made
     };
 }
 
@@ -133,6 +145,25 @@ struct WiFiConfig {
     static constexpr uint32_t WIFI_CONNECT_FIRST_RETRIES_COUNT = 5;
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
     static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 60;  // 5 minutes at 5s interval
+    // RESILIENT AUTH (firmware bug fix): an auth-failure reason (AUTH_FAIL 202,
+    // 4WAY_HANDSHAKE_TIMEOUT 15, 802_1X_AUTH_FAILED 23) is NOT proof of a wrong
+    // password. The same code can be triggered by a wrong AUTH MECHANISM (e.g. a
+    // WPA3/SAE AP rejecting a WPA2-only client) or a transient. We cannot
+    // distinguish wrong-password from wrong-mechanism at this layer, so — per
+    // requirement — we must exhaust connect opportunities BEFORE giving up.
+    //
+    // The ESP32 Arduino core in use (2.0.17) has NO WiFi.setMinSecurity / WPA3 /
+    // SAE API, so literal WPA2->WPA3 rotation is impossible. Instead the
+    // "different connection options" are progressively-harder reset/retry
+    // STRATEGIES that mirror what a manual button-reset achieves (which works):
+    //   strategy 0 (best):   plain WiFi.begin() re-attempt
+    //   strategy 1 (mid):    disconnect() + STA mode reset, then begin()
+    //   strategy 2 (worst):  full radio cycle — mode OFF, then STA, then begin()
+    // We rotate best-first / least-good-last through the list, and loop the WHOLE
+    // list WIFI_AUTH_STRATEGY_LOOP_COUNT (3) times. ONLY after all loops are
+    // exhausted do we escalate to AP mode. This is bounded, not infinite.
+    static constexpr uint32_t WIFI_AUTH_STRATEGY_COUNT = 3;     // number of strategies in the list
+    static constexpr uint32_t WIFI_AUTH_STRATEGY_LOOP_COUNT = 3; // full list passes before AP escalation
     static constexpr const char* AP_SSID = "ESP32-CAN";
     static constexpr const char* AP_PASS = "cancan12";
     static constexpr const char* NVS_WIFI_NAMESPACE = "wifi";
@@ -200,6 +231,16 @@ public:
     // Get state name for logging
     static const char* stateName(WiFiState::State state);
 
+    // Resolve the SSID the manager is currently trying to associate with
+    // (stored NVS if present, otherwise baked-in). Reported on the [STATE]
+    // heartbeat so "which SSID" is answerable at a glance.
+    std::string resolveTargetSsid() const;
+
+    // If an auth-mechanism failure campaign is in progress, return a human string
+    // describing the current retry state, e.g. "auth fail reason=202 strategy=1/3
+    // loop=0/3"; empty string otherwise. Reported on the [STATE] heartbeat.
+    std::string getAuthCampaignDetail() const;
+
 private:
     IWiFi& wifi_;
     IPreferences& prefs_;
@@ -220,6 +261,14 @@ private:
 
     void applyStateTransition(const StateTransition& transition);
     IWiFiStateHandler* getStateHandler(WiFiState::State state);
+
+    // Drive the resilient-auth strategy rotation while a campaign is active
+    // (pendingAuthFail == true). Rotates through progressively-harder reset/retry
+    // STRATEGIES and loops the list WIFI_AUTH_STRATEGY_LOOP_COUNT times; once
+    // EXHAUSTED it escalates to AP mode. Returns a transition; when its nextState
+    // equals the current state AND neither flag is set, the caller falls through
+    // to the normal CONNECTING handler (retry loop stays alive underneath).
+    StateTransition runAuthCampaign(uint32_t now);
 };
 
 // Testable pure functions - standalone in namespace for testability
@@ -229,5 +278,18 @@ bool isInitialConnectTimeout(uint32_t connectDurationMs);
 bool shouldRetryWiFi(WiFiState::State state, uint32_t now, uint32_t lastRetry, uint32_t reconnectAttempts);
 bool loadCredentialsImpl(IPreferences& prefs, std::string& ssid, std::string& pass);
 bool shouldRestartTcpServerForReconnect(const std::string& newIp, const std::string& lastConnectedIp, uint32_t outageMs);
+
+// RESILIENT AUTH pure helpers (testable without hardware):
+// True for the reason codes that indicate an auth-mechanism failure we MUST
+// exhaust strategies for before giving up (NOT treated as wrong-password).
+bool isAuthMechanismFailure(int reason);
+// Apply the reset/retry strategy at `index` to the IWiFi abstraction using the
+// resolved credentials. Index is clamped to [0, WIFI_AUTH_STRATEGY_COUNT).
+void applyAuthStrategy(IWiFi& wifi, CredentialSource source,
+                       const std::string& storedSsid, const std::string& storedPass,
+                       const char* bakedSsid, const char* bakedPass, int index);
+// Given the current strategy index/loop and the configured counts, return true
+// when ALL connection opportunities are exhausted (escalate to AP mode).
+bool isAuthCampaignExhausted(int strategyIndex, int loopIndex);
 
 } // namespace esp32_firmware

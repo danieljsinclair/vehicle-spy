@@ -110,9 +110,19 @@ public:
         return true;
     }
 
+    bool setNoDelay(bool enable) override {
+        if (!connected_) return false;
+        setNoDelay_ = enable;
+        return true;
+    }
+
     // Number of SUCCESSFUL connects (mirrors the old server acceptedCount()).
     int connectCount() const { return connectCount_; }
     const std::vector<std::string>& sent() const { return sent_; }
+
+    // The last setNoDelay(...) value applied (default false). Asserts the
+    // transport actually requested TCP_NODELAY on the stream socket.
+    bool setNoDelayRequested() const { return setNoDelay_; }
 
     // Catenate everything the transport sent (AUTH / ATI / ATHELO / ELM
     // commands) — mirrors the old LoopbackServer capture so handshake
@@ -131,6 +141,7 @@ private:
     bool connected_ = false;
     int fd_ = -1;
     int connectCount_ = 0;
+    bool setNoDelay_ = false;
     std::vector<std::string> sent_;
 };
 

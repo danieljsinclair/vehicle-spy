@@ -224,21 +224,18 @@ TEST_F(WiFiManagerTest, OnDisconnected_NonAuthFailure_SetsConnectingState) {
     EXPECT_TRUE(wifiManager->shouldRestartTcpServer());
 }
 
-TEST_F(WiFiManagerTest, OnDisconnected_AuthFail_TransitionsToApMode) {
-    // This test verifies that AUTH_FAIL (and related auth errors) immediately
-    // transition to AP mode instead of retrying indefinitely
+TEST_F(WiFiManagerTest, OnDisconnected_AuthFail_StaysConnecting_ArmCampaign) {
+    // RESILIENT AUTH (req-1): AUTH_FAIL (202) is NO LONGER treated as a
+    // definitive wrong-password → AP bail. The password is correct (a button
+    // reset connects), so 202 here is spurious/transient/wrong-mechanism. The
+    // manager must stay in WIFI_CONNECTING and arm an auth-fail campaign.
 
-    // Set up stored credentials
     prefsMock.setValue("wifi", "ssid", "test-ssid");
     prefsMock.setValue("wifi", "pass", "test-pass");
 
-    // Re-create WiFiManager with fresh prefs after setting credentials
     wifiManager = std::make_unique<WiFiManager>(
-        wifiMock, prefsMock, serialTraceMock,
-        "baked-ssid", "baked-pass"
-    );
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 
-    // Get to CONNECTED_STA state
     wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
     wifiManager->init();
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
@@ -246,13 +243,17 @@ TEST_F(WiFiManagerTest, OnDisconnected_AuthFail_TransitionsToApMode) {
     wifiManager->update(100);
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
 
-    // Simulate disconnect event with AUTH_FAIL - this should transition to AP mode
     wifiManager->onDisconnected(202);  // WIFI_REASON_AUTH_FAIL
 
-    // Verify state is now CONNECTED_AP (auth-fail transitions to AP mode)
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
-
-    // TCP server restart flag should NOT be set for AP mode transition
+    // Must STAY in WIFI_CONNECTING (NOT bail to AP mode).
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    // Campaign must be armed.
+    EXPECT_TRUE(wifiManager->getContext().pendingAuthFail);
+    EXPECT_EQ(wifiManager->getContext().lastDisconnectReason, 202);
+    // Counters start at the best strategy, first loop.
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyIndex, 0);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyLoop, 0);
+    // TCP restart flag is NOT cleared (a later success should still re-bind).
     EXPECT_FALSE(wifiManager->shouldRestartTcpServer());
 }
 
@@ -544,53 +545,153 @@ TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToConnecting) 
 //     reason=0/4/204 etc.
 // ══════════════════════════════════════════════════════════════════════════════
 
-TEST_F(WiFiManagerTest, wrongPasswordGoesToAp_4WayHandshakeTimeout) {
-    // 4WAY_HANDSHAKE_TIMEOUT (15) is a definitive auth failure: the PSK was
-    // cryptographically refused. Must transition to AP mode immediately,
-    // NOT retry STA forever.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
-    wifiManager = std::make_unique<WiFiManager>(
-        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
-
-    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
-    wifiManager->init();
-    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
-    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
-    wifiManager->update(100);
-    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
-
-    wifiManager->onDisconnected(15);  // WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT
-
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
-    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
-        << "AP mode transition must clear the TCP restart flag";
-    EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 15)
-        << "escalatedToApReason must record the definitive-auth reason";
+// Helper: drive the manager to WIFI_CONNECTED from a clean state.
+void driveToConnected(WiFiManager& mgr, WiFiMock& wifi) {
+    wifi.setStatus(WiFiMock::Status::WL_CONNECTED);
+    mgr.init();
+    ASSERT_EQ(mgr.getState(), WiFiState::State::WIFI_CONNECTING);
+    wifi.setStatus(WiFiMock::Status::WL_CONNECTED);
+    mgr.update(100);
+    ASSERT_EQ(mgr.getState(), WiFiState::State::WIFI_CONNECTED);
 }
 
-TEST_F(WiFiManagerTest, authFailGoesToAp_AuthFail202) {
-    // AUTH_FAIL (202) is a definitive auth failure: bad PSK. Must transition
-    // to AP mode immediately, NOT retry STA forever.
+// Helper: fire one auth-fail campaign retry tick. After onDisconnected arms the
+// campaign, each retry tick applies the next strategy. We model the radio
+// reporting WL_IDLE_STATUS (the begin() reset) so the retry path fires. Returns
+// the tick timestamp used.
+uint32_t fireRetryTick(WiFiManager& mgr, WiFiMock& wifi, uint32_t baseMs) {
+    wifi.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+    // Advance past the aggressive-first-retries window (0ms) / normal interval so
+    // shouldRetryWiFi() permits the next strategy attempt.
+    uint32_t now = baseMs + WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1;
+    mgr.update(now);
+    return now;
+}
+
+TEST_F(WiFiManagerTest, AuthFail_ArmedCampaign_StaysConnectingAndRotatesStrategies) {
+    // RESILIENT AUTH (req-1/2): 4WAY_HANDSHAKE_TIMEOUT (15) arms a campaign and
+    // stays in WIFI_CONNECTING. Each retry tick advances the strategy index (and,
+    // after wrapping, the loop counter) WITHOUT yet escalating to AP mode.
     prefsMock.setValue("wifi", "ssid", "test-ssid");
     prefsMock.setValue("wifi", "pass", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
 
-    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
-    wifiManager->init();
+    wifiManager->onDisconnected(15);  // WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
-    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
-    wifiManager->update(100);
-    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+    ASSERT_TRUE(wifiManager->getContext().pendingAuthFail);
+
+    // Tick 1 applies strategy 0.
+    uint32_t now = fireRetryTick(*wifiManager, wifiMock, 100);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyIndex, 1);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyLoop, 0);
+
+    // Tick 2 applies strategy 1.
+    now = fireRetryTick(*wifiManager, wifiMock, now);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyIndex, 2);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyLoop, 0);
+
+    // Tick 3 applies strategy 2, then wraps: index back to 0, loop advances to 1.
+    now = fireRetryTick(*wifiManager, wifiMock, now);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyIndex, 0);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyLoop, 1);
+
+    // Still CONNECTING — NOT escalated to AP.
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+}
+
+TEST_F(WiFiManagerTest, AuthFail_ThreeLoopsExhausted_EscalatesToApMode) {
+    // RESILIENT AUTH (req-1): connection opportunities are EXHAUSTED only after
+    // WIFI_AUTH_STRATEGY_COUNT strategies × WIFI_AUTH_STRATEGY_LOOP_COUNT loops
+    // have all been attempted. After the last one, escalation to AP mode is
+    // bounded (finite), not an infinite retry.
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
 
     wifiManager->onDisconnected(202);  // WIFI_REASON_AUTH_FAIL
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
 
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
-    EXPECT_FALSE(wifiManager->shouldRestartTcpServer())
-        << "AP mode transition must clear the TCP restart flag";
+    const int totalAttempts =
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT) *
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);  // 3 * 3 = 9
+
+    uint32_t now = 100;
+    // Fire one fewer tick than total: still CONNECTING (campaign not yet exhausted).
+    for (int i = 0; i < totalAttempts - 1; ++i) {
+        now = fireRetryTick(*wifiManager, wifiMock, now);
+        ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+            << "must stay CONNECTING until all " << totalAttempts << " attempts done (i=" << i << ")";
+    }
+    // One more tick exhausts the campaign → escalate to AP mode (bounded).
+    now = fireRetryTick(*wifiManager, wifiMock, now);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE)
+        << "after 3 full loops the campaign must escalate to AP mode";
+
+    // And it records the true auth reason it escalated on.
     EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 202)
-        << "escalatedToApReason must record the definitive-auth reason";
+        << "escalatedToApReason must record the auth reason that triggered the campaign";
+}
+
+TEST_F(WiFiManagerTest, AuthFail_SuccessfulConnectResetsCampaign) {
+    // RESILIENT AUTH (req-3): a successful WL_CONNECTED after some auth-fails
+    // resets the exhausted state (counters back to 0, pending cleared) so a
+    // genuine later drop starts fresh rather than instantly escalating.
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    // A spurious cold-boot auth fail arms the campaign.
+    wifiManager->onDisconnected(202);  // WIFI_REASON_AUTH_FAIL
+    ASSERT_TRUE(wifiManager->getContext().pendingAuthFail);
+
+    // Rotate a couple of strategies so the counters advance.
+    uint32_t now = fireRetryTick(*wifiManager, wifiMock, 100);
+    now = fireRetryTick(*wifiManager, wifiMock, now);
+    ASSERT_GT(wifiManager->getContext().authFailStrategyIndex, 0);
+
+    // The radio now succeeds (e.g. the mechanism settles after a reset) — model
+    // WL_CONNECTED flowing through the connecting handler.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(now + WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+    EXPECT_FALSE(wifiManager->getContext().pendingAuthFail)
+        << "successful connect must clear the pending-auth-fail campaign";
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyIndex, 0)
+        << "successful connect must reset the strategy index";
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyLoop, 0)
+        << "successful connect must reset the loop counter";
+}
+
+TEST_F(WiFiManagerTest, AuthFail_ConnectAfterSomeFails_ResetExhaustedState) {
+    // RESILIENT AUTH (req-3): even if we had progressed partway into the
+    // campaign, a real connect resets everything; a subsequent fresh drop must
+    // NOT immediately re-escalate (it re-arms a fresh campaign from strategy 0).
+    prefsMock.setValue("wifi", "ssid", "test-ssid");
+    prefsMock.setValue("wifi", "pass", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    wifiManager->onDisconnected(202);
+    uint32_t now = 100;
+    now = fireRetryTick(*wifiManager, wifiMock, now);  // strategy 0 applied
+    // Connect succeeds.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(now + WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS + 1);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+    ASSERT_FALSE(wifiManager->getContext().pendingAuthFail);
+
+    // A genuine later drop re-arms a FRESH campaign (does not escalate instantly).
+    wifiManager->onDisconnected(202);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_TRUE(wifiManager->getContext().pendingAuthFail);
+    EXPECT_EQ(wifiManager->getContext().authFailStrategyIndex, 0);
 }
 
 TEST_F(WiFiManagerTest, authExpireRetriesStaForever_Reason2StaysConnecting) {

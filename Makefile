@@ -579,6 +579,23 @@ dump-tcp:
 	@echo "Run this in a separate terminal while: make discover"
 	@sudo tcpdump -i en0 -n -X udp port 3335
 
+# Bare TCP monitor for the CAN stream (port 3333) — the TCP equivalent of
+# `make monitor`. Connects to the ESP32 and prints the raw frames as they fly,
+# so you can confirm the hardware is delivering data before running vehicle-sim.
+# Requires ESP32_HOST (the ESP32 IP, e.g. 192.168.68.87). One client at a time.
+# Usage: make monitor-tcp ESP32_HOST=192.168.68.87
+monitor-tcp:
+	@if [ -z "$(ESP32_HOST)" ]; then \
+		echo "${RED}Error: ESP32_HOST is required.${NC}" >&2; \
+		echo "      Find the ESP32 IP from 'make discover' or your router, then:" >&2; \
+		echo "      make monitor-tcp ESP32_HOST=192.168.68.87" >&2; \
+		exit 1; \
+	fi
+	@echo "Bare-dumping CAN TCP stream from $(ESP32_HOST):3333 (Ctrl+C to stop)..."
+	@echo "(This claims the single client slot — stop vehicle-sim first.)"
+	@echo "(Sends ATZ/ATE0/ATSP6/ATH1/ATMA so the firmware starts streaming —"
+	@echo " plain 'nc' alone shows nothing because CAN only flows to TCP after ATMA.)"
+	@python3 experiments/tcp_monitor.py "$(ESP32_HOST)" 3333
 
 flash-wifi flash-over-wifi flash-tcp flash-over-tcp:
 	@if [ -z "$(ESP32_HOST)" ]; then \

@@ -86,6 +86,11 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
             if (resetDiscoveryBackoff_) {
                 resetDiscoveryBackoff_();
             }
+            // RESILIENT AUTH (req-3): a genuine successful connect resets the
+            // auth-failure campaign so a later, real drop starts fresh.
+            ctx.pendingAuthFail = false;
+            ctx.authFailStrategyIndex = 0;
+            ctx.authFailStrategyLoop = 0;
             ctx.reconnectPending = false;
             ctx.reconnectAttempts = 0;
             return StateTransition(WiFiState::State::WIFI_CONNECTED, restartTcp, true);
@@ -189,6 +194,80 @@ struct ConnectedApStateHandler : public IWiFiStateHandler {
     }
 };
 
+// ── RESILIENT AUTH pure helpers (testable without hardware) ──────────────────
+
+bool isAuthMechanismFailure(int reason) {
+    // These codes were previously treated as "definitive wrong credential"
+    // (immediate AP-mode bail). The verified diagnosis shows that is wrong: at
+    // this layer we CANNOT tell wrong-PSK from a wrong auth MECHANISM (WPA3/SAE
+    // rejecting a WPA2 client) or a transient/radio-not-settled failure. A button
+    // reset connects successfully, proving the password is correct. So these must
+    // trigger the strategy-exhaustion campaign, not an instant give-up.
+    return reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
+           reason == WIFI_REASON_802_1X_AUTH_FAILED ||
+           reason == WIFI_REASON_AUTH_FAIL;
+}
+
+bool isAuthCampaignExhausted(int /*strategyIndex*/, int loopIndex) {
+    // Exhausted = we have completed WIFI_AUTH_STRATEGY_LOOP_COUNT full passes
+    // through the strategy list. The campaign advances until the last strategy of
+    // the last loop has been attempted; at that point loopIndex reaches the cap.
+    return loopIndex >= static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+}
+
+void applyAuthStrategy(IWiFi& wifi, CredentialSource source,
+                       const std::string& storedSsid, const std::string& storedPass,
+                       const char* bakedSsid, const char* bakedPass, int index) {
+    // Resolve which credentials to use: stored NVS wins, else baked-in.
+    const char* ssid = nullptr;
+    const char* pass = nullptr;
+    if (source == CredentialSource::STORED_NVS && !storedSsid.empty()) {
+        ssid = storedSsid.c_str();
+        pass = storedPass.c_str();
+    } else if (bakedSsid && bakedPass && bakedSsid[0] != '\0' && bakedPass[0] != '\0') {
+        ssid = bakedSsid;
+        pass = bakedPass;
+    }
+
+    // Clamp to the valid strategy range (defensive only at this internal seam;
+    // the caller always passes a valid rotating index).
+    const int i = (index < 0) ? 0
+                 : (index >= static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT))
+                   ? static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT) - 1
+                   : index;
+
+    switch (i) {
+        case 0:
+            // Best / least-disruptive: re-issue the plain association attempt.
+            // (Mirrors a normal reconnect; cheap and usually sufficient once the
+            // radio/PHY has settled.)
+            if (ssid) {
+                wifi.begin(ssid, pass);
+            }
+            break;
+        case 1:
+            // Mid: tear down the STA session and reset to STA mode, then re-begin.
+            // Resolves a stuck auth/assoc state-machine on the client side.
+            wifi.disconnect(false, true);
+            wifi.setMode(1);  // WIFI_STA
+            if (ssid) {
+                wifi.begin(ssid, pass);
+            }
+            break;
+        case 2:
+        default:
+            // Worst / most-disruptive: full radio cycle — power the netif OFF,
+            // bring it back as STA, then begin. Mirrors a manual button-reset,
+            // which is what reliably recovers the field failure.
+            wifi.setMode(0);  // WIFI_OFF
+            wifi.setMode(1);  // WIFI_STA
+            if (ssid) {
+                wifi.begin(ssid, pass);
+            }
+            break;
+    }
+}
+
 // WiFiManager implementation
 
 WiFiManager::WiFiManager(IWiFi& wifi, IPreferences& prefs, ISerial& serial,
@@ -213,9 +292,93 @@ void WiFiManager::init() {
 }
 
 void WiFiManager::update(uint32_t now) {
+    // RESILIENT AUTH (req-1/2): while an auth-mechanism failure campaign is in
+    // progress we do NOT fall back to AP mode on the first (or first few) auth
+    // failures. We rotate through progressively-harder reset/retry STRATEGIES
+    // (best-first, least-good last) and loop the whole list
+    // WIFI_AUTH_STRATEGY_LOOP_COUNT times, escalating to AP mode ONLY once every
+    // connection opportunity is EXHAUSTED (bounded, not infinite). Run this
+    // BEFORE the normal handler so the chosen strategy is actually applied to
+    // the radio each retry tick, and so AP escalation overrides the connect loop.
+    if (ctx_.pendingAuthFail) {
+        // The campaign fully owns the retry loop while active: it applies the
+        // rotating strategy, detects a genuine connect (to reset + transition),
+        // and escalates to AP when exhausted. The normal CONNECTING handler must
+        // NOT also issue begin() here, so we short-circuit on the campaign.
+        StateTransition campaign = runAuthCampaign(now);
+        applyStateTransition(campaign);
+        return;
+    }
+
     IWiFiStateHandler* handler = getStateHandler(ctx_.state);
     StateTransition transition = handler->execute(now, ctx_);
     applyStateTransition(transition);
+}
+
+StateTransition WiFiManager::runAuthCampaign(uint32_t now) {
+    // A genuine successful connect during the campaign: reset the rotation so a
+    // later, real drop starts fresh, then transition to CONNECTED (tcpRestart +
+    // NTP init, same as the normal handler).
+    if (wifi_.status() == 3) {  // WL_CONNECTED
+        uint32_t outageMs = (ctx_.disconnectStartMs > 0) ? (now - ctx_.disconnectStartMs) : 0;
+        bool restartTcp = shouldRestartTcpServerForReconnect(wifi_.localIP(), ctx_.lastConnectedIp, outageMs);
+        if (discoveryResetCallback_) {
+            discoveryResetCallback_();
+        }
+        ctx_.pendingAuthFail = false;
+        ctx_.authFailStrategyIndex = 0;
+        ctx_.authFailStrategyLoop = 0;
+        ctx_.reconnectPending = false;
+        ctx_.reconnectAttempts = 0;
+        return StateTransition(WiFiState::State::WIFI_CONNECTED, restartTcp, true);
+    }
+
+    if (!shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx_.lastRetryMs, ctx_.reconnectAttempts)) {
+        // Retry interval not yet elapsed — stay CONNECTING, no new strategy yet.
+        return StateTransition(ctx_.state);
+    }
+
+    // Apply the CURRENT strategy to the radio, then advance the rotation: the
+    // strategy index wraps within the list, and on wrap we advance the loop
+    // counter (so the whole list is repeated each pass).
+    CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
+    std::string storedSsid;
+    std::string storedPass;
+    loadCredentialsImpl(prefs_, storedSsid, storedPass);
+
+    applyAuthStrategy(wifi_, source, storedSsid, storedPass,
+                      bakedSsid_, bakedPass_, ctx_.authFailStrategyIndex);
+    serial_.printf("[STATE] WiFi: %s (auth fail reason=%d strategy=%d/%u loop=%d/%u)\r\n",
+                   stateName(ctx_.state), ctx_.lastDisconnectReason,
+                   ctx_.authFailStrategyIndex,
+                   WiFiConfig::WIFI_AUTH_STRATEGY_COUNT,
+                   ctx_.authFailStrategyLoop,
+                   WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+
+    ++ctx_.authFailStrategyIndex;
+    if (ctx_.authFailStrategyIndex >= static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT)) {
+        ctx_.authFailStrategyIndex = 0;
+        ++ctx_.authFailStrategyLoop;
+    }
+    ctx_.lastRetryMs = now;
+    ++ctx_.reconnectAttempts;
+
+    // Bounded escalation: the final strategy of the final loop has just been
+    // attempted (loop counter advanced past the last lap). Only now — every
+    // connection opportunity EXHAUSTED — do we give up and fall back to AP mode.
+    if (isAuthCampaignExhausted(ctx_.authFailStrategyIndex, ctx_.authFailStrategyLoop)) {
+        wifi_.setMode(2);  // WIFI_AP
+        wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
+        ctx_.pendingAuthFail = false;  // campaign over; do NOT re-enter it
+        ctx_.escalatedToApReason = ctx_.lastDisconnectReason;  // record the true auth reason
+        serial_.printf("[STATE] WiFi: %s -> WIFI_AP_MODE (auth exhausted reason=%d after %u strategies x %u loops)\r\n",
+                       stateName(ctx_.state), ctx_.lastDisconnectReason,
+                       WiFiConfig::WIFI_AUTH_STRATEGY_COUNT,
+                       WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+        return StateTransition(WiFiState::State::WIFI_AP_MODE);
+    }
+
+    return StateTransition(ctx_.state);  // stay CONNECTING until exhausted/connected
 }
 
 bool WiFiManager::factoryReset() {
@@ -255,36 +418,62 @@ void WiFiManager::onDisconnected(int reason) {
     const WiFiState::State from = ctx_.state;
     ctx_.lastDisconnectReason = reason;
 
-    // Definitive auth failure: the SSID/PSK combination was cryptographically
-    // refused, so retrying the SAME credentials is guaranteed-futile. Transition
-    // straight to AP mode (do NOT re-enter the WIFI_CONNECTING connect cycle).
-    // ONLY these reason codes indicate a wrong credential — everything else is
-    // transient and must retry STA forever:
-    //   - 4WAY_HANDSHAKE_TIMEOUT (15): handshake never completed (bad PSK-class)
+    // RESILIENT AUTH (req-1): an auth-MECHANISM failure is NOT proof of a wrong
+    // password. The reason codes below were previously treated as "definitive
+    // wrong credential → instant AP mode", but the verified field diagnosis
+    // shows that is wrong: the password for "manht2" is CORRECT (a button-reset
+    // connects), so a 202/15/23 here is a spurious/transient or wrong-mechanism
+    // failure (radio/PHY not settled, or WPA2-vs-WPA3/SAE mismatch) — and at
+    // this layer we CANNOT distinguish wrong-PSK from wrong-mechanism. Therefore
+    // we must NOT give up. Instead we arm an auth-failure CAMPAIGN: the
+    // ConnectingStateHandler now rotates through progressively-harder
+    // reset/retry STRATEGIES (best-first, least-good last) and loops the whole
+    // list WIFI_AUTH_STRATEGY_LOOP_COUNT (3) times before escalating to AP mode.
+    // This mirrors what a manual button-reset achieves (which works), and only
+    // gives up once connection opportunities are EXHAUSTED — bounded, not infinite.
+    //
+    //   - 4WAY_HANDSHAKE_TIMEOUT (15): handshake never completed
     //   - 802_1X_AUTH_FAILED (23): enterprise auth rejected
-    //   - AUTH_FAIL (202): bad PSK
+    //   - AUTH_FAIL (202): bad PSK-class
     //
     // Transient session/assoc lifecycle reasons that are RECOVERABLE by a fresh
     // reconnect — AUTH_EXPIRE(2), AUTH_LEAVE(3), BEACON_TIMEOUT(200),
     // ASSOC_EXPIRE(4), CIPHER_SUITE_REJECTED(24), reason=0/4/204 etc. — fall
-    // through to WIFI_CONNECTING below so the stack re-associates instead of
-    // abandoning STA for AP mode. CIPHER_SUITE_REJECTED is recoverable: the
-    // router may change its cipher config (reboot/firmware update), so retry STA.
-    if (reason == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT ||
-        reason == WIFI_REASON_802_1X_AUTH_FAILED ||
-        reason == WIFI_REASON_AUTH_FAIL) {
-        wifi_.disconnect(false, true);
-        wifi_.setMode(2);  // WIFI_AP
-        wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-        ctx_.state = WiFiState::State::WIFI_AP_MODE;
-        ctx_.tcpServerNeedsRestart = false;  // Clear flag - AP mode is stable
-        ctx_.escalatedToApReason = reason;   // Record the definitive-auth reason
-        serial_.printf("[STATE] WiFi: %s -> WIFI_AP_MODE (auth fail reason=%d)\r\n",
-                       stateName(from), reason);
+    // through below so the stack re-associates instead of abandoning STA.
+    if (isAuthMechanismFailure(reason)) {
+        ctx_.pendingAuthFail = true;
+        ctx_.lastDisconnectReason = reason;
+        // Clear the TCP-restart flag: an auth-fail campaign is NOT a confirmed
+        // drop that needs a socket re-bind; a later genuine connect re-arms it.
+        ctx_.tcpServerNeedsRestart = false;
+        // Reset the rotation to the best (least-disruptive) strategy at the start
+        // of each fresh auth-failure event; the loop counter is preserved across
+        // events so multiple failures progress through the campaign rather than
+        // restarting it. (If a previous campaign already exhausted, a brand-new
+        // 202 after that would have escalated to AP, so we never re-enter here
+        // mid-exhaustion.)
+        if (ctx_.authFailStrategyLoop == 0) {
+            ctx_.authFailStrategyIndex = 0;
+        }
+        // Ensure we are in the CONNECTING state so the retry/campaign loop runs.
+        // (If the event arrived while CONNECTED, behave like a transient drop and
+        // re-enter WIFI_CONNECTING; do NOT arm tcpServerNeedsRestart here — a later
+        // genuine connect resets via its own path.)
+        if (ctx_.state == WiFiState::State::WIFI_CONNECTED) {
+            ctx_.state = WiFiState::State::WIFI_CONNECTING;
+            ctx_.reconnectAttempts = 0;  // Restart aggressive-first-retries window (req-1)
+        }
+        ctx_.lastRetryMs = 0;  // Arm the retry so the first strategy fires promptly
+        // Single trace line: captures the true origin state and the campaign
+        // outcome (reason + strategy/loop counters) so "why still connecting"
+        // is answerable at a glance.
+        serial_.printf("[STATE] WiFi: %s -> WIFI_CONNECTING (auth fail reason=%d strategy=%d/%u loop=%d/%u)\r\n",
+                       stateName(from), reason,
+                       ctx_.authFailStrategyIndex,
+                       WiFiConfig::WIFI_AUTH_STRATEGY_COUNT,
+                       ctx_.authFailStrategyLoop,
+                       WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
         // LED pattern is now owned by FirmwareApp via selectLedPattern.
-        // The state transition to WIFI_AP_MODE will be reflected on the next
-        // FirmwareApp::update() tick (selectLedPattern returns AP_MODE for
-        // WIFI_AP_MODE when no client is connected).
         return;
     }
 
@@ -310,6 +499,33 @@ const char* WiFiManager::stateName(WiFiState::State state) {
         case WiFiState::State::WIFI_AP_MODE: return "WIFI_AP_MODE";
         default: return "UNKNOWN";
     }
+}
+
+std::string WiFiManager::resolveTargetSsid() const {
+    std::string storedSsid;
+    std::string storedPass;
+    if (loadCredentialsImpl(prefs_, storedSsid, storedPass) && !storedSsid.empty()) {
+        return storedSsid;
+    }
+    if (bakedSsid_ && bakedSsid_[0] != '\0') {
+        return std::string(bakedSsid_);
+    }
+    return std::string();
+}
+
+std::string WiFiManager::getAuthCampaignDetail() const {
+    if (!ctx_.pendingAuthFail) {
+        return std::string();
+    }
+    char buf[128]{};
+    std::snprintf(buf, sizeof(buf),
+                  "auth fail reason=%d strategy=%d/%u loop=%d/%u",
+                  ctx_.lastDisconnectReason,
+                  ctx_.authFailStrategyIndex,
+                  WiFiConfig::WIFI_AUTH_STRATEGY_COUNT,
+                  ctx_.authFailStrategyLoop,
+                  WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+    return std::string(buf);
 }
 
 // Testable pure functions - namespace-level for testability

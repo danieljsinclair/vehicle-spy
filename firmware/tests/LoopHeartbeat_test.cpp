@@ -29,14 +29,14 @@ TEST(LoopHeartbeatTest, SuppressesBeforeInterval) {
 TEST(LoopHeartbeatTest, FiresAfterInterval) {
     LoopHeartbeat hb(5000);
     EXPECT_TRUE(hb.tick(5000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=5000ms wifi=WIFI_DISCONNECTED client=none disc=none led=0 monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=5000ms wifi=WIFI_DISCONNECTED ssid=none client=none disc=none led=0 monitor=idle\r\n");
 }
 
 // Contract: exact boundary (now == lastTick + interval) fires.
 TEST(LoopHeartbeatTest, FiresAtExactBoundary) {
     LoopHeartbeat hb(1000);
     EXPECT_TRUE(hb.tick(1000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED client=none disc=none led=0 monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED ssid=none client=none disc=none led=0 monitor=idle\r\n");
 }
 
 // Contract: consecutive ticks within the same interval all return false
@@ -92,14 +92,14 @@ TEST(LoopHeartbeatTest, MonitorInactiveProducesIdle) {
 TEST(LoopHeartbeatTest, UptimeMatchesNowMs) {
     LoopHeartbeat hb(1000);
     ASSERT_TRUE(hb.tick(12345, 2, true));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=12345ms wifi=WIFI_CONNECTED client=none disc=none led=0 monitor=ACTIVE\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=12345ms wifi=WIFI_CONNECTED ssid=none client=none disc=none led=0 monitor=ACTIVE\r\n");
 }
 
 // Contract: output always ends with \r\n.
 TEST(LoopHeartbeatTest, OutputEndsWithCrLf) {
     LoopHeartbeat hb(1000);
     ASSERT_TRUE(hb.tick(1000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED client=none disc=none led=0 monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED ssid=none client=none disc=none led=0 monitor=idle\r\n");
 }
 
 } // namespace

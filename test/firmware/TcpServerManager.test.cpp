@@ -27,17 +27,21 @@ public:
     // the queue models a read that returned nothing (auth timeout / empty line).
     std::vector<std::string> readLines_;
     size_t readIdx_ = 0;
+    // Queue of bytes readAvailableLine() returns (NON-BLOCKING command path).
+    // Each entry is returned verbatim (delimiter retained) and consumed once.
+    std::vector<std::string> availableLines_;
     std::vector<std::string> written_;
     bool flushed_ = false;
+    bool noDelay_ = false;
     uint32_t lastTimeout_ = 0;
 
     bool connected() const override { return connected_ && !stopped_; }
     void stop() override { stopped_ = true; connected_ = false; }
     void setTimeout(uint32_t ms) override { lastTimeout_ = ms; }
     int available() const override {
-        // Model: if the next readLine would return non-empty, report a byte.
-        if (readIdx_ < readLines_.size() && !readLines_[readIdx_].empty()) {
-            return static_cast<int>(readLines_[readIdx_].size());
+        // Model: if the next queued AVAILABLE line is non-empty, report a byte.
+        if (!availableLines_.empty() && !availableLines_.front().empty()) {
+            return static_cast<int>(availableLines_.front().size());
         }
         return 0;
     }
@@ -47,8 +51,17 @@ public:
         }
         return {};  // no more queued input (timeout/empty)
     }
+    std::string readAvailableLine(char) override {
+        if (!availableLines_.empty()) {
+            std::string s = availableLines_.front();
+            availableLines_.erase(availableLines_.begin());
+            return s;
+        }
+        return {};
+    }
     void println(const std::string& line) override { written_.push_back(line); }
     void flush() override { flushed_ = true; }
+    void setNoDelay(bool enable) override { noDelay_ = enable; }
     std::string remoteIP() const override {
         return (connected_ && !stopped_) ? remoteIp_ : std::string{};
     }
@@ -80,8 +93,10 @@ public:
     void setTimeout(uint32_t ms) override { target_.setTimeout(ms); }
     int available() const override { return target_.available(); }
     std::string readLine(char delimiter) override { return target_.readLine(delimiter); }
+    std::string readAvailableLine(char delimiter) override { return target_.readAvailableLine(delimiter); }
     void println(const std::string& line) override { target_.println(line); }
     void flush() override { target_.flush(); }
+    void setNoDelay(bool enable) override { target_.setNoDelay(enable); }
     std::string remoteIP() const override { return target_.remoteIP(); }
 
 private:
@@ -320,18 +335,54 @@ TEST(TcpRefusalTest, AlwaysAllowConnectNeverRefusesNewClient) {
     EXPECT_EQ(host.disconnectedCalls_, 0);             // prior eviction is silent, not a protocol drop
 }
 
-// Command dispatch on an authenticated client. Both lines are queued BEFORE the
-// first cycle so readIdx_ advances naturally (auth consumes index 0, the
-// command sits at index 1 and is read on the next cycle).
+// Command dispatch on an authenticated client via the NON-BLOCKING path. The
+// auth line is queued on readLines_ (consumed at accept); the command is queued
+// on availableLines_ (readAvailableLine returns it verbatim, delimiter kept),
+// and the manager splits on '\r' to dispatch.
 TEST(TcpRefusalTest, AuthenticatedClientCommandsAreDispatched) {
     MockTcpServer srv; MockHost host;
     TcpServerManager mgr(srv, kToken, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
-    a->readLines_ = {"AUTH " + std::string(kToken), "ATMA"};
-    mgr.cycle(0);  // auth (consumes index 0)
+    a->readLines_ = {"AUTH " + std::string(kToken)};
+    mgr.cycle(0);  // auth (consumes readLines_ index 0)
 
-    mgr.cycle(1);  // command dispatch tick (reads index 1 = "ATMA")
+    a->availableLines_ = {"ATMA\r"};  // non-blocking command path
+    mgr.cycle(1);  // command dispatch tick (readAvailableLine -> split on '\r')
+    ASSERT_EQ(host.commands_.size(), 1u);
+    EXPECT_EQ(host.commands_[0], "ATMA");
+}
+
+// Phase 1 latency: TCP_NODELAY must be requested on the adopted client at accept.
+TEST(TcpRefusalTest, ValidAuthRequestsNoDelayOnClient) {
+    MockTcpServer srv; MockHost host;
+    TcpServerManager mgr(srv, kToken, host);
+    auto* c = makeConnected(srv, "10.0.0.9");
+    c->readLines_ = {"AUTH " + std::string(kToken)};
+
+    mgr.cycle(0);  // accept + auth
+    EXPECT_TRUE(c->noDelay_)
+        << "the manager must disable Nagle on the stream client at accept";
+}
+
+// Phase 1 TX-starvation fix: a partially-arrived command (no delimiter yet) must
+// NOT block cycle() and must NOT dispatch. The bytes are retained and dispatched
+// only once the delimiter arrives on a later tick.
+TEST(TcpRefusalTest, PartialCommandDoesNotDispatchOrBlock) {
+    MockTcpServer srv; MockHost host;
+    TcpServerManager mgr(srv, kToken, host);
+    auto* c = makeConnected(srv, "10.0.0.7");
+    c->readLines_ = {"AUTH " + std::string(kToken)};
+    mgr.cycle(0);  // auth
+
+    // Tick 1: only "ATM" buffered (no delimiter). Manager accumulates, no dispatch.
+    c->availableLines_ = {"ATM"};
+    mgr.cycle(1);
+    EXPECT_EQ(host.commands_.size(), 0u);
+
+    // Tick 2: the rest arrives with the delimiter. Now it dispatches.
+    c->availableLines_ = {"A\r"};
+    mgr.cycle(2);
     ASSERT_EQ(host.commands_.size(), 1u);
     EXPECT_EQ(host.commands_[0], "ATMA");
 }

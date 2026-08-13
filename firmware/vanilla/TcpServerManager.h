@@ -96,6 +96,12 @@ private:
     // Remote IP captured at accept() time (before auth outcome is known).
     // Empty string when no client is adopted.
     std::string clientIp_;
+
+    // Partial command-line accumulator for the NON-BLOCKING command-mode path.
+    // A command may arrive split across ticks; we append each non-blocking
+    // read's bytes and only dispatch once a delimiter is present. Reset on
+    // accept and on disconnect so no bytes leak between clients.
+    std::string partialLine_;
 };
 
 } // namespace esp32_firmware

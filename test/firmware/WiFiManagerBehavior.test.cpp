@@ -546,7 +546,12 @@ TEST(WiFiBehaviorOnDisconnectedTest, RecoverableAuthReasonsGoToReconnecting) {
     }
 }
 
-TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutGoesToApMode) {
+TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutArmsCampaign_StaysConnecting) {
+    // RESILIENT AUTH: 4WAY_HANDSHAKE_TIMEOUT is NOT proof of a wrong password —
+    // it can be a wrong-mechanism (WPA3/SAE) or transient failure we cannot
+    // distinguish here. A single such failure must NOT bail to AP mode; it arms
+    // an auth-fail retry campaign and stays WIFI_CONNECTING, with the TCP
+    // restart flag cleared (no confirmed drop to serve).
     Harness h;
     h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
@@ -556,17 +561,21 @@ TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutGoesToApMode) {
     ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTED);
 
     h.mgr->onDisconnected(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_TRUE(h.mgr->getContext().pendingAuthFail);
     EXPECT_FALSE(h.mgr->shouldRestartTcpServer());
 }
 
-// The three permanent, unrecoverable auth failures (AUTH_FAIL=202,
-// 802_1X_AUTH_FAILED=23, 4WAY_HANDSHAKE_TIMEOUT=15) must each bail straight to
-// AP mode with the TCP restart flag cleared. CIPHER_SUITE_REJECTED(24) is NOT
-// here — it is a cipher-negotiation/config mismatch, not a credential rejection,
-// so it is recoverable (the router may change config) and stays in the
-// recoverable STA-retry set (see RecoverableAuthDisconnect_ReconnectsAndReArmsTcpFlag).
-TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresGoToApMode) {
+// The three auth-mechanism failures (AUTH_FAIL=202, 802_1X_AUTH_FAILED=23,
+// 4WAY_HANDSHAKE_TIMEOUT=15) are NOT definitive wrong-credential rejections —
+// they may be a wrong MECHANISM (WPA3/SAE) or transient failure. The verified
+// field diagnosis shows the password is CORRECT, so a single such failure must
+// arm a retry campaign and stay CONNECTING rather than bail to AP. The campaign
+// escalates to AP only after all strategies × loops are exhausted (see
+// AuthFailExhaustion). CIPHER_SUITE_REJECTED(24) is NOT here — it is a
+// cipher-negotiation/config mismatch, recoverable (the router may change
+// config), and stays in the recoverable STA-retry set.
+TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresArmCampaign_StayConnecting) {
     for (int reason : {WIFI_REASON_AUTH_FAIL, WIFI_REASON_802_1X_AUTH_FAILED,
                        WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT}) {
         Harness h;
@@ -579,10 +588,13 @@ TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresGoToApMode) {
             << "precondition (reason " << reason << ")";
 
         h.mgr->onDisconnected(reason);
-        EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE)
-            << "permanent auth failure " << reason << " must go to AP mode";
+        EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING)
+            << "auth-mechanism failure " << reason
+            << " must arm a campaign and stay CONNECTING (not bail to AP)";
+        EXPECT_TRUE(h.mgr->getContext().pendingAuthFail)
+            << "auth-mechanism failure " << reason << " must arm the campaign";
         EXPECT_FALSE(h.mgr->shouldRestartTcpServer())
-            << "permanent auth failure " << reason
+            << "auth-mechanism failure " << reason
             << " must leave the TCP restart flag cleared";
     }
 }
