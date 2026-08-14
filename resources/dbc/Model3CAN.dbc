@@ -62,6 +62,36 @@ BO_ 264 DI_torque: 8 PARTY
  SG_ DI_torqueCounter : 8|4@1+ (1,0) [0|15] ""  epas3s
  SG_ DI_torqueChecksum : 0|8@1+ (1,0) [0|255] ""  epas3s
 
+// --- Overlaid twin-physics messages (declarative CAN signal additions) ---
+// Provenance: BO_ 294 ID126RearHVStatus + signals copied verbatim from
+// github.com/joshwardell/model3dbc Model3CAN.dbc (MIT licence), submodule
+// external/model3dbc @ c56c113c353d09b1a5dd57677461f02fe8b7c6ca.
+// These carry rear-motor HV bus telemetry (voltage / current / axle speed) that
+// the VirtualIceTwin physics model consumes. Wired declaratively: DBC signal
+// definition + a DefaultVehicleConfigs mapping to VehicleSignal fields — no
+// imperative C++ decode code. 0x108/0x126 verified PRESENT in
+// escli.vehicle-sim captures; 0x336/0x185 are ABSENT and deliberately omitted.
+BO_ 294 ID126RearHVStatus: 7 VehicleBus
+ SG_ RearHighVoltage126 : 0|10@1+ (0.5,0.0) [0|500] "V"  Receiver
+ SG_ RearMotorCurrent126 : 11|11@1+ (1,0.0) [0|2047] "A"  Receiver
+ SG_ DIR_switchingFrequency : 40|11@1+ (0.01,0.0) [0|20] "kHz"  Receiver
+ SG_ DIR_dcCableCurrentEst : 24|16@1- (0.1,0.0) [-3276.8|3276.7] "A"  Receiver
+ SG_ DIR_vBatQF : 10|1@1+ (1,0.0) [0|1] ""  Receiver
+ SG_ DIR_targetFluxMode : 51|2@1+ (1,0.0) [0|0] ""  Receiver
+
+// DIR_axleSpeed (0x108 / CAN 264) is the rear axle speed, decoded to motorRpm.
+// Re-declared here (it also exists in BO_ 264 DI_torque as DI_axleSpeed) under
+// its rear-drive message name so the twin can read axle speed from the rear bus
+// independently of the front DI_torque message.
+BO_ 264 ID108DIR_torque: 8 VehicleBus
+ SG_ DIR_axleSpeed : 40|16@1- (0.1,0.0) [-2750|2750] "RPM"  Receiver
+ SG_ DIR_slavePedalPos : 56|8@1+ (0.4,0.0) [0|100] "%"  Receiver
+ SG_ DIR_torqueActual : 27|13@1- (2,0) [-7500|7500] "Nm"  Receiver
+ SG_ DIR_torqueChecksum : 0|8@1+ (1,0.0) [0|255] ""  Receiver
+ SG_ DIR_torqueCommand : 12|13@1- (2,0) [-7500|7500] "Nm"  Receiver
+ SG_ DIR_torqueCounter : 8|4@1+ (1,0.0) [0|15] ""  Receiver
+ SG_ DIR_axleSpeedQF : 25|1@1+ (1,0.0) [0|1] ""  Receiver
+
 BO_ 585 SCCM_leftStalk: 3 PARTY
  SG_ SCCM_leftStalkReserved1 : 19|5@1+ (1,0) [0|31] ""  X
  SG_ SCCM_turnIndicatorStalkStatus : 16|3@1+ (1,0) [0|5] ""  park

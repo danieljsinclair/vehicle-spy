@@ -12,6 +12,13 @@ VehicleConfig DefaultVehicleConfigs::teslaModel3() {
     //   DI_gear               -> gear         (CAN 0x118 / 280, DI_systemStatus)
     //   SCCM_steeringAngle    -> steering     (CAN 0x129 / 297, SCCM_steeringAngleSensor)
     //   VCLEFT_brakeLightStatus -> brake light (CAN 0x3E2 / 994, ID3E2VCLEFT_lightStatus)
+    // Twin-physics rear-motor HV bus (owner-flagged for VirtualIceTwin), added
+    // declaratively (DBC def + this mapping, no imperative decode):
+    //   DIR_axleSpeed        -> motorRpm      (CAN 0x108 / 264, ID108DIR_torque)
+    //   RearHighVoltage126   -> motorHvVoltage(CAN 0x126 / 294, ID126RearHVStatus)
+    //   RearMotorCurrent126  -> motorHvCurrent(CAN 0x126 / 294, ID126RearHVStatus)
+    // These map onto the existing VehicleSignal HV/RPM fields — see memory
+    // [[twin-physics-can-candidates]] (0x108/0x126 present; 0x336/0x185 absent).
     // NOTE on brake: DI_brakePedalState is deliberately NOT mapped — measured
     // on a real Model 3 it is constant 2 (a drive-ready flag, not pedal data).
     // The brake-light enum (0x3E2 bit 0, 2 bits: 0=OFF 1=ON 2=FAULT 3=SNA) is
@@ -30,7 +37,10 @@ VehicleConfig DefaultVehicleConfigs::teslaModel3() {
             {"DI_vehicleSpeed", "speedKmh"},
             {"DI_gear", "gearSelector"},
             {"SCCM_steeringAngle", "steeringAngleDeg"},
-            {"VCLEFT_brakeLightStatus", "brakeLight"}
+            {"VCLEFT_brakeLightStatus", "brakeLight"},
+            {"DIR_axleSpeed", "motorRpm"},
+            {"RearHighVoltage126", "motorHvVoltage"},
+            {"RearMotorCurrent126", "motorHvCurrent"}
         },
         "",  // canBus
         true  // isCANProtocol
