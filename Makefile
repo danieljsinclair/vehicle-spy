@@ -348,6 +348,37 @@ update-dbc:
 	@cp external/opendbc/opendbc/dbc/vw_mlb.dbc resources/dbc/vw_mlb.dbc
 	@echo "DBC files updated. Model3CAN.dbc is the canonical tesla_model3_party.dbc (verbatim)."
 
+# -- Aggregate DBC generator ------------------------------------------------
+#
+# AGGREGATE-DBC: the canonical Tesla Model 3 DBC (resources/dbc/Model3CAN.dbc)
+# is GENERATED, not hand-maintained. scripts/gen_aggregate_dbc.py transforms
+# the joshwardell superset (external/model3dbc, 159 msgs) down to exactly the
+# signals the app consumes, applying the rename policy in dbc/aliases.toml.
+#
+# Why generate rather than hand-edit: the superset splits DI_torque into
+# DIR_/DIF_ axle messages and renames SCCM_steeringAngle to SteeringAngle129,
+# so a wholesale switch breaks the consumer contract. The generator keeps the
+# app's binding names via an explicit alias map and HARD-ERRORS on any bit-
+# layout drift or missing source signal — it never emits a silently-wrong DBC.
+#
+# Workflow is generate-and-commit: the generator is the source of truth, the
+# committed DBC is the artifact, dbc/allowlist.toml + dbc/aliases.toml are the
+# reviewable policy. Regenerate after editing the contracts.
+aggregate-dbc:
+	@echo "Generating aggregate Tesla Model 3 DBC from joshwardell superset..."
+	@python3 scripts/gen_aggregate_dbc.py
+	@echo "Aggregate DBC regenerated (see resources/dbc/Model3CAN.dbc header)."
+
+# Verify the generator's contracts against upstream WITHOUT writing the DBC.
+# Useful in CI / pre-commit to catch upstream drift early.
+aggregate-dbc-check:
+	@python3 scripts/gen_aggregate_dbc.py --check
+
+# Unit tests for the generator (stdlib unittest, no extra deps).
+test-dbcgen:
+	@echo "Running aggregate-DBC generator tests..."
+	@python3 test/scripts/test_gen_aggregate_dbc.py
+
 # -- Dependencies ----------------------------------------------------------
 
 install-deps:

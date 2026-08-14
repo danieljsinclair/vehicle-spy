@@ -1,0 +1,74 @@
+# =============================================================================
+# aggregate-DBC alias map — the TESTABLE CONTRACT for gen_aggregate_dbc.py
+#
+# The upstream superset (joshwardell model3dbc) RENAMES several signals the
+# app already binds to. A wholesale switch would make those names vanish and
+# silently break decoding. This map renames the upstream signal back to the
+# consumer-facing name, preserving the contract in DefaultVehicleConfigs /
+# DemoTransport / DBCSignalMapper.
+#
+# [from]  = the name as it appears in the upstream superset
+# [to]    = the consumer-facing name the app expects
+# [can_id]= the CAN message the signal lives in (used to disambiguate)
+#
+# HARD-ERROR triggers:
+#   * [from] signal is absent from the upstream superset  -> fail
+#   * [from] bit-layout (start/len/order) differs from a
+#     non-aliased upstream signal of the same [to] name    -> fail
+#   * two distinct [from] map to the same [to]             -> fail
+#
+# SRP: rename policy lives here, not in the generator. The generator applies
+# this table declaratively.
+# =============================================================================
+
+[[alias]]
+can_id = 264
+from   = "DIR_torqueActual"
+to     = "DI_torqueActual"
+
+[[alias]]
+can_id = 297
+from   = "SteeringAngle129"
+to     = "SCCM_steeringAngle"
+
+# joshwardell splits the party ESP wheel-pulse signals (341) and wheel-speed
+# signals (373) into a different naming scheme. Preserve the consumer names.
+[[alias]]
+can_id = 341
+from   = "WheelAngleTicsFL155"
+to     = "ESP_wheelPulseCountFrL"
+
+[[alias]]
+can_id = 341
+from   = "WheelAngleTicsFR155"
+to     = "ESP_wheelPulseCountFrR"
+
+[[alias]]
+can_id = 341
+from   = "WheelAngleTicsRL155"
+to     = "ESP_wheelPulseCountReL"
+
+[[alias]]
+can_id = 341
+from   = "WheelAngleTicsRR155"
+to     = "ESP_wheelPulseCountReR"
+
+[[alias]]
+can_id = 373
+from   = "WheelSpeedFL175"
+to     = "ESP_wheelSpeedFrL"
+
+[[alias]]
+can_id = 373
+from   = "WheelSpeedFR175"
+to     = "ESP_wheelSpeedFrR"
+
+[[alias]]
+can_id = 373
+from   = "WheelSpeedRL175"
+to     = "ESP_wheelSpeedReL"
+
+[[alias]]
+can_id = 373
+from   = "WheelSpeedRR175"
+to     = "ESP_wheelSpeedReR"
