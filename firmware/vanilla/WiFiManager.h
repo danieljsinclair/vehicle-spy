@@ -92,6 +92,15 @@ struct IWiFi {
     virtual int getMode() const = 0;
     virtual std::string SSID() const = 0;
     virtual const char* disconnectReasonName(int reason) const = 0;
+    // AP BSSID the STA is (or was last) associated with, as "aa:bb:cc:dd:ee:ff".
+    // Empty when not associated. Used to DETECT Deco mesh node-bouncing: if the
+    // BSSID changes between connect attempts the 2.4GHz-only ESP32 is being
+    // steered between mesh nodes it cannot follow (a common cause of reason=8/39
+    // connect loops). Host mock returns an injected value.
+    virtual std::string BSSID() const = 0;
+    // RSSI (dBm) of the AP the STA is associated with. 0 when not associated.
+    // Surfaces weak-signal auth/handshake failures (reason=204) at a glance.
+    virtual int8_t RSSI() const = 0;
     virtual void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) = 0;
     virtual ~IWiFi() = default;
 };

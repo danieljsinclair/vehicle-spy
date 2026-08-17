@@ -5,6 +5,7 @@
 #include "AtCommandDispatcher.h"
 #include "StatusLED.h"     // firmware::StatusLED::selectLedPattern
 #include "ISerialEventLogger.h"
+#include "WiFiReasonCodes.h"  // WIFI_REASON_* constants + wifiReasonName() for drop decoding
 #include <cassert>
 #include <string>
 
@@ -252,7 +253,22 @@ void FirmwareApp::onWiFiDisconnected(int reason) {
     observability_.lastDisconnectReason = reason;
     assert(wifiManager_ && "FirmwareApp::onWiFiDisconnected called before init()");
     wifiManager_->onDisconnected(reason);
-    emitEvent("wifi_drop", "reason=" + std::to_string(reason));
+    // Observability: decode the raw reason code into a human-readable name + the
+    // AP BSSID/RSSI we were (or are still) associated with. A Deco mesh steering a
+    // 2.4GHz-only ESP32 between nodes shows as a changing BSSID across drops and
+    // reason=8/39 (ASSOC_LEAVE / MESH_STEER_REJECT); a stale association entry
+    // after removing a reserved IP shows as repeated reason=2/8/204 rejections.
+    // Naming the phase (auth/assoc/handshake) tells at a glance which leg fails.
+    const char* name = wifiReasonName(reason);
+    const char* phase = wifiReasonPhase(reason);
+    const std::string bssid = wifi_.BSSID();
+    const int8_t rssi = wifi_.RSSI();
+    std::string detail = "reason=" + std::to_string(reason) + " name=" + name +
+                        " phase=" + phase;
+    if (!bssid.empty()) {
+        detail += " bssid=" + bssid + " rssi=" + std::to_string(static_cast<int>(rssi));
+    }
+    emitEvent("wifi_drop", detail);
 }
 
 bool FirmwareApp::factoryReset() {

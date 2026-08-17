@@ -81,6 +81,18 @@ public:
         return WiFi.disconnectReasonName(static_cast<wifi_err_reason_t>(reason));
     }
 
+    std::string BSSID() const override {
+        // Only meaningful in STA mode with an association; otherwise empty.
+        if (WiFi.getMode() != WIFI_STA) return {};
+        const String b = WiFi.BSSIDstr();
+        return std::string(b.c_str());
+    }
+
+    int8_t RSSI() const override {
+        if (WiFi.getMode() != WIFI_STA) return 0;
+        return WiFi.RSSI();
+    }
+
     void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) override {
         // Note: Arduino WiFiEvent requires a different signature
         // This is a placeholder - the actual callback registration is handled

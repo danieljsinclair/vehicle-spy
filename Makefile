@@ -483,6 +483,10 @@ firmware-port:
 	@printf "$(PURPLE)$(ESP32_PORT)$(NC)\r\n"
 
 flash flash-usb firmware-flash: firmware-port firmware native test
+	@if [ "$(ESP32_RESET_NVS)" = "1" ]; then \
+		echo "${YELLOW}Erasing NVS partition (0x9000, 0x5000) before flash...${NC}"; \
+		$(ESPTOOL) --port "$(ESP32_PORT)" --baud 115200 erase_region 0x9000 0x5000; \
+	fi
 	@echo "Flashing ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} via $(ESP32_PORT)..."
 	@$(show_wifi)
 	$(ESPTOOL) --port "$(ESP32_PORT)" --baud 460800 write_flash 0x0 $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin
