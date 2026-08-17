@@ -108,6 +108,7 @@ add_executable(esp32-firmware-tests
     tests/StatusLED_test.cpp
     tests/StatusLEDRenderer_test.cpp
     tests/FirmwareApp_test.cpp
+    tests/FirmwareApp_LedStatusFix_test.cpp
     tests/FirmwareApp_characterization_test.cpp
     tests/FirmwareApp_SerialObservability_test.cpp
     tests/TcpServerManager_test.cpp

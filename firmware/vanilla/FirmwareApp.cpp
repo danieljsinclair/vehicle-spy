@@ -162,6 +162,10 @@ void FirmwareApp::setupCallbacks() {
 void FirmwareApp::update(uint32_t now) {
     assert(initialized_ && "FirmwareApp::update() called before init()");
 
+    // Capture the tick so onAuthFailed() (no clock param) can compute the
+    // error-pattern hold expiry relative to the latest loop time.
+    lastTickMs_ = now;
+
     // Lazily open the UDP discovery socket on the first loop tick. This defers the
     // hardware-touching udp_.begin() out of the synchronous boot path (init()), where
     // the WiFi netif is not yet up, into loop() where WiFi.begin() has taken effect.
@@ -212,9 +216,25 @@ void FirmwareApp::update(uint32_t now) {
     // (the manager's own view of whether a client is adopted), eliminating the
     // desync where the global WiFiClient reported disconnected while the manager
     // still held a client.
-    const bool clientConnected = clientConnectionSource_.isClientConnected();
-    observability_.lastLedPattern = static_cast<int>(firmware::StatusLED::selectLedPattern(
-        static_cast<int>(wifiManager_->getState()), clientConnected));
+    //
+    // ERROR LATCH (fix/led-status DEFECT 2): an error pattern set by onAuthFailed()
+    // must render for its full hold window before the normal selectLedPattern()
+    // result may revert it. If a latch is active and the window has not expired,
+    // keep the latched error pattern; otherwise clear the latch and fall through to
+    // the normal (wifiState, clientConnected) selection. This makes error sequences
+    // visible instead of being clobbered on the very next tick.
+    int ledPattern;
+    bool clientConnected = false;
+    if (errorPatternUntilMs_ != 0 && now < errorPatternUntilMs_) {
+        ledPattern = latchedErrorPattern_;
+    } else {
+        // Window expired (or no latch): release the latch and select normally.
+        errorPatternUntilMs_ = 0;
+        clientConnected = clientConnectionSource_.isClientConnected();
+        ledPattern = static_cast<int>(firmware::StatusLED::selectLedPattern(
+            static_cast<int>(wifiManager_->getState()), clientConnected));
+    }
+    observability_.lastLedPattern = ledPattern;
     statusLed_.setPattern(observability_.lastLedPattern);
 
     // Drive NTP start from the first loop tick AFTER WiFi reports connected.
@@ -376,9 +396,18 @@ void FirmwareApp::onClientConnected(const std::string& ip) {
 
 void FirmwareApp::onAuthFailed(const std::string& ip) {
     emitEvent("auth_fail", "ip=" + ip + " reason=bad_token");
-    // Drive LED to ERROR_AUTH_FAILURE for one tick; the next update() call to
-    // selectLedPattern() will revert to the normal pattern automatically.
-    statusLed_.setPattern(static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE));
+    // Drive the LED to ERROR_AUTH_FAILURE and LATCH it for a fixed hold window
+    // (kErrorPatternHoldMs) so the StatusLED engine actually renders the error
+    // sequence before update()'s selectLedPattern() may revert it. The latch
+    // expiry is computed from the last tick captured in update() (onAuthFailed has
+    // no clock parameter); if update() has not run yet, lastTickMs_ is 0 and the
+    // latch still holds for the full window from t=0 (fine for a freshly-booted
+    // manager). update() clears the latch once now >= expiry.
+    const int errPattern = static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE);
+    latchedErrorPattern_ = errPattern;
+    errorPatternUntilMs_ = lastTickMs_ + kErrorPatternHoldMs;
+    statusLed_.setPattern(errPattern);
+    observability_.lastLedPattern = errPattern;
 }
 
 void FirmwareApp::onClientDisconnected(const std::string& ip, int reason) {
