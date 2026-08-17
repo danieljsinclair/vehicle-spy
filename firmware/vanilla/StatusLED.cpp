@@ -229,15 +229,17 @@ StatusLED::Pattern StatusLED::selectLedPattern(int wifiState, bool clientConnect
 
     // No client: pattern follows WiFi state.
     // wifiState is a WiFiState::State ordinal (WIFI_DISCONNECTED=0, WIFI_CONNECTING=1,
-    // WIFI_CONNECTED=2, WIFI_AP_MODE=3).
+    // WIFI_CONNECTED=2, WIFI_AP_MODE_DEFAULT=3, WIFI_AP_MODE_AUTH_FAIL=4).
     switch (wifiState) {
         case 0:  // WIFI_DISCONNECTED
         case 1:  // WIFI_CONNECTING
             return Pattern::WIFI_SEARCHING;
         case 2:  // WIFI_CONNECTED
             return Pattern::WIFI_CONNECTED;
-        case 3:  // WIFI_AP_MODE
+        case 3:  // WIFI_AP_MODE_DEFAULT (AP because nothing was configured)
             return Pattern::AP_MODE;
+        case 4:  // WIFI_AP_MODE_AUTH_FAIL (AP because credentials failed)
+            return Pattern::ERROR_AUTH_FAILURE;
         default:
             return Pattern::WIFI_SEARCHING;  // fail-safe for unknown states
     }

@@ -25,6 +25,7 @@
 #include "IClientConnectionSource.h" // IClientConnectionSource (client connection seam)
 #include "FactoryResetCheck.h"    // ICredentialClear (factory-reset credential boundary)
 #include "ISerialEventLogger.h"   // IEventLogger (centralized observability)
+#include "WifiTransitionObserver.h"  // ITransitionEventSink (WiFi [EVENT] emission policy)
 
 namespace esp32_firmware {
 
@@ -64,7 +65,8 @@ struct FirmwareCallbacks {
 //   - ICredentialClear  : FactoryResetCheck credential-wipe boundary
 class FirmwareApp : public ITcpHostCallbacks,
                     public IMonitorState,
-                    public ICredentialClear {
+                    public ICredentialClear,
+                    public ITransitionEventSink {
 public:
     // Constructor - inject dependencies
     // - wifi: WiFi interface (ArduinoWiFi or mock)
@@ -135,7 +137,7 @@ public:
 
     // Get current WiFi state (for debugging/testing)
     // ITcpHostCallbacks: read by TcpServerManager for the LED-revert-on-disconnect
-    // decision (only revert to WIFI_CONNECTED when WiFi is WIFI_CONNECTED/WIFI_AP_MODE).
+    // decision (only revert to WIFI_CONNECTED when WiFi is WIFI_CONNECTED/an AP state).
     int getWiFiState() const override;
 
     // ── ITcpHostCallbacks: serial observability callbacks ──────────────────────
@@ -148,6 +150,12 @@ public:
     // ── Observability getters (called by .ino for LoopHeartbeat enrichment) ─────
     // Remote IP of the currently-adopted TCP client, or empty string when none.
     std::string getClientIp() const { return observability_.clientIp; }
+
+    // This device's own IP: the soft-AP address while acting as an AP (mode 2),
+    // the STA address otherwise. Reported on the [STATE] heartbeat.
+    std::string getOwnIp() const {
+        return (wifi_.getMode() == 2) ? wifi_.softAPIP() : wifi_.localIP();
+    }
 
     // WiFi diagnostic snapshot for the [STATE] heartbeat: the SSID the radio is
     // trying to associate with (stored or baked) and, when an auth-mechanism
@@ -288,10 +296,6 @@ private:
     // Last LED pattern value passed to statusLed_.setPattern() (mirrors the
     // selectLedPattern result so getCurrentLedPattern() can expose it).
 
-    // Previous WiFi state for transition detection in update(). Initialized to
-    // WIFI_DISCONNECTED so the first real connected transition fires wifi_connected.
-    int previousWifiState_ = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
-
     // ── Bundled state (cpp:S1820: keep field count under 20) ──────────────────
     struct DiscoveryState {
         bool started = false;
@@ -302,7 +306,6 @@ private:
         IEventLogger* logger = nullptr;
         std::string clientIp;
         int lastLedPattern = 0;
-        int lastDisconnectReason = 0;
     };
     DiscoveryState discovery_;
     ObservabilityState observability_;
@@ -320,6 +323,36 @@ private:
     // Emit a single [EVENT] line through the centralized logger (no-op if no
     // logger is injected). detail is the pre-formatted key=value payload.
     void emitEvent(const char* eventType, const std::string& detail);
+
+    // ── update() decomposition (SRP): update() is orchestration only ───────────
+    // Each helper owns one update()-tick concern; update() reads as the flat
+    // sequence of those concerns with no inline branching or business logic.
+
+    // Lazily open the UDP discovery socket on the first loop tick (defers the
+    // hardware-touching udp_.begin() out of the synchronous boot path).
+    void startDiscoveryIfNeeded();
+
+    // Advance the WiFi state machine and notify the transition observer (the
+    // listener that turns state transitions into [EVENT] lines).
+    void updateWifiStateAndEmitEvents(uint32_t now);
+
+    // The single per-tick LED write: selectLedPattern is the pure
+    // (wifiState, clientConnected) -> Pattern map; this applies its result.
+    void updateLedPattern();
+
+    // Drive NTP start from the first loop tick AFTER WiFi reports connected.
+    void maybeStartNtp();
+
+    // Drive DiscoveryManager with the current time and live TCP-client state.
+    void updateDiscovery(uint32_t now, bool clientConnected);
+
+    // Listener over the WiFi state model: owns the previous-state and drop-reason
+    // memory and the wifi_connected / wifi_drop / wifi_ap_fallback [EVENT] policy.
+    WifiTransitionObserver wifiTransitionObserver_;
+
+    // ITransitionEventSink: forwards the observer's emissions to the centralized
+    // logger (keeps the observer free of any logger dependency).
+    void onTransitionEvent(const char* eventType, const std::string& detail) override;
 };
 
 } // namespace esp32_firmware

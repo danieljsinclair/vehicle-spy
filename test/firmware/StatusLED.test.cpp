@@ -757,11 +757,14 @@ TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiReconnecting) 
 }
 
 TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiConnectedAp) {
-    // CLIENT_CONNECTED takes priority over CONNECTED_AP (race symptom fix).
-    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE);
-    bool clientConnected = true;
+    // CLIENT_CONNECTED takes priority over BOTH AP states (race symptom fix):
+    // a buddy talking to the soft-AP is still the thing worth showing.
+    const int defaultAp = static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT);
+    const int authFailAp = static_cast<int>(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
 
-    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(defaultAp, true),
+              firmware::StatusLED::Pattern::CLIENT_CONNECTED);
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(authFailAp, true),
               firmware::StatusLED::Pattern::CLIENT_CONNECTED);
 }
 
@@ -801,13 +804,23 @@ TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiReconnecting_ReturnsWifiSearch
               firmware::StatusLED::Pattern::WIFI_SEARCHING);
 }
 
-TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiConnectedAp_ReturnsApMode) {
-    // No client + CONNECTED_AP means AP mode pattern.
-    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE);
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiApModeDefault_ReturnsApMode) {
+    // No client + AP because nothing was configured -> the calm AP_MODE pattern.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT);
     bool clientConnected = false;
 
     EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
               firmware::StatusLED::Pattern::AP_MODE);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiApModeAuthFail_ReturnsErrorAuthFailure) {
+    // No client + AP because credentials FAILED -> the error pattern; being an
+    // AP after a failed auth campaign is a first-class error state.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE);
 }
 
 TEST(StatusLEDTest, SelectLedPattern_InvalidWifiState_ReturnsWifiSearching) {

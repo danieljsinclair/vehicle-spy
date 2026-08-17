@@ -687,6 +687,7 @@ void loop() {
                        firmwareApp.getDiscoveryCadence(millis()),
                        firmwareApp.getCurrentLedPattern(),
                        firmwareApp.getWiFiDiagnostic().targetSsid,
+                       firmwareApp.getOwnIp(),
                        firmwareApp.getWiFiDiagnostic().authCampaignDetail)) {
         Serial.print(heartbeat.snapshot().c_str());
     }

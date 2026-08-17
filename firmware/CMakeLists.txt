@@ -118,6 +118,7 @@ add_executable(esp32-firmware-tests
     tests/FactoryResetCheck_test.cpp
     tests/CanDriver_test.cpp
     tests/LoopHeartbeat_test.cpp
+    tests/WifiTransitionObserver_test.cpp
     tests/NvsWifiCredentialStore_test.cpp
 )
 

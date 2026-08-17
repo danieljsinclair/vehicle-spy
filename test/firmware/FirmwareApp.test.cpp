@@ -22,7 +22,7 @@ public:
     void begin(const char* ssid, const char* pass) override { lastSsid = ssid; lastPass = pass; ++beginCalls; }
     void disconnect(bool, bool) override {}
     int status() const override { return statusVal; }
-    std::string localIP() const override { return "192.168.4.1"; }
+    std::string localIP() const override { return "192.168.1.50"; }
     std::string softAPIP() const override { return "192.168.4.1"; }
     void softAP(const char*, const char*) override { mode = 2; }
     void setHostname(const char*) override {}
@@ -187,8 +187,9 @@ TEST(FirmwareAppTest, InitStartsWithNoStoredCredsLandsInApMode) {
     AppHarness h;  // empty prefs -> no creds
     h.app.init();
     h.app.update(0);  // first tick lazily opens discovery UDP + runs WiFi SM
-    // No creds -> WiFiManager DISCONNECTED handler goes to AP mode.
-    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
+    // No creds -> WiFiManager DISCONNECTED handler goes to AP mode (nothing was
+    // ever configured).
+    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT));
 }
 
 TEST(FirmwareAppTest, InitOpensDiscoveryUdpOnFirstUpdateTickNotDuringInit) {
@@ -288,6 +289,28 @@ TEST(FirmwareAppTest, UpdateDrivesStatusLedAnimationEveryTick) {
     h.app.update(0);
     h.app.update(100);
     EXPECT_GE(h.led.updateCalls, 2);
+}
+
+// ── Own IP for the [STATE] heartbeat ──────────────────────────────────────────
+
+TEST(FirmwareAppTest, GetOwnIpReturnsStaIpWhenNotAp) {
+    // STA mode: stored credentials keep the manager on the station path
+    // (setMode(1) at init), so the heartbeat reports the station address.
+    AppHarness h;
+    h.prefs.ssid = "net"; h.prefs.pass = "pw";  // creds BEFORE init -> STA mode
+    h.app.init();
+    ASSERT_EQ(h.wifi.mode, 1);  // WIFI_STA, not AP
+    EXPECT_EQ(h.app.getOwnIp(), "192.168.1.50");  // FakeWiFi localIP
+}
+
+TEST(FirmwareAppTest, GetOwnIpReturnsSoftApIpInApMode) {
+    // AP mode (no creds -> softAP on init): the heartbeat reports the soft-AP
+    // address, which is the address a buddy must connect to.
+    AppHarness h;  // empty prefs -> no creds
+    h.app.init();
+    h.app.update(0);
+    ASSERT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT));
+    EXPECT_EQ(h.app.getOwnIp(), "192.168.4.1");  // FakeWiFi softAPIP
 }
 
 // ── TCP auth_fail does NOT drive the LED ──────────────────────────────────────
