@@ -94,14 +94,14 @@ void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
 
     // Create NtpTimeSync (NTP time synchronization). Forwards the PASSED-ONLY
     // sntp/timeNtp refs (received by this ctor, passed straight through) — not
-    // stored as members. Construction only wires ISntp/ITimeNtp/IStatusLED; NTP
-    // init (touches SNTP/sockets) is deferred to update() after WiFi connects.
-    // wifiMode/wifiStatus are compile-time placeholders, overwritten by
-    // WiFiManager's NTP-init callback via startIfWiFiConnected() before init()
-    // reads them.
+    // stored as members. Construction only wires ISntp/ITimeNtp (no LED
+    // dependency: NTP health is serial-only); NTP init (touches SNTP/sockets)
+    // is deferred to update() after WiFi connects. wifiMode/wifiStatus are
+    // compile-time placeholders, refreshed by startIfWiFiConnected() each tick
+    // (recorded as context; NTP no longer gates any behaviour on them).
     constexpr int WIFI_MODE_PLACEHOLDER = 0;
     constexpr int WIFI_STATUS_PLACEHOLDER = 0;
-    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp, timeNtp, statusLed_,
+    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp, timeNtp,
                                                  WIFI_MODE_PLACEHOLDER, WIFI_STATUS_PLACEHOLDER);
 
     // The broadcast callback is set now (assignment only, no hardware). The UDP

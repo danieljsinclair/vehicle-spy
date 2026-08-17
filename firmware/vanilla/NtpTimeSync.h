@@ -5,7 +5,6 @@
 
 #include <cstdint>
 #include <functional>
-#include "WiFiManager.h"  // For IStatusLED interface
 
 namespace esp32_firmware {
 
@@ -49,8 +48,7 @@ class NtpTimeSync {
 public:
     using SyncCallback = std::function<void(bool success, const char* timeStr)>;
 
-    NtpTimeSync(ISntp& sntp, ITimeNtp& time, IStatusLED& statusLed,
-                int wifiMode, int wifiStatus);
+    NtpTimeSync(ISntp& sntp, ITimeNtp& time, int wifiMode, int wifiStatus);
 
     // Initialize NTP sync - call when WiFi connects
     void init();
@@ -83,7 +81,6 @@ public:
 private:
     ISntp& sntp_;
     ITimeNtp& time_;
-    IStatusLED& statusLed_;
     int wifiMode_;
     int wifiStatus_;
 
