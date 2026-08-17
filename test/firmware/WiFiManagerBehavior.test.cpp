@@ -80,6 +80,8 @@ public:
     int getMode() const override { return mode; }
     std::string SSID() const override { return lastSsid; }
     const char* disconnectReasonName(int) const override { return ""; }
+    std::string BSSID() const override { return {}; }
+    int8_t RSSI() const override { return 0; }
     void onEvent(std::function<void(int, WifiEventInfo*)>, int) override {}
 };
 
