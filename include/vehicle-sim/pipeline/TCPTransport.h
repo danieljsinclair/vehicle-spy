@@ -198,6 +198,21 @@ public:
     bool sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId);
 
     /**
+     * Read line-by-line from the socket, discarding any CAN data frame lines
+     * (3-hex-char ID + space-separated hex byte pairs), and return the first
+     * non-frame line. Returns std::nullopt on socket timeout or peer-close.
+     *
+     * Uses the same readSocketIntoPending / takeBufferedLine buffered pattern
+     * as nextLine(), so trailing prompt bytes (e.g. the "\r>" after ATI) are
+     * consumed as part of complete lines and never leak into pending_.
+     *
+     * Each recv() is bounded by SO_RCVTIMEO (socketRecvTimeoutMs_, default
+     * 1000 ms), keeping the total handshake budget well within the firmware
+     * 5s auth/command timeout.
+     */
+    std::optional<std::string> readLineSkippingFrames();
+
+    /**
      * Get the device ID from HELO handshake (32 hex chars).
      * Returns empty string if HELO hasn't completed yet.
      */

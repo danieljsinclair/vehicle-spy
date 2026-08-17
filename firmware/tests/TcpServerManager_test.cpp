@@ -319,13 +319,56 @@ TEST_F(TcpServerManagerTest, Cycle_AuthenticatedClientWithCommand_ForwardsToHost
     manager_.cycle(/*nowMs=*/1000);
 
     // Second cycle: client connected, monitor inactive, a command is available.
-    // The manager now reads NON-BLOCKING (readAvailableLine), which returns the
-    // buffered bytes verbatim (delimiter retained); the manager splits on '\r'.
+    // The manager reads NON-BLOCKING (readAvailableLine) every tick regardless of
+    // available(), returning the buffered bytes verbatim (delimiter retained);
+    // the manager splits on '\r'.
     EXPECT_CALL(client, connected()).WillRepeatedly(Return(true));
-    EXPECT_CALL(client, available()).WillOnce(Return(9));  // "AT+HELLO\r"
     EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("AT+HELLO\r")));
     EXPECT_CALL(host_, handleTcpAtCommand(std::string("AT+HELLO")));
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));  // no new client
+    manager_.cycle(/*nowMs=*/2000);
+}
+
+// REGRESSION GUARD (wificoldboot RCA): on the ESP32 WiFiClient, available() can
+// transiently return 0 even when bytes are buffered (e.g. right after the AUTH
+// readStringUntil). A manager that gates the read on available()>0 would then
+// SKIP the ready command forever, leaving TCP AT commands (ATI/ATHELO/PING)
+// unanswered — which is exactly what broke the macOS client's HELO handshake.
+// The manager must call readAvailableLine() UNCONDITIONALLY every tick and
+// dispatch whatever it returns, NOT wait for available()>0.
+TEST_F(TcpServerManagerTest, Cycle_CommandDispatchedEvenWhenAvailableReportsZero) {
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+    manager_.cycle(/*nowMs=*/1000);
+
+    // available() lies and reports 0, but readAvailableLine() still returns the
+    // buffered command. The manager must NOT gate on available() and must
+    // dispatch the command regardless. (The manager no longer calls available()
+    // at all — it reads unconditionally every tick.)
+    EXPECT_CALL(client, connected()).WillRepeatedly(Return(true));
+    EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("AT+HELLO\r")));
+    EXPECT_CALL(host_, handleTcpAtCommand(std::string("AT+HELLO")));
+    EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
+    manager_.cycle(/*nowMs=*/2000);
+}
+
+// PING keepalive must round-trip even when available() reports 0 (same quirk),
+// because the manager reads unconditionally.
+TEST_F(TcpServerManagerTest, Cycle_PingRepliedEvenWhenAvailableReportsZero) {
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+    manager_.cycle(/*nowMs=*/1000);
+
+    EXPECT_CALL(client, connected()).WillRepeatedly(Return(true));
+    EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("PING 42\r")));
+    EXPECT_CALL(client, println(std::string("PONG 42")));
+    EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
     manager_.cycle(/*nowMs=*/2000);
 }
 
@@ -344,13 +387,11 @@ TEST_F(TcpServerManagerTest, Cycle_PartialCommand_DoesNotDispatchOrBlock) {
     // Tick 2: only "AT+HE" has arrived (no '\r'). readAvailableLine returns it
     // verbatim; the manager must accumulate and NOT call handleTcpAtCommand.
     EXPECT_CALL(client, connected()).WillRepeatedly(Return(true));
-    EXPECT_CALL(client, available()).WillOnce(Return(5));
     EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("AT+HE")));
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));
     manager_.cycle(/*nowMs=*/2000);  // must return promptly, no dispatch
 
     // Tick 3: the rest arrives with the delimiter. Now the full command dispatches.
-    EXPECT_CALL(client, available()).WillOnce(Return(5));  // "LLO\r"
     EXPECT_CALL(client, readAvailableLine(_)).WillOnce(Return(std::string("LLO\r")));
     EXPECT_CALL(host_, handleTcpAtCommand(std::string("AT+HELLO")));
     EXPECT_CALL(server_, accept()).WillOnce(Return(nullptr));

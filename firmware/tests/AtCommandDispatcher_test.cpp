@@ -304,3 +304,37 @@ TEST_F(AtCommandDispatcherTest, HandleWhitespaceOnlyCommand) {
     EXPECT_CALL(serialMock, println("?"));
     dispatcher->handleSerialCommand("   \t\r\n");
 }
+
+// ── TCP command path (handleTcpCommand) — previously UNTESTED ──────────────
+// The contract: a TCP-driven AT command must be echoed to the TCP client (via
+// sendTcpPrompt -> tcpClient_.print) framed with the ELM327 "\r\r>" terminator,
+// NOT to the serial console. This is the exact path the macOS client exercises
+// during its HELO handshake (ATI then ATHELO), so it must round-trip on the
+// wire. These tests lock that contract.
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_Ati_PrintsToTcpClient) {
+    // ATI must reach the TCP client framed as "<banner>\r\r>", never serial.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("ESP32 CAN Bridge v0.1\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(serialMock, println(::testing::_)).Times(0);  // not serial
+
+    dispatcher->handleTcpCommand("ATI");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_Unknown_PrintsQuestionToTcp) {
+    // An unmatched TCP command still gets a "?" framed response on the TCP link.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("?\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(serialMock, println(::testing::_)).Times(0);
+
+    dispatcher->handleTcpCommand("ATNOPE");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_Ati_UnknownDoesNotCrossToSerial) {
+    // Belt-and-suspenders: a TCP ATI must NOT also appear on the serial line.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("ESP32 CAN Bridge v0.1\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(serialMock, println(::testing::_)).Times(0);
+
+    dispatcher->handleTcpCommand("ATI");
+}

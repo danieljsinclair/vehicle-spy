@@ -15,6 +15,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <regex>
 #include <thread>
 
 namespace vehicle_sim::pipeline {
@@ -40,26 +41,18 @@ std::string deviceIdToHex(const std::array<uint8_t, 16>& deviceId) {
     return hex;
 }
 
-// Read from a socket into buf (usable capacity = cap - 1) until the trailing
-// bytes match `prompt`, the buffer is full, or recv() returns <= 0
-// (timeout/error). Returns the number of bytes accumulated; the caller decides
-// whether a non-positive total is fatal (ATI is optional-but-expected, ATHELO
-// required).
-int recvUntilPrompt(ISocket& sock, char* buf, std::size_t cap, std::string_view prompt) {
-    int total = 0;
-    while (total < static_cast<int>(cap - 1)) {
-        auto n = static_cast<int>(sock.recv(buf + total, cap - 1 - static_cast<std::size_t>(total)));
-        if (n <= 0) {
-            return total;  // Timeout/error/close — caller judges severity
-        }
-        total += n;
-        // Stop as soon as the prompt appears at the tail of the accumulated bytes.
-        if (static_cast<std::size_t>(total) >= prompt.size() &&
-            std::string_view(buf + total - prompt.size(), prompt.size()) == prompt) {
-            return total;
-        }
-    }
-    return total;
+// Trim leading/trailing ASCII whitespace (mirrors the firmware's String::trim).
+// Used by readLineSkippingFrames to classify command replies vs empty banner
+// lines so neither leaks into the post-handshake stream as a phantom line.
+std::string trim(std::string_view s) {
+    const auto isWs = [](unsigned char c) {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v';
+    };
+    std::size_t begin = 0;
+    while (begin < s.size() && isWs(static_cast<unsigned char>(s[begin]))) ++begin;
+    std::size_t end = s.size();
+    while (end > begin && isWs(static_cast<unsigned char>(s[end - 1]))) --end;
+    return std::string(s.substr(begin, end - begin));
 }
 
 // Parse a hex byte (two hex characters) into its uint8_t value.
@@ -127,6 +120,16 @@ bool parseHeloAck(std::string_view ack, std::array<uint8_t, 16>& deviceId) {
 }
 
 } // namespace
+
+// CAN-frame classifier: matches a raw CAN line of the form "<3-hex-id> <D0> [<D1> ... <D7>]"
+// (no leading/trailing whitespace after trim). Returns true iff the trimmed line is a
+// valid CAN data frame with 0-8 data bytes. Used by TCPTransport::readLineSkippingFrames
+// to discard frames interleaved with command replies during the HELO handshake.
+inline bool isCanFrameLine(std::string_view trimmed) {
+    if (trimmed.empty()) return false;
+    static const std::regex kCanFrameRegex(R"(^[0-9A-Fa-f]{3}( [0-9A-Fa-f]{2})+$)");
+    return std::regex_match(trimmed.begin(), trimmed.end(), kCanFrameRegex);
+}
 
 TCPTransport::TCPTransport(TransportEndpoint endpoint,
                            std::shared_ptr<ITransportOutput> output,
@@ -199,26 +202,64 @@ bool TCPTransport::sendElm327Init() noexcept {
 
 bool TCPTransport::connectAndAuth() {
     closeConnection();
-    if (socket_->connect(host_, port_, stop_.get()) < 0) return false;
+    // The HELO handshake reuses the shared pending_ buffer (readLineSkippingFrames),
+    // so clear any bytes left from a previous connection before we begin a fresh
+    // handshake — a reconnect must never parse stale line fragments.
+    pending_.clear();
+    if (socket_->connect(host_, port_, stop_.get()) < 0) {
+        output_->err("[tcp] connect failed to " + host_ + ":" + std::to_string(port_));
+        return false;
+    }
     connected_ = true;
-    if (!socket_->setRecvTimeout(socketRecvTimeoutMs_)) return false;
+    if (!socket_->setRecvTimeout(socketRecvTimeoutMs_)) {
+        output_->err("[tcp] failed to set socket recv timeout on " + host_ + ":" +
+                     std::to_string(port_));
+        closeConnection();
+        return false;
+    }
     // Latency fix (Phase 1): disable Nagle on the stream socket so a small CAN
     // frame is sent immediately instead of waiting for the delayed-ACK window.
     // Set on BOTH ends; the firmware sets it at accept (TcpServerManager::cycle).
-    if (!socket_->setNoDelay(true)) return false;
-
-    // Authenticate: send token, expect "OK" back
-    if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(authCmd)) { closeConnection(); return false; }
-    std::array<char, 64> authResp{};
-    if (auto n = static_cast<int>(socket_->recv(authResp.data(), authResp.size() - 1));
-        n <= 0 || std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") == std::string::npos) {
-        closeConnection(); return false;
+    if (!socket_->setNoDelay(true)) {
+        output_->err("[tcp] failed to set TCP_NODELAY on " + host_ + ":" +
+                     std::to_string(port_));
+        closeConnection();
+        return false;
     }
 
-    if (adapterProtocol_ == "elm327" && !sendElm327Init()) { closeConnection(); return false; }
+    // Authenticate: send token, expect "OK" back
+    if (std::string authCmd = "AUTH " TCP_AUTH_TOKEN "\r"; !sendAll(authCmd)) {
+        output_->err("[tcp] AUTH send failed to " + host_ + ":" + std::to_string(port_));
+        closeConnection();
+        return false;
+    }
+    std::array<char, 64> authResp{};
+    if (auto n = static_cast<int>(socket_->recv(authResp.data(), authResp.size() - 1));
+        n <= 0) {
+        output_->err("[tcp] AUTH recv failed (peer closed / timeout) from " + host_ + ":" +
+                     std::to_string(port_));
+        closeConnection();
+        return false;
+    } else if (std::string(authResp.data(), static_cast<std::size_t>(n)).find("OK") ==
+               std::string::npos) {
+        // Peer answered but did NOT grant auth — surface the rejection so a bad
+        // token / mismatched firmware is diagnosable instead of a silent retry.
+        const auto peerReply = std::string(authResp.data(), static_cast<std::size_t>(n));
+        output_->err("[tcp] AUTH rejected by " + host_ + ":" + std::to_string(port_) +
+                     " (reply: " + peerReply + ")");
+        closeConnection();
+        return false;
+    }
+
+    if (adapterProtocol_ == "elm327" && !sendElm327Init()) {
+        output_->err("[tcp] ELM327 init failed on " + host_ + ":" + std::to_string(port_));
+        closeConnection();
+        return false;
+    }
 
     // Perform HELO handshake to validate device and capture deviceId
     if (!performHeloHandshake()) {
+        output_->err("[tcp] HELO handshake failed on " + host_ + ":" + std::to_string(port_));
         closeConnection();
         return false;
     }
@@ -240,9 +281,13 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
         return false;
     }
 
-    // Read and discard ATI response (we don't parse it, just clear the buffer).
-    std::array<char, 256> atiResp{};
-    if (int totalAti = recvUntilPrompt(*socket_, atiResp.data(), atiResp.size(), "\r>"); totalAti <= 0) {
+    // Read ATI response — line-based and CAN-frame-tolerant. The firmware may
+    // stream CAN data frames immediately after AUTH; readLineSkippingFrames
+    // discards frame lines (regex-classified) and returns the first non-frame
+    // line (the ATI device-info banner). A timeout / EOF produces std::nullopt
+    // and we fail with the existing diagnostic.
+    if (std::optional<std::string> atiLine = readLineSkippingFrames();
+        !atiLine.has_value()) {
         output_->err("[tcp] HELO pre-flight: no response to ATI");
         closeConnection();
         return false;
@@ -259,10 +304,18 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
         return false;
     }
 
-    // Read HELO ACK response with proper recv loop for fragmented TCP.
-    std::array<char, 256> heloResp{};
-    const int totalHelo = recvUntilPrompt(*socket_, heloResp.data(), heloResp.size(), "\r\r>");
-    if (totalHelo <= 0) {
+    // Read HELO ACK — frame-tolerant scan: discard CAN frame lines, collect
+    // non-frame lines, and look for one that contains "ACK DEVICE=" so
+    // parseHeloAck can validate it. A timeout / EOF before the ACK is found
+    // produces std::nullopt and the existing diagnostic fires.
+    std::string ackLine;
+    while (std::optional<std::string> line = readLineSkippingFrames()) {
+        if (line->find("ACK DEVICE=") != std::string::npos) {
+            ackLine = std::move(*line);
+            break;
+        }
+    }
+    if (ackLine.empty()) {
         output_->err("[tcp] HELO pre-flight: no response to ATHELO");
         closeConnection();
         return false;
@@ -270,8 +323,7 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
 
     // Parse/validate the ACK string (pure, socket-free). On failure we must
     // close the authenticated connection and treat the handshake as failed.
-    if (std::string response(heloResp.data(), static_cast<std::size_t>(totalHelo));
-        !parseHeloAck(response, deviceId)) {
+    if (!parseHeloAck(ackLine, deviceId)) {
         closeConnection();
         return false;
     }
@@ -279,6 +331,55 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
     // HELO succeeded
     output_->out("[tcp] HELO pre-flight: device acknowledged");
     return true;
+}
+
+std::optional<std::string> TCPTransport::readLineSkippingFrames() {
+    // Honours the documented contract (TCPTransport.h: readLineSkippingFrames):
+    // reuse the SAME shared pending_ buffer + readSocketIntoPending /
+    // takeBufferedLine machinery as nextLine(), so trailing ESP32 prompt bytes
+    // (the bare ">" that terminates an "\r>" or "\r\r>" banner) are consumed as
+    // part of a complete line and NEVER leak into the post-handshake stream as a
+    // phantom empty line.
+    //
+    // recv() is bounded by SO_RCVTIMEO (socketRecvTimeoutMs_, default 1000 ms)
+    // via readSocketIntoPending -> socket_->recv, so a silent stream returns
+    // nullopt (timeout / EOF) and the caller reports the failure. Each call
+    // returns the FIRST non-frame line it finds; sendHeloAndParseAck drives the
+    // loop (calling repeatedly) to locate the ATI banner and the "ACK DEVICE="
+    // line beneath any interleaved CAN frames.
+    for (;;) {
+        while (auto line = takeBufferedLine()) {
+            // The firmware emits "<response>\r\r>" — the bare ">" is a TRAILING
+            // prompt terminator of the PREVIOUS reply. Because readSocketIntoPending
+            // appends the next chunk to any leftover ">", the buffered line can open
+            // with that stray ">". Strip it (and surrounding whitespace) so the line
+            // handed to the classifier / parseHeloAck is clean and never leaks the
+            // ESP32 prompt (honours the readLineSkippingFrames contract in the
+            // header). A genuine CAN frame is hex+space only and can never begin with
+            // ">", so this strip is unambiguous.
+            std::string_view sv(*line);
+            if (const std::size_t lstrip = sv.find_first_not_of(">\r\n \t");
+                lstrip != std::string_view::npos) {
+                sv = sv.substr(lstrip);
+            }
+            const std::string cleaned = trim(sv);
+            // Discard CAN data frames (id + hex byte pairs) and empty banner
+            // lines; return real command-reply text (ATI banner / ACK line).
+            if (cleaned.empty() || isCanFrameLine(cleaned)) {
+                continue;
+            }
+            return cleaned;
+        }
+
+        // No complete line buffered: pull the next chunk (bounded by SO_RCVTIMEO).
+        // recv <= 0 means peer-close / timeout / error — surface as nullopt so the
+        // caller's existing [tcp] diagnostic fires (e.g. "no response to ATI").
+        if (readSocketIntoPending() <= 0) {
+            return std::nullopt;
+        }
+        // Loop back to takeBufferedLine() to extract any complete lines from the
+        // newly-buffered bytes (including draining any trailing bare ">" prompt).
+    }
 }
 
 bool TCPTransport::performHeloHandshake() {
@@ -289,6 +390,20 @@ bool TCPTransport::performHeloHandshake() {
 
     // Convert deviceId bytes to hex string for message tagging
     deviceIdHex_ = deviceIdToHex(deviceIdBytes);
+
+    // The handshake consumed the ACK line via the shared pending_ buffer, leaving
+    // the ESP32's bare prompt terminator (">") in pending_ — it follows the ACK's
+    // final "\r" and has no terminating CRLF of its own, so takeBufferedLine never
+    // returns it. Strip any leading run of ">" + whitespace so the post-handshake
+    // nextLine() stream opens on real CAN-frame data, never a phantom ">118 ..."
+    // line (which would fail the normaliser). Frames are hex+space only, so a
+    // genuine frame byte can never be a leading ">", making this strip unambiguous.
+    if (const std::size_t firstReal = pending_.find_first_not_of(">\r\n \t");
+        firstReal != std::string::npos) {
+        pending_.erase(0, firstReal);
+    } else {
+        pending_.clear();
+    }
     return true;
 }
 

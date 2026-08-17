@@ -28,7 +28,12 @@ namespace esp32_firmware {
 
 class ArduinoTcpServerClient : public ITcpServerClient {
 public:
-    explicit ArduinoTcpServerClient(WiFiClient& client) : client_(client) {}
+    // Takes ownership of the accepted WiFiClient by VALUE (moved from
+    // ArduinoTcpServer::accept()). Holding the actual accepted client (not a
+    // reference to the .ino's global slot) guarantees this adapter reads the
+    // bytes that arrived on the connection it was adopted for — the global slot
+    // is only a write-facing mirror used by the CAN-TX path.
+    explicit ArduinoTcpServerClient(WiFiClient client) : client_(std::move(client)) {}
 
     bool connected() const override {
         return static_cast<bool>(client_) && client_.connected();
@@ -61,21 +66,26 @@ public:
 
     std::string readAvailableLine(char delimiter) override {
         // NON-BLOCKING: consume ONLY bytes already in the receive buffer and
-        // return them verbatim (delimiter NOT stripped). Never calls read() past
-        // what is available, so it cannot block up to the Stream timeout. The
-        // manager owns the line-splitting (it accumulates partial bytes in its
-        // own buffer and dispatches on the delimiter), which is what keeps
-        // cycle() from stalling the CAN-TX path. The delimiter arg is accepted
-        // for interface parity with readLine() but splitting happens in the
-        // manager.
+        // return them verbatim (delimiter NOT stripped). Never blocks up to the
+        // Stream timeout. The manager owns the line-splitting (it accumulates
+        // partial bytes in its own buffer and dispatches on the delimiter),
+        // which is what keeps cycle() from stalling the CAN-TX path. The
+        // delimiter arg is accepted for interface parity with readLine() but
+        // splitting happens in the manager.
+        //
+        // IMPORTANT (ESP32 WiFiClient quirk): WiFiClient::available() can return
+        // 0 transiently even when bytes are buffered — notably right after a
+        // readStringUntil() (the AUTH read) — which would make a caller that
+        // gates on available()>0 silently skip ready input forever. So we do NOT
+        // trust available(): we poll read() directly in a bounded loop. read()
+        // returns -1 immediately when nothing is buffered (non-blocking), so this
+        // stays O(1) on an idle socket and still drains every available byte.
         (void)delimiter;
-        const int avail = client_.available();
-        if (avail <= 0) return {};
         std::string buf;
-        buf.reserve(static_cast<size_t>(avail));
-        for (int i = 0; i < avail; ++i) {
-            const int c = client_.read();
-            if (c < 0) break;
+        constexpr std::size_t kMaxDrain = 256;
+        buf.reserve(kMaxDrain);
+        int c = 0;
+        while (buf.size() < kMaxDrain && (c = client_.read()) >= 0) {
             buf.push_back(static_cast<char>(c));
         }
         return buf;
@@ -103,7 +113,14 @@ public:
     }
 
 private:
-    WiFiClient& client_;
+    // mutable: the ITcpServerClient interface mandates connected()/available()/
+    // remoteIP() as const, but the ESP32 WiFiClient SDK declares those *query*
+    // methods non-const. These are logically read-only state probes, so the
+    // value-owned client is marked mutable to satisfy the interface contract on
+    // the real device. (The host mock marks them const, which would otherwise
+    // mask this cross-build mismatch — the commit gate catches it via the real
+    // .ino compile.)
+    mutable WiFiClient client_;
 };
 
 } // namespace esp32_firmware
