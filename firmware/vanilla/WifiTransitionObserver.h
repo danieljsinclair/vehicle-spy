@@ -27,7 +27,7 @@ struct ITransitionEventSink {
 class WifiTransitionObserver {
 public:
     explicit WifiTransitionObserver(ITransitionEventSink& sink)
-        : sink_(sink), previousState_(static_cast<int>(WiFiState::State::WIFI_DISCONNECTED)) {}
+        : sink_(sink) {}
 
     // Seed the previous-state memory (called after init() so the first update()
     // tick reports transitions relative to the post-init state).
@@ -69,7 +69,7 @@ public:
 
 private:
     ITransitionEventSink& sink_;
-    int previousState_;
+    int previousState_ = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
     int lastDisconnectReason_ = 0;
 };
 
