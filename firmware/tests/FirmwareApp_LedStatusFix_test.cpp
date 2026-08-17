@@ -74,65 +74,24 @@ public:
 } // namespace
 
 // ============================================================================
-// DEFECT 2 — error-pattern latch: onAuthFailed must render for a full hold
-// window before selectLedPattern() reverts it.
+// TCP AUTH-token rejection — a client problem, NOT an ESP32 error.
+// onAuthFailed must NOT drive the LED: the state model is LED-agnostic and
+// update()'s selectLedPattern (state, clientConnected) is the only writer.
 // ============================================================================
 
-TEST_F(FirmwareAppTest, OnAuthFailed_LedPatternHeldUntilHoldWindowExpires) {
-    firmwareApp->init();
-
-    // No client, WiFi disconnected → normal pattern is WIFI_SEARCHING.
-    ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(false));
-
-    // First update establishes lastTickMs_ (onAuthFailed has no clock param and
-    // computes its latch expiry from the last known tick).
-    firmwareApp->update(1000);
-    ASSERT_EQ(firmwareApp->getCurrentLedPattern(),
-              static_cast<int>(firmware::StatusLED::Pattern::WIFI_SEARCHING));
-
-    // Auth fails: LED should latch to ERROR_AUTH_FAILURE.
-    firmwareApp->onAuthFailed("1.2.3.4");
-
-    // Advance in 250ms steps; the error pattern must persist across the full
-    // ~2.5s hold window (not just one tick). The latch holds while now < expiry
-    // (1000 + 2500 = 3500), so the "held" assertions stop one step before 3500.
-    for (uint32_t now = 1250; now < 3500; now += 250) {
-        firmwareApp->update(now);
-        EXPECT_EQ(firmwareApp->getCurrentLedPattern(),
-                  static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-            << "at now=" << now;
-    }
-
-    // At the expiry instant (now == 3500) the latch releases and update() reverts
-    // to the normal WiFi-derived pattern (WIFI_SEARCHING, no client connected).
-    firmwareApp->update(3500);
-    EXPECT_EQ(firmwareApp->getCurrentLedPattern(),
-              static_cast<int>(firmware::StatusLED::Pattern::WIFI_SEARCHING));
-
-    // Well past the hold window: still reverted.
-    firmwareApp->update(3700);
-    EXPECT_EQ(firmwareApp->getCurrentLedPattern(),
-              static_cast<int>(firmware::StatusLED::Pattern::WIFI_SEARCHING));
-}
-
-TEST_F(FirmwareAppTest, OnAuthFailed_LatchDoesNotSuppressSubsequentConnect) {
+TEST_F(FirmwareAppTest, OnAuthFailed_DoesNotChangeLedPattern) {
     firmwareApp->init();
     ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(false));
 
     firmwareApp->update(1000);
+    const int patternBefore = firmwareApp->getCurrentLedPattern();
+    ASSERT_EQ(patternBefore, static_cast<int>(firmware::StatusLED::Pattern::WIFI_SEARCHING));
+
+    // No setPattern() may be issued by the TCP auth rejection path.
+    EXPECT_CALL(statusLedMock, setPattern(_)).Times(0);
     firmwareApp->onAuthFailed("1.2.3.4");
 
-    // During the hold window the error pattern wins even if a client later
-    // connects (error has priority for its display duration).
-    ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(true));
-    firmwareApp->update(1500);
-    EXPECT_EQ(firmwareApp->getCurrentLedPattern(),
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE));
-
-    // After the window, a connected client yields CLIENT_CONNECTED again.
-    firmwareApp->update(4000);
-    EXPECT_EQ(firmwareApp->getCurrentLedPattern(),
-              static_cast<int>(firmware::StatusLED::Pattern::CLIENT_CONNECTED));
+    EXPECT_EQ(firmwareApp->getCurrentLedPattern(), patternBefore);
 }
 
 // ============================================================================

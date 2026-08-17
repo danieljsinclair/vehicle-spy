@@ -292,27 +292,6 @@ private:
     // WIFI_DISCONNECTED so the first real connected transition fires wifi_connected.
     int previousWifiState_ = static_cast<int>(WiFiState::State::WIFI_DISCONNECTED);
 
-    // Error-pattern latch (fix/led-status DEFECT 2): when onAuthFailed() sets an
-    // error pattern, it must render for a fixed hold window before update()'s
-    // selectLedPattern() may revert to the normal WiFi/client-derived pattern.
-    // Without the latch, update() overwrote the error pattern on the very next
-    // tick — before the StatusLED engine rendered even one step — so error
-    // sequences never showed. The latch expiry is computed from the last tick
-    // (lastTickMs_); onAuthFailed() has no clock parameter. Stored as int (the
-    // Pattern enum ordinal) to avoid coupling this header to firmware::StatusLED,
-    // mirroring observability_.lastLedPattern.
-    int latchedErrorPattern_ = 0;
-    uint32_t errorPatternUntilMs_ = 0;
-
-    // Last tick passed into update(now). Captured so onAuthFailed() (no clock
-    // argument) can compute the error-pattern hold expiry relative to the most
-    // recent loop time.
-    uint32_t lastTickMs_ = 0;
-
-    // Hold duration an error pattern stays latched before selectLedPattern() may
-    // revert (~2.5s — long enough to render the error sequence at least once).
-    static constexpr uint32_t kErrorPatternHoldMs = 2500;
-
     // ── Bundled state (cpp:S1820: keep field count under 20) ──────────────────
     struct DiscoveryState {
         bool started = false;

@@ -290,71 +290,22 @@ TEST(FirmwareAppTest, UpdateDrivesStatusLedAnimationEveryTick) {
     EXPECT_GE(h.led.updateCalls, 2);
 }
 
-// ── auth_fail drives LED to ERROR_AUTH_FAILURE briefly ──────────────────────────
-// §4 of SPEC: auth_fail is an error sequence; the LED must flash ERROR_AUTH_FAILURE.
-// Revert to the normal selectLedPattern result on the next update() tick.
+// ── TCP auth_fail does NOT drive the LED ──────────────────────────────────────
+// A wrong AUTH token from a TCP client is the CLIENT's problem, not an ESP32
+// error. The WiFi state (and therefore the LED, via selectLedPattern) must be
+// unaffected; only the [EVENT] line reports it.
 
-TEST(FirmwareAppTest, AuthFailed_DrivesLedToErrorAuthFailurePattern) {
-    // CONTRACT: onAuthFailed() must drive the LED to ERROR_AUTH_FAILURE immediately,
-    // so the user sees the error sequence (3-short-pulse + 2-tiny-pulse + separator).
-    // Assertion is on the Pattern ENUM, never on raw ms values.
-    AppHarness h;
-    h.app.init();
-    h.app.update(0);  // first tick: LED set to normal pattern (AP_MODE with no creds)
-
-    // Pre-condition: LED is on a normal (non-error) pattern.
-    EXPECT_NE(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE));
-
-    // Act: simulate a TCP auth failure.
-    h.app.onAuthFailed("192.168.1.50");
-
-    // Assert: LED is now on ERROR_AUTH_FAILURE.
-    EXPECT_EQ(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-        << "onAuthFailed must set LED to ERROR_AUTH_FAILURE";
-}
-
-TEST(FirmwareAppTest, AuthFailed_LedLatchesUntilHoldWindowExpires) {
-    // CONTRACT (fix/led-status DEFECT 2): onAuthFailed() latches ERROR_AUTH_FAILURE
-    // so the StatusLED engine actually renders the error sequence (three short
-    // pulses + ... + long, per the declarative table) instead of being clobbered
-    // by the very next update() tick's selectLedPattern() call. The latch holds for
-    // a fixed window (kErrorPatternHoldMs) measured from the last update() tick, then
-    // reverts to the normal WiFi/client-derived pattern.
-    //
-    // We assert the key contract: the LED stays on ERROR_AUTH_FAILURE across normal
-    // ticks (NOT reverted immediately), and only leaves it once the hold window has
-    // elapsed. The exact revert target depends on WiFiManager internals (tested
-    // separately); what matters here is that the error flash PERSISTS, then reverts.
+TEST(FirmwareAppTest, AuthFailed_DoesNotChangeLedPattern) {
     AppHarness h;
     h.app.init();
     h.app.update(0);  // settle to the normal pattern for the current WiFi state
+    const int patternBefore = h.led.lastPattern;
+    ASSERT_NE(patternBefore, -1);
 
-    // Act: fire auth_fail — LED goes to ERROR_AUTH_FAILURE.
     h.app.onAuthFailed("192.168.1.50");
-    EXPECT_EQ(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-        << "pre-condition: onAuthFailed must set LED to ERROR_AUTH_FAILURE";
 
-    // Act: drive several normal ticks well within the hold window (lastTickMs_ was 0,
-    // so the latch expires at ~kErrorPatternHoldMs). The error pattern must persist.
-    for (uint32_t now = 100; now <= 1000; now += 100) {
-        h.app.update(now);
-        EXPECT_EQ(h.led.lastPattern,
-                  static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-            << "error pattern must stay latched at now=" << now;
-    }
-
-    // Act: drive a tick well past the hold window.
-    h.app.update(10000);
-
-    // Assert: the LED has LEFT the ERROR_AUTH_FAILURE pattern — the latched flash
-    // reverted to the normal selectLedPattern result for the current state.
-    EXPECT_NE(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-        << "after the hold window, update() must revert LED from ERROR_AUTH_FAILURE "
-           "to the normal selectLedPattern result for the current WiFi+client state";
+    EXPECT_EQ(h.led.lastPattern, patternBefore)
+        << "onAuthFailed must not touch the LED pattern";
 }
 
 } // namespace
