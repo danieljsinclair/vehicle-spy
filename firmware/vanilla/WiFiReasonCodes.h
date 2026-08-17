@@ -50,74 +50,64 @@ constexpr int WIFI_REASON_HANDSHAKE_TIMEOUT = 204;
 // so the firmware can print a meaningful label instead of a mystery number.
 constexpr int WIFI_REASON_MESH_STEER_REJECT = 39;
 
-// Decode a wifi_err_reason_t value to its ESP-IDF name. Returns "UNKNOWN(N)" for
-// any code not in the table (e.g. vendor/Deco-specific) so the trace is ALWAYS
-// human-decodable rather than printing a bare number.
+// Single declarative table for disconnect reasons. OCP: adding a new reason code
+// is ONE row here. Both wifiReasonName() and wifiReasonPhase() are derived from
+// it — no duplicated switch, no risk of name/phase drifting apart.
+//
+// REASON_ENTRY uses the preprocessor '#' stringification operator so the name
+// field is ALWAYS the exact enum constant — never manually typed, never drifts.
+struct ReasonEntry {
+    int code;
+    const char* name;
+    const char* phase;
+};
+#define REASON_ENTRY(code, ph) {code, #code, ph}
+static constexpr ReasonEntry kReasonTable[] = {
+    REASON_ENTRY(WIFI_REASON_UNSPECIFIED,           "unknown"),
+    REASON_ENTRY(WIFI_REASON_AUTH_EXPIRE,           "auth"),
+    REASON_ENTRY(WIFI_REASON_AUTH_LEAVE,            "auth"),
+    REASON_ENTRY(WIFI_REASON_ASSOC_EXPIRE,          "assoc"),
+    REASON_ENTRY(WIFI_REASON_ASSOC_TOOMANY,         "assoc"),
+    REASON_ENTRY(WIFI_REASON_NOT_AUTHED,            "auth"),
+    REASON_ENTRY(WIFI_REASON_NOT_ASSOCED,           "auth"),
+    REASON_ENTRY(WIFI_REASON_ASSOC_LEAVE,           "assoc"),
+    REASON_ENTRY(WIFI_REASON_ASSOC_NOT_AUTHED,      "assoc"),
+    REASON_ENTRY(WIFI_REASON_DISASSOC_PWRCAP_BAD,   "link"),
+    REASON_ENTRY(WIFI_REASON_DISASSOC_SUPCHAN_BAD,  "link"),
+    REASON_ENTRY(WIFI_REASON_BSS_TRANSITION_DISASSOC, "assoc"),
+    REASON_ENTRY(WIFI_REASON_IE_INVALID,            "unknown"),
+    REASON_ENTRY(WIFI_REASON_MIC_FAILURE,           "auth"),
+    REASON_ENTRY(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT, "handshake"),
+    REASON_ENTRY(WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT, "handshake"),
+    REASON_ENTRY(WIFI_REASON_IE_IN_4WAY_DIFFERS,    "auth"),
+    REASON_ENTRY(WIFI_REASON_GROUP_CIPHER_INVALID,  "auth"),
+    REASON_ENTRY(WIFI_REASON_PAIRWISE_CIPHER_INVALID, "auth"),
+    REASON_ENTRY(WIFI_REASON_AKMP_INVALID,          "auth"),
+    REASON_ENTRY(WIFI_REASON_UNSUPP_RSN_IE_VERSION, "auth"),
+    REASON_ENTRY(WIFI_REASON_INVALID_RSN_IE_CAP,    "auth"),
+    REASON_ENTRY(WIFI_REASON_802_1X_AUTH_FAILED,    "auth"),
+    REASON_ENTRY(WIFI_REASON_CIPHER_SUITE_REJECTED, "auth"),
+    REASON_ENTRY(WIFI_REASON_BEACON_TIMEOUT,        "link"),
+    REASON_ENTRY(WIFI_REASON_NO_AP_FOUND,           "link"),
+    REASON_ENTRY(WIFI_REASON_AUTH_FAIL,             "auth"),
+    REASON_ENTRY(WIFI_REASON_ASSOC_FAIL,            "assoc"),
+    REASON_ENTRY(WIFI_REASON_HANDSHAKE_TIMEOUT,     "handshake"),
+    REASON_ENTRY(WIFI_REASON_MESH_STEER_REJECT,     "assoc"),
+};
+#undef REASON_ENTRY
+
 inline const char* wifiReasonName(int reason) {
-    switch (reason) {
-        case WIFI_REASON_UNSPECIFIED:           return "UNSPECIFIED";
-        case WIFI_REASON_AUTH_EXPIRE:           return "AUTH_EXPIRE";
-        case WIFI_REASON_AUTH_LEAVE:            return "AUTH_LEAVE";
-        case WIFI_REASON_ASSOC_EXPIRE:          return "ASSOC_EXPIRE";
-        case WIFI_REASON_ASSOC_TOOMANY:         return "ASSOC_TOOMANY";
-        case WIFI_REASON_NOT_AUTHED:            return "NOT_AUTHED";
-        case WIFI_REASON_NOT_ASSOCED:           return "NOT_ASSOCED";
-        case WIFI_REASON_ASSOC_LEAVE:           return "ASSOC_LEAVE";
-        case WIFI_REASON_ASSOC_NOT_AUTHED:      return "ASSOC_NOT_AUTHED";
-        case WIFI_REASON_DISASSOC_PWRCAP_BAD:   return "DISASSOC_PWRCAP_BAD";
-        case WIFI_REASON_DISASSOC_SUPCHAN_BAD:  return "DISASSOC_SUPCHAN_BAD";
-        case WIFI_REASON_BSS_TRANSITION_DISASSOC: return "BSS_TRANSITION_DISASSOC";
-        case WIFI_REASON_IE_INVALID:            return "IE_INVALID";
-        case WIFI_REASON_MIC_FAILURE:           return "MIC_FAILURE";
-        case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "4WAY_HANDSHAKE_TIMEOUT";
-        case WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT: return "GROUP_KEY_UPDATE_TIMEOUT";
-        case WIFI_REASON_IE_IN_4WAY_DIFFERS:    return "IE_IN_4WAY_DIFFERS";
-        case WIFI_REASON_GROUP_CIPHER_INVALID:  return "GROUP_CIPHER_INVALID";
-        case WIFI_REASON_PAIRWISE_CIPHER_INVALID: return "PAIRWISE_CIPHER_INVALID";
-        case WIFI_REASON_AKMP_INVALID:          return "AKMP_INVALID";
-        case WIFI_REASON_UNSUPP_RSN_IE_VERSION: return "UNSUPP_RSN_IE_VERSION";
-        case WIFI_REASON_INVALID_RSN_IE_CAP:    return "INVALID_RSN_IE_CAP";
-        case WIFI_REASON_802_1X_AUTH_FAILED:    return "802_1X_AUTH_FAILED";
-        case WIFI_REASON_CIPHER_SUITE_REJECTED: return "CIPHER_SUITE_REJECTED";
-        case WIFI_REASON_BEACON_TIMEOUT:        return "BEACON_TIMEOUT";
-        case WIFI_REASON_NO_AP_FOUND:           return "NO_AP_FOUND";
-        case WIFI_REASON_AUTH_FAIL:             return "AUTH_FAIL";
-        case WIFI_REASON_ASSOC_FAIL:            return "ASSOC_FAIL";
-        case WIFI_REASON_HANDSHAKE_TIMEOUT:     return "HANDSHAKE_TIMEOUT";
-        case WIFI_REASON_MESH_STEER_REJECT:     return "MESH_STEER_REJECT";
-        default:                                return "UNKNOWN";
+    for (const auto& e : kReasonTable) {
+        if (e.code == reason) return e.name;
     }
+    return "UNKNOWN";
 }
 
-// Phase classification for a disconnect reason. Returns the connect-phase bucket
-// (auth/assoc/handshake/link) so the serial trace labels at a glance WHICH LEG
-// of the connect failed. OCP: adding a new reason code is just adding a row to
-// this table; the call site never changes.
 inline const char* wifiReasonPhase(int reason) {
-    switch (reason) {
-        case WIFI_REASON_AUTH_EXPIRE:
-        case WIFI_REASON_AUTH_LEAVE:
-        case WIFI_REASON_NOT_AUTHED:
-        case WIFI_REASON_NOT_ASSOCED:
-        case WIFI_REASON_AUTH_FAIL:
-        case WIFI_REASON_802_1X_AUTH_FAILED:
-            return "auth";
-        case WIFI_REASON_ASSOC_EXPIRE:
-        case WIFI_REASON_ASSOC_LEAVE:
-        case WIFI_REASON_ASSOC_TOOMANY:
-        case WIFI_REASON_ASSOC_NOT_AUTHED:
-        case WIFI_REASON_ASSOC_FAIL:
-        case WIFI_REASON_MESH_STEER_REJECT:
-            return "assoc";
-        case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
-        case WIFI_REASON_HANDSHAKE_TIMEOUT:
-            return "handshake";
-        case WIFI_REASON_BEACON_TIMEOUT:
-        case WIFI_REASON_NO_AP_FOUND:
-            return "link";
-        default:
-            return "unknown";
+    for (const auto& e : kReasonTable) {
+        if (e.code == reason) return e.phase;
     }
+    return "unknown";
 }
 
 } // namespace esp32_firmware

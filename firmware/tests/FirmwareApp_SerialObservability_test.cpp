@@ -104,7 +104,7 @@ TEST_F(FirmwareAppSerialObservabilityTest, WiFiDisconnected_DecodesReasonNamePha
     firmwareApp->onWiFiDisconnected(39);  // WIFI_REASON_MESH_STEER_REJECT
 
     EXPECT_THAT(capturedDetail, HasSubstr("reason=39"));
-    EXPECT_THAT(capturedDetail, HasSubstr("name=MESH_STEER_REJECT"));
+    EXPECT_THAT(capturedDetail, HasSubstr("name=WIFI_REASON_MESH_STEER_REJECT"));
     EXPECT_THAT(capturedDetail, HasSubstr("phase=assoc"));
     EXPECT_THAT(capturedDetail, HasSubstr("bssid=aa:bb:cc:dd:ee:ff"));
     EXPECT_THAT(capturedDetail, HasSubstr("rssi=-67"));
@@ -122,7 +122,7 @@ TEST_F(FirmwareAppSerialObservabilityTest, WiFiDisconnected_DecodesHandshakePhas
         .WillOnce([&](const char*, const std::string& detail) { capturedDetail = detail; });
     firmwareApp->onWiFiDisconnected(204);  // WIFI_REASON_HANDSHAKE_TIMEOUT
 
-    EXPECT_THAT(capturedDetail, HasSubstr("name=HANDSHAKE_TIMEOUT"));
+    EXPECT_THAT(capturedDetail, HasSubstr("name=WIFI_REASON_HANDSHAKE_TIMEOUT"));
     EXPECT_THAT(capturedDetail, HasSubstr("phase=handshake"));
     EXPECT_THAT(capturedDetail, Not(HasSubstr("bssid=")));
 }
