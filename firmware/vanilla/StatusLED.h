@@ -97,11 +97,12 @@ public:
     // user's active session and must take visual priority over WiFi searching.
     //
     // When no client is connected, the pattern reflects the WiFi state:
-    //   WIFI_DISCONNECTED -> WIFI_SEARCHING  (looking for a network)
-    //   WIFI_CONNECTING   -> WIFI_SEARCHING  (in progress / reconnecting)
-    //   WIFI_CONNECTED    -> WIFI_CONNECTED  (station mode, ready)
-    //   WIFI_AP_MODE      -> AP_MODE         (access point mode)
-    //   (any other)       -> WIFI_SEARCHING  (fail-safe default)
+    //   WIFI_DISCONNECTED       -> WIFI_SEARCHING      (looking for a network)
+    //   WIFI_CONNECTING         -> WIFI_SEARCHING      (in progress / reconnecting)
+    //   WIFI_CONNECTED          -> WIFI_CONNECTED      (station mode, ready)
+    //   WIFI_AP_MODE_DEFAULT    -> AP_MODE             (AP because nothing was configured)
+    //   WIFI_AP_MODE_AUTH_FAIL  -> ERROR_AUTH_FAILURE  (AP because credentials failed)
+    //   (any other)             -> WIFI_SEARCHING      (fail-safe default)
     //
     // wifiState is an int (WiFiState::State ordinal) to keep this method
     // decoupled from the esp32_firmware namespace — StatusLED lives in the

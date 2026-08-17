@@ -3,7 +3,6 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "vanilla/NtpTimeSync.h"
-#include "vanilla/StatusLED.h"  // StatusLED::Pattern::ERROR_NO_NTP_SERVICE (the spec enum)
 #include "mocks/ArduinoMock.h"
 
 using namespace esp32_firmware;
@@ -92,25 +91,10 @@ public:
     void reset() { currentTime_ = 1000000000; }
 };
 
-// Mock StatusLED interface
-class MockStatusLED : public IStatusLED {
-public:
-    MOCK_METHOD(void, setPattern, (int pattern), (override));
-    MOCK_METHOD(void, update, (uint32_t now), (override));
-
-    void delegateToDummy() {
-        ON_CALL(*this, setPattern(_)).WillByDefault([](int) {});
-        ON_CALL(*this, update(_)).WillByDefault([](uint32_t) {});
-    }
-
-    void reset() {}
-};
-
 class NtpTimeSyncTest : public ::testing::Test {
 protected:
     MockSntp sntpMock;
     MockTimeNtp timeMock;
-    MockStatusLED statusLedMock;
     std::unique_ptr<NtpTimeSync> ntpTimeSync;
     bool syncSuccess{false};
     std::string syncTimeStr;
@@ -118,19 +102,17 @@ protected:
     void SetUp() override {
         sntpMock.reset();
         timeMock.reset();
-        statusLedMock.reset();
         arduino_mock::resetAllMocks();
 
         sntpMock.delegateToDummy();
         timeMock.delegateToDummy();
-        statusLedMock.delegateToDummy();
 
         syncSuccess = false;
         syncTimeStr.clear();
 
         // STA mode, WL_CONNECTED
         ntpTimeSync = std::make_unique<NtpTimeSync>(
-            sntpMock, timeMock, statusLedMock,
+            sntpMock, timeMock,
             1, 3  // WIFI_STA, WL_CONNECTED
         );
 
@@ -192,42 +174,21 @@ TEST_F(NtpTimeSyncTest, Init_SntpAlreadyEnabled_DoesNotReinit) {
     ntpTimeSync->init();
 }
 
-TEST_F(NtpTimeSyncTest, Init_ExceedsMaxRetries_ShowsErrorInStaMode) {
-    // Max out sync attempts
+TEST_F(NtpTimeSyncTest, Init_ExceedsMaxRetries_IsExhaustionOnly_NoLedInvolvement) {
+    // CONTRACT (single-writer LED): NTP retry exhaustion is NOT a WiFi state and
+    // must not drive the LED — NTP health is serial-only (the sync callback).
+    // NtpTimeSync has no LED dependency at all; exhaustion fires the failure
+    // callback and touches nothing else, in every WiFi mode.
     for (uint32_t i = 0; i <= NtpConfig::NTP_SYNC_RETRY_MAX; i++) {
         ntpTimeSync->init();
     }
+    syncSuccess = true;  // armed: exhaustion must report failure via callback
+    ASSERT_GT(ntpTimeSync->getSyncAttempts(), NtpConfig::NTP_SYNC_RETRY_MAX);
 
-    // In STA mode with WL_CONNECTED, should show ERROR_NO_NTP_SERVICE.
-    // Use the spec enum, not a raw int, so the test tracks the semantic pattern
-    // and is robust to enum reordering.
-    EXPECT_CALL(statusLedMock, setPattern(
-        static_cast<int>(firmware::StatusLED::Pattern::ERROR_NO_NTP_SERVICE)));
     ntpTimeSync->init();
 
-    // Callback should receive failure
+    // Failure is surfaced on the serial/callback path only.
     EXPECT_FALSE(syncSuccess);
-}
-
-TEST_F(NtpTimeSyncTest, Init_ExceedsMaxRetries_DoesNotShowErrorInApMode) {
-    // Create NtpTimeSync in AP mode
-    ntpTimeSync = std::make_unique<NtpTimeSync>(
-        sntpMock, timeMock, statusLedMock,
-        2, 5  // WIFI_AP, WL_NO_SSID_AVAIL
-    );
-    ntpTimeSync->setSyncCallback([this](bool success, const char* timeStr) {
-        syncSuccess = success;
-        if (timeStr) syncTimeStr = timeStr;
-    });
-
-    // Max out sync attempts
-    for (uint32_t i = 0; i <= NtpConfig::NTP_SYNC_RETRY_MAX; i++) {
-        ntpTimeSync->init();
-    }
-
-    // In AP mode, should NOT show error (no internet by design)
-    EXPECT_CALL(statusLedMock, setPattern(_)).Times(0);
-    ntpTimeSync->init();
 }
 
 // Sync completion tests

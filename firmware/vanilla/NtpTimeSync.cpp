@@ -3,9 +3,8 @@
 
 namespace esp32_firmware {
 
-NtpTimeSync::NtpTimeSync(ISntp& sntp, ITimeNtp& time, IStatusLED& statusLed,
-                         int wifiMode, int wifiStatus)
-    : sntp_(sntp), time_(time), statusLed_(statusLed)
+NtpTimeSync::NtpTimeSync(ISntp& sntp, ITimeNtp& time, int wifiMode, int wifiStatus)
+    : sntp_(sntp), time_(time)
     , wifiMode_(wifiMode), wifiStatus_(wifiStatus) {}
 
 void NtpTimeSync::startIfWiFiConnected(int wifiMode, int wifiStatus) {
@@ -22,14 +21,10 @@ void NtpTimeSync::init() {
 
     ctx_.syncAttempts++;
     if (ctx_.syncAttempts > NtpConfig::NTP_SYNC_RETRY_MAX) {
-        // Only show ERROR_NO_NTP_SERVICE in STA mode (AP mode has no internet by design)
-        // WIFI_STA=1, WL_CONNECTED=3 (ESP-IDF definitions)
-        constexpr int WIFI_MODE_STA = 1;
-        constexpr int WL_CONNECTED = 3;
-        if (wifiMode_ == WIFI_MODE_STA && wifiStatus_ == WL_CONNECTED) {
-            // ERROR_NO_NTP_SERVICE = 9 (StatusLED::Pattern enum, 0-indexed)
-            statusLed_.setPattern(9);
-        }
+        // Retry budget exhausted. NTP health is SERIAL-ONLY (the sync callback
+        // reports failure): a missing NTP sync does not block AUTH or streaming,
+        // so it is not a state — the LED models real states only, and the LED is
+        // written by FirmwareApp's single per-tick selectLedPattern call.
         if (syncCallback_) {
             syncCallback_(false, nullptr);
         }

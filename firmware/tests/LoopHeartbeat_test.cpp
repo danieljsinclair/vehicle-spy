@@ -29,14 +29,14 @@ TEST(LoopHeartbeatTest, SuppressesBeforeInterval) {
 TEST(LoopHeartbeatTest, FiresAfterInterval) {
     LoopHeartbeat hb(5000);
     EXPECT_TRUE(hb.tick(5000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=5000ms wifi=WIFI_DISCONNECTED ssid=none client=none disc=none led=0 monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=5000ms wifi=WIFI_DISCONNECTED ssid=none ip=none client=none disc=none led=0 monitor=idle\r\n");
 }
 
 // Contract: exact boundary (now == lastTick + interval) fires.
 TEST(LoopHeartbeatTest, FiresAtExactBoundary) {
     LoopHeartbeat hb(1000);
     EXPECT_TRUE(hb.tick(1000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED ssid=none client=none disc=none led=0 monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED ssid=none ip=none client=none disc=none led=0 monitor=idle\r\n");
 }
 
 // Contract: consecutive ticks within the same interval all return false
@@ -56,7 +56,8 @@ TEST(LoopHeartbeatTest, MapsAllWiFiStates) {
         {0, "WIFI_DISCONNECTED"},
         {1, "WIFI_CONNECTING"},
         {2, "WIFI_CONNECTED"},
-        {3, "WIFI_AP_MODE"},
+        {3, "WIFI_AP_MODE_DEFAULT"},
+        {4, "WIFI_AP_MODE_AUTH_FAIL"},
     };
     for (size_t i = 0; i < std::size(cases); ++i) {
         // Advance past the interval each iteration so lastTickMs_ keeps up.
@@ -72,6 +73,29 @@ TEST(LoopHeartbeatTest, MapsUnknownStateToUnknown) {
     LoopHeartbeat hb(1000);
     ASSERT_TRUE(hb.tick(1000, 99, false));
     EXPECT_THAT(hb.snapshot(), testing::HasSubstr("UNKNOWN"));
+}
+
+// Contract: the own-IP field renders the supplied value after ssid.
+TEST(LoopHeartbeatTest, OwnIpRendersAfterSsid) {
+    LoopHeartbeat hb(1000);
+    ASSERT_TRUE(hb.tick(1000, 2, false, "", "none", 0, "homessid", "192.168.4.1"));
+    EXPECT_THAT(hb.snapshot(), testing::HasSubstr("ssid=homessid ip=192.168.4.1 client=none"));
+}
+
+// Contract: an empty own-IP renders "none" (mirrors the ssid/client idiom).
+TEST(LoopHeartbeatTest, EmptyOwnIpRendersNone) {
+    LoopHeartbeat hb(1000);
+    ASSERT_TRUE(hb.tick(1000, 2, false));
+    EXPECT_THAT(hb.snapshot(), testing::HasSubstr("ssid=none ip=none client=none"));
+}
+
+// Contract: the auth branch also carries the ip= field.
+TEST(LoopHeartbeatTest, AuthBranchCarriesOwnIp) {
+    LoopHeartbeat hb(1000);
+    ASSERT_TRUE(hb.tick(1000, 1, false, "", "none", 0, "net", "10.0.0.5",
+                        "auth fail reason=202 strategy=1/3 loop=0/3"));
+    EXPECT_THAT(hb.snapshot(), testing::HasSubstr("ssid=net ip=10.0.0.5"));
+    EXPECT_THAT(hb.snapshot(), testing::HasSubstr("auth=auth fail"));
 }
 
 // Contract: monitorActive=true produces "ACTIVE" in the output.
@@ -92,14 +116,14 @@ TEST(LoopHeartbeatTest, MonitorInactiveProducesIdle) {
 TEST(LoopHeartbeatTest, UptimeMatchesNowMs) {
     LoopHeartbeat hb(1000);
     ASSERT_TRUE(hb.tick(12345, 2, true));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=12345ms wifi=WIFI_CONNECTED ssid=none client=none disc=none led=0 monitor=ACTIVE\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=12345ms wifi=WIFI_CONNECTED ssid=none ip=none client=none disc=none led=0 monitor=ACTIVE\r\n");
 }
 
 // Contract: output always ends with \r\n.
 TEST(LoopHeartbeatTest, OutputEndsWithCrLf) {
     LoopHeartbeat hb(1000);
     ASSERT_TRUE(hb.tick(1000, 0, false));
-    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED ssid=none client=none disc=none led=0 monitor=idle\r\n");
+    EXPECT_EQ(hb.snapshot(), "[STATE] uptime=1000ms wifi=WIFI_DISCONNECTED ssid=none ip=none client=none disc=none led=0 monitor=idle\r\n");
 }
 
 } // namespace

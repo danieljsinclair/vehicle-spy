@@ -25,7 +25,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
     , initialized_(false)
-    , previousWifiState_(static_cast<int>(WiFiState::State::WIFI_DISCONNECTED)) {
+    , wifiTransitionObserver_(*this) {
     // Construct the owned managers here (ctor scope), where the PASSED-ONLY
     // interface refs (sntp/timeNtp/udp/wifiDiscovery/time/deviceId/prefs) are still
     // in scope. Construction ONLY wires injected refs into each manager's
@@ -47,6 +47,12 @@ void FirmwareApp::emitEvent(const char* eventType, const std::string& detail) {
     }
 }
 
+// ITransitionEventSink: the observer's emissions go through the same
+// centralized-logger path as every other [EVENT] line.
+void FirmwareApp::onTransitionEvent(const char* eventType, const std::string& detail) {
+    emitEvent(eventType, detail);
+}
+
 FirmwareApp::~FirmwareApp() = default;
 
 void FirmwareApp::init() {
@@ -65,7 +71,7 @@ void FirmwareApp::init() {
     // Capture post-init WiFi state so the first update() transition is accurate
     // (avoids a spurious wifi_connected event if the state machine advanced
     // during init() before the first loop tick).
-    previousWifiState_ = static_cast<int>(wifiManager_->getState());
+    wifiTransitionObserver_.setInitialState(static_cast<int>(wifiManager_->getState()));
 }
 
 void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
@@ -88,14 +94,14 @@ void FirmwareApp::constructManagers(const std::array<uint8_t, 16>& deviceId,
 
     // Create NtpTimeSync (NTP time synchronization). Forwards the PASSED-ONLY
     // sntp/timeNtp refs (received by this ctor, passed straight through) — not
-    // stored as members. Construction only wires ISntp/ITimeNtp/IStatusLED; NTP
-    // init (touches SNTP/sockets) is deferred to update() after WiFi connects.
-    // wifiMode/wifiStatus are compile-time placeholders, overwritten by
-    // WiFiManager's NTP-init callback via startIfWiFiConnected() before init()
-    // reads them.
+    // stored as members. Construction only wires ISntp/ITimeNtp (no LED
+    // dependency: NTP health is serial-only); NTP init (touches SNTP/sockets)
+    // is deferred to update() after WiFi connects. wifiMode/wifiStatus are
+    // compile-time placeholders, refreshed by startIfWiFiConnected() each tick
+    // (recorded as context; NTP no longer gates any behaviour on them).
     constexpr int WIFI_MODE_PLACEHOLDER = 0;
     constexpr int WIFI_STATUS_PLACEHOLDER = 0;
-    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp, timeNtp, statusLed_,
+    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp, timeNtp,
                                                  WIFI_MODE_PLACEHOLDER, WIFI_STATUS_PLACEHOLDER);
 
     // The broadcast callback is set now (assignment only, no hardware). The UDP
@@ -162,82 +168,68 @@ void FirmwareApp::setupCallbacks() {
 void FirmwareApp::update(uint32_t now) {
     assert(initialized_ && "FirmwareApp::update() called before init()");
 
-    // Lazily open the UDP discovery socket on the first loop tick. This defers the
-    // hardware-touching udp_.begin() out of the synchronous boot path (init()), where
-    // the WiFi netif is not yet up, into loop() where WiFi.begin() has taken effect.
-    // Gated by discovery_.enabled so the build-time VEHICLE_SIM_ENABLE_DISCOVERY=0
-    // toggle keeps the socket closed (no hardware/UDP work) — the .ino sets this
-    // from the macro in setup().
+    startDiscoveryIfNeeded();
+    updateWifiStateAndEmitEvents(now);
+    updateLedPattern();
+    maybeStartNtp();
+    updateDiscovery(now, clientConnectionSource_.isClientConnected());
+    statusLed_.update(now);
+}
+
+// Lazily open the UDP discovery socket on the first loop tick. This defers the
+// hardware-touching udp_.begin() out of the synchronous boot path (init()), where
+// the WiFi netif is not yet up, into loop() where WiFi.begin() has taken effect.
+// Gated by discovery_.enabled so the build-time VEHICLE_SIM_ENABLE_DISCOVERY=0
+// toggle keeps the socket closed (no hardware/UDP work) — the .ino sets this
+// from the macro in setup().
+void FirmwareApp::startDiscoveryIfNeeded() {
     if (!discovery_.started && discoveryManager_ && discovery_.enabled) {
         discoveryManager_->init();
         discovery_.started = true;
     }
+}
 
-    // Track previous WiFi state before update() to detect transitions.
-    const int prevWifiState = previousWifiState_;
-
-    // Update WiFi state machine (primary driver)
-    // WiFiManager updates its internal state machine; it no longer drives setPattern().
+// Advance the WiFi state machine (the state owner) and notify the transition
+// observer — the listener that presents transitions as [EVENT] lines.
+void FirmwareApp::updateWifiStateAndEmitEvents(uint32_t now) {
     wifiManager_->update(now);
+    wifiTransitionObserver_.observe(static_cast<int>(wifiManager_->getState()),
+                                    wifi_.localIP(),
+                                    wifiManager_->getContext().escalatedToApReason);
+}
 
-    // Detect WiFi state transitions for observability.
-    const int curWifiState = static_cast<int>(wifiManager_->getState());
-    if (prevWifiState != curWifiState) {
-        if (curWifiState == static_cast<int>(WiFiState::State::WIFI_CONNECTED)) {
-            // WiFi just connected: emit event with local IP.
-            std::string ip = wifi_.localIP();
-            emitEvent("wifi_connected", "ip=" + ip);
-            observability_.lastDisconnectReason = 0;
-        } else if (prevWifiState == static_cast<int>(WiFiState::State::WIFI_CONNECTED)
-                   && curWifiState != static_cast<int>(WiFiState::State::WIFI_CONNECTED)) {
-            // Dropped from connected state: emit event with last known reason.
-            emitEvent("wifi_drop", "reason=" + std::to_string(observability_.lastDisconnectReason));
-        }
-        if (curWifiState == static_cast<int>(WiFiState::State::WIFI_AP_MODE)
-            && prevWifiState != static_cast<int>(WiFiState::State::WIFI_AP_MODE)) {
-            // Escalated to AP mode (definitive auth failure): emit event with
-            // the reason code that triggered the escalation (set by
-            // WiFiManager::onDisconnected into ctx.escalatedToApReason).
-            int apReason = wifiManager_->getContext().escalatedToApReason;
-            emitEvent("wifi_ap_fallback", "reason=" + std::to_string(apReason));
-        }
-        previousWifiState_ = curWifiState;
-    }
-
-    // ── LED pattern: the SINGLE owner per loop ────────────────────────────────
-    // FirmwareApp is the sole caller of setPattern() each tick. selectLedPattern
-    // is a pure function of (wifiState, clientConnected) — this kills the race
-    // between WiFiManager and TcpServerManager that caused last-writer-wins LED
-    // behaviour. clientConnectionSource_ queries TcpServerManager::hasClient()
-    // (the manager's own view of whether a client is adopted), eliminating the
-    // desync where the global WiFiClient reported disconnected while the manager
-    // still held a client.
+// The single per-tick LED write. selectLedPattern is a pure function of
+// (wifiState, clientConnected) — this kills the race between WiFiManager and
+// TcpServerManager that caused last-writer-wins LED behaviour.
+// clientConnectionSource_ queries TcpServerManager::hasClient() (the manager's
+// own view of whether a client is adopted), eliminating the desync where the
+// global WiFiClient reported disconnected while the manager still held a client.
+void FirmwareApp::updateLedPattern() {
     const bool clientConnected = clientConnectionSource_.isClientConnected();
     observability_.lastLedPattern = static_cast<int>(firmware::StatusLED::selectLedPattern(
         static_cast<int>(wifiManager_->getState()), clientConnected));
     statusLed_.setPattern(observability_.lastLedPattern);
+}
 
-    // Drive NTP start from the first loop tick AFTER WiFi reports connected.
-    // WiFiManager sets ntpStarted_ (via its NTP-init callback) only when it
-    // transitions to a connected STA state, so NtpTimeSync::init() — which
-    // touches SNTP/sockets — never runs on the boot path (boot-crash lesson).
-    // The when/how-to-start knowledge lives inside NtpTimeSync (startIfWiFiConnected).
+// Drive NTP start from the first loop tick AFTER WiFi reports connected.
+// WiFiManager sets ntpStarted_ (via its NTP-init callback) only when it
+// transitions to a connected STA state, so NtpTimeSync::init() — which
+// touches SNTP/sockets — never runs on the boot path (boot-crash lesson).
+// The when/how-to-start knowledge lives inside NtpTimeSync (startIfWiFiConnected).
+void FirmwareApp::maybeStartNtp() {
     if (ntpStarted_ && !ntpTimeSync_->isSynced()) {
         ntpTimeSync_->startIfWiFiConnected(wifi_.getMode(), wifi_.status());
     }
+}
 
-    // Drive DiscoveryManager with the current time and the live TCP-client state.
-    // DiscoveryManager already knows whether to broadcast (it checks haveClient and
-    // the WiFi mode internally); it opens/uses the UDP socket only after
-    // discoveryManager_->init() ran above. When discovery is disabled this is a no-op.
+// Drive DiscoveryManager with the current time and the live TCP-client state.
+// DiscoveryManager already knows whether to broadcast (it checks haveClient and
+// the WiFi mode internally); it opens/uses the UDP socket only after
+// discoveryManager_->init() ran. When discovery is disabled this is a no-op.
+void FirmwareApp::updateDiscovery(uint32_t now, bool clientConnected) {
     if (discoveryManager_ && discovery_.enabled) {
         discoveryManager_->update(now, clientConnected);
     }
-
-    // Update LED pattern animation every tick
-    // StatusLED.update() drives the current pattern animation (blinking, etc.)
-    // This is separate from setPattern() which changes the pattern itself
-    statusLed_.update(now);
 }
 
 void FirmwareApp::setDiscoveryEnabled(bool enabled) {
@@ -250,7 +242,7 @@ void FirmwareApp::resetDiscoveryBackoff() {
 }
 
 void FirmwareApp::onWiFiDisconnected(int reason) {
-    observability_.lastDisconnectReason = reason;
+    wifiTransitionObserver_.recordDisconnectReason(reason);
     assert(wifiManager_ && "FirmwareApp::onWiFiDisconnected called before init()");
     wifiManager_->onDisconnected(reason);
     // Observability: decode the raw reason code into a human-readable name + the
@@ -375,10 +367,10 @@ void FirmwareApp::onClientConnected(const std::string& ip) {
 }
 
 void FirmwareApp::onAuthFailed(const std::string& ip) {
+    // TCP AUTH-token rejection is a client-side problem, not an ESP32 error —
+    // it does not change the WiFi state and must not drive the LED. The event
+    // line is enough; update() keeps showing the pattern for the current state.
     emitEvent("auth_fail", "ip=" + ip + " reason=bad_token");
-    // Drive LED to ERROR_AUTH_FAILURE for one tick; the next update() call to
-    // selectLedPattern() will revert to the normal pattern automatically.
-    statusLed_.setPattern(static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE));
 }
 
 void FirmwareApp::onClientDisconnected(const std::string& ip, int reason) {

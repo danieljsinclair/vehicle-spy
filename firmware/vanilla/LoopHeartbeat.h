@@ -28,11 +28,15 @@ public:
     // clientIp: remote IP of the connected TCP client, or empty for none.
     // discoveryCadence: current discovery broadcast cadence (e.g. "500ms", "10s").
     // ledPattern: current LED pattern enum value.
+    // targetSsid: SSID being associated with (stored or baked), or empty for none.
+    // ownIp: this device's own IP (soft-AP IP in AP mode, STA IP otherwise),
+    //        or empty when not applicable.
+    // authDetail: auth-campaign retry detail, or empty when no campaign is active.
     // Defaults preserve the pre-observability signature for existing callers.
     bool tick(uint32_t nowMs, int wifiState, bool monitorActive,
               const std::string& clientIp = "", const std::string& discoveryCadence = "none",
               int ledPattern = 0, const std::string& targetSsid = "",
-              const std::string& authDetail = "");
+              const std::string& ownIp = "", const std::string& authDetail = "");
 
     // Access the last formatted snapshot line. Valid only after tick() returned
     // true on the most recent call.

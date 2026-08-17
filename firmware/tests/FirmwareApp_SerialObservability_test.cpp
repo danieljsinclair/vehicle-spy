@@ -347,8 +347,8 @@ TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsCorrectReason_AfterCam
     }
 
     EXPECT_EQ(firmwareApp->getWiFiState(),
-              static_cast<int>(WiFiState::State::WIFI_AP_MODE))
-        << "after 3 full loops the campaign must escalate to AP mode";
+              static_cast<int>(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL))
+        << "after 3 full loops the campaign must escalate to the AUTH_FAIL AP state";
 }
 
 } // namespace
