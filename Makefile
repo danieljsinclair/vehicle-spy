@@ -284,8 +284,7 @@ ios-analyze: app-icons
 
 # -- iOS Icons -------------------------------------------------------------
 
-ICON_LIGHT = image/ODB2_car_logo_trans.png
-ICON_DARK  = image/ODB2_car_logo_white_trans.png
+ICON_SOURCE = image/OBD2-Vehicle-SPY.png
 
 ICON_CATALOG = vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset
 ICON_FILES = \
@@ -298,19 +297,30 @@ app-icons: $(ICON_FILES)
 clean-icons:
 	@rm -f $(ICON_CATALOG)/*.png
 
-define generate_icon
+define generate_icon_light
 @mkdir -p "$(ICON_CATALOG)"
 @IMGT=$$(command -v magick 2>/dev/null); \
 	if [ -z "$$IMGT" ]; then echo "${RED}Error: ImageMagick not installed. Run 'make install-deps'.${NC}" >&2; exit 1; fi; \
 	echo "  Generating $@ (1024x1024) from $<"; \
-	$$IMGT "$<" -trim +repage -resize "1600x1600" -background transparent -gravity center -extent "1024x1024" "$@"
+	$$IMGT "$<" -trim +repage -resize "1024x1024" -background transparent -gravity center -extent "1024x1024" "$@"
 endef
 
-$(ICON_CATALOG)/AppIcon.png: $(ICON_LIGHT)
-	$(generate_icon)
+define generate_icon_dark
+@mkdir -p "$(ICON_CATALOG)"
+@IMGT=$$(command -v magick 2>/dev/null); \
+	if [ -z "$$IMGT" ]; then echo "${RED}Error: ImageMagick not installed. Run 'make install-deps'.${NC}" >&2; exit 1; fi; \
+	echo "  Generating $@ (1024x1024) from $< (black -> white for dark mode)"; \
+	$$IMGT "$<" -channel RGB -fill white -opaque black +channel -trim +repage -resize "1024x1024" -background transparent -gravity center -extent "1024x1024" "$@"
+endef
 
-$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_DARK)
-	$(generate_icon)
+$(ICON_CATALOG)/AppIcon.png: $(ICON_SOURCE)
+	$(generate_icon_light)
+
+$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_SOURCE)
+	$(generate_icon_dark)
+
+# Rebuild icons when generation parameters in this Makefile change.
+$(ICON_FILES): Makefile
 
 # -- DBC ------------------------------------------------------------------
 #
