@@ -1,6 +1,7 @@
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/boundary/ELM327Transport.h"
 #include "vehicle-sim/pipeline/PosixSocket.h"
+#include "vehicle-sim/pipeline/TcpReader.h"
 
 #if !defined(BUILD_IOS) && (!defined(TARGET_OS_IPHONE) || TARGET_OS_IPHONE == 0)
 // Hunt-on-disconnect: host resilience (not needed for iOS — it has its own scanning)
@@ -23,7 +24,6 @@ namespace vehicle_sim::pipeline {
 namespace {
 
 // Connection/reconnect constants
-constexpr std::size_t MAX_PENDING_LEN = 4096;  // Guard against runaway line buffering
 constexpr int DEFAULT_PER_COMMAND_DELAY_MS = 50;  // Fallback per-command delay when none is supplied
 
 // Hex-encode a 16-byte device id as 32 uppercase chars ("%02X" per byte).
@@ -146,7 +146,18 @@ TCPTransport::TCPTransport(TransportEndpoint endpoint,
     , hunt_(std::move(hunt))
     , clock_(std::move(clock))
     , socket_(std::move(socket))
-    , readTimeoutUs_(timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000)
+    , reader_(std::make_unique<TcpReader>(socket_, stop_,
+              timing.readTimeoutUs > 0 ? timing.readTimeoutUs : 500000,
+              [this](ReadFailureKind kind) {
+                  if (kind == ReadFailureKind::RecvFailure) {
+                      return handleReadFailure() == ReadRecovery::Resume;
+                  }
+                  // SelectError or StopRequested: mark exhausted and give up.
+                  // Restores the OLD nextLine() semantics where select-error
+                  // and stop-during-silent-poll set exhausted_=true.
+                  exhausted_ = true;
+                  return false;
+              }))
     , atInitDelayMs_(timing.atInitDelayMs)
     , socketRecvTimeoutMs_(timing.socketRecvTimeoutMs > 0 ? timing.socketRecvTimeoutMs : 1000) {
 }
@@ -202,10 +213,10 @@ bool TCPTransport::sendElm327Init() noexcept {
 
 bool TCPTransport::connectAndAuth() {
     closeConnection();
-    // The HELO handshake reuses the shared pending_ buffer (readLineSkippingFrames),
+    // The HELO handshake reuses the reader_'s pending buffer (readLineSkippingFrames),
     // so clear any bytes left from a previous connection before we begin a fresh
     // handshake — a reconnect must never parse stale line fragments.
-    pending_.clear();
+    reader_->clearPending();
     if (socket_->connect(host_, port_, stop_.get()) < 0) {
         output_->err("[tcp] connect failed to " + host_ + ":" + std::to_string(port_));
         return false;
@@ -335,22 +346,22 @@ bool TCPTransport::sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId) {
 
 std::optional<std::string> TCPTransport::readLineSkippingFrames() {
     // Honours the documented contract (TCPTransport.h: readLineSkippingFrames):
-    // reuse the SAME shared pending_ buffer + readSocketIntoPending /
+    // reuse the SAME shared reader_ buffer + readSocketIntoPending /
     // takeBufferedLine machinery as nextLine(), so trailing ESP32 prompt bytes
     // (the bare ">" that terminates an "\r>" or "\r\r>" banner) are consumed as
     // part of a complete line and NEVER leak into the post-handshake stream as a
     // phantom empty line.
     //
     // recv() is bounded by SO_RCVTIMEO (socketRecvTimeoutMs_, default 1000 ms)
-    // via readSocketIntoPending -> socket_->recv, so a silent stream returns
-    // nullopt (timeout / EOF) and the caller reports the failure. Each call
-    // returns the FIRST non-frame line it finds; sendHeloAndParseAck drives the
-    // loop (calling repeatedly) to locate the ATI banner and the "ACK DEVICE="
+    // via reader_->readSocketIntoPending -> socket_->recv, so a silent stream
+    // returns nullopt (timeout / EOF) and the caller reports the failure. Each
+    // call returns the FIRST non-frame line it finds; sendHeloAndParseAck drives
+    // the loop (calling repeatedly) to locate the ATI banner and the "ACK DEVICE="
     // line beneath any interleaved CAN frames.
     for (;;) {
-        while (auto line = takeBufferedLine()) {
+        while (auto line = reader_->takeBufferedLine()) {
             // The firmware emits "<response>\r\r>" — the bare ">" is a TRAILING
-            // prompt terminator of the PREVIOUS reply. Because readSocketIntoPending
+            // prompt terminator of the PREVIOUS reply. Because reader_->readSocketIntoPending
             // appends the next chunk to any leftover ">", the buffered line can open
             // with that stray ">". Strip it (and surrounding whitespace) so the line
             // handed to the classifier / parseHeloAck is clean and never leaks the
@@ -374,7 +385,7 @@ std::optional<std::string> TCPTransport::readLineSkippingFrames() {
         // No complete line buffered: pull the next chunk (bounded by SO_RCVTIMEO).
         // recv <= 0 means peer-close / timeout / error — surface as nullopt so the
         // caller's existing [tcp] diagnostic fires (e.g. "no response to ATI").
-        if (readSocketIntoPending() <= 0) {
+        if (reader_->readSocketIntoPending() <= 0) {
             return std::nullopt;
         }
         // Loop back to takeBufferedLine() to extract any complete lines from the
@@ -391,19 +402,15 @@ bool TCPTransport::performHeloHandshake() {
     // Convert deviceId bytes to hex string for message tagging
     deviceIdHex_ = deviceIdToHex(deviceIdBytes);
 
-    // The handshake consumed the ACK line via the shared pending_ buffer, leaving
-    // the ESP32's bare prompt terminator (">") in pending_ — it follows the ACK's
-    // final "\r" and has no terminating CRLF of its own, so takeBufferedLine never
-    // returns it. Strip any leading run of ">" + whitespace so the post-handshake
-    // nextLine() stream opens on real CAN-frame data, never a phantom ">118 ..."
-    // line (which would fail the normaliser). Frames are hex+space only, so a
-    // genuine frame byte can never be a leading ">", making this strip unambiguous.
-    if (const std::size_t firstReal = pending_.find_first_not_of(">\r\n \t");
-        firstReal != std::string::npos) {
-        pending_.erase(0, firstReal);
-    } else {
-        pending_.clear();
-    }
+    // The handshake consumed the ACK line via the shared reader_ buffer, leaving
+    // the ESP32's bare prompt terminator (">") in reader_->pending — it follows
+    // the ACK's final "\r" and has no terminating CRLF of its own, so
+    // takeBufferedLine never returns it. Strip any leading run of ">" + whitespace
+    // so the post-handshake nextLine() stream opens on real CAN-frame data, never a
+    // phantom ">118 ..." line (which would fail the normaliser). Frames are
+    // hex+space only, so a genuine frame byte can never be a leading ">", making
+    // this strip unambiguous.
+    reader_->stripLeading(">\r\n \t");
     return true;
 }
 
@@ -662,23 +669,26 @@ void TCPTransport::closeConnection() noexcept {
 long TCPTransport::performPing(int seq, int timeoutMs) {
     if (!connected_) return -1;
     const std::string frame = "PING " + std::to_string(seq) + "\r";
-    const auto t0 = std::chrono::steady_clock::now();
+    const auto t0 = clock_->now();
     if (!sendAll(frame)) return -1;
 
     // Read lines until we get a matching PONG (or the timeout elapses). We reuse
-    // the recv seam via selectReadable + readSocketIntoPending + takeBufferedLine
-    // so a stray CAN frame in-flight can't desync the keepalive.
+    // the recv seam via reader_->selectReady + reader_->readSocketIntoPending +
+    // reader_->takeBufferedLine so a stray CAN frame in-flight can't desync the
+    // keepalive. The deadline is measured on the INJECTED clock so a FakeClock
+    // keeps the test deterministic (instant) and the timeout never depends on
+    // real wall-clock time.
     const auto deadline = t0 + std::chrono::milliseconds(timeoutMs);
     const std::string want = "PONG " + std::to_string(seq);
-    while (std::chrono::steady_clock::now() < deadline) {
-        const int ready = selectReady();
+    while (clock_->now() < deadline) {
+        const int ready = reader_->selectReady();
         if (ready < 0) return -1;
         if (ready == 0) continue;
-        if (readSocketIntoPending() <= 0) return -1;  // link stalled
+        if (reader_->readSocketIntoPending() <= 0) return -1;  // link stalled
         std::optional<std::string> line;
-        while ((line = takeBufferedLine()).has_value()) {
+        while ((line = reader_->takeBufferedLine()).has_value()) {
             if (line->substr(0, want.size()) == want) {
-                const auto t1 = std::chrono::steady_clock::now();
+                const auto t1 = clock_->now();
                 return static_cast<long>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
             }
@@ -704,7 +714,7 @@ bool TCPTransport::open() {
     } else {
         output_->out("[tcp] Monitoring " + host_ + ":" + std::to_string(port_) + kClientTag);
     }
-    pending_.reserve(256);
+    reader_->reservePending(256);
     return true;
 }
 
@@ -737,48 +747,6 @@ bool TCPTransport::isOpen() const noexcept {
     return opened_ && connected_ && !exhausted_;
 }
 
-std::optional<std::string> TCPTransport::takeBufferedLine() {
-    const std::size_t end = pending_.find_first_of("\r\n");
-    if (end == std::string::npos) {
-        return std::nullopt;  // no complete line buffered — need more bytes
-    }
-    std::string line(pending_, 0, end);
-    pending_.erase(0, end + 1);
-    // We return the line verbatim (the normaliser tolerates a trailing '\r'
-    // already stripped here by the terminator split). An empty line from a
-    // "\r\r" banner sequence is delivered as "" — the normaliser Skip's it.
-    return line;
-}
-
-int TCPTransport::selectReady() const {
-    // Honour the injected read timeout, but cap each select() poll at a
-    // 1ms floor so the loop still wakes promptly on stop/disconnect even
-    // when a test injects a sub-millisecond value. Production default
-    // (500000us) is unaffected — min(500000, 1000 floor) == 1000 per poll,
-    // and the stop flag is re-checked every poll, same as before.
-    const int pollUs = std::min(readTimeoutUs_, 1000);
-    return socket_->selectReadable(pollUs);
-}
-
-ssize_t TCPTransport::readSocketIntoPending() {
-    std::array<char, 256> buffer;
-    ssize_t n = socket_->recv(buffer.data(), buffer.size());
-    if (n > 0) {
-        pending_.append(buffer.data(), static_cast<std::size_t>(n));
-
-        // Defensive cap so a peer that never sends a line ending can't grow
-        // the buffer without bound.
-        if (pending_.size() > MAX_PENDING_LEN) {
-            pending_.clear();
-        }
-    }
-    return n;
-}
-
-bool TCPTransport::shouldStop() const {
-    return stop_->stopRequested();
-}
-
 // Format the "disconnected ... reconnecting" message. The deviceIdHex_-set
 // variant tags the ESP32 id (when a HELO handshake completed); the empty
 // variant omits the tag (pre-HELO disconnect).
@@ -797,7 +765,7 @@ std::string TCPTransport::formatDisconnectMessage() const {
 // enter the hunting state for reconnect-or-discovery, or (iOS build) give up.
 // Sets exhausted_ on every GiveUp path.
 TCPTransport::ReadRecovery TCPTransport::handleReadFailure() {
-    if (shouldStop()) {
+    if (stop_->stopRequested()) {
         exhausted_ = true;
         return ReadRecovery::GiveUp;
     }
@@ -826,41 +794,11 @@ std::optional<std::string> TCPTransport::nextLine() {
         return std::nullopt;
     }
 
-    // First, satisfy the request from any already-buffered complete line.
-    if (auto line = takeBufferedLine()) {
-        return *line;
-    }
-
-    // Read more bytes from the socket with a bounded select() so we never hang.
-    while (true) {
-        if (const int ready = selectReady(); ready < 0) {
-            if (errno == EINTR) continue;  // signal — retry
-            exhausted_ = true;             // genuine error → treat as EOF
-            return std::nullopt;
-        } else if (ready == 0) {
-            if (shouldStop()) {
-                exhausted_ = true;
-                return std::nullopt;
-            }
-            continue;
-        }
-
-        if (ssize_t n = readSocketIntoPending(); n <= 0) {
-            if (handleReadFailure() == ReadRecovery::GiveUp) {
-                return std::nullopt;
-            }
-            continue;  // reconnected — resume reading
-        }
-
-        if (const std::size_t end = pending_.find_first_of("\r\n");
-            end == std::string::npos) {
-            continue;  // still no complete line — read more
-        } else {
-            std::string line(pending_, 0, end);
-            pending_.erase(0, end + 1);
-            return line;
-        }
-    }
+    // Delegate the entire buffered-line + select() + recv() read loop to the
+    // TcpReader. On a peer-close/error read, TcpReader invokes the injected
+    // ReadFailureCallback (handleReadFailure): a Resume result means the reader
+    // loop continues (reconnected), a GiveUp means nullopt.
+    return reader_->nextLine();
 }
 
 } // namespace vehicle_sim::pipeline
