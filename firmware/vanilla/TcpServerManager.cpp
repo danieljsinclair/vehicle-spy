@@ -38,10 +38,10 @@ std::string trim(const std::string& s) {
 } // namespace
 
 TcpServerManager::TcpServerManager(ITcpServer& server,
-                                   const std::string& authToken,
+                                   TokenProvider tokenProvider,
                                    ITcpHostCallbacks& host)
     : server_(server)
-    , authToken_(authToken)
+    , tokenProvider_(std::move(tokenProvider))
     , host_(host) {
 }
 
@@ -88,7 +88,7 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         // tick while still letting a slow command byte arrive.
         current_->setTimeout(TCP_COMMAND_TIMEOUT_MS);
 
-        if (isValidAuthToken(firstLine, authToken_)) {
+        if (isValidAuthToken(firstLine, tokenProvider_())) {
             current_->println("OK");
             current_->flush();
             // ── Stream-on-connect ────────────────────────────────────────────

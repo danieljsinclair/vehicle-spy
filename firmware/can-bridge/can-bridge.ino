@@ -407,10 +407,11 @@ ArduinoTcpServer& arduinoTcpServer() {
 std::string& loadedAuthToken() { static std::string inst; return inst; }
 
 TcpServerManager& tcpManager() {
-    // authToken is the bare token; the vanilla prepends "AUTH " when comparing
-    // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
+    // Token provider bound to loadedAuthToken(): reads the live static on every
+    // AUTH check, so the value populated by setup() from NVS is honoured even
+    // though tcpManager() is statically constructed before setup() runs.
     static TcpServerManager inst(arduinoTcpServer(),
-                                 loadedAuthToken(),
+                                 []() -> const std::string& { return loadedAuthToken(); },
                                  firmwareApp);
     return inst;
 }
