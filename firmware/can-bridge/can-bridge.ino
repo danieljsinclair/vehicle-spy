@@ -261,17 +261,11 @@ void otaSetup();
 void otaLoop();
 #endif
 
-// WiFi credentials injected via compiler defines (never stored on disk)
-// Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASS=Y
-#ifdef ESP32_WIFI_SSID
-#define _STRINGIZE(x) #x
-#define STRINGIZE(x) _STRINGIZE(x)
-static constexpr const char* WIFI_SSID = STRINGIZE(ESP32_WIFI_SSID);
-static constexpr const char* WIFI_PASSWORD = STRINGIZE(ESP32_WIFI_PASS);
-#else
+// WiFi credentials removed from build flags. Creds live in NVS only; provision
+// via ATSETWIFI or `make set-wifi-creds`. Firmware boots AP-first until creds
+// are stored (FirmwareApp falls back to AP mode when no NVS creds exist).
 static constexpr const char* WIFI_SSID = nullptr;
 static constexpr const char* WIFI_PASSWORD = nullptr;
-#endif
 
 static constexpr const char* AP_SSID = "ESP32-CAN";
 static constexpr const char* AP_PASS = "cancan12";
@@ -309,13 +303,11 @@ struct TimeAdapters {
 };
 TimeAdapters& timeAdapters() { static TimeAdapters inst; return inst; }
 
-// Baked credentials: use the build-injected ESP32_WIFI_SSID/ESP32_WIFI_PASS when
-// present (the real station credentials), otherwise nullptr so WiFiManager falls
-// back to AP mode. NOTE: the previous refactor hardcoded dummy "baked-ssid"/
-// "baked-pass" here, which made FirmwareApp call WiFi.begin() with bogus creds and
-// never join the real network. Must match the inline state machine's WIFI_SSID.
-static constexpr const char* BAKED_SSID = (WIFI_SSID != nullptr) ? WIFI_SSID : nullptr;
-static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASSWORD : nullptr;
+// Baked credentials removed: creds now live in NVS only.
+// FirmwareApp falls back to AP mode when no NVS creds exist (user provisions
+// via ATSETWIFI / make set-wifi-creds).
+static constexpr const char* BAKED_SSID = nullptr;
+static constexpr const char* BAKED_PASS = nullptr;
 
 // ── CAN Bridge Arduino Adapters ──────────────────────────────────────────
 // Thin adapters implementing CanBridge's vanilla interfaces over the ESP32
@@ -350,11 +342,29 @@ extern FirmwareApp firmwareApp;
 // static accessor (struct instance is function-local -> not flagged; clears all
 // 4). The monitor-state boundary is no longer adapted here — FirmwareApp
 // implements IMonitorState directly (passed to its own AtCommandDispatcher).
+// Token store + credential-clear adapters: thin wrappers that delegate to
+// FirmwareApp (which owns the NVS write boundary). Defined here (not in
+// ArduinoAtAdapters.h) because they reference FirmwareApp, which is declared
+// later in this TU.
+struct FirmwareTokenStore : public esp32_firmware::IWifiTokenStore {
+    explicit FirmwareTokenStore(esp32_firmware::FirmwareApp& app) : app_(app) {}
+    bool storeToken(const std::string& token) override { return app_.storeAuthToken(token); }
+    esp32_firmware::FirmwareApp& app_;
+};
+
+struct FirmwareCredentialClearAt : public esp32_firmware::IWifiCredentialClear {
+    explicit FirmwareCredentialClearAt(esp32_firmware::FirmwareApp& app) : app_(app) {}
+    bool clear() override { return app_.clearCredentials(); }
+    esp32_firmware::FirmwareApp& app_;
+};
+
 struct AtAdapters {
     ArduinoAtTcpClient tcpClient{client()};
     ArduinoAtSerial serial;
     ArduinoAtEsp esp{Constants::TCP_REBOOT_DELAY_MS};
     ArduinoAtWifiStore wifiStore{wifiCredentials()};
+    FirmwareTokenStore tokenStore{firmwareApp};
+    FirmwareCredentialClearAt credClear{firmwareApp};
 };
 AtAdapters& atAdapters() { static AtAdapters inst; return inst; }
 
@@ -391,11 +401,16 @@ ArduinoTcpServer& arduinoTcpServer() {
     static ArduinoTcpServer inst(tcpServer(), client());
     return inst;
 }
+// Auth token loaded from NVS at boot (with baked default fallback).
+// Initialized in setup() before the TCP server starts; tcpManager() reads it
+// at first construction so the AUTH gate uses the NVS value when present.
+std::string& loadedAuthToken() { static std::string inst; return inst; }
+
 TcpServerManager& tcpManager() {
     // authToken is the bare token; the vanilla prepends "AUTH " when comparing
     // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
     static TcpServerManager inst(arduinoTcpServer(),
-                                 std::string(TCP_AUTH_TOKEN),
+                                 loadedAuthToken(),
                                  firmwareApp);
     return inst;
 }
@@ -565,6 +580,13 @@ void setup() {
     // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
     (void)checkFactoryReset();
 
+    // Load auth token from NVS (with baked default fallback) before TCP server starts.
+    // ATSETTOKEN writes the token to NVS; on boot we read it here and fall back to
+    // the build-time default if NVS has none.
+    loadedAuthToken();  // initialize the static
+    std::string nvsToken = firmwareApp.loadAuthToken();
+    loadedAuthToken() = nvsToken.empty() ? std::string(TCP_AUTH_TOKEN) : nvsToken;
+
     // ── Initialize FirmwareApp (replaces inline WiFi state machine) ───────────────
     // FirmwareApp.init() sets up WiFiManager and drives initial connection
     firmwareApp.init();
@@ -655,7 +677,8 @@ void setup() {
     // FirmwareApp owns. The monitor-state boundary is satisfied by firmwareApp
     // itself (it implements IMonitorState), so no adapter is passed for it.
     firmwareApp.setAtCommandAdapters(atAdapters().tcpClient, atAdapters().serial, atAdapters().esp,
-                                     atAdapters().wifiStore, firmwareApp, discoveryDeviceId());
+                                     atAdapters().wifiStore, atAdapters().tokenStore, atAdapters().credClear,
+                                     firmwareApp, discoveryDeviceId());
 
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");

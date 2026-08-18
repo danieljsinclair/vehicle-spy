@@ -142,6 +142,21 @@ public:
     bool active = false;
     void setMonitorActive(bool a) override { active = a; }
 };
+class SpyTokenStore : public IWifiTokenStore {
+public:
+    bool nextResult = true;
+    std::string lastToken;
+    int storeCalls = 0;
+    bool storeToken(const std::string& token) override {
+        ++storeCalls; lastToken = token; return nextResult;
+    }
+};
+class SpyCredentialClear : public IWifiCredentialClear {
+public:
+    bool nextResult = true;
+    int clearCalls = 0;
+    bool clear() override { ++clearCalls; return nextResult; }
+};
 
 class FirmwareAppTest : public ::testing::Test {
 protected:

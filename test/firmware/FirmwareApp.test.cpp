@@ -37,9 +37,11 @@ public:
 class FakePreferences : public IPreferences {
 public:
     std::string ssid, pass;
+    int credCount = 0;
     void begin(const char*, bool) override {}
     void end() override {}
     size_t getBytesLength(const char* key) override {
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? 1 : 0;
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid.size();
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass.size();
         return 0;
@@ -47,14 +49,16 @@ public:
     std::string getString(const char* key, const std::string& = "") override {
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid;
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass;
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? "1" : "";
         return "";
     }
     size_t putString(const char* key, const std::string& value) override {
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) ssid = value;
         else if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) pass = value;
+        else if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) credCount = std::stoi(value);
         return value.size();
     }
-    void clear() override { ssid.clear(); pass.clear(); }
+    void clear() override { ssid.clear(); pass.clear(); credCount = 0; }
 };
 
 class FakeStatusLed : public IStatusLED {
@@ -206,7 +210,7 @@ TEST(FirmwareAppTest, TcpRestartCallbackBridgesToFirmware) {
     AppHarness h;
     bool tcpRestarted = false;
     h.app.setCallbacks(FirmwareCallbacks{.restartTcpServer = [&]() { tcpRestarted = true; }});
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
     h.app.init();
 
     // Drive WiFi to CONNECTED_STA (which fires WiFiManager's tcp-restart + ntp callbacks).
@@ -253,7 +257,7 @@ TEST(FirmwareAppTest, FactoryResetClearsCredentials) {
 
 TEST(FirmwareAppTest, OnDisconnectedFromConnectedStaFlagsTcpRestart) {
     AppHarness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
     h.app.init();
     h.wifi.statusVal = 3;
     h.app.update(1000);  // -> CONNECTED_STA
@@ -271,7 +275,7 @@ TEST(FirmwareAppTest, OnDisconnectedAuthFailArmsCampaign_StaysConnecting) {
     // a retry campaign and stays WIFI_CONNECTING. Model the radio dropping
     // (statusVal = 0 / WL_IDLE_STATUS) so the next update() drives the campaign.
     AppHarness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
     h.app.init();
     h.wifi.statusVal = 3;
     h.app.update(1000);  // -> CONNECTED_STA
@@ -297,7 +301,7 @@ TEST(FirmwareAppTest, GetOwnIpReturnsStaIpWhenNotAp) {
     // STA mode: stored credentials keep the manager on the station path
     // (setMode(1) at init), so the heartbeat reports the station address.
     AppHarness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";  // creds BEFORE init -> STA mode
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";  // creds BEFORE init -> STA mode
     h.app.init();
     ASSERT_EQ(h.wifi.mode, 1);  // WIFI_STA, not AP
     EXPECT_EQ(h.app.getOwnIp(), "192.168.1.50");  // FakeWiFi localIP

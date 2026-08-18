@@ -6,9 +6,11 @@
 namespace esp32_firmware {
 
 AtCommandDispatcher::AtCommandDispatcher(ITcpClientAt& tcpClient, ISerialAt& serial, IEspAt& esp,
-                                         IWifiCredentialStore& wifiStore, IMonitorState& monitor,
+                                         IWifiCredentialStore& wifiStore, IWifiTokenStore& tokenStore,
+                                         IWifiCredentialClear& credClear, IMonitorState& monitor,
                                          const std::array<uint8_t, 16>& deviceId)
-    : tcpClient_(tcpClient), serial_(serial), esp_(esp), wifiStore_(wifiStore), monitor_(monitor),
+    : tcpClient_(tcpClient), serial_(serial), esp_(esp), wifiStore_(wifiStore),
+      tokenStore_(tokenStore), credClear_(credClear), monitor_(monitor),
       deviceId_(deviceId) {}
 
 void AtCommandDispatcher::registerHandler(std::unique_ptr<IAtCommandHandler> handler) {
@@ -28,6 +30,8 @@ void AtCommandDispatcher::registerFirmwareHandlers() {
     registerHandler(std::make_unique<AtpcCommandHandler>(monitor_));
     registerHandler(std::make_unique<AtheloCommandHandler>(deviceId_));
     registerHandler(std::make_unique<AtsetwifiCommandHandler>(wifiStore_));
+    registerHandler(std::make_unique<AtsettokenCommandHandler>(tokenStore_));
+    registerHandler(std::make_unique<AtclearwifiCommandHandler>(credClear_));
     registerHandler(std::make_unique<AtiCommandHandler>());
     registerHandler(std::make_unique<AtrebootCommandHandler>());
 }

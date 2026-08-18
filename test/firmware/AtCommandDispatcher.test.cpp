@@ -53,6 +53,23 @@ public:
     void setMonitorActive(bool a) override { active = a; }
 };
 
+class FakeTokenStore : public IWifiTokenStore {
+public:
+    bool nextResult = true;
+    std::string lastToken;
+    int storeCalls = 0;
+    bool storeToken(const std::string& token) override {
+        ++storeCalls; lastToken = token; return nextResult;
+    }
+};
+
+class FakeCredentialClear : public IWifiCredentialClear {
+public:
+    bool nextResult = true;
+    int clearCalls = 0;
+    bool clear() override { ++clearCalls; return nextResult; }
+};
+
 constexpr std::array<uint8_t, 16> kDeviceId = {
     0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03,
     0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B
@@ -64,11 +81,13 @@ struct DispatcherHarness {
     FakeSerial serial;
     FakeEsp esp;
     FakeWifiStore wifi;
+    FakeTokenStore token;
+    FakeCredentialClear credClear;
     FakeMonitor monitor;
     AtCommandDispatcher d;
 
     DispatcherHarness()
-        : d(tcp, serial, esp, wifi, monitor, kDeviceId) {}
+        : d(tcp, serial, esp, wifi, token, credClear, monitor, kDeviceId) {}
 };
 
 // ── Pure-function tests ───────────────────────────────────────────────────────
@@ -293,6 +312,71 @@ TEST(AtCommandSetWifiTest, TrimsOnlyOuterWhitespaceNotInner) {
     // .ino's params.trim()); whitespace adjacent to the comma is preserved verbatim.
     EXPECT_EQ(h.wifi.lastSsid, "net  ");
     EXPECT_EQ(h.wifi.lastPassword, "  pass");
+}
+
+// ── ATSETTOKEN tests ────────────────────────────────────────────────────────────
+
+TEST(AtCommandSetTokenTest, StoresValidTokenAndReboots) {
+    DispatcherHarness h;
+    h.d.handleTcpCommand("ATSETTOKEN new-secret-token");
+    EXPECT_EQ(h.token.storeCalls, 1);
+    EXPECT_EQ(h.token.lastToken, "new-secret-token");
+    EXPECT_EQ(h.tcp.lastPrinted, "OK Token stored. Rebooting...\r\r>");
+    EXPECT_EQ(h.esp.restartCalls, 1);
+    EXPECT_EQ(h.tcp.flushCalls, 2);  // prompt flush + side-effect block
+}
+
+TEST(AtCommandSetTokenTest, RejectsEmptyToken) {
+    DispatcherHarness h;
+    h.d.handleTcpCommand("ATSETTOKEN ");
+    EXPECT_EQ(h.token.storeCalls, 0);
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Token cannot be empty\r\r>");
+    EXPECT_EQ(h.esp.restartCalls, 0);
+}
+
+TEST(AtCommandSetTokenTest, RejectsOverlongToken) {
+    DispatcherHarness h;
+    std::string longToken(65, 'x');
+    h.d.handleTcpCommand("ATSETTOKEN " + longToken);
+    EXPECT_EQ(h.token.storeCalls, 0);
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Token too long (max 64 chars)\r\r>");
+    EXPECT_EQ(h.esp.restartCalls, 0);
+}
+
+TEST(AtCommandSetTokenTest, ReportsStoreFailure) {
+    DispatcherHarness h;
+    h.token.nextResult = false;
+    h.d.handleTcpCommand("ATSETTOKEN mytoken");
+    EXPECT_EQ(h.token.storeCalls, 1);
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Failed to store token\r\r>");
+    EXPECT_EQ(h.esp.restartCalls, 0);
+}
+
+// ── ATCLEARWIFI tests ───────────────────────────────────────────────────────────
+
+TEST(AtCommandClearWifiTest, ClearsCredentialsAndReboots) {
+    DispatcherHarness h;
+    h.d.handleTcpCommand("ATCLEARWIFI");
+    EXPECT_EQ(h.credClear.clearCalls, 1);
+    EXPECT_EQ(h.tcp.lastPrinted, "OK WiFi credentials cleared. Rebooting...\r\r>");
+    EXPECT_EQ(h.esp.restartCalls, 1);
+    EXPECT_EQ(h.tcp.flushCalls, 2);  // prompt flush + side-effect block
+}
+
+TEST(AtCommandClearWifiTest, ReportsClearFailure) {
+    DispatcherHarness h;
+    h.credClear.nextResult = false;
+    h.d.handleTcpCommand("ATCLEARWIFI");
+    EXPECT_EQ(h.credClear.clearCalls, 1);
+    EXPECT_EQ(h.tcp.lastPrinted, "ERROR Failed to clear credentials\r\r>");
+    EXPECT_EQ(h.esp.restartCalls, 0);
+}
+
+TEST(AtCommandClearWifiTest, ReturnsQuestionMarkForUnknown) {
+    DispatcherHarness h;
+    h.d.handleTcpCommand("ATCLEARWIFIEXTRA");
+    EXPECT_EQ(h.credClear.clearCalls, 0);
+    EXPECT_EQ(h.tcp.lastPrinted, "?\r\r>");
 }
 
 } // namespace

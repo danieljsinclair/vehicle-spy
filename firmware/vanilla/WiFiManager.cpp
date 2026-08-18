@@ -393,7 +393,10 @@ bool WiFiManager::factoryReset() {
 
 bool WiFiManager::storeCredentials(const std::string& ssid, const std::string& pass) {
     prefs_.begin(WiFiConfig::NVS_WIFI_NAMESPACE, false);
-    bool success = prefs_.putString(WiFiConfig::NVS_WIFI_SSID, ssid) > 0;
+    // Write cred_count first so hasStoredCredentials / determineCredentialSource
+    // can gate on a single integer rather than per-key length probes.
+    bool success = prefs_.putString(WiFiConfig::NVS_WIFI_CRED_COUNT, "1") > 0;
+    success = success && (prefs_.putString(WiFiConfig::NVS_WIFI_SSID, ssid) > 0);
     success = success && (prefs_.putString(WiFiConfig::NVS_WIFI_PASS, pass) > 0);
     prefs_.end();
     return success;
@@ -402,10 +405,9 @@ bool WiFiManager::storeCredentials(const std::string& ssid, const std::string& p
 bool WiFiManager::hasStoredCredentials() const {
     IPreferences& nonConstPrefs = const_cast<IPreferences&>(prefs_);
     nonConstPrefs.begin(WiFiConfig::NVS_WIFI_NAMESPACE, true);
-    size_t ssidLen = nonConstPrefs.getBytesLength(WiFiConfig::NVS_WIFI_SSID);
-    size_t passLen = nonConstPrefs.getBytesLength(WiFiConfig::NVS_WIFI_PASS);
+    size_t countLen = nonConstPrefs.getBytesLength(WiFiConfig::NVS_WIFI_CRED_COUNT);
     nonConstPrefs.end();
-    return (ssidLen > 0 && passLen > 0);
+    return (countLen > 0);
 }
 
 bool WiFiManager::loadCredentials(std::string& ssid, std::string& pass) const {
@@ -539,11 +541,10 @@ std::string WiFiManager::getAuthCampaignDetail() const {
 
 CredentialSource determineCredentialSource(IPreferences& prefs, const char* bakedSsid, const char* bakedPass) {
     prefs.begin(WiFiConfig::NVS_WIFI_NAMESPACE, true);
-    size_t ssidLen = prefs.getBytesLength(WiFiConfig::NVS_WIFI_SSID);
-    size_t passLen = prefs.getBytesLength(WiFiConfig::NVS_WIFI_PASS);
+    size_t countLen = prefs.getBytesLength(WiFiConfig::NVS_WIFI_CRED_COUNT);
     prefs.end();
 
-    if (ssidLen > 0 && passLen > 0) {
+    if (countLen > 0) {
         return CredentialSource::STORED_NVS;
     }
     // No stored credentials - check if baked credentials are available

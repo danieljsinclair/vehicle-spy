@@ -47,11 +47,13 @@ public:
 class FakePreferences : public IPreferences {
 public:
     std::string ssid, pass;
+    int credCount = 0;
     bool cleared = false;
 
     void begin(const char*, bool) override {}
     void end() override {}
     size_t getBytesLength(const char* key) override {
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? 1 : 0;
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid.size();
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass.size();
         return 0;
@@ -59,14 +61,16 @@ public:
     std::string getString(const char* key, const std::string&) override {
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid;
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass;
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? "1" : "";
         return "";
     }
     size_t putString(const char* key, const std::string& value) override {
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) ssid = value;
         else if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) pass = value;
+        else if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) credCount = std::stoi(value);
         return value.size();
     }
-    void clear() override { ssid.clear(); pass.clear(); cleared = true; }
+    void clear() override { ssid.clear(); pass.clear(); credCount = 0; cleared = true; }
 };
 
 class FakeStatusLed : public IStatusLED {
@@ -92,7 +96,7 @@ public:
 
 TEST(WiFiPureTest, DetermineCredentialSourceStoredNvs) {
     FakePreferences prefs;
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1;  // list-schema: cred_count>0 is the STORED_NVS gate
     EXPECT_EQ(determineCredentialSource(prefs, nullptr, nullptr), CredentialSource::STORED_NVS);
 }
 
@@ -220,7 +224,7 @@ TEST(WiFiStateMachineTest, InitWithNoCredentialsLandsInApMode) {
 
 TEST(WiFiStateMachineTest, DisconnectedWithStoredCredsBeginsStaConnecting) {
     FakeWiFi wifi; FakePreferences prefs;
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1; prefs.ssid = "net"; prefs.pass = "pw";
     FakeSerial serial;
     WiFiManager mgr(wifi, prefs, serial);
     mgr.init();  // ticks DISCONNECTED handler
@@ -242,7 +246,7 @@ TEST(WiFiStateMachineTest, DisconnectedWithNoCredsGoesToApMode) {
 
 TEST(WiFiStateMachineTest, ConnectingTransitionsToConnectedStaOnConnectedStatus) {
     FakeWiFi wifi; FakePreferences prefs;
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1; prefs.ssid = "net"; prefs.pass = "pw";
     bool ntpCalled = false;
     FakeSerial serial;
     WiFiManager mgr(wifi, prefs, serial);
@@ -273,7 +277,7 @@ TEST(WiFiStateMachineTest, OnDisconnectedFromStaGoesToReconnectingAndFlagsTcpRes
     // Force into CONNECTED_STA artificially to simulate a live connection drop.
     mgr.update(0);  // harmless tick in DISCONNECTED
     // Drive to CONNECTED_STA via CONNECTING.
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1; prefs.ssid = "net"; prefs.pass = "pw";
     mgr.init();
     wifi.statusVal = 3;
     mgr.update(1);
@@ -289,7 +293,7 @@ TEST(WiFiStateMachineTest, ShouldRestartTcpServerFlagCanBeCleared) {
     FakeSerial serial;
     WiFiManager mgr(wifi, prefs, serial);
     mgr.init();
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1; prefs.ssid = "net"; prefs.pass = "pw";
     mgr.init();
     wifi.statusVal = 3;
     mgr.update(1);
@@ -315,7 +319,7 @@ TEST(WiFiStateMachineTest, TcpRestartCallbackFiresOnSetFlagTransition) {
     WiFiManager mgr(wifi, prefs, serial);
     mgr.setTcpServerRestartCallback([&]() { tcpRestart = true; });
     mgr.init();
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1; prefs.ssid = "net"; prefs.pass = "pw";
     mgr.init();
     wifi.statusVal = 3;
     mgr.update(1);  // CONNECTED_STA sets restart flag + ntp
@@ -331,7 +335,7 @@ TEST(WiFiStateMachineTest, DiscoveryResetFiresOnFirstConnect) {
     FakeSerial serial;
     WiFiManager mgr(wifi, prefs, serial);
     mgr.setDiscoveryResetCallback([&]() { ++discoveryResets; });
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1; prefs.ssid = "net"; prefs.pass = "pw";
     mgr.init();  // -> CONNECTING
     EXPECT_EQ(discoveryResets, 0);  // not yet connected
     wifi.statusVal = 3;  // WL_CONNECTED
@@ -345,7 +349,7 @@ TEST(WiFiStateMachineTest, DiscoveryResetFiresOnReconnectAfterDrop) {
     FakeSerial serial;
     WiFiManager mgr(wifi, prefs, serial);
     mgr.setDiscoveryResetCallback([&]() { ++discoveryResets; });
-    prefs.ssid = "net"; prefs.pass = "pw";
+    prefs.credCount = 1; prefs.ssid = "net"; prefs.pass = "pw";
     mgr.init();
     wifi.statusVal = 3;
     mgr.update(1);  // -> CONNECTED_STA (1 reset)

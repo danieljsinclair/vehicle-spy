@@ -48,6 +48,18 @@ struct IWifiCredentialStore {
     virtual ~IWifiCredentialStore() = default;
 };
 
+// TCP auth token persistence (NVS on-device; faked in tests)
+struct IWifiTokenStore {
+    virtual bool storeToken(const std::string& token) = 0;
+    virtual ~IWifiTokenStore() = default;
+};
+
+// WiFi credential clear (factory-reset / ATCLEARWIFI)
+struct IWifiCredentialClear {
+    virtual bool clear() = 0;
+    virtual ~IWifiCredentialClear() = default;
+};
+
 // CAN monitor flag the firmware loop reads each tick.
 struct IMonitorState {
     virtual void setMonitorActive(bool active) = 0;
@@ -87,7 +99,8 @@ public:
     // deviceId: 16-byte discovery device id echoed by ATHELO.
     // rebootDelayMs: delay before ESP.restart() (matches Constants::TCP_REBOOT_DELAY_MS).
     AtCommandDispatcher(ITcpClientAt& tcpClient, ISerialAt& serial, IEspAt& esp,
-                       IWifiCredentialStore& wifiStore, IMonitorState& monitor,
+                       IWifiCredentialStore& wifiStore, IWifiTokenStore& tokenStore,
+                       IWifiCredentialClear& credClear, IMonitorState& monitor,
                        const std::array<uint8_t, 16>& deviceId);
 
     // Register a command handler
@@ -114,6 +127,8 @@ private:
     ISerialAt& serial_;
     IEspAt& esp_;
     IWifiCredentialStore& wifiStore_;
+    IWifiTokenStore& tokenStore_;
+    IWifiCredentialClear& credClear_;
     IMonitorState& monitor_;
     std::array<uint8_t, 16> deviceId_;
 
@@ -241,6 +256,50 @@ struct AtsetwifiCommandHandler : public IAtCommandHandler {
         return AtCommandResult("ERROR Failed to store credentials");
     }
     IWifiCredentialStore& wifiStore_;
+};
+
+struct AtsettokenCommandHandler : public IAtCommandHandler {
+    explicit AtsettokenCommandHandler(IWifiTokenStore& tokenStore) : tokenStore_(tokenStore) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd.rfind("ATSETTOKEN", 0) == 0;
+    }
+    AtCommandResult execute(const std::string& originalCmd) const override {
+        std::string params = originalCmd.substr(10);  // Skip "ATSETTOKEN"
+        // trim leading/trailing whitespace
+        size_t s = params.find_first_not_of(" \t\r\n");
+        if (s == std::string::npos) {
+            params.clear();  // all whitespace -> empty
+        } else {
+            size_t e = params.find_last_not_of(" \t\r\n");
+            params = params.substr(s, e - s + 1);
+        }
+
+        if (params.empty()) {
+            return AtCommandResult("ERROR Token cannot be empty");
+        }
+        if (params.length() > 64) {
+            return AtCommandResult("ERROR Token too long (max 64 chars)");
+        }
+        if (tokenStore_.storeToken(params)) {
+            return AtCommandResult("OK Token stored. Rebooting...", true, true);
+        }
+        return AtCommandResult("ERROR Failed to store token");
+    }
+    IWifiTokenStore& tokenStore_;
+};
+
+struct AtclearwifiCommandHandler : public IAtCommandHandler {
+    explicit AtclearwifiCommandHandler(IWifiCredentialClear& clearFn) : clearFn_(clearFn) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATCLEARWIFI";
+    }
+    AtCommandResult execute(const std::string&) const override {
+        if (clearFn_.clear()) {
+            return AtCommandResult("OK WiFi credentials cleared. Rebooting...", true, true);
+        }
+        return AtCommandResult("ERROR Failed to clear credentials");
+    }
+    IWifiCredentialClear& clearFn_;
 };
 
 struct AtiCommandHandler : public IAtCommandHandler {

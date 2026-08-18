@@ -279,16 +279,18 @@ TEST_F(FirmwareAppTest, SetAtCommandAdapters_CalledTwice_LastWins) {
     SpySerialAt firstSerial, secondSerial;
     SpyEspAt esp;
     SpyWifiStore wifi;
+    SpyTokenStore firstToken, secondToken;
+    SpyCredentialClear firstCredClear, secondCredClear;
     SpyMonitorState monitor;
 
     firmwareApp->init();
-    firmwareApp->setAtCommandAdapters(firstTcp, firstSerial, esp, wifi, monitor, testDeviceId);
+    firmwareApp->setAtCommandAdapters(firstTcp, firstSerial, esp, wifi, firstToken, firstCredClear, monitor, testDeviceId);
     firmwareApp->handleTcpAtCommand("ATI");
     EXPECT_EQ(firstTcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
     EXPECT_EQ(secondTcp.lastPrinted, "");  // not yet routed here
 
     // Re-wire with a second set of spies.
-    firmwareApp->setAtCommandAdapters(secondTcp, secondSerial, esp, wifi, monitor, testDeviceId);
+    firmwareApp->setAtCommandAdapters(secondTcp, secondSerial, esp, wifi, secondToken, secondCredClear, monitor, testDeviceId);
     firmwareApp->handleTcpAtCommand("ATI");
 
     EXPECT_EQ(secondTcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>")

@@ -93,23 +93,21 @@ make install-deps          # first time only: cmake, arduino-cli, imagemagick
 make firmware-port         # prints e.g. /dev/cu.usbserial-210; empty = cable/adapter problem
 ```
 
-**2. Set the WiFi credentials.** They are injected as compiler defines at build time and are
-never written to disk. If unset, the firmware falls back to AP mode (`ESP32-CAN` / `cancan12`).
+**2. Provision WiFi credentials** (stored in NVS, survives re-flash):
+   Flash first — the ESP32 boots AP-first (`ESP32-CAN` / `cancan12`).
+   Then provision:
+   ```bash
+   make set-wifi-creds ESP32_WIFI_SSID="YourNetworkName" ESP32_WIFI_PASS="YourPassword"
+   ```
+   For the road test the phone hotspot the Mac is also on is usually the right SSID.
 
-```bash
-export ESP32_WIFI_SSID="YourNetworkName"
-export ESP32_WIFI_PASS="YourPassword"      # legacy alias ESP32_WIFI_PASSWORD also honoured
-```
-For the road test the phone hotspot the Mac is also on is usually the right SSID. A credential
-change is detected via an md5 sentinel (`build-firmware/.cred-hash`) and forces a firmware rebuild.
-
-**3. Generate the TCP auth token (first time on this Mac only):**
+**3. TCP auth token** (baked default, overridable on-device):
 ```bash
 make ota-creds             # random token, offers to persist to ~/.zshrc
 source ~/.zshrc
 ```
-The token is baked into the firmware AND compiled into the host binary
-(`-DTCP_AUTH_TOKEN`). Default if you skip this step: `vehicle-sim-2026`.
+The token is baked into the firmware (`-DTCP_AUTH_TOKEN`) and compiled into the host binary.
+Default: `vehicle-sim-2026`. Override on-device via `ATSETTOKEN <token>` (stored in NVS).
 **If you change the token you must rebuild BOTH sides** — firmware (`make flash`) and host
 (`make native`) — or the host's `AUTH <token>` line is rejected and you get zero frames.
 

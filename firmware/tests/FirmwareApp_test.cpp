@@ -667,10 +667,12 @@ TEST_F(FirmwareAppTest, AtCommand_TcpCommand_RoutesToDispatcherWithCrCrGt) {
     SpySerialAt serial;
     SpyEspAt esp;
     SpyWifiStore wifi;
+    SpyTokenStore token;
+    SpyCredentialClear credClear;
     SpyMonitorState monitor;
 
     firmwareApp->init();
-    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, token, credClear, monitor, testDeviceId);
 
     firmwareApp->handleTcpAtCommand("ATI");
     EXPECT_EQ(tcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
@@ -683,11 +685,13 @@ TEST_F(FirmwareAppTest, AtCommand_SerialCommand_AtzClearsMonitor) {
     SpySerialAt serial;
     SpyEspAt esp;
     SpyWifiStore wifi;
+    SpyTokenStore token;
+    SpyCredentialClear credClear;
     SpyMonitorState monitor;
     monitor.active = true;
 
     firmwareApp->init();
-    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, token, credClear, monitor, testDeviceId);
 
     firmwareApp->handleSerialAtCommand("ATZ");
     EXPECT_EQ(serial.lastLine, "ELM327 v2.3");
@@ -701,10 +705,12 @@ TEST_F(FirmwareAppTest, AtCommand_Atreboot_NoExtraClientFlushBeforeRestart) {
     SpySerialAt serial;
     SpyEspAt esp;
     SpyWifiStore wifi;
+    SpyTokenStore token;
+    SpyCredentialClear credClear;
     SpyMonitorState monitor;
 
     firmwareApp->init();
-    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, monitor, testDeviceId);
+    firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, token, credClear, monitor, testDeviceId);
 
     firmwareApp->handleTcpAtCommand("ATREBOOT");
     EXPECT_EQ(esp.restartCalls, 1);

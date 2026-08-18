@@ -128,6 +128,13 @@ public:
     // Check if stored credentials exist
     bool hasStoredCredentials() const;
 
+    // Store TCP auth token to NVS (ATSETTOKEN path)
+    bool storeAuthToken(const std::string& token);
+
+    // Load TCP auth token from NVS; returns empty string if not stored.
+    // Caller falls back to the baked default when this returns empty.
+    std::string loadAuthToken();
+
     // Set firmware-side callbacks
     void setCallbacks(const FirmwareCallbacks& callbacks);
 
@@ -236,7 +243,8 @@ public:
     // construction). The dispatcher reads it the first time a command is handled
     // (lazy construction), so it always sees the live, populated array.
     void setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial, IEspAt& esp,
-                              IWifiCredentialStore& wifiStore, IMonitorState& monitor,
+                              IWifiCredentialStore& wifiStore, IWifiTokenStore& tokenStore,
+                              IWifiCredentialClear& credClear, IMonitorState& monitor,
                               const std::array<uint8_t, 16>& deviceId);
     // ITcpHostCallbacks: TcpServerManager forwards each received AUTH'd command
     // line here (frames the reply as "<resp>\r\r>" for the host HELO handshake).
@@ -246,6 +254,7 @@ public:
 private:
     // Dependencies
     IWiFi& wifi_;
+    IPreferences& prefs_;
     IStatusLED& statusLed_;
     CanBridgeDeps canBridgeDeps_;
     IClientConnectionSource& clientConnectionSource_;

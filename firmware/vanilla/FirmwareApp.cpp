@@ -19,6 +19,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
                          IClientConnectionSource& clientConnectionSource,
                          const char* bakedSsid, const char* bakedPass)
     : wifi_(wifi)
+    , prefs_(prefs)
     , statusLed_(statusLed)
     , canBridgeDeps_(canBridgeDeps)
     , clientConnectionSource_(clientConnectionSource)
@@ -314,6 +315,20 @@ bool FirmwareApp::loadCredentials(std::string& ssid, std::string& pass) const {
     return wifiManager_->loadCredentials(ssid, pass);
 }
 
+bool FirmwareApp::storeAuthToken(const std::string& token) {
+    prefs_.begin(WiFiConfig::NVS_TOKEN_NAMESPACE, false);
+    bool success = prefs_.putString(WiFiConfig::NVS_TOKEN_KEY, token) > 0;
+    prefs_.end();
+    return success;
+}
+
+std::string FirmwareApp::loadAuthToken() {
+    prefs_.begin(WiFiConfig::NVS_TOKEN_NAMESPACE, true);
+    std::string token = prefs_.getString(WiFiConfig::NVS_TOKEN_KEY, "");
+    prefs_.end();
+    return token;
+}
+
 void FirmwareApp::setMonitorActive(bool active) {
     assert(canBridge_ && "FirmwareApp::setMonitorActive called before init()");
     canBridge_->setMonitorActive(active);
@@ -337,12 +352,14 @@ void FirmwareApp::setSerialQuietUntilMs(uint32_t ms) {
 
 void FirmwareApp::setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial,
                                        IEspAt& esp, IWifiCredentialStore& wifiStore,
+                                       IWifiTokenStore& tokenStore, IWifiCredentialClear& credClear,
                                        IMonitorState& monitor,
                                        const std::array<uint8_t, 16>& deviceId) {
     // Own a single dispatcher over the injected boundary adapters. The canonical
     // firmware handler set is registered lazily on first handle*() call.
     atDispatcher_ = std::make_unique<AtCommandDispatcher>(tcpClient, serial, esp,
-                                                          wifiStore, monitor, deviceId);
+                                                          wifiStore, tokenStore, credClear,
+                                                          monitor, deviceId);
 }
 
 void FirmwareApp::handleTcpAtCommand(const std::string& cmd) {

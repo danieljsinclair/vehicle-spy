@@ -91,11 +91,13 @@ class FakePreferences : public IPreferences {
 public:
     std::string ssid;
     std::string pass;
+    int credCount = 0;
     bool cleared = false;
 
     void begin(const char*, bool) override {}
     void end() override {}
     size_t getBytesLength(const char* key) override {
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? 1 : 0;
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid.size();
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass.size();
         return 0;
@@ -103,14 +105,16 @@ public:
     std::string getString(const char* key, const std::string&) override {
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid;
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass;
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? "1" : "";
         return "";
     }
     size_t putString(const char* key, const std::string& value) override {
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) ssid = value;
         else if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) pass = value;
+        else if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) credCount = std::stoi(value);
         return value.size();
     }
-    void clear() override { ssid.clear(); pass.clear(); cleared = true; }
+    void clear() override { ssid.clear(); pass.clear(); credCount = 0; cleared = true; }
 };
 
 class FakeStatusLed : public IStatusLED {
@@ -250,7 +254,7 @@ struct WiringHarness {
 TEST(WiFiManagerWiringTest, ConnectsWithStoredCredentialsInStaMode) {
     WiringHarness h;
     h.build();
-    h.prefs.ssid = "manht2";
+    h.prefs.credCount = 1; h.prefs.ssid = "manht2";
     h.prefs.pass = "luckyshoe478";
     h.app->init();
     h.app->update(0);  // first tick: DISCONNECTED handler reads creds -> STA begin
@@ -270,7 +274,7 @@ TEST(WiFiManagerWiringTest, ConnectsWithStoredCredentialsInStaMode) {
 TEST(WiFiManagerWiringTest, NtpSyncStartsWhenWifiReachesConnectedSta) {
     WiringHarness h;
     h.build();
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     // FakeSntp.enabled()==false mirrors real ArduinoSntp on fresh boot (SNTP not
     // yet running). NtpTimeSync::init() guards `if (sntp_.enabled()) return;`, so
     // only with enabled()==false does init() proceed to call sntp_.init(). This
@@ -309,7 +313,7 @@ TEST(WiFiManagerWiringTest, NtpSyncDoesNotStartInApMode) {
 TEST(WiFiManagerWiringTest, FallsBackToApModeAfterConnectTimeoutWithStoredCreds) {
     WiringHarness h;
     h.build();
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.app->init();
     h.app->update(0);  // -> CONNECTING
 
@@ -331,7 +335,7 @@ TEST(WiFiManagerWiringTest, FallsBackToApModeAfterConnectTimeoutWithStoredCreds)
 TEST(WiFiManagerWiringTest, IdleStatusPastConnectTimeoutStaysConnectingNotAp) {
     WiringHarness h;
     h.build();
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.app->init();
     h.app->update(0);  // -> CONNECTING
 
@@ -371,7 +375,7 @@ TEST(WiFiManagerWiringTest, BakedInCredsDoNotFallBackToApOnTimeout) {
 TEST(WiFiManagerWiringTest, RetriesBeginWithStoredCredsAfterDisconnectInterval) {
     WiringHarness h;
     h.build();
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.app->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.app->update(1000);
@@ -412,7 +416,7 @@ TEST(WiFiManagerWiringTest, RetriesBeginWithStoredCredsAfterDisconnectInterval) 
 TEST(WiFiManagerWiringTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     WiringHarness h;
     h.build();
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.app->init();
     h.app->update(0);  // -> CONNECTING
 
@@ -435,7 +439,7 @@ TEST(WiFiManagerWiringTest, AuthFailureDisconnectArmsCampaign_StaysConnecting) {
     // (statusVal = WL_DISABLLED) so the next update() drives the campaign.
     WiringHarness h;
     h.build();
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.app->init();
     h.wifi.statusVal = WL_CONNECTED;
     h.app->update(1000);

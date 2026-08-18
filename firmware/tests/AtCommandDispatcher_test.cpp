@@ -89,6 +89,32 @@ public:
     void reset() {}
 };
 
+// Mock WiFi token store interface
+class MockTokenStore : public IWifiTokenStore {
+public:
+    MOCK_METHOD(bool, storeToken, (const std::string& token), (override));
+
+    void delegateToDummy() {
+        ON_CALL(*this, storeToken(_)).WillByDefault([](const std::string&) {
+            return true;
+        });
+    }
+
+    void reset() {}
+};
+
+// Mock WiFi credential clear interface
+class MockCredentialClear : public IWifiCredentialClear {
+public:
+    MOCK_METHOD(bool, clear, (), (override));
+
+    void delegateToDummy() {
+        ON_CALL(*this, clear()).WillByDefault([]() { return true; });
+    }
+
+    void reset() {}
+};
+
 // Test handler that matches a specific command
 class TestCommandHandler : public IAtCommandHandler {
 public:
@@ -113,6 +139,8 @@ protected:
     MockSerialAt serialMock;
     MockEspAt espMock;
     MockWifiCredentialStore wifiStoreMock;
+    MockTokenStore tokenStoreMock;
+    MockCredentialClear credClearMock;
     MockMonitorState monitorMock;
     std::array<uint8_t, 16> deviceIdMock = {};
     std::unique_ptr<AtCommandDispatcher> dispatcher;
@@ -122,6 +150,8 @@ protected:
         serialMock.reset();
         espMock.reset();
         wifiStoreMock.reset();
+        tokenStoreMock.reset();
+        credClearMock.reset();
         monitorMock.reset();
         arduino_mock::resetAllMocks();
 
@@ -129,10 +159,13 @@ protected:
         serialMock.delegateToDummy();
         espMock.delegateToDummy();
         wifiStoreMock.delegateToDummy();
+        tokenStoreMock.delegateToDummy();
+        credClearMock.delegateToDummy();
         monitorMock.delegateToDummy();
 
         dispatcher = std::make_unique<AtCommandDispatcher>(
-            tcpClientMock, serialMock, espMock, wifiStoreMock, monitorMock, deviceIdMock
+            tcpClientMock, serialMock, espMock, wifiStoreMock,
+            tokenStoreMock, credClearMock, monitorMock, deviceIdMock
         );
     }
 
