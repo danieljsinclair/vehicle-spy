@@ -92,6 +92,18 @@ public:
         return currentSsid_;
     }
 
+    std::string BSSID() const override {
+        // Injected for tests; empty by default (no association).
+        return injectedBssid_;
+    }
+
+    int8_t RSSI() const override {
+        return injectedRssi_;
+    }
+
+    void setBssid(const std::string& bssid) { injectedBssid_ = bssid; }
+    void setRssi(int8_t rssi) { injectedRssi_ = rssi; }
+
     // IWiFiDiscovery interface (for DiscoveryManager)
     std::string broadcastIP() const override {
         if (mode_ == Mode::WIFI_STA) {
@@ -207,6 +219,8 @@ private:
     uint32_t connectStartTimeMs_ = 0;
     uint32_t currentMillis_ = 0;
     std::string injectedLocalIp_ = "192.168.1.100";
+    std::string injectedBssid_;  // for BSSID() observability test
+    int8_t injectedRssi_ = 0;     // for RSSI() observability test
 };
 
 } // namespace esp32_firmware

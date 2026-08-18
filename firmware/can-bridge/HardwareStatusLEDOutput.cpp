@@ -22,8 +22,14 @@ void HardwareStatusLEDOutput::setOn(bool on) {
     (void)on;  // Suppress unused parameter warning in non-Arduino builds
 #ifdef ARDUINO
     if (initialized_) {
-        // ESP32 blue LED is active LOW (LOW = ON, HIGH = OFF)
-        digitalWrite(gpioPin_, on ? LOW : HIGH);
+        // ESP32-WROOM-32 devkit onboard blue LED (GPIO2) is ACTIVE-HIGH:
+        // HIGH = ON, LOW = OFF. This was previously driven active-LOW, which
+        // inverted every pattern on hardware — solid-ON requests rendered the
+        // LED dark (a client connect extinguished it) and error sequences read
+        // as inverted blips. Serial traces looked correct throughout because
+        // the setPattern/step commands were green; only eyes on the board
+        // could catch the inversion.
+        digitalWrite(gpioPin_, on ? HIGH : LOW);
     }
 #endif
     // Note: On non-Arduino builds (native tests), this is a no-op

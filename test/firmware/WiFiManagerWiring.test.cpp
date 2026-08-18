@@ -82,6 +82,8 @@ public:
     int getMode() const override { return mode; }
     std::string SSID() const override { return lastSsid; }
     const char* disconnectReasonName(int) const override { return ""; }
+    std::string BSSID() const override { return {}; }
+    int8_t RSSI() const override { return 0; }
     void onEvent(std::function<void(int, WifiEventInfo*)>, int) override {}
 };
 
@@ -294,7 +296,7 @@ TEST(WiFiManagerWiringTest, NtpSyncDoesNotStartInApMode) {
     // no stored creds, no baked creds -> AP fallback
     h.app->init();
     h.app->update(0);
-    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
+    ASSERT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT));
     EXPECT_EQ(h.sntp.initCalls, 0);
 }
 
@@ -315,7 +317,7 @@ TEST(WiFiManagerWiringTest, FallsBackToApModeAfterConnectTimeoutWithStoredCreds)
     h.wifi.statusVal = WL_CONNECT_FAILED;
     h.app->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1);
 
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL));
     EXPECT_EQ(h.wifi.mode, WIFI_AP);
     EXPECT_GE(h.wifi.softApCalls, 1);
     EXPECT_EQ(h.wifi.lastSsid, WiFiConfig::AP_SSID);
@@ -419,7 +421,7 @@ TEST(WiFiManagerWiringTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     h.wifi.statusVal = WL_IDLE_STATUS;  // never connects
     h.app->update(cap + 1);
 
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL));
     EXPECT_GE(h.wifi.softApCalls, 1);
 }
 

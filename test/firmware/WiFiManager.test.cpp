@@ -36,6 +36,8 @@ public:
     int getMode() const override { return mode; }
     std::string SSID() const override { return lastSsid; }
     const char* disconnectReasonName(int reason) const override { return ""; }
+    std::string BSSID() const override { return {}; }
+    int8_t RSSI() const override { return 0; }
     void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) override {
         events.push_back(event); (void)cb;
     }
@@ -131,7 +133,8 @@ TEST(WiFiPureTest, IsInitialConnectTimeout) {
 TEST(WiFiPureTest, ShouldRetryWiFiOnlyForTransientStates) {
     // Connected states never retry (regardless of attempts/window).
     EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_CONNECTED, 10000, 0, 0));
-    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_AP_MODE, 10000, 0, 0));
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_AP_MODE_DEFAULT, 10000, 0, 0));
+    EXPECT_FALSE(shouldRetryWiFi(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL, 10000, 0, 0));
     // RESILIENT RECONNECT (req-1): in the aggressive first-retries window
     // (reconnectAttempts < WIFI_CONNECT_FIRST_RETRIES_COUNT) the retry interval is
     // 0, so a transient state retries IMMEDIATELY (no backoff) even at now=1ms.
@@ -211,7 +214,7 @@ TEST(WiFiStateMachineTest, InitWithNoCredentialsLandsInApMode) {
     FakeSerial serial;
     WiFiManager mgr(wifi, prefs, serial);
     mgr.init();  // first tick runs DISCONNECTED handler -> AP mode (no creds)
-    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
     EXPECT_EQ(wifi.mode, 2);  // WIFI_AP
 }
 
@@ -234,7 +237,7 @@ TEST(WiFiStateMachineTest, DisconnectedWithNoCredsGoesToApMode) {
     mgr.init();
     EXPECT_EQ(wifi.mode, 2);  // WIFI_AP
     EXPECT_EQ(wifi.lastSsid, WiFiConfig::AP_SSID);
-    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
 }
 
 TEST(WiFiStateMachineTest, ConnectingTransitionsToConnectedStaOnConnectedStatus) {
@@ -258,7 +261,7 @@ TEST(WiFiStateMachineTest, OnDisconnectedAuthFailGoesToApImmediately) {
     WiFiManager mgr(wifi, prefs, serial);
     mgr.init();
     mgr.onDisconnected(WIFI_REASON_AUTH_FAIL);
-    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(mgr.getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
     EXPECT_FALSE(mgr.shouldRestartTcpServer());
 }
 
@@ -300,7 +303,8 @@ TEST(WiFiStateMachineTest, StateNameRoundTripsAllStates) {
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_DISCONNECTED), "WIFI_DISCONNECTED");
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTING), "WIFI_CONNECTING");
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTED), "WIFI_CONNECTED");
-    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE), "WIFI_AP_MODE");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE_DEFAULT), "WIFI_AP_MODE_DEFAULT");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL), "WIFI_AP_MODE_AUTH_FAIL");
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTING), "WIFI_CONNECTING");
 }
 

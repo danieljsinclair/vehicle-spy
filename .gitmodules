@@ -12,3 +12,6 @@
 [submodule "external/engine-sim-bridge"]
 	path = external/engine-sim-bridge
 	url = https://github.com/danieljsinclair/engine-sim-bridge.git
+[submodule "external/model3dbc"]
+	path = external/model3dbc
+	url = https://github.com/joshwardell/model3dbc.git

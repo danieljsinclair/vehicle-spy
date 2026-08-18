@@ -1,0 +1,62 @@
+# =============================================================================
+# aggregate-DBC allowlist — the TESTABLE CONTRACT for gen_aggregate_dbc.py
+#
+# This file enumerates the exact (canId, signalName) pairs the application
+# actually consumes, sourced from:
+#   - DefaultVehicleConfigs.cpp   (Tesla Model 3 + Audi MLB Evo signal maps)
+#   - DemoTransport.cpp           (CAN encoder signal names)
+#   - DBCSignalMapper / Gear.h    (canonical gear mapping)
+#
+# The generator keeps ONLY these signals (plus any aliased renames, see
+# aliases.toml) from the upstream superset (joshwardell model3dbc). Everything
+# else is dropped. If a listed signal is MISSING upstream, the generator
+# HARD-ERRORS (fail-fast) rather than emit a silently-incomplete DBC.
+#
+# SRP: this file is the single source of truth for "what the app needs".
+# The generator is a pure transform; it asks this file, never guesses.
+# =============================================================================
+
+# Upstream superset source. Pinned commit is recorded in the generated header.
+[source]
+submodule = "external/model3dbc"
+file      = "external/model3dbc/Model3CAN.dbc"
+commit    = "c56c113c353d09b1a5dd57677461f02fe8b7c6ca"
+
+# Canonical Tesla Model 3 signals (CAN IDs from opendbc party nomenclature).
+# These are the names the C++ consumers bind to (DefaultVehicleConfigs,
+# DemoTransport, DBCSignalMapper). They MUST survive in the generated DBC.
+[[signal]]
+can_id = 280
+name   = "DI_accelPedalPos"
+
+[[signal]]
+can_id = 280
+name   = "DI_gear"
+
+[[signal]]
+can_id = 264
+name   = "DI_torqueActual"
+
+[[signal]]
+can_id = 599
+name   = "DI_vehicleSpeed"
+
+[[signal]]
+can_id = 297
+name   = "SCCM_steeringAngle"
+
+[[signal]]
+can_id = 994
+name   = "VCLEFT_brakeLightStatus"
+
+# NOTE: Audi MLB Evo signals (ESP_v_Signal, ESP_Laengsbeschl, ESP_Bremsdruck)
+# are NOT part of this Tesla aggregate — they live in vw_mlb.dbc, which the
+# build copies verbatim (see `make update-dbc`) and is out of scope here.
+# This generator produces ONLY the Tesla Model 3 aggregate from joshwardell.
+
+# Twin-physics candidates (0x108/0x126) — reserved seam, not yet mapped in the
+# app. Listed as OPTIONAL so the contract documents the intent without
+# hard-erroring if upstream lacks them. See [[twin-physics-can-candidates]].
+[[signal.optional]]
+can_id = 294
+name   = "DIR_targetFluxMode"

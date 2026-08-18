@@ -5,11 +5,11 @@
 #include "vehicle-sim/pipeline/ISocket.h"
 #include "vehicle-sim/pipeline/PosixSocket.h"
 #include "vehicle-sim/pipeline/StopToken.h"
+#include "vehicle-sim/pipeline/TcpReader.h"
 #include "vehicle-sim/discovery/IDiscoveryListener.h"
 #include "vehicle-sim/util/IClock.h"
 
 #include <atomic>
-#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -198,6 +198,21 @@ public:
     bool sendHeloAndParseAck(std::array<uint8_t, 16>& deviceId);
 
     /**
+     * Read line-by-line from the socket, discarding any CAN data frame lines
+     * (3-hex-char ID + space-separated hex byte pairs), and return the first
+     * non-frame line. Returns std::nullopt on socket timeout or peer-close.
+     *
+     * Uses the same TcpReader read loop as nextLine(), so trailing prompt
+     * bytes (e.g. the "\r>" after ATI) are consumed as part of complete
+     * lines and never leak into the reader's buffer.
+     *
+     * Each recv() is bounded by SO_RCVTIMEO (socketRecvTimeoutMs_, default
+     * 1000 ms), keeping the total handshake budget well within the firmware
+     * 5s auth/command timeout.
+     */
+    std::optional<std::string> readLineSkippingFrames();
+
+    /**
      * Get the device ID from HELO handshake (32 hex chars).
      * Returns empty string if HELO hasn't completed yet.
      */
@@ -335,7 +350,7 @@ private:
     HuntResilienceConfig hunt_;
     std::shared_ptr<util::IClock> clock_;  // backoff + handshake pacing (real or fake)
     std::shared_ptr<ISocket> socket_;      // network I/O seam (real or fake)
-    int readTimeoutUs_ = 500000;
+    std::unique_ptr<TcpReader> reader_;    // owns pending_ buffer + socket I/O seam
     int atInitDelayMs_ = -1;
     int socketRecvTimeoutMs_ = 1000;
     bool connected_ = false;  // a live connection is held on socket_
@@ -345,33 +360,10 @@ private:
     int retryCount_ = 0;
     // Device ID from HELO handshake (32 hex chars, empty until HELO succeeds)
     std::string deviceIdHex_;
-    // Accumulated bytes not yet terminated by a line ending.
-    std::string pending_;
 
     // True when nextLine() may legitimately read more: the transport was
     // opened, holds a live descriptor, and has not been marked EOF/exhausted.
     bool canRead() const noexcept { return opened_ && connected_ && !exhausted_; }
-
-    // If a complete line (terminated by '\r' or '\n') is already buffered in
-    // pending_, remove and return it; otherwise return nullopt. find_first_of
-    // splits on each '\r' and each '\n' individually, so a "\r\n" sequence
-    // yields one line plus a following empty banner line — do NOT collapse.
-    std::optional<std::string> takeBufferedLine();
-
-    // Wait up to one bounded poll for the socket to become readable. Returns the
-    // select() ready count (negative on error). EINTR retry and the
-    // exhausted_/stop mutations stay in nextLine(), the caller.
-    int selectReady() const;
-
-    // recv() one chunk (256 bytes) into a local buffer and append it to
-    // pending_ (with the MAX_PENDING_LEN runaway cap). Returns the recv byte
-    // count — <= 0 means peer-closed/error, handled by the caller. Line
-    // extraction from pending_ stays in nextLine().
-    ssize_t readSocketIntoPending();
-
-    // stop_ is the injected cooperative stop signal (shared with the live
-    // run-context); re-load it per call rather than caching across the read loop.
-    bool shouldStop() const;
 
     // Outcome of recovering from a peer-close/error read inside nextLine().
     // Resume = reconnected, nextLine() continues its read loop; GiveUp = hunt

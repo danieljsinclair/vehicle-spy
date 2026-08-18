@@ -80,6 +80,8 @@ public:
     int getMode() const override { return mode; }
     std::string SSID() const override { return lastSsid; }
     const char* disconnectReasonName(int) const override { return ""; }
+    std::string BSSID() const override { return {}; }
+    int8_t RSSI() const override { return 0; }
     void onEvent(std::function<void(int, WifiEventInfo*)>, int) override {}
 };
 
@@ -273,7 +275,7 @@ TEST(WiFiBehaviorDisconnectedTest, NoneCredentialGoesToApMode) {
     EXPECT_EQ(h.wifi.mode, WIFI_AP);
     EXPECT_EQ(h.wifi.lastSsid, WiFiConfig::AP_SSID);
     EXPECT_EQ(h.wifi.lastPass, WiFiConfig::AP_PASS);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -291,7 +293,7 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedStoredNvsOverTimeoutFallsBackToAp)
     h.wifi.softApCalls = 0;
     h.mgr->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1);  // over timeout
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
     EXPECT_GE(h.wifi.softApCalls, 1);
     EXPECT_EQ(h.wifi.mode, WIFI_AP);
 }
@@ -305,7 +307,7 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedBakedInOverTimeoutDoesNotFallBackT
     h.wifi.statusVal = WL_CONNECT_FAILED;
     h.mgr->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1);
 
-    EXPECT_NE(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_FALSE(WiFiState::isApModeState(h.mgr->getState()));
     EXPECT_EQ(h.wifi.softApCalls, 0);
 }
 
@@ -366,7 +368,7 @@ TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.mgr->update(cap + 1);
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
     EXPECT_GE(h.wifi.softApCalls, 1);
 }
 
@@ -488,13 +490,13 @@ TEST(WiFiBehaviorConnectedApTest, ApModeIsStableWithNoWifiCalls) {
     Harness h;
     h.build();  // no creds -> AP
     h.mgr->init();
-    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
 
     const int beginsBefore = h.wifi.beginCalls;
     const int softApBefore = h.wifi.softApCalls;
     h.mgr->update(1000);
     h.mgr->update(5000);
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
     EXPECT_EQ(h.wifi.beginCalls, beginsBefore);
     EXPECT_EQ(h.wifi.softApCalls, softApBefore);
 }
@@ -645,9 +647,9 @@ TEST(WiFiBehaviorTransitionTest, TransitionToConnectedSta) {
 
 TEST(WiFiBehaviorTransitionTest, TransitionToConnectedAp) {
     Harness h;
-    h.build();  // no creds -> AP
+    h.build();  // no creds -> AP (nothing was ever configured)
     h.mgr->init();
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
 }
 
 TEST(WiFiBehaviorTransitionTest, TransitionToConnecting) {

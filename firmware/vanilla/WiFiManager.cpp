@@ -48,7 +48,7 @@ struct DisconnectedStateHandler : public IWiFiStateHandler {
                 // No credentials at all - go to AP mode
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::WIFI_AP_MODE);
+                return StateTransition(WiFiState::State::WIFI_AP_MODE_DEFAULT);
             }
         }
 
@@ -102,7 +102,10 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
             if (shouldFallbackToApMode(source, connectDuration)) {
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::WIFI_AP_MODE);
+                // Credentials existed and could not connect — error state, so the
+                // wifi_ap_fallback event keeps reporting a reason.
+                ctx.escalatedToApReason = ctx.lastDisconnectReason;
+                return StateTransition(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
             }
 
             if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs, ctx.reconnectAttempts)) {
@@ -148,12 +151,15 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
             if (source == CredentialSource::STORED_NVS) {
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::WIFI_AP_MODE);
+                // Credentials existed and the initial-connect budget expired —
+                // error state, so the wifi_ap_fallback event keeps reporting a reason.
+                ctx.escalatedToApReason = ctx.lastDisconnectReason;
+                return StateTransition(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
             } else if (source == CredentialSource::NONE) {
                 // No credentials at all - go to AP mode
                 wifi_.setMode(2);  // WIFI_AP
                 wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
-                return StateTransition(WiFiState::State::WIFI_AP_MODE);
+                return StateTransition(WiFiState::State::WIFI_AP_MODE_DEFAULT);
             } else {
                 // BAKED_IN credentials - keep trying (they should work)
                 // RECONNECTING merged into WIFI_CONNECTING; retry loop continues here
@@ -371,11 +377,11 @@ StateTransition WiFiManager::runAuthCampaign(uint32_t now) {
         wifi_.softAP(WiFiConfig::AP_SSID, WiFiConfig::AP_PASS);
         ctx_.pendingAuthFail = false;  // campaign over; do NOT re-enter it
         ctx_.escalatedToApReason = ctx_.lastDisconnectReason;  // record the true auth reason
-        serial_.printf("[STATE] WiFi: %s -> WIFI_AP_MODE (auth exhausted reason=%d after %u strategies x %u loops)\r\n",
+        serial_.printf("[STATE] WiFi: %s -> WIFI_AP_MODE_AUTH_FAIL (auth exhausted reason=%d after %u strategies x %u loops)\r\n",
                        stateName(ctx_.state), ctx_.lastDisconnectReason,
                        WiFiConfig::WIFI_AUTH_STRATEGY_COUNT,
                        WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
-        return StateTransition(WiFiState::State::WIFI_AP_MODE);
+        return StateTransition(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
     }
 
     return StateTransition(ctx_.state);  // stay CONNECTING until exhausted/connected
@@ -496,7 +502,8 @@ const char* WiFiManager::stateName(WiFiState::State state) {
         case WiFiState::State::WIFI_DISCONNECTED: return "WIFI_DISCONNECTED";
         case WiFiState::State::WIFI_CONNECTING: return "WIFI_CONNECTING";
         case WiFiState::State::WIFI_CONNECTED: return "WIFI_CONNECTED";
-        case WiFiState::State::WIFI_AP_MODE: return "WIFI_AP_MODE";
+        case WiFiState::State::WIFI_AP_MODE_DEFAULT: return "WIFI_AP_MODE_DEFAULT";
+        case WiFiState::State::WIFI_AP_MODE_AUTH_FAIL: return "WIFI_AP_MODE_AUTH_FAIL";
         default: return "UNKNOWN";
     }
 }
@@ -655,7 +662,8 @@ IWiFiStateHandler* WiFiManager::getStateHandler(WiFiState::State state) {
         case WiFiState::State::WIFI_DISCONNECTED: return disconnectedHandler_.get();
         case WiFiState::State::WIFI_CONNECTING: return connectingHandler_.get();
         case WiFiState::State::WIFI_CONNECTED: return connectedStaHandler_.get();
-        case WiFiState::State::WIFI_AP_MODE: return connectedApHandler_.get();
+        case WiFiState::State::WIFI_AP_MODE_DEFAULT: return connectedApHandler_.get();
+        case WiFiState::State::WIFI_AP_MODE_AUTH_FAIL: return connectedApHandler_.get();
         default: return disconnectedHandler_.get();
     }
 }

@@ -37,6 +37,11 @@ public:
         scripts_[host].push_back(std::move(script));
     }
 
+    // Put the socket into silent mode: selectReadable returns 0 (never
+    // readable) and recv returns -1 (error). Models a connected peer that
+    // stops sending — used to exercise the stop-during-silent-poll path.
+    void setSilent(bool silent = true) { silent_ = silent; }
+
     int connect(const std::string& host, int /*port*/, const StopToken* /*stop*/) override {
         auto it = scripts_.find(host);
         if (it == scripts_.end() || it->second.empty()) {
@@ -68,6 +73,7 @@ public:
 
     ssize_t recv(char* buf, size_t len) override {
         if (!connected_) return -1;
+        if (silent_) return -1;  // silent link: no data, error on recv
         if (current_.empty()) {
             drained_ = true;     // last chunk consumed → peer close (EOF)
             peerClosed_ = true;
@@ -91,6 +97,7 @@ public:
     // select(timeout) forever.
     int selectReadable(int /*timeoutUs*/) override {
         if (!connected_) return 0;
+        if (silent_) return 0;   // silent link: never readable
         if (!current_.empty() || peerClosed_ || drained_) return 1;
         return 0;
     }
@@ -139,6 +146,7 @@ private:
     bool drained_ = false;   // all scripted chunks delivered (EOF pending on next recv)
     bool peerClosed_ = false;
     bool connected_ = false;
+    bool silent_ = false;    // silent-link mode: selectReadable returns 0, recv returns -1
     int fd_ = -1;
     int connectCount_ = 0;
     bool setNoDelay_ = false;

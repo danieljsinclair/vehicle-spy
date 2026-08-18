@@ -56,7 +56,10 @@ vehicle_sim::telemetry::CsvTelemetryRow InteractiveCsvTelemetrySource::next() {
     row.vehicle_id         = m_vehicleId;
     row.throttle_percent   = state.throttle_percent;
     row.gear_selector      = std::to_string(state.gear);
-    row.brake_percent      = state.brake_percent;
+    // The keyboard brake is a binary pedal (0 or 100): any application lights
+    // the brake light. The bench model knows the pedal state, so the column is
+    // definite (1/0), never blank.
+    row.brake_light        = (state.brake_percent > 0.0) ? 1 : 0;
     row.steering_angle_deg = state.steering_angle_deg;
 
     // Derived fields — simple bench model, not physics-accurate.

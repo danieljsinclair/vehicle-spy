@@ -1,5 +1,9 @@
 #include "TcpServerManager.h"
 
+#ifdef ARDUINO
+#include <Arduino.h>
+#endif
+
 #include <string>
 
 namespace esp32_firmware {
@@ -9,6 +13,7 @@ namespace {
 // extracted behaviour matches the inline loop exactly. Local to this TU so
 // the manager owns no .ino dependency.
 constexpr uint32_t TCP_AUTH_TIMEOUT_MS    = 5000;
+constexpr uint32_t TCP_COMMAND_TIMEOUT_MS = 100;   // command-phase read timeout (ms)
 
 // Trim leading/trailing ASCII whitespace from a line read off the wire.
 // Mirrors Arduino String::trim() (space, \t, \r, \n, \f, \v). Applied before
@@ -75,6 +80,14 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
         current_->setTimeout(TCP_AUTH_TIMEOUT_MS);
         std::string firstLine = trim(current_->readLine('\r'));
 
+        // Drop the auth-phase read timeout to a small value for the command
+        // phase. The ESP32 WiFiClient read()/peek() can block up to the Stream
+        // timeout when no data is buffered, so a large timeout here would stall
+        // cycle() (and the CAN-TX path) for seconds on an idle socket. A small
+        // (effectively non-blocking) timeout keeps readAvailableLine O(1) per
+        // tick while still letting a slow command byte arrive.
+        current_->setTimeout(TCP_COMMAND_TIMEOUT_MS);
+
         if (isValidAuthToken(firstLine, authToken_)) {
             current_->println("OK");
             current_->flush();
@@ -106,23 +119,26 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
     const bool haveClient = current_ && current_->connected();
 
     if (haveClient) {
-        // Command mode: NON-BLOCKING line assembly. readAvailableLine() only
-        // consumes bytes already in the receive buffer and never blocks up to
-        // the Stream timeout — so a partially-arrived command cannot stall this
-        // cycle() and delay CanBridge::processFrames (the CAN-TX path). We
-        // accumulate partial bytes in partialLine_ and dispatch only on a
-        // complete (delimiter-terminated) line. This removes the per-tick TX
-        // starvation that the blocking readStringUntil (TCP_COMMAND_TIMEOUT_MS
-        // = 100ms ceiling) introduced.
-        if (current_->available() > 0) {
-            // readAvailableLine() is NON-BLOCKING: it returns whatever bytes are
-            // already buffered (delimiter NOT stripped) and never waits. We
-            // accumulate them in partialLine_ and dispatch every complete
-            // (delimiter-terminated) command, keeping any trailing partial for
-            // the next tick. This removes the per-tick TX starvation that the
-            // blocking readStringUntil (TCP_COMMAND_TIMEOUT_MS = 100ms ceiling)
-            // introduced.
-            partialLine_ += current_->readAvailableLine('\r');
+        // Command mode: NON-BLOCKING line assembly. readAvailableLine() drains
+        // whatever bytes are already in the receive buffer (delimiter NOT
+        // stripped) and never blocks up to the Stream timeout — so a
+        // partially-arrived command cannot stall this cycle() and delay
+        // CanBridge::processFrames (the CAN-TX path). We accumulate partial
+        // bytes in partialLine_ and dispatch only on a complete
+        // (delimiter-terminated) line. This removes the per-tick TX starvation
+        // that the blocking readStringUntil (TCP_COMMAND_TIMEOUT_MS = 100ms
+        // ceiling) introduced.
+        //
+        // NOTE: we do NOT gate on available()>0 before calling readAvailableLine.
+        // On the ESP32 WiFiClient, available() can transiently return 0 even when
+        // bytes are buffered (e.g. right after the AUTH readStringUntil), which
+        // would make a gate skip ready input permanently and leave TCP AT
+        // commands (ATI/ATHELO/PING) unanswered. readAvailableLine() polls
+        // read() directly (returns -1 instantly when empty) so it is safe to
+        // call unconditionally every tick.
+        std::string incoming = current_->readAvailableLine('\r');
+        if (!incoming.empty()) {
+            partialLine_ += incoming;
             const auto delim = partialLine_.find('\r');
             if (delim != std::string::npos) {
                 // One or more complete commands may be coalesced. Dispatch each.

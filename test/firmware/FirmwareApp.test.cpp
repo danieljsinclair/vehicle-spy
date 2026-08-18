@@ -22,13 +22,15 @@ public:
     void begin(const char* ssid, const char* pass) override { lastSsid = ssid; lastPass = pass; ++beginCalls; }
     void disconnect(bool, bool) override {}
     int status() const override { return statusVal; }
-    std::string localIP() const override { return "192.168.4.1"; }
+    std::string localIP() const override { return "192.168.1.50"; }
     std::string softAPIP() const override { return "192.168.4.1"; }
     void softAP(const char*, const char*) override { mode = 2; }
     void setHostname(const char*) override {}
     int getMode() const override { return mode; }
     std::string SSID() const override { return lastSsid; }
     const char* disconnectReasonName(int) const override { return ""; }
+    std::string BSSID() const override { return {}; }
+    int8_t RSSI() const override { return 0; }
     void onEvent(std::function<void(int, WifiEventInfo*)>, int) override {}
 };
 
@@ -185,8 +187,9 @@ TEST(FirmwareAppTest, InitStartsWithNoStoredCredsLandsInApMode) {
     AppHarness h;  // empty prefs -> no creds
     h.app.init();
     h.app.update(0);  // first tick lazily opens discovery UDP + runs WiFi SM
-    // No creds -> WiFiManager DISCONNECTED handler goes to AP mode.
-    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE));
+    // No creds -> WiFiManager DISCONNECTED handler goes to AP mode (nothing was
+    // ever configured).
+    EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT));
 }
 
 TEST(FirmwareAppTest, InitOpensDiscoveryUdpOnFirstUpdateTickNotDuringInit) {
@@ -288,60 +291,44 @@ TEST(FirmwareAppTest, UpdateDrivesStatusLedAnimationEveryTick) {
     EXPECT_GE(h.led.updateCalls, 2);
 }
 
-// ── auth_fail drives LED to ERROR_AUTH_FAILURE briefly ──────────────────────────
-// §4 of SPEC: auth_fail is an error sequence; the LED must flash ERROR_AUTH_FAILURE.
-// Revert to the normal selectLedPattern result on the next update() tick.
+// ── Own IP for the [STATE] heartbeat ──────────────────────────────────────────
 
-TEST(FirmwareAppTest, AuthFailed_DrivesLedToErrorAuthFailurePattern) {
-    // CONTRACT: onAuthFailed() must drive the LED to ERROR_AUTH_FAILURE immediately,
-    // so the user sees the error sequence (3-short-pulse + 2-tiny-pulse + separator).
-    // Assertion is on the Pattern ENUM, never on raw ms values.
+TEST(FirmwareAppTest, GetOwnIpReturnsStaIpWhenNotAp) {
+    // STA mode: stored credentials keep the manager on the station path
+    // (setMode(1) at init), so the heartbeat reports the station address.
     AppHarness h;
+    h.prefs.ssid = "net"; h.prefs.pass = "pw";  // creds BEFORE init -> STA mode
     h.app.init();
-    h.app.update(0);  // first tick: LED set to normal pattern (AP_MODE with no creds)
-
-    // Pre-condition: LED is on a normal (non-error) pattern.
-    EXPECT_NE(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE));
-
-    // Act: simulate a TCP auth failure.
-    h.app.onAuthFailed("192.168.1.50");
-
-    // Assert: LED is now on ERROR_AUTH_FAILURE.
-    EXPECT_EQ(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-        << "onAuthFailed must set LED to ERROR_AUTH_FAILURE";
+    ASSERT_EQ(h.wifi.mode, 1);  // WIFI_STA, not AP
+    EXPECT_EQ(h.app.getOwnIp(), "192.168.1.50");  // FakeWiFi localIP
 }
 
-TEST(FirmwareAppTest, AuthFailed_LedRevertsToNormalPatternOnNextUpdate) {
-    // CONTRACT: the ERROR_AUTH_FAILURE flash is brief — the next update() tick
-    // calls selectLedPattern() which reverts the LED to the pattern matching the
-    // current WiFi + client state. No error-override state needed; revert is
-    // automatic via the normal per-tick selectLedPattern call in update().
-    //
-    // We assert only the key contract: the LED is NO LONGER on ERROR_AUTH_FAILURE
-    // after one update() tick. The exact revert target depends on WiFiManager
-    // internals (tested separately); what matters here is that the brief flash
-    // DID revert.
+TEST(FirmwareAppTest, GetOwnIpReturnsSoftApIpInApMode) {
+    // AP mode (no creds -> softAP on init): the heartbeat reports the soft-AP
+    // address, which is the address a buddy must connect to.
+    AppHarness h;  // empty prefs -> no creds
+    h.app.init();
+    h.app.update(0);
+    ASSERT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT));
+    EXPECT_EQ(h.app.getOwnIp(), "192.168.4.1");  // FakeWiFi softAPIP
+}
+
+// ── TCP auth_fail does NOT drive the LED ──────────────────────────────────────
+// A wrong AUTH token from a TCP client is the CLIENT's problem, not an ESP32
+// error. The WiFi state (and therefore the LED, via selectLedPattern) must be
+// unaffected; only the [EVENT] line reports it.
+
+TEST(FirmwareAppTest, AuthFailed_DoesNotChangeLedPattern) {
     AppHarness h;
     h.app.init();
     h.app.update(0);  // settle to the normal pattern for the current WiFi state
+    const int patternBefore = h.led.lastPattern;
+    ASSERT_NE(patternBefore, -1);
 
-    // Act: fire auth_fail — LED goes to ERROR_AUTH_FAILURE.
     h.app.onAuthFailed("192.168.1.50");
-    EXPECT_EQ(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-        << "pre-condition: onAuthFailed must set LED to ERROR_AUTH_FAILURE";
 
-    // Act: drive one more update tick.
-    h.app.update(100);
-
-    // Assert: LED has left the ERROR_AUTH_FAILURE pattern — the brief flash
-    // reverted to the normal selectLedPattern result for the current state.
-    EXPECT_NE(h.led.lastPattern,
-              static_cast<int>(firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE))
-        << "next update() tick must revert LED from ERROR_AUTH_FAILURE to the "
-           "normal selectLedPattern result for the current WiFi+client state";
+    EXPECT_EQ(h.led.lastPattern, patternBefore)
+        << "onAuthFailed must not touch the LED pattern";
 }
 
 } // namespace

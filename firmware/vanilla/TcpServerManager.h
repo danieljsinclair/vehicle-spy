@@ -58,7 +58,7 @@ public:
     //      forward non-empty commands to host_.handleTcpAtCommand.
     //   3. Otherwise, if the adopted client has dropped, run disconnect
     //      cleanup: setMonitorActive(false) + resetDiscoveryBackoff(), and
-    //      revert the LED to WIFI_CONNECTED when WiFi is WIFI_CONNECTED/WIFI_AP_MODE
+    //      revert the LED to WIFI_CONNECTED when WiFi is WIFI_CONNECTED/an AP state
     //      (no revert when WIFI_DISCONNECTED).
     //
     // nowMs is the current tick (millis()); accepted for clock-injection but

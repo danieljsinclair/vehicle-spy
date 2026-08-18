@@ -29,6 +29,7 @@ public:
         std::optional<double> speedKmh;
         std::optional<double> accelerationG;
         std::optional<double> brakePercent;
+        std::optional<bool> brakeLight;
         std::optional<double> steeringAngleDeg;
         std::optional<double> motorRpm;
         std::optional<double> motorHvVoltage;
@@ -55,6 +56,7 @@ public:
     [[nodiscard]] const std::optional<double>& getSpeedKmh() const noexcept;
     [[nodiscard]] const std::optional<double>& getAccelerationG() const noexcept;
     [[nodiscard]] const std::optional<double>& getBrakePercent() const noexcept;
+    [[nodiscard]] const std::optional<bool>& getBrakeLight() const noexcept;
     [[nodiscard]] const std::optional<double>& getSteeringAngleDeg() const noexcept;
     [[nodiscard]] const std::optional<double>& getMotorRpm() const noexcept;
     [[nodiscard]] const std::optional<double>& getMotorHvVoltage() const noexcept;
@@ -81,6 +83,7 @@ public:
                lhs.m_speedKmh == rhs.m_speedKmh &&
                lhs.m_accelerationG == rhs.m_accelerationG &&
                lhs.m_brakePercent == rhs.m_brakePercent &&
+               lhs.m_brakeLight == rhs.m_brakeLight &&
                lhs.m_steeringAngleDeg == rhs.m_steeringAngleDeg &&
                lhs.m_motorRpm == rhs.m_motorRpm &&
                lhs.m_motorHvVoltage == rhs.m_motorHvVoltage &&
@@ -120,6 +123,7 @@ private:
     std::optional<double>      m_speedKmh;
     std::optional<double>      m_accelerationG;
     std::optional<double>      m_brakePercent;
+    std::optional<bool>        m_brakeLight;
     std::optional<double>      m_steeringAngleDeg;
     std::optional<double>      m_motorRpm;
     std::optional<double>      m_motorHvVoltage;

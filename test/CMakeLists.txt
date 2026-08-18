@@ -62,9 +62,15 @@ add_executable(vehicle-sim-tests
     pipeline/CaptureNormaliser.test.cpp
     pipeline/DemoTransport.test.cpp
     pipeline/TCPTransport.test.cpp
+    pipeline/TCPTransportDiagnostics.test.cpp
     pipeline/TCPTransportLatencyResilience.test.cpp
+    pipeline/TCPTransportConnectUntilUpStop.test.cpp
+    pipeline/TCPTransportElmDelay.test.cpp
+    pipeline/TCPTransportPingMismatch.test.cpp
+    pipeline/FrameLineReaderStrip.test.cpp
     pipeline/PosixSocket.test.cpp
     pipeline/TCPTransportHeloParse.test.cpp
+    pipeline/TCPTransportHeloFrames.test.cpp
     pipeline/TCPTransportHunting.test.cpp
     pipeline/TCPTransportHuntingCancel.test.cpp
     pipeline/TCPTransportHuntingGap.test.cpp

@@ -3,5 +3,5 @@
     "connectionId": "danieljsinclair",
     "projectKey": "danieljsinclair_vehicle-spy"
   },
-  "sonarlint.pathToCompileCommands": "build-cov/compile_commands.json"
+  "sonarlint.pathToCompileCommands": "${workspaceFolder}/build-native/compile_commands.json"
 }

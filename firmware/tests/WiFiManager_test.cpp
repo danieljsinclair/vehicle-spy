@@ -174,8 +174,21 @@ TEST_F(WiFiManagerTest, StateName_ReturnsCorrectNames) {
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_DISCONNECTED), "WIFI_DISCONNECTED");
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTING), "WIFI_CONNECTING");
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTED), "WIFI_CONNECTED");
-    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE), "WIFI_AP_MODE");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE_DEFAULT), "WIFI_AP_MODE_DEFAULT");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL), "WIFI_AP_MODE_AUTH_FAIL");
     EXPECT_STREQ(WiFiManager::stateName(static_cast<WiFiState::State>(99)), "UNKNOWN");
+}
+
+// ── AP-state model: DEFAULT (never configured) vs AUTH_FAIL (credentials failed) ──
+// Being an AP is a first-class state with a REASON. The split is the state model
+// itself; the LED maps it (AP_MODE / ERROR_AUTH_FAILURE) purely downstream.
+
+TEST_F(WiFiManagerTest, IsApModeState_TrueOnlyForBothApStates) {
+    EXPECT_FALSE(WiFiState::isApModeState(WiFiState::State::WIFI_DISCONNECTED));
+    EXPECT_FALSE(WiFiState::isApModeState(WiFiState::State::WIFI_CONNECTING));
+    EXPECT_FALSE(WiFiState::isApModeState(WiFiState::State::WIFI_CONNECTED));
+    EXPECT_TRUE(WiFiState::isApModeState(WiFiState::State::WIFI_AP_MODE_DEFAULT));
+    EXPECT_TRUE(WiFiState::isApModeState(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL));
 }
 
 TEST_F(WiFiManagerTest, HasStoredCredentials_ReturnsTrueWhenCredentialsExist) {
@@ -265,21 +278,22 @@ TEST_F(WiFiManagerTest, OnDisconnected_AuthFail_StaysConnecting_ArmCampaign) {
 
 TEST_F(WiFiManagerTest, Init_NoCredentials_TransitionsToApMode) {
     // DisconnectedStateHandler NONE branch: no stored NVS creds AND no baked
-    // credentials → setMode(AP) + softAP() → CONNECTED_AP.
+    // credentials → setMode(AP) + softAP() → AP because nothing was configured.
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock,
         nullptr, nullptr);  // no baked creds
 
     wifiManager->init();
 
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
     EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
     EXPECT_EQ(wifiMock.getApSsid(), std::string(WiFiConfig::AP_SSID));
 }
 
 TEST_F(WiFiManagerTest, Connecting_ConnectFailedAndTimeout_FallsBackToApMode) {
     // ConnectingStateHandler: status==CONNECT_FAILED + connectDuration past the
-    // WIFI_CONNECT_TIMEOUT_MS threshold → shouldFallbackToApMode true → AP mode.
+    // WIFI_CONNECT_TIMEOUT_MS threshold → shouldFallbackToApMode true. Stored
+    // credentials existed and could not connect → the AUTH_FAIL AP state.
     prefsMock.setValue("wifi", "ssid", "real-ssid");
     prefsMock.setValue("wifi", "pass", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
@@ -297,7 +311,7 @@ TEST_F(WiFiManagerTest, Connecting_ConnectFailedAndTimeout_FallsBackToApMode) {
     // Advance past the connect timeout (30s) so shouldFallbackToApMode() is true.
     wifiManager->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1000);
 
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
     EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
 }
 
@@ -329,7 +343,7 @@ TEST_F(WiFiManagerTest, Connecting_ConnectFailedBeforeTimeout_RetriesStoredCrede
 TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithStoredCredentials_FallsBackToApMode) {
     // ConnectingStateHandler isInitialConnectTimeout branch: status neither
     // CONNECTED nor CONNECT_FAILED/NO_SSID (idle), and connectDuration exceeds
-    // the initial-connect budget → STORED_NVS → AP fallback.
+    // the initial-connect budget → STORED_NVS → AUTH_FAIL AP (creds existed).
     prefsMock.setValue("wifi", "ssid", "real-ssid");
     prefsMock.setValue("wifi", "pass", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
@@ -344,8 +358,11 @@ TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithStoredCredentials_FallsBack
         WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES * WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
     wifiManager->update(kInitialBudgetMs + 1);
 
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
     EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+    // wifi_ap_fallback keeps reporting a reason on this path too.
+    EXPECT_EQ(wifiManager->getContext().escalatedToApReason,
+              wifiManager->getContext().lastDisconnectReason);
 }
 
 TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithBakedCredentials_TransitionsToConnecting) {
@@ -626,10 +643,11 @@ TEST_F(WiFiManagerTest, AuthFail_ThreeLoopsExhausted_EscalatesToApMode) {
         ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
             << "must stay CONNECTING until all " << totalAttempts << " attempts done (i=" << i << ")";
     }
-    // One more tick exhausts the campaign → escalate to AP mode (bounded).
+    // One more tick exhausts the campaign → escalate to the AUTH_FAIL AP state
+    // (bounded) — credentials existed and could not connect.
     now = fireRetryTick(*wifiManager, wifiMock, now);
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE)
-        << "after 3 full loops the campaign must escalate to AP mode";
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL)
+        << "after 3 full loops the campaign must escalate to the AUTH_FAIL AP state";
 
     // And it records the true auth reason it escalated on.
     EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 202)

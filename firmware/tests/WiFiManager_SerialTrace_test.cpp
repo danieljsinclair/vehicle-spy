@@ -5,7 +5,7 @@
 // every WiFi state transition, and the line carries the REASON when the
 // transition was driven by a disconnect event. Three emission points:
 //
-//   1. onDisconnected() with a definitive-auth reason  -> "... -> WIFI_AP_MODE (auth fail reason=N)"
+//   1. onDisconnected() with a definitive-auth reason  -> "... -> WIFI_AP_MODE_AUTH_FAIL (auth fail reason=N)"
 //   2. onDisconnected() with a transient reason        -> "... -> RECONNECTING (reason=N)"
 //   3. applyStateTransition() (state-machine driven)   -> "<from> -> <to>"
 //
@@ -206,18 +206,18 @@ TEST_F(WiFiManagerSerialTraceTest, ConnectingRetryTicks_EmitNoTraceLines) {
 }
 
 TEST_F(WiFiManagerSerialTraceTest, TransientDisconnectWhileInApMode_StaysSilent) {
-    // A transient disconnect event delivered while already in WIFI_AP_MODE is a
+    // A transient disconnect event delivered while already in an AP state is a
     // no-op: AP mode is stable and ignores STA lifecycle events, so it must not
     // emit a transition trace. (No stored/baked credentials -> AP mode on init.)
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialMock, nullptr, nullptr);
     wifiManager->init();
-    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
     serialMock.reset();
 
     wifiManager->onDisconnected(WIFI_REASON_BEACON_TIMEOUT);
 
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
     EXPECT_TRUE(serialMock.lines().empty());
 }
 

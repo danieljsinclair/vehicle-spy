@@ -45,7 +45,7 @@ public:
         // If an old socket is still here, assigning replaces it (the prior
         // WiFiClient destructor closes it). FirmwareApp queries the adoption
         // state via IClientConnectionSource (TcpServerManager::hasClient()).
-        client_ = next;
+        client_ = std::move(next);
         return std::make_unique<ArduinoTcpServerClient>(client_);
     }
 

@@ -13,12 +13,21 @@ namespace esp32_firmware {
 
 // WiFi state machine
 namespace WiFiState {
+    // Ordinals are load-bearing: selectLedPattern() maps the state (as int) to an
+    // LED pattern, so keep these stable and contiguous.
     enum class State {
-        WIFI_DISCONNECTED,
-        WIFI_CONNECTING,
-        WIFI_CONNECTED,
-        WIFI_AP_MODE
+        WIFI_DISCONNECTED = 0,
+        WIFI_CONNECTING = 1,
+        WIFI_CONNECTED = 2,
+        WIFI_AP_MODE_DEFAULT = 3,   // AP because no SSID was ever configured
+        WIFI_AP_MODE_AUTH_FAIL = 4  // AP because connecting with credentials failed
     };
+
+    // State-model knowledge: true for both AP states. FirmwareApp uses this
+    // instead of inline ordinal comparisons (OCP).
+    inline bool isApModeState(State s) {
+        return s == State::WIFI_AP_MODE_DEFAULT || s == State::WIFI_AP_MODE_AUTH_FAIL;
+    }
 
     struct Context {
         State state = State::WIFI_DISCONNECTED;
@@ -92,6 +101,15 @@ struct IWiFi {
     virtual int getMode() const = 0;
     virtual std::string SSID() const = 0;
     virtual const char* disconnectReasonName(int reason) const = 0;
+    // AP BSSID the STA is (or was last) associated with, as "aa:bb:cc:dd:ee:ff".
+    // Empty when not associated. Used to DETECT Deco mesh node-bouncing: if the
+    // BSSID changes between connect attempts the 2.4GHz-only ESP32 is being
+    // steered between mesh nodes it cannot follow (a common cause of reason=8/39
+    // connect loops). Host mock returns an injected value.
+    virtual std::string BSSID() const = 0;
+    // RSSI (dBm) of the AP the STA is associated with. 0 when not associated.
+    // Surfaces weak-signal auth/handshake failures (reason=204) at a glance.
+    virtual int8_t RSSI() const = 0;
     virtual void onEvent(std::function<void(int, WifiEventInfo*)> cb, int event) = 0;
     virtual ~IWiFi() = default;
 };

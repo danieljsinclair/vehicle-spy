@@ -687,22 +687,40 @@ void loop() {
                        firmwareApp.getDiscoveryCadence(millis()),
                        firmwareApp.getCurrentLedPattern(),
                        firmwareApp.getWiFiDiagnostic().targetSsid,
+                       firmwareApp.getOwnIp(),
                        firmwareApp.getWiFiDiagnostic().authCampaignDetail)) {
         Serial.print(heartbeat.snapshot().c_str());
     }
+
+    // ── TCP accept/auth/dispatch (Stage 6) BEFORE the FirmwareApp LED update ──────
+    // FIX (fix/led-status DEFECT 1): cycle() MUST run BEFORE FirmwareApp.update()
+    // so the client adopted on THIS tick (TcpServerManager::hasClient() becomes
+    // true) is visible to selectLedPattern() inside update(). With the old order
+    // — update() then cycle() — loop() queried clientConnectionSource() before
+    // the manager had adopted the client, so a just-connected buddy fell through
+    // to the wifi branch (WIFI_SEARCHING = mostly dark) instead of SOLID BLUE,
+    // and restartTcpServerIfNeeded() (between them) could client().stop() the
+    // freshly-adopted socket. cycle() runs first so update() sees the adoption.
+    // restartTcpServerIfNeeded() still guards on isClientConnected() &&
+    // client().connected() before stopping anything, so it cannot sever a socket
+    // the manager still holds.
+    tcpManager().cycle(static_cast<uint32_t>(millis()));
 
     // ── Update FirmwareApp (drives WiFiManager + StatusLED + Discovery) ────────────
     // FirmwareApp.update() calls WiFiManager.update(), statusLed.update(), and
     // DiscoveryManager.update(). The live TCP-client state is queried via
     // clientConnectionSource() (backed by TcpServerManager::hasClient()) inside
     // update() — no longer fed from the global WiFiClient's connected() which
-    // desyncs from the manager's adopted-client view.
+    // desyncs from the manager's adopted-client view. Runs AFTER cycle() so a
+    // client adopted this tick is observed immediately (SOLID BLUE).
     firmwareApp.update(millis());
 
     // NOTE: statusLed.update() and discovery broadcast are now driven by
     // FirmwareApp.update(); no separate calls needed here.
 
-    // Restart TCP server if WiFi reconnected with new IP
+    // Restart TCP server if WiFi reconnected with new IP. Guarded on
+    // isClientConnected() && client().connected(), so it cannot drop a socket
+    // the manager still holds.
     restartTcpServerIfNeeded();
 
     // Service any incoming OTA upload before other work so an update isn't
@@ -714,16 +732,6 @@ void loop() {
     // Discovery broadcasting is driven entirely by FirmwareApp.update() above
     // (which calls DiscoveryManager::update on the cadence). No inline broadcast
     // logic remains in the .ino.
-
-    // ── TCP accept/auth/dispatch (Stage 6: delegated to vanilla TcpServerManager) ────
-    // One tick of the client-facing TCP lifecycle (accept → AUTH → command-dispatch →
-    // disconnect cleanup + LED revert). The inline loop was deleted; the manager
-    // drives it through ArduinoTcpServer/ArduinoTcpServerClient + FirmwareApp
-    // (which implements ITcpHostCallbacks directly). The global `client` stays
-    // the single connection truth source (ArduinoTcpServer::accept assigns into
-    // it), so
-    // setClientConnected / ArduinoTcpClient above remain in sync.
-    tcpManager().cycle(static_cast<uint32_t>(millis()));
 
     drainSerialATCommands();
 

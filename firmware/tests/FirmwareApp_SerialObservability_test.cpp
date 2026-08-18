@@ -85,6 +85,48 @@ TEST_F(FirmwareAppSerialObservabilityTest, WiFiDisconnected_EmitsWifiDropWithRea
     firmwareApp->onWiFiDisconnected(4);  // WIFI_REASON_DISASSOC_AP_LEAVING
 }
 
+// §2b  [EVENT] wifi_drop is DECODED — emits the human-readable reason name, the
+// connect phase, and (when associated) the AP BSSID + RSSI. This is the
+// observability the field trace needed: a bare "reason=39" from a Deco mesh is
+// now named (MESH_STEER_REJECT) and the phase ("assoc") tells at a glance which
+// leg of the connect failed. Without decodability the user cannot tell a Deco
+// steering reject (reason=8/39) from a wrong-password (202) from a weak-signal
+// handshake timeout (204).
+TEST_F(FirmwareAppSerialObservabilityTest, WiFiDisconnected_DecodesReasonNamePhaseAndBssid) {
+    initWithLogger();
+    wifiMock.setMode(1);  // WIFI_STA — so BSSID()/RSSI() return injected values
+    wifiMock.setBssid("aa:bb:cc:dd:ee:ff");
+    wifiMock.setRssi(-67);
+
+    std::string capturedDetail;
+    EXPECT_CALL(eventLoggerMock, logEvent("wifi_drop", _))
+        .WillOnce([&](const char*, const std::string& detail) { capturedDetail = detail; });
+    firmwareApp->onWiFiDisconnected(39);  // WIFI_REASON_MESH_STEER_REJECT
+
+    EXPECT_THAT(capturedDetail, HasSubstr("reason=39"));
+    EXPECT_THAT(capturedDetail, HasSubstr("name=WIFI_REASON_MESH_STEER_REJECT"));
+    EXPECT_THAT(capturedDetail, HasSubstr("phase=assoc"));
+    EXPECT_THAT(capturedDetail, HasSubstr("bssid=aa:bb:cc:dd:ee:ff"));
+    EXPECT_THAT(capturedDetail, HasSubstr("rssi=-67"));
+}
+
+// §2c  [EVENT] wifi_drop decodes a handshake-phase timeout (reason=204) without a
+// BSSID when not associated — proves the phase labelling and the bssid-only-when
+//-associated guard both work for the other dominant field symptom.
+TEST_F(FirmwareAppSerialObservabilityTest, WiFiDisconnected_DecodesHandshakePhaseNoBssidWhenUnassociated) {
+    initWithLogger();
+    wifiMock.setMode(0);  // WIFI_OFF — BSSID() returns empty
+
+    std::string capturedDetail;
+    EXPECT_CALL(eventLoggerMock, logEvent("wifi_drop", _))
+        .WillOnce([&](const char*, const std::string& detail) { capturedDetail = detail; });
+    firmwareApp->onWiFiDisconnected(204);  // WIFI_REASON_HANDSHAKE_TIMEOUT
+
+    EXPECT_THAT(capturedDetail, HasSubstr("name=WIFI_REASON_HANDSHAKE_TIMEOUT"));
+    EXPECT_THAT(capturedDetail, HasSubstr("phase=handshake"));
+    EXPECT_THAT(capturedDetail, Not(HasSubstr("bssid=")));
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // §3  [EVENT] client_connected — emitted when TCP client authenticates
 // ══════════════════════════════════════════════════════════════════════════════
@@ -305,8 +347,8 @@ TEST_F(FirmwareAppSerialObservabilityTest, ApFallbackEmitsCorrectReason_AfterCam
     }
 
     EXPECT_EQ(firmwareApp->getWiFiState(),
-              static_cast<int>(WiFiState::State::WIFI_AP_MODE))
-        << "after 3 full loops the campaign must escalate to AP mode";
+              static_cast<int>(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL))
+        << "after 3 full loops the campaign must escalate to the AUTH_FAIL AP state";
 }
 
 } // namespace

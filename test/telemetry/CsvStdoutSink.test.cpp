@@ -38,7 +38,7 @@ VehicleSignal fullSignal() {
         .throttlePercent = 50.0,
         .speedKmh = 100.0,
         .accelerationG = 0.5,
-        .brakePercent = 25.0,
+        .brakeLight = true,
         .steeringAngleDeg = -12.5,
         .motorRpm = 3500.5,
         .motorHvVoltage = 400.0,

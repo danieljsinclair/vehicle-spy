@@ -48,12 +48,12 @@ protected:
 TEST_F(TraceLoggerTest, WritesHeaderOnConstruction) {
     TraceLogger logger(testFile);
     std::string content = readFirstLine(testFile);
-    EXPECT_EQ(content, "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_percent,acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count");
+    EXPECT_EQ(content, "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_light,acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count");
 }
 
 TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 123456789ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = 0.5, .brakePercent = 25.0, .steeringAngleDeg = -12.5, .motorRpm = 3500.5, .motorHvVoltage = 400.0, .motorHvCurrent = 25.3, .motorTorqueNm = 150.0, .gearSelector = 4097});
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 123456789ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = 0.5, .brakeLight = true, .steeringAngleDeg = -12.5, .motorRpm = 3500.5, .motorHvVoltage = 400.0, .motorHvCurrent = 25.3, .motorTorqueNm = 150.0, .gearSelector = 4097});
     logger(signal);
 
     std::string content = readFileContent(testFile);
@@ -65,13 +65,13 @@ TEST_F(TraceLoggerTest, WritesCompleteRowForAllFields) {
     }
 
     ASSERT_EQ(lines.size(), 2); // header + 1 row
-    EXPECT_EQ(lines[1], "123456789,,100.00,50.00,25.00,0.50,-12.50,3500.50,400.00,25.30,150.00,D,10");
+    EXPECT_EQ(lines[1], "123456789,,100.00,50.00,1,0.50,-12.50,3500.50,400.00,25.30,150.00,D,10");
 }
 
 TEST_F(TraceLoggerTest, WritesMultipleRows) {
     TraceLogger logger(testFile);
-    VehicleSignal signal1(VehicleSignal::Params{.timestampUtcMs = 1000ULL, .throttlePercent = 0.0, .speedKmh = 0.0, .accelerationG = 0.0, .brakePercent = 0.0, .steeringAngleDeg = 0.0, .motorRpm = 0.0, .motorHvVoltage = 0.0, .motorHvCurrent = 0.0, .motorTorqueNm = 0.0, .gearSelector = -2});
-    VehicleSignal signal2(VehicleSignal::Params{.timestampUtcMs = 2000ULL, .throttlePercent = 100.0, .speedKmh = 200.0, .accelerationG = 2.0, .brakePercent = 80.0, .steeringAngleDeg = {}, .motorRpm = 5000.0, .motorHvVoltage = 380.5, .motorHvCurrent = 25.2, .motorTorqueNm = 300.0, .gearSelector = 0});
+    VehicleSignal signal1(VehicleSignal::Params{.timestampUtcMs = 1000ULL, .throttlePercent = 0.0, .speedKmh = 0.0, .accelerationG = 0.0, .brakeLight = false, .steeringAngleDeg = 0.0, .motorRpm = 0.0, .motorHvVoltage = 0.0, .motorHvCurrent = 0.0, .motorTorqueNm = 0.0, .gearSelector = -2});
+    VehicleSignal signal2(VehicleSignal::Params{.timestampUtcMs = 2000ULL, .throttlePercent = 100.0, .speedKmh = 200.0, .accelerationG = 2.0, .brakeLight = true, .steeringAngleDeg = {}, .motorRpm = 5000.0, .motorHvVoltage = 380.5, .motorHvCurrent = 25.2, .motorTorqueNm = 300.0, .gearSelector = 0});
 
     logger(signal1);
     logger(signal2);
@@ -85,8 +85,8 @@ TEST_F(TraceLoggerTest, WritesMultipleRows) {
     }
 
     ASSERT_EQ(lines.size(), 3); // header + 2 rows
-    EXPECT_EQ(lines[1], "1000,,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,P,10"); // explicit zeros formatted
-    EXPECT_EQ(lines[2], "2000,,200.00,100.00,80.00,2.00,,5000.00,380.50,25.20,300.00,N,9");
+    EXPECT_EQ(lines[1], "1000,,0.00,0.00,0,0.00,0.00,0.00,0.00,0.00,0.00,P,10"); // explicit zeros formatted
+    EXPECT_EQ(lines[2], "2000,,200.00,100.00,1,2.00,,5000.00,380.50,25.20,300.00,N,9");
 }
 
 TEST_F(TraceLoggerTest, LeavesEmptyCellsForNulloptValues) {
@@ -144,7 +144,7 @@ TEST_F(TraceLoggerTest, FormatsNegativeValuesCorrectly) {
 
 TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     TraceLogger logger1(testFile);
-    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 12345ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = 0.5, .brakePercent = 25.0, .steeringAngleDeg = {}, .motorRpm = 3500.0, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = 150.0, .gearSelector = 4097});
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 12345ULL, .throttlePercent = 50.0, .speedKmh = 100.0, .accelerationG = 0.5, .brakeLight = true, .steeringAngleDeg = {}, .motorRpm = 3500.0, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = 150.0, .gearSelector = 4097});
 
     TraceLogger logger2(std::move(logger1));
     logger2(signal);
@@ -158,12 +158,12 @@ TEST_F(TraceLoggerTest, SupportsMoveSemantics) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "12345,,100.00,50.00,25.00,0.50,,3500.00,,,150.00,D,7");
+    EXPECT_EQ(lines[1], "12345,,100.00,50.00,1,0.50,,3500.00,,,150.00,D,7");
 }
 
 TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     TraceLogger logger(testFile);
-    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 54321ULL, .throttlePercent = 75.0, .speedKmh = 150.0, .accelerationG = 1.0, .brakePercent = 50.0, .steeringAngleDeg = {}, .motorRpm = 4000.0, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = 200.0, .gearSelector = 4098});
+    VehicleSignal signal(VehicleSignal::Params{.timestampUtcMs = 54321ULL, .throttlePercent = 75.0, .speedKmh = 150.0, .accelerationG = 1.0, .brakeLight = true, .steeringAngleDeg = {}, .motorRpm = 4000.0, .motorHvVoltage = {}, .motorHvCurrent = {}, .motorTorqueNm = 200.0, .gearSelector = 4098});
 
     logger(signal);
 
@@ -176,7 +176,7 @@ TEST_F(TraceLoggerTest, WorksAsEventDispatcherCallback) {
     }
 
     ASSERT_EQ(lines.size(), 2);
-    EXPECT_EQ(lines[1], "54321,,150.00,75.00,50.00,1.00,,4000.00,,,200.00,D2,7");
+    EXPECT_EQ(lines[1], "54321,,150.00,75.00,1,1.00,,4000.00,,,200.00,D2,7");
 }
 
 TEST_F(TraceLoggerTest, WritesVehicleIdWhenProvided) {

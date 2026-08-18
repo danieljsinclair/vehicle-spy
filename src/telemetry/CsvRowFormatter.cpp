@@ -28,6 +28,17 @@ std::string formatGear(const std::optional<std::int32_t>& gear) {
     return rendered;
 }
 
+// Binary column: "1"/"0"/empty — never decimal-formatted.
+std::string formatBrakeLight(const std::optional<bool>& brakeLight) {
+    if (!brakeLight.has_value()) return {};
+    return *brakeLight ? "1" : "0";
+}
+
+std::string formatBrakeLight(const std::optional<int>& brakeLight) {
+    if (!brakeLight.has_value()) return {};
+    return *brakeLight != 0 ? "1" : "0";
+}
+
 // dbc_signal_count: how many of the 10 translated signal columns are
 // populated. timestamp and vehicle_id are NOT counted — only DBC-translated
 // signals, matching the schema's documented meaning.
@@ -36,7 +47,7 @@ int countPopulated(const domain::VehicleSignal& signal) {
     if (signal.getThrottlePercent().has_value())  { ++populated; }
     if (signal.getSpeedKmh().has_value())         { ++populated; }
     if (signal.getAccelerationG().has_value())    { ++populated; }
-    if (signal.getBrakePercent().has_value())     { ++populated; }
+    if (signal.getBrakeLight().has_value())       { ++populated; }
     if (signal.getSteeringAngleDeg().has_value()) { ++populated; }
     if (signal.getMotorRpm().has_value())         { ++populated; }
     if (signal.getMotorHvVoltage().has_value())   { ++populated; }
@@ -49,7 +60,7 @@ int countPopulated(const domain::VehicleSignal& signal) {
 } // namespace
 
 std::string csvHeaderLine() {
-    return "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_percent,"
+    return "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_light,"
            "acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,"
            "motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count";
 }
@@ -61,7 +72,7 @@ std::string csvRowLine(const domain::VehicleSignal& signal,
         << vehicleId << ","
         << formatOptional(signal.getSpeedKmh()) << ","
         << formatOptional(signal.getThrottlePercent()) << ","
-        << formatOptional(signal.getBrakePercent()) << ","
+        << formatBrakeLight(signal.getBrakeLight()) << ","
         << formatOptional(signal.getAccelerationG()) << ","
         << formatOptional(signal.getSteeringAngleDeg()) << ","
         << formatOptional(signal.getMotorRpm()) << ","
@@ -80,7 +91,7 @@ std::string csvRowLine(const CsvTelemetryRow& row) {
         << row.vehicle_id << ","
         << row.speed_kmh << ","
         << row.throttle_percent << ","
-        << row.brake_percent << ","
+        << formatBrakeLight(row.brake_light) << ","
         << row.acceleration_g << ","
         << row.steering_angle_deg << ","
         << row.motor_rpm << ","
