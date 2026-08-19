@@ -127,7 +127,7 @@ protected:
 
     MockTcpServer server_;
     MockTcpHostCallbacks host_;
-    TcpServerManager manager_{server_, [kAuthToken]() -> const std::string& { return kAuthToken; }, host_};
+    TcpServerManager manager_{server_, []() -> const std::string& { return kAuthToken; }, host_};
 };
 
 // ════════════════════════════════════════════════════════════════════════════

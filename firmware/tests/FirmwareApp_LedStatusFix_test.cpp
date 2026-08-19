@@ -106,7 +106,8 @@ TEST_F(FirmwareAppTest, CycleBeforeUpdate_AdoptedClientYieldsClientConnected) {
     // Real manager + real connection source (the production wiring seam).
     FakeTcpServer server;
     FakeTcpHostCallbacks host;
-    TcpServerManager manager(server, "vehicle-sim-2026", host);
+    const std::string kToken = "vehicle-sim-2026";
+    TcpServerManager manager(server, [&kToken]() -> const std::string& { return kToken; }, host);
     TcpManagerConnectionSource connSource(manager);
 
     // Build a FirmwareApp over the REAL connection source (not the mock).
