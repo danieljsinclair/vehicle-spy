@@ -88,7 +88,7 @@ public:
                 ISntp& sntp, ITimeNtp& timeNtp,
                 const std::array<uint8_t, 16>& deviceId,
                 const CanBridgeDeps& canBridgeDeps,
-                IClientConnectionSource& clientConnectionSource,
+                IClientConnectionSource* clientConnectionSource,
                 const char* bakedSsid = nullptr, const char* bakedPass = nullptr);
 
     ~FirmwareApp();
@@ -257,7 +257,12 @@ private:
     IPreferences& prefs_;
     IStatusLED& statusLed_;
     CanBridgeDeps canBridgeDeps_;
-    IClientConnectionSource& clientConnectionSource_;
+    IClientConnectionSource* clientConnectionSource_ = nullptr;
+
+    // Set the client connection source after construction (deferred wiring so
+    // tcpManager can be built in setup() after NVS load, avoiding static-init-
+    // order captures of an incompletely-constructed FirmwareApp).
+    void setClientConnectionSource(IClientConnectionSource* source);
     const char* bakedSsid_;
     const char* bakedPass_;
 

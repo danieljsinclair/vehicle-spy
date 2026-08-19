@@ -16,7 +16,7 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
                          ISntp& sntp, ITimeNtp& timeNtp,
                          const std::array<uint8_t, 16>& deviceId,
                          const CanBridgeDeps& canBridgeDeps,
-                         IClientConnectionSource& clientConnectionSource,
+                         IClientConnectionSource* clientConnectionSource,
                          const char* bakedSsid, const char* bakedPass)
     : wifi_(wifi)
     , prefs_(prefs)
@@ -173,7 +173,7 @@ void FirmwareApp::update(uint32_t now) {
     updateWifiStateAndEmitEvents(now);
     updateLedPattern();
     maybeStartNtp();
-    updateDiscovery(now, clientConnectionSource_.isClientConnected());
+    updateDiscovery(now, clientConnectionSource_ ? clientConnectionSource_->isClientConnected() : false);
     statusLed_.update(now);
 }
 
@@ -206,7 +206,7 @@ void FirmwareApp::updateWifiStateAndEmitEvents(uint32_t now) {
 // own view of whether a client is adopted), eliminating the desync where the
 // global WiFiClient reported disconnected while the manager still held a client.
 void FirmwareApp::updateLedPattern() {
-    const bool clientConnected = clientConnectionSource_.isClientConnected();
+    const bool clientConnected = clientConnectionSource_ ? clientConnectionSource_->isClientConnected() : false;
     observability_.lastLedPattern = static_cast<int>(firmware::StatusLED::selectLedPattern(
         static_cast<int>(wifiManager_->getState()), clientConnected));
     statusLed_.setPattern(observability_.lastLedPattern);

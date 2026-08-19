@@ -242,7 +242,7 @@ struct WiringHarness {
         app = std::make_unique<FirmwareApp>(
             wifi, prefs, led, serial, wifiDisc, udp, time, sntp, timeNtp,
             kDeviceId, CanBridgeDeps{canDriver, tcpClient, serialCan},
-            clientConnSource,
+            &clientConnSource,
             bakedSsid, bakedPass);
     }
 };

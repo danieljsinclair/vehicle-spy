@@ -101,15 +101,16 @@ make firmware-port         # prints e.g. /dev/cu.usbserial-210; empty = cable/ad
    ```
    For the road test the phone hotspot the Mac is also on is usually the right SSID.
 
-**3. TCP auth token** (baked default, overridable on-device):
+**3. TCP auth token** (firmware default baked, overridable on-device):
 ```bash
 make ota-creds             # random token, offers to persist to ~/.zshrc
 source ~/.zshrc
 ```
-The token is baked into the firmware (`-DTCP_AUTH_TOKEN`) and compiled into the host binary.
-Default: `vehicle-sim-2026`. Override on-device via `ATSETTOKEN <token>` (stored in NVS).
-**If you change the token you must rebuild BOTH sides** — firmware (`make flash`) and host
-(`make native`) — or the host's `AUTH <token>` line is rejected and you get zero frames.
+The firmware default token (`vehicle-sim-2026`) is compiled in as a first-boot fallback, but
+you can override it on-device via `ATSETTOKEN <token>` (stored in NVS, survives re-flash).
+The host binary is baked at build time, so **if you change the token you must rebuild BOTH
+sides** — firmware (`make flash`) and host (`make native`/`make ios`) — or the host's
+`AUTH <token>` line is rejected and you get zero frames.
 
 **4. Optional, for later WiFi pushes — OTA signing keys:**
 ```bash

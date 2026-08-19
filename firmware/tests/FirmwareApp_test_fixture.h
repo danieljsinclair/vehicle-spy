@@ -236,7 +236,7 @@ protected:
             sntpMock, timeNtpMock,
             testDeviceId,
             canDeps,
-            clientConnSourceMock,
+            &clientConnSourceMock,
             bakedSsid, bakedPass
         );
     }

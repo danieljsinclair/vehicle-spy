@@ -114,7 +114,7 @@ TEST_F(FirmwareAppTest, CycleBeforeUpdate_AdoptedClientYieldsClientConnected) {
     auto app = std::make_unique<FirmwareApp>(
         wifiMock, prefsMock, statusLedMock, serialTraceMock,
         wifiMock, udpMock, timeMock, sntpMock, timeNtpMock,
-        testDeviceId, canDeps, connSource, "baked-ssid", "baked-pass");
+        testDeviceId, canDeps, &connSource, "baked-ssid", "baked-pass");
     app->init();
 
     // Before any client, the source reports disconnected → WIFI_SEARCHING.

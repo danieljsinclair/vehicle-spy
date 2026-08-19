@@ -377,7 +377,7 @@ FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(), arduinoDebug
                               timeAdapters().sntp, timeAdapters().timeNtp,
                               discoveryDeviceId(),
                               canAdapters().deps,
-                              clientConnectionSource(),
+                              nullptr,  // clientConnectionSource deferred to setup()
                               BAKED_SSID, BAKED_PASS);
 
 // cpp:S5421: was `static WiFiServer tcpServer(Constants::TCP_PORT);`. Function-
@@ -587,6 +587,11 @@ void setup() {
     loadedAuthToken();  // initialize the static
     std::string nvsToken = firmwareApp.loadAuthToken();
     loadedAuthToken() = nvsToken.empty() ? std::string(TCP_AUTH_TOKEN) : nvsToken;
+
+    // Wire tcpManager + clientConnectionSource now that firmwareApp is fully
+    // constructed and NVS token is loaded (avoids static-init-order capture
+    // of an incompletely-constructed FirmwareApp).
+    firmwareApp.setClientConnectionSource(&clientConnectionSource());
 
     // ── Initialize FirmwareApp (replaces inline WiFi state machine) ───────────────
     // FirmwareApp.init() sets up WiFiManager and drives initial connection
