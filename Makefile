@@ -1609,16 +1609,11 @@ set-wifi-creds: ## Provision WiFi credentials (USB preferred, network fallback)
 	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
 		echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"; \
 		echo "SSID: $(ESP32_WIFI_SSID)"; \
-		printf 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' > "$(ESP32_PORT)"; \
-		_tmp=$$(mktemp); \
-		scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
-		cat "$$_tmp"; \
-		if ! grep -q "OK WiFi credentials stored" "$$_tmp" 2>/dev/null; then \
-			echo "${YELLOW}WARN: set-wifi-creds was not confirmed (no reply within 8s)${NC}" >&2; \
-			rm -f "$$_tmp"; \
+		python3 scripts/serial-send-read.py --port "$(ESP32_PORT)" --baud 115200 --send 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' --expect 'stored' --timeout 8; \
+		_rc=$$?; \
+		if [ $$_rc -ne 0 ]; then \
 			exit 1; \
 		fi; \
-		rm -f "$$_tmp"; \
 		echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"; \
 		$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"; \
 	else \
@@ -1646,16 +1641,11 @@ join-wifi-usb: firmware-port
 		fi
 	@echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"
 	@echo "SSID: $(ESP32_WIFI_SSID)"
-	@printf 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' > "$(ESP32_PORT)"; \
-	_tmp=$$(mktemp); \
-	scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
-	cat "$$_tmp"; \
-	if ! grep -q "OK WiFi credentials stored" "$$_tmp" 2>/dev/null; then \
-		echo "${YELLOW}WARN: set-wifi-creds was not confirmed (no reply within 8s)${NC}" >&2; \
-		rm -f "$$_tmp"; \
+	@python3 scripts/serial-send-read.py --port "$(ESP32_PORT)" --baud 115200 --send 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' --expect 'stored' --timeout 8; \
+	_rc=$$?; \
+	if [ $$_rc -ne 0 ]; then \
 		exit 1; \
 	fi; \
-	rm -f "$$_tmp"; \
 	echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
 	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"
 
@@ -1673,16 +1663,11 @@ clear-wifi-creds: ## Clear WiFi credentials (USB preferred, network fallback)
 	@echo "${YELLOW}--- Clearing WiFi credentials ---${NC}"
 	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
 		echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"; \
-		printf 'ATCLEARWIFI\r' > "$(ESP32_PORT)"; \
-		_tmp=$$(mktemp); \
-		scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
-		cat "$$_tmp"; \
-		if ! grep -q "OK WiFi credentials cleared" "$$_tmp" 2>/dev/null; then \
-			echo "${YELLOW}WARN: clear was not confirmed (no reply within 8s)${NC}" >&2; \
-			rm -f "$$_tmp"; \
+		python3 scripts/serial-send-read.py --port "$(ESP32_PORT)" --baud 115200 --send 'ATCLEARWIFI\r' --expect 'cleared' --timeout 8; \
+		_rc=$$?; \
+		if [ $$_rc -ne 0 ]; then \
 			exit 1; \
 		fi; \
-		rm -f "$$_tmp"; \
 		echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"; \
 		$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"; \
 	else \
