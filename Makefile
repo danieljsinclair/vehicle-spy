@@ -5,7 +5,7 @@
 			reboot reboot-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
 	        sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary sonar-compiledb sonar-compiledb-cpp sonar-compiledb-merge sonar-clean summary \
 	        coverage-run coverage-clean coverage-summary coverage-scorecard coverage-firmware coverage-firmware-clean \
-			header discovery set-wifi-creds join-wifi join-wifi-usb
+			header discovery set-wifi-creds clear-wifi-creds join-wifi join-wifi-usb clear-wifi-creds-usb
 
 # Device ID (first connected/available device, excluding unavailable)
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/unavailable/ && match($$0, /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/) { print substr($$0, RSTART, RLENGTH); exit }')
@@ -64,6 +64,7 @@ gate: test firmware-host-tests ios ios-test-gate ios-analyze firmware sonar-scan
 define show_wifi
 	@echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)";
 	@echo " $(YELLOW)creds in NVS — provision via: make set-wifi-creds ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>$(NC)";
+	@echo " $(YELLOW)clear via: make clear-wifi-creds$(NC)";
 endef
 
 define show_config
@@ -1523,8 +1524,10 @@ help:
 	@echo "  firmware-port    - Show detected ESP32 serial port"
 	@echo "  ota-keys         - Generate per-user Ed25519 OTA signing keypair + bake public key"
 	@echo "  set-wifi-creds   - Provision WiFi credentials to NVS (USB preferred, network fallback)"
+	@echo "  clear-wifi-creds - Clear WiFi credentials from NVS (USB preferred, network fallback)"
 	@echo "  join-wifi        - Alias for set-wifi-creds"
 	@echo "  join-wifi-usb    - Provision WiFi credentials over USB serial only"
+	@echo "  clear-wifi-creds-usb - Clear WiFi credentials over USB serial only"
 	@echo "  coverage-run     - Build C++ core with llvm-cov instrumentation + run tests + lcov/XML"
 	@echo "  coverage-ios     - Run iOS tests with xcodebuild -enableCodeCoverage + xccov/XML"
 	@echo "  coverage-summary - Print local coverage % (C++ lcov + iOS xccov)"
@@ -1583,15 +1586,18 @@ reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 			echo "${YELLOW}WARN: no response (device may have already rebooted)${NC}"; \
 		fi
 
-# -- Configure WiFi (NVS provisioning) -----------------------------------------
+# -- Configure / Clear WiFi (NVS provisioning) ---------------------------------
 #
 # Provision ESP32 WiFi credentials (stored in NVS, survives re-flash).
 #   make set-wifi-creds ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>
 #
+# Clear ESP32 WiFi credentials (factory reset to default AP).
+#   make clear-wifi-creds
+#
 # USB preferred (direct serial, no AP join required); falls back to network
 # (connect host to ESP32-CAN AP at 192.168.4.1) if USB unavailable.
 #
-# Aliases: join-wifi, join-wifi-usb
+# Aliases: join-wifi, join-wifi-usb, clear-wifi-creds-usb
 
 set-wifi-creds: ## Provision WiFi credentials (USB preferred, network fallback)
 	@if [ -z "$(ESP32_WIFI_SSID)" ] || [ -z "$(ESP32_WIFI_PASS)" ]; then \
@@ -1604,15 +1610,24 @@ set-wifi-creds: ## Provision WiFi credentials (USB preferred, network fallback)
 		echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"; \
 		echo "SSID: $(ESP32_WIFI_SSID)"; \
 		printf 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' > "$(ESP32_PORT)"; \
+		_tmp=$$(mktemp); \
+		scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
+		cat "$$_tmp"; \
+		if ! grep -q "OK WiFi credentials stored" "$$_tmp" 2>/dev/null; then \
+			echo "${YELLOW}WARN: set-wifi-creds was not confirmed (no reply within 8s)${NC}" >&2; \
+			rm -f "$$_tmp"; \
+			exit 1; \
+		fi; \
+		rm -f "$$_tmp"; \
 		echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"; \
 		$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"; \
 	else \
 		echo "${YELLOW}--- Configuring WiFi credentials over AP (192.168.4.1:3333) ---${NC}"; \
 		echo "SSID: $(ESP32_WIFI_SSID)"; \
 		echo "${YELLOW}Make sure your host is connected to ESP32-CAN AP${NC}"; \
-		printf 'AUTH $(ESP32_TCP_TOKEN)\rATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' | nc -w 5 192.168.4.1 3333 2>/dev/null; \
-			_rc=$$?; \
-			if [ $$_rc -ne 0 ]; then \
+		_reply=$$(printf 'AUTH $(ESP32_TCP_TOKEN)\rATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' | nc -w 8 192.168.4.1 3333 2>/dev/null); \
+			echo "$$_reply"; \
+			if ! echo "$$_reply" | grep -q "OK WiFi credentials stored"; then \
 				echo "${RED}Failed to configure WiFi. Is the ESP32 in AP mode?${NC}" >&2; \
 				exit 1; \
 			fi; \
@@ -1631,6 +1646,69 @@ join-wifi-usb: firmware-port
 		fi
 	@echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"
 	@echo "SSID: $(ESP32_WIFI_SSID)"
-	@printf 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' > "$(ESP32_PORT)"
-	@echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
+	@printf 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' > "$(ESP32_PORT)"; \
+	_tmp=$$(mktemp); \
+	scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
+	cat "$$_tmp"; \
+	if ! grep -q "OK WiFi credentials stored" "$$_tmp" 2>/dev/null; then \
+		echo "${YELLOW}WARN: set-wifi-creds was not confirmed (no reply within 8s)${NC}" >&2; \
+		rm -f "$$_tmp"; \
+		exit 1; \
+	fi; \
+	rm -f "$$_tmp"; \
+	echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
+	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"
+
+# -- Clear WiFi credentials (factory reset) ------------------------------------
+#
+# Clear ESP32 WiFi credentials from NVS (factory reset to default AP).
+#   make clear-wifi-creds
+#
+# USB preferred (direct serial, no AP join required); falls back to network
+# (connect host to ESP32-CAN AP at 192.168.4.1) if USB unavailable.
+#
+# Aliases: clear-wifi-creds-usb
+
+clear-wifi-creds: ## Clear WiFi credentials (USB preferred, network fallback)
+	@echo "${YELLOW}--- Clearing WiFi credentials ---${NC}"
+	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
+		echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"; \
+		printf 'ATCLEARWIFI\r' > "$(ESP32_PORT)"; \
+		_tmp=$$(mktemp); \
+		scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
+		cat "$$_tmp"; \
+		if ! grep -q "OK WiFi credentials cleared" "$$_tmp" 2>/dev/null; then \
+			echo "${YELLOW}WARN: clear was not confirmed (no reply within 8s)${NC}" >&2; \
+			rm -f "$$_tmp"; \
+			exit 1; \
+		fi; \
+		rm -f "$$_tmp"; \
+		echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"; \
+		$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"; \
+	else \
+		echo "${YELLOW}--- Clearing WiFi credentials over AP (192.168.4.1:3333) ---${NC}"; \
+		echo "${YELLOW}Make sure your host is connected to ESP32-CAN AP${NC}"; \
+		_reply=$$(printf 'AUTH $(ESP32_TCP_TOKEN)\rATCLEARWIFI\r' | nc -w 8 192.168.4.1 3333 2>/dev/null); \
+		echo "$$_reply"; \
+		if ! echo "$$_reply" | grep -q "OK WiFi credentials cleared"; then \
+			echo "${RED}Failed to clear WiFi. Is the ESP32 in AP mode?${NC}" >&2; \
+			exit 1; \
+		fi; \
+		echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"; \
+	fi
+
+.PHONY: clear-wifi-creds
+clear-wifi-creds-usb: firmware-port
+	@echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"
+	@printf 'ATCLEARWIFI\r' > "$(ESP32_PORT)"; \
+	_tmp=$$(mktemp); \
+	scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
+	cat "$$_tmp"; \
+	if ! grep -q "OK WiFi credentials cleared" "$$_tmp" 2>/dev/null; then \
+		echo "${YELLOW}WARN: clear was not confirmed (no reply within 8s)${NC}" >&2; \
+		rm -f "$$_tmp"; \
+		exit 1; \
+	fi; \
+	rm -f "$$_tmp"; \
+	echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"
 	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"

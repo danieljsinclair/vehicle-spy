@@ -95,7 +95,11 @@ make firmware-port         # prints e.g. /dev/cu.usbserial-210; empty = cable/ad
 
 **2. Provision WiFi credentials** (stored in NVS, survives re-flash):
    Flash first — the ESP32 boots AP-first (`ESP32-CAN` / `cancan12`).
-   Then provision:
+   For a deterministic clean start, clear any existing credentials first:
+   ```bash
+   make clear-wifi-creds
+   ```
+   Then provision your network:
    ```bash
    make set-wifi-creds ESP32_WIFI_SSID="YourNetworkName" ESP32_WIFI_PASS="YourPassword"
    ```
