@@ -1,6 +1,7 @@
 // TokenStore_test.cpp - Host tests for TokenStore (TDD)
 
 #include "vanilla/TokenStore.h"
+#include "TokenStore_test_fixture.h"
 #include "vanilla/WiFiManager.h"
 #include "mocks/PreferencesMock.h"
 

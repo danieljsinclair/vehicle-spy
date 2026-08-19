@@ -51,8 +51,6 @@ public:
 
 private:
     DiscoveryContext emptyCtx_;
-
-private:
     IUdp& udp_;
     IWiFiDiscovery& wifiDiscovery_;
     ITime& time_;

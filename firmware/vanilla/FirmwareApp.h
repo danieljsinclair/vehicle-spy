@@ -109,14 +109,11 @@ public:
 
 private:
     IWiFi& wifi_;
-    IPreferences& prefs_;
     IStatusLED& statusLed_;
     CanBridgeDeps canBridgeDeps_;
     IClientConnectionSource* clientConnectionSource_ = nullptr;
     const char* bakedSsid_;
     const char* bakedPass_;
-    const char* bakedToken_;
-    std::array<uint8_t, 16> deviceId_;
 
     std::unique_ptr<WiFiManager> wifiManager_;
     std::unique_ptr<NtpTimeSync> ntpTimeSync_;
