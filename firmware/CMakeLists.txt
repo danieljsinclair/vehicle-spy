@@ -66,6 +66,10 @@ set(VANILLA_SOURCES
     vanilla/FactoryResetCheck.cpp
     vanilla/LoopHeartbeat.cpp
     vanilla/NvsWifiCredentialStore.cpp
+    vanilla/TokenStore.cpp
+    vanilla/TcpServerRestartPolicy.cpp
+    vanilla/DiscoveryPolicy.cpp
+    vanilla/LedPatternPolicy.cpp
 )
 
 # ESP32-specific hardware veneer (GPIO LED driver) — stays in can-bridge/
@@ -120,6 +124,7 @@ add_executable(esp32-firmware-tests
     tests/LoopHeartbeat_test.cpp
     tests/WifiTransitionObserver_test.cpp
     tests/NvsWifiCredentialStore_test.cpp
+    tests/TokenStore_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests

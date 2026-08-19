@@ -855,27 +855,6 @@ TEST_F(FirmwareAppTest, StoreAuthToken_PersistsViaPreferences) {
     EXPECT_EQ(stored, "my-secret-token");
 }
 
-TEST_F(FirmwareAppTest, LoadAuthToken_ReturnsStoredToken) {
-    // CONTRACT: loadAuthToken reads the token from the NVS token namespace via
-    // IPreferences and returns it (empty string if missing).
-    firmwareApp->init();
-
-    prefsMock.setValue(WiFiConfig::NVS_TOKEN_NAMESPACE, WiFiConfig::NVS_TOKEN_KEY, "stored-token");
-
-    std::string token = firmwareApp->loadAuthToken();
-
-    EXPECT_EQ(token, "stored-token");
-}
-
-TEST_F(FirmwareAppTest, LoadAuthToken_NoStoredToken_ReturnsEmpty) {
-    // When no token exists in NVS, loadAuthToken returns the default (empty).
-    firmwareApp->init();
-
-    std::string token = firmwareApp->loadAuthToken();
-
-    EXPECT_TRUE(token.empty());
-}
-
 TEST_F(FirmwareAppTest, GetDiscoveryCadence_Disabled_ReturnsNone) {
     // When discovery is disabled, getDiscoveryCadence returns "none" regardless
     // of manager state.
