@@ -5,6 +5,190 @@
 
 namespace esp32_firmware {
 
+// ── Concrete firmware command handlers (Command Pattern) ──────────────────────
+// One handler per AT command; adding a command is push_back-only (OpenClosed).
+
+struct AtzCommandHandler : public IAtCommandHandler {
+    explicit AtzCommandHandler(IMonitorState& monitor) : monitor_(monitor) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATZ";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        monitor_.setMonitorActive(false);
+        return AtCommandResult("ELM327 v2.3");
+    }
+    IMonitorState& monitor_;
+};
+
+struct AteCommandHandler : public IAtCommandHandler {
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATE0" || normalizedCmd == "ATE1";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+struct AtspCommandHandler : public IAtCommandHandler {
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd.rfind("ATSP", 0) == 0;
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+struct AthCommandHandler : public IAtCommandHandler {
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATH0" || normalizedCmd == "ATH1";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+struct AtcsmCommandHandler : public IAtCommandHandler {
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATCSM0" || normalizedCmd == "ATCSM1";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        return AtCommandResult("OK");
+    }
+};
+
+struct AtmaCommandHandler : public IAtCommandHandler {
+    explicit AtmaCommandHandler(IMonitorState& monitor) : monitor_(monitor) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATMA";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        monitor_.setMonitorActive(true);
+        return AtCommandResult("OK");
+    }
+    IMonitorState& monitor_;
+};
+
+struct AtpcCommandHandler : public IAtCommandHandler {
+    explicit AtpcCommandHandler(IMonitorState& monitor) : monitor_(monitor) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATPC";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        monitor_.setMonitorActive(false);
+        return AtCommandResult("OK");
+    }
+    IMonitorState& monitor_;
+};
+
+struct AtheloCommandHandler : public IAtCommandHandler {
+    explicit AtheloCommandHandler(const std::array<uint8_t, 16>& deviceId) : deviceId_(deviceId) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATHELO" || normalizedCmd == "HELLO";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        return AtCommandResult(AtCommandDispatcher::buildHeloResponse(deviceId_, "ESP32-CAN-Bridge", "0.2.0").c_str());
+    }
+    const std::array<uint8_t, 16>& deviceId_;
+};
+
+struct AtsetwifiCommandHandler : public IAtCommandHandler {
+    explicit AtsetwifiCommandHandler(IWifiCredentialStore& wifiStore) : wifiStore_(wifiStore) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd.rfind("ATSETWIFI", 0) == 0;
+    }
+    AtCommandResult execute(const std::string& originalCmd) const override {
+        std::string params = originalCmd.substr(9);  // Skip "ATSETWIFI"
+        // trim leading/trailing whitespace
+        size_t s = params.find_first_not_of(" \t\r\n");
+        size_t e = params.find_last_not_of(" \t\r\n");
+        if (s != std::string::npos) params = params.substr(s, e - s + 1);
+
+        SetWifiParams wifiParams = AtCommandDispatcher::parseSetWifiParams(params);
+
+        if (!wifiParams.valid) {
+            return AtCommandResult("ERROR Invalid format. Use: ATSETWIFI<ssid>,<pass>");
+        }
+        if (wifiParams.ssid.empty() || wifiParams.ssid.length() > 32) {
+            return AtCommandResult("ERROR Invalid SSID length (1-32 chars)");
+        }
+        if (wifiParams.password.empty() || wifiParams.password.length() > 64) {
+            return AtCommandResult("ERROR Invalid password length (1-64 chars)");
+        }
+        if (wifiStore_.store(wifiParams.ssid, wifiParams.password)) {
+            return AtCommandResult("OK WiFi credentials stored. Rebooting to connect...", true, true);
+        }
+        return AtCommandResult("ERROR Failed to store credentials");
+    }
+    IWifiCredentialStore& wifiStore_;
+};
+
+struct AtsettokenCommandHandler : public IAtCommandHandler {
+    explicit AtsettokenCommandHandler(IWifiTokenStore& tokenStore) : tokenStore_(tokenStore) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd.rfind("ATSETTOKEN", 0) == 0;
+    }
+    AtCommandResult execute(const std::string& originalCmd) const override {
+        std::string params = originalCmd.substr(10);  // Skip "ATSETTOKEN"
+        // trim leading/trailing whitespace
+        size_t s = params.find_first_not_of(" \t\r\n");
+        if (s == std::string::npos) {
+            params.clear();  // all whitespace -> empty
+        } else {
+            size_t e = params.find_last_not_of(" \t\r\n");
+            params = params.substr(s, e - s + 1);
+        }
+
+        if (params.empty()) {
+            return AtCommandResult("ERROR Token cannot be empty");
+        }
+        if (params.length() > 64) {
+            return AtCommandResult("ERROR Token too long (max 64 chars)");
+        }
+        if (tokenStore_.storeToken(params)) {
+            return AtCommandResult("OK Token stored. Rebooting...", true, true);
+        }
+        return AtCommandResult("ERROR Failed to store token");
+    }
+    IWifiTokenStore& tokenStore_;
+};
+
+struct AtclearwifiCommandHandler : public IAtCommandHandler {
+    explicit AtclearwifiCommandHandler(IWifiCredentialClear& clearFn) : clearFn_(clearFn) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATCLEARWIFI";
+    }
+    AtCommandResult execute(const std::string&) const override {
+        if (clearFn_.clear()) {
+            return AtCommandResult("OK WiFi credentials cleared. Rebooting...", true, true);
+        }
+        return AtCommandResult("ERROR Failed to clear credentials");
+    }
+    IWifiCredentialClear& clearFn_;
+};
+
+struct AtiCommandHandler : public IAtCommandHandler {
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATI";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        return AtCommandResult("ESP32 CAN Bridge v0.1");
+    }
+};
+
+struct AtrebootCommandHandler : public IAtCommandHandler {
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATREBOOT";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        // shouldFlushClient is false on purpose: sendPrompt already flushed the
+        // "REBOOT" response. An extra client.flush() here hangs indefinitely on a
+        // dead/half-closed socket (ESP32 WiFiClient::flush() has no timeout).
+        return AtCommandResult("REBOOT", true, false);
+    }
+};
+
+// ── AtCommandDispatcher method implementations ────────────────────────────────
+
 AtCommandDispatcher::AtCommandDispatcher(ITcpClientAt& tcpClient, ISerialAt& serial, IEspAt& esp,
                                          IWifiCredentialStore& wifiStore, IWifiTokenStore& tokenStore,
                                          IWifiCredentialClear& credClear, IMonitorState& monitor,

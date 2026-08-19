@@ -792,3 +792,124 @@ TEST_F(FirmwareAppTest, ClientWiring_ClientConnectedOverridesWifiSearching) {
 
     firmwareApp->update(1000);
 }
+
+// ============================================================================
+// UNCOVERED METHOD TESTS (closes FirmwareApp.cpp coverage gaps)
+// ============================================================================
+
+TEST_F(FirmwareAppTest, SetClientConnectionSource_AfterInit_UsedByUpdate) {
+    // CONTRACT: setClientConnectionSource() swaps the client source and update()
+    // immediately reads the new source via isClientConnected().
+    firmwareApp->init();
+
+    // Default fixture source reports disconnected; verify LED shows WIFI_CONNECTED.
+    ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(false));
+    wifiMock.simulateConnectSuccess();
+    EXPECT_CALL(statusLedMock, setPattern(
+        static_cast<int>(firmware::StatusLED::Pattern::WIFI_CONNECTED)))
+        .Times(1);
+    firmwareApp->update(5000);
+
+    // Swap in a source that reports connected; LED must switch to CLIENT_CONNECTED.
+    MockClientConnectionSource newSource;
+    ON_CALL(newSource, isClientConnected()).WillByDefault(Return(true));
+    firmwareApp->setClientConnectionSource(&newSource);
+
+    EXPECT_CALL(statusLedMock, setPattern(
+        static_cast<int>(firmware::StatusLED::Pattern::CLIENT_CONNECTED)))
+        .Times(1);
+    firmwareApp->update(6000);
+}
+
+TEST_F(FirmwareAppTest, Clear_DiscardsResult_AndClearsCredentials) {
+    // CONTRACT: clear() is the ICredentialClear seam — it invokes clearCredentials()
+    // and discards the bool (FactoryResetCheck only needs the wipe, not the result).
+    firmwareApp->init();
+
+    // Store credentials first so there is something to clear.
+    firmwareApp->storeCredentials("ssid", "pass");
+    EXPECT_TRUE(firmwareApp->hasStoredCredentials());
+
+    EXPECT_NO_THROW({
+        firmwareApp->clear();
+    });
+
+    EXPECT_FALSE(firmwareApp->hasStoredCredentials());
+}
+
+TEST_F(FirmwareAppTest, StoreAuthToken_PersistsViaPreferences) {
+    // CONTRACT: storeAuthToken writes the token to the NVS token namespace via
+    // IPreferences and returns true iff putString succeeds.
+    firmwareApp->init();
+
+    // Pre-set the namespace so putString has a valid target.
+    prefsMock.setValue(WiFiConfig::NVS_TOKEN_NAMESPACE, WiFiConfig::NVS_TOKEN_KEY, "");
+
+    bool result = firmwareApp->storeAuthToken("my-secret-token");
+
+    EXPECT_TRUE(result);
+    // Verify the token landed in the preferences mock.
+    prefsMock.begin(WiFiConfig::NVS_TOKEN_NAMESPACE, true);
+    std::string stored = prefsMock.getString(WiFiConfig::NVS_TOKEN_KEY, "");
+    prefsMock.end();
+    EXPECT_EQ(stored, "my-secret-token");
+}
+
+TEST_F(FirmwareAppTest, LoadAuthToken_ReturnsStoredToken) {
+    // CONTRACT: loadAuthToken reads the token from the NVS token namespace via
+    // IPreferences and returns it (empty string if missing).
+    firmwareApp->init();
+
+    prefsMock.setValue(WiFiConfig::NVS_TOKEN_NAMESPACE, WiFiConfig::NVS_TOKEN_KEY, "stored-token");
+
+    std::string token = firmwareApp->loadAuthToken();
+
+    EXPECT_EQ(token, "stored-token");
+}
+
+TEST_F(FirmwareAppTest, LoadAuthToken_NoStoredToken_ReturnsEmpty) {
+    // When no token exists in NVS, loadAuthToken returns the default (empty).
+    firmwareApp->init();
+
+    std::string token = firmwareApp->loadAuthToken();
+
+    EXPECT_TRUE(token.empty());
+}
+
+TEST_F(FirmwareAppTest, GetDiscoveryCadence_Disabled_ReturnsNone) {
+    // When discovery is disabled, getDiscoveryCadence returns "none" regardless
+    // of manager state.
+    firmwareApp->init();
+    firmwareApp->setDiscoveryEnabled(false);
+
+    std::string cadence = firmwareApp->getDiscoveryCadence(0);
+
+    EXPECT_EQ(cadence, "none");
+}
+
+TEST_F(FirmwareAppTest, GetDiscoveryCadence_NotStarted_ReturnsNone) {
+    // When discovery is enabled but not yet started (no update() tick yet),
+    // getDiscoveryCadence returns "none".
+    firmwareApp->init();
+    // discovery_.started is false by default; set enabled but leave started false.
+    firmwareApp->setDiscoveryEnabled(true);
+
+    std::string cadence = firmwareApp->getDiscoveryCadence(0);
+
+    EXPECT_EQ(cadence, "none");
+}
+
+TEST_F(FirmwareAppTest, GetDiscoveryCadence_Active_ReturnsIntervalString) {
+    // Once discovery is active, getDiscoveryCadence returns the broadcast interval
+    // formatted as "Xs" (>= 1 s) or "Xms" (< 1 s). At age 0 the fast tier (500ms)
+    // applies, so the result is "500ms".
+    firmwareApp->init();
+    firmwareApp->setDiscoveryEnabled(true);
+
+    // Drive startDiscoveryIfNeeded via update().
+    firmwareApp->update(0);
+
+    std::string cadence = firmwareApp->getDiscoveryCadence(0);
+
+    EXPECT_EQ(cadence, "500ms");
+}
