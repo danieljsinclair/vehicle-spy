@@ -237,6 +237,10 @@ void FirmwareApp::setDiscoveryEnabled(bool enabled) {
     discovery_.enabled = enabled;
 }
 
+void FirmwareApp::setClientConnectionSource(IClientConnectionSource* source) {
+    clientConnectionSource_ = source;
+}
+
 void FirmwareApp::resetDiscoveryBackoff() {
     assert(discoveryManager_ && "FirmwareApp::resetDiscoveryBackoff called before init()");
     discoveryManager_->resetBackoff();

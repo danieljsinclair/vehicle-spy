@@ -251,6 +251,11 @@ public:
     void handleTcpAtCommand(const std::string& cmd) override;
     void handleSerialAtCommand(const std::string& cmd);
 
+    // Set the client connection source after construction (deferred wiring so
+    // tcpManager can be built in setup() after NVS load, avoiding static-init-
+    // order captures of an incompletely-constructed FirmwareApp).
+    void setClientConnectionSource(IClientConnectionSource* source);
+
 private:
     // Dependencies
     IWiFi& wifi_;
@@ -258,11 +263,6 @@ private:
     IStatusLED& statusLed_;
     CanBridgeDeps canBridgeDeps_;
     IClientConnectionSource* clientConnectionSource_ = nullptr;
-
-    // Set the client connection source after construction (deferred wiring so
-    // tcpManager can be built in setup() after NVS load, avoiding static-init-
-    // order captures of an incompletely-constructed FirmwareApp).
-    void setClientConnectionSource(IClientConnectionSource* source);
     const char* bakedSsid_;
     const char* bakedPass_;
 

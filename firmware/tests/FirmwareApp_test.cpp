@@ -22,7 +22,7 @@ TEST_F(FirmwareAppTest, Ctor_DoesNotThrow) {
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
                        testDeviceId, canDeps,
-                       clientConnSourceMock);
+                       &clientConnSourceMock);
     });
 }
 
@@ -33,7 +33,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_DoesNotThrow) {
                        wifiMock, udpMock, timeMock,
                        sntpMock, timeNtpMock,
                        testDeviceId, canDeps,
-                       clientConnSourceMock, "test-ssid", "test-pass");
+                       &clientConnSourceMock, "test-ssid", "test-pass");
     });
 }
 
@@ -328,7 +328,7 @@ TEST_F(FirmwareAppTest, Ctor_WithBakedCredentials_HasStoredReturnsFalse) {
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
                    testDeviceId, canDeps,
-                   clientConnSourceMock, "baked-ssid", "baked-pass");
+                   &clientConnSourceMock, "baked-ssid", "baked-pass");
     app.init();
 
     EXPECT_FALSE(app.hasStoredCredentials());
@@ -340,7 +340,7 @@ TEST_F(FirmwareAppTest, StoreCredentials_OverridesBaked_WhenStored) {
                    wifiMock, udpMock, timeMock,
                    sntpMock, timeNtpMock,
                    testDeviceId, canDeps,
-                   clientConnSourceMock, "baked-ssid", "baked-pass");
+                   &clientConnSourceMock, "baked-ssid", "baked-pass");
     app.init();
 
     app.storeCredentials("stored-ssid", "stored-pass");

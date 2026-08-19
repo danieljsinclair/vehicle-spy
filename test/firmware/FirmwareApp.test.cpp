@@ -180,7 +180,7 @@ struct AppHarness {
     AppHarness()
         : app(wifi, prefs, led, serial, wifiDisc, udp, time, sntp, timeNtp, kDeviceId,
               CanBridgeDeps{canDriver, tcpClient, serialCan},
-              clientConnSource) {}
+              &clientConnSource) {}
 };
 
 // ── Init / lifecycle ─────────────────────────────────────────────────────────
