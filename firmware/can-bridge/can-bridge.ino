@@ -706,6 +706,15 @@ void setup() {
 }
 
 void loop() {
+    // Drain serial AT commands FIRST — before any operation that can block or
+    // delay the loop.  The ESP32 Arduino-core UART RX ring buffer is 256 bytes;
+    // if loop() is delayed more than ~22 ms (the time for 256 bytes at 115200
+    // baud) the buffer overflows and the UART RX locks up permanently
+    // (arduino-esp32#6326, fixed in core 2.0.3).  Once locked, Serial.read()
+    // returns -1 forever and the AT command path is inert until reboot.
+    // Reading the serial input at the top of every tick minimises that window.
+    drainSerialATCommands();
+
     // 5-second heartbeat: delegate to vanilla LoopHeartbeat which formats the
     // enriched state snapshot (client IP, discovery cadence, LED pattern).
     static LoopHeartbeat heartbeat(Constants::HEARTBEAT_INTERVAL_MS);
@@ -761,8 +770,6 @@ void loop() {
     // Discovery broadcasting is driven entirely by FirmwareApp.update() above
     // (which calls DiscoveryManager::update on the cadence). No inline broadcast
     // logic remains in the .ino.
-
-    drainSerialATCommands();
 
     // Always drain the TWAI RX queue through the vanilla CanBridge. CanBridge
     // dispatches each frame to Serial unconditionally, and to TCP only when a
