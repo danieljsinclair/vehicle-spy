@@ -31,7 +31,6 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     , tcpRestartPolicy_(nullptr)
     , initialized_(false)
     , ntpStarted_(false)
-    , serialQuietUntilMs_(0)
     , wifiTransitionObserver_(static_cast<ITransitionEventSink&>(*this)) {
     constructManagers(prefs, serial, sntp, timeNtp);
     setupCallbacks();
@@ -46,7 +45,6 @@ void FirmwareApp::init() {
     canBridge_->init();
     setupCallbacks();
     initialized_ = true;
-    discovery_.started = false;
     ntpStarted_ = false;
     wifiTransitionObserver_.setInitialState(static_cast<int>(wifiManager_->getState()));
 }
@@ -61,8 +59,9 @@ void FirmwareApp::constructManagers(IPreferences& prefs, ISerial& serial,
 }
 
 void FirmwareApp::setupCallbacks() {
-    wifiManager_->setTcpServerRestartCallback([this]() {
-        if (callbacks_.restartTcpServer) callbacks_.restartTcpServer();
+    wifiManager_->setTcpServerRestartCallback([]() {
+        // No-op: WiFiManager sets its own tcpServerNeedsRestart flag on the
+        // transition; restartTcpServerIfNeeded() in the .ino picks it up next tick.
     });
     wifiManager_->setNtpInitCallback([this]() { ntpStarted_ = true; });
     wifiManager_->setDiscoveryResetCallback([this]() {
@@ -73,24 +72,23 @@ void FirmwareApp::setupCallbacks() {
 void FirmwareApp::setupPolicies(IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime& time,
                                  const std::array<uint8_t, 16>& deviceId) {
     ledPatternPolicy_ = std::make_unique<LedPatternPolicy>(
-        statusLed_, *wifiManager_, callbacks_.restartTcpServer, callbacks_.broadcastDiscovery);
+        statusLed_, *wifiManager_, [](){}, [](){});
+
     tcpRestartPolicy_ = std::make_unique<TcpServerRestartPolicy>(
-        *wifiManager_, callbacks_.restartTcpServer);
+        *wifiManager_, [](){});
 
     // DiscoveryPolicy owns its own DiscoveryManager. The broadcast callback
-    // forwards to the firmware-effect spy AND emits the tier-change [EVENT]
-    // (throttled to once per cadence-interval change).
+    // emits the tier-change [EVENT] (throttled to once per cadence-interval change).
     discoveryPolicy_ = std::make_unique<DiscoveryPolicy>(
         udp, wifiDiscovery, time, deviceId,
         [this]() {
-            if (callbacks_.broadcastDiscovery) callbacks_.broadcastDiscovery();
             // Emit [EVENT] discovery_broadcast only when the cadence tier changes.
             const DiscoveryContext& ctx = discoveryPolicy_->context();
             uint32_t ageMs = (ctx.lastBroadcastMs > ctx.connectTimeMs)
                                  ? (ctx.lastBroadcastMs - ctx.connectTimeMs) : 0;
             uint32_t intervalMs = DiscoveryManager::discoveryIntervalMs(ageMs);
-            if (intervalMs != discovery_.lastBroadcastEventIntervalMs) {
-                discovery_.lastBroadcastEventIntervalMs = intervalMs;
+            if (intervalMs != lastBroadcastEventIntervalMs_) {
+                lastBroadcastEventIntervalMs_ = intervalMs;
                 std::string cadence = (intervalMs >= 1000)
                     ? std::to_string(intervalMs / 1000) + "s"
                     : std::to_string(intervalMs) + "ms";
@@ -105,7 +103,7 @@ void FirmwareApp::setupPolicies(IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime&
 
 void FirmwareApp::update(uint32_t now) {
     assert(initialized_ && "FirmwareApp::update() called before init()");
-    startDiscoveryIfNeeded();
+    if (discoveryPolicy_) discoveryPolicy_->startIfNeeded();
     updateWifiStateAndEmitEvents(now);
     if (ledPatternPolicy_) {
         bool clientConnected = clientConnectionSource_ ? clientConnectionSource_->isClientConnected() : false;
@@ -115,13 +113,6 @@ void FirmwareApp::update(uint32_t now) {
     if (discoveryPolicy_) {
         bool clientConnected = clientConnectionSource_ ? clientConnectionSource_->isClientConnected() : false;
         discoveryPolicy_->update(now, clientConnected);
-    }
-}
-
-void FirmwareApp::startDiscoveryIfNeeded() {
-    if (!discovery_.started && discoveryPolicy_ && discovery_.enabled) {
-        discoveryPolicy_->startIfNeeded();
-        discovery_.started = true;
     }
 }
 
@@ -161,33 +152,6 @@ void FirmwareApp::onWiFiDisconnected(int reason) {
     emitEvent("wifi_drop", detail);
 }
 
-bool FirmwareApp::factoryReset() {
-    assert(wifiManager_ && "FirmwareApp::factoryReset called before init()");
-    return wifiManager_->factoryReset();
-}
-
-bool FirmwareApp::storeCredentials(const std::string& ssid, const std::string& pass) {
-    assert(wifiManager_ && "FirmwareApp::storeCredentials called before init()");
-    return wifiManager_->storeCredentials(ssid, pass);
-}
-
-bool FirmwareApp::hasStoredCredentials() const {
-    assert(wifiManager_ && "FirmwareApp::hasStoredCredentials called before init()");
-    return wifiManager_->hasStoredCredentials();
-}
-
-bool FirmwareApp::storeAuthToken(const std::string& token) {
-    return tokenStore_.store(token);
-}
-
-void FirmwareApp::setCallbacks(const FirmwareCallbacks& callbacks) {
-    callbacks_ = callbacks;
-}
-
-void FirmwareApp::setEventLogger(IEventLogger& logger) {
-    observability_.logger = &logger;
-}
-
 int FirmwareApp::getWiFiState() const {
     assert(wifiManager_ && "FirmwareApp::getWiFiState called before init()");
     return static_cast<int>(wifiManager_->getState());
@@ -207,32 +171,8 @@ void FirmwareApp::onClientDisconnected(const std::string& ip, int reason) {
     emitEvent("client_disconnected", "ip=" + ip + " reason=" + std::to_string(reason));
 }
 
-std::string FirmwareApp::getDiscoveryCadence(uint32_t nowMs) const {
-    return discoveryPolicy_ ? discoveryPolicy_->cadenceString(nowMs) : "none";
-}
-
-int FirmwareApp::getCurrentLedPattern() const {
-    return ledPatternPolicy_ ? ledPatternPolicy_->currentPattern() : observability_.lastLedPattern;
-}
-
-bool FirmwareApp::shouldRestartTcpServer() const {
-    return tcpRestartPolicy_ ? tcpRestartPolicy_->shouldRestart() : false;
-}
-
-void FirmwareApp::clearTcpServerRestartFlag() {
-    if (tcpRestartPolicy_) tcpRestartPolicy_->clear();
-}
-
-bool FirmwareApp::clearCredentials() {
-    assert(wifiManager_ && "FirmwareApp::clearCredentials called before init()");
-    return wifiManager_->clearCredentials();
-}
-
-void FirmwareApp::clear() { (void)clearCredentials(); }
-
-bool FirmwareApp::loadCredentials(std::string& ssid, std::string& pass) const {
-    assert(wifiManager_ && "FirmwareApp::loadCredentials called before init()");
-    return wifiManager_->loadCredentials(ssid, pass);
+void FirmwareApp::setEventLogger(IEventLogger& logger) {
+    observability_.logger = &logger;
 }
 
 void FirmwareApp::setMonitorActive(bool active) {
@@ -245,17 +185,12 @@ bool FirmwareApp::isMonitorActive() const {
     return canBridge_->isMonitorActive();
 }
 
-void FirmwareApp::processCanFrames(uint32_t nowMs) {
-    assert(canBridge_ && "FirmwareApp::processCanFrames called before init()");
-    canBridge_->processFrames(isMonitorActive(), nowMs, serialQuietUntilMs_);
-}
-
-void FirmwareApp::setSerialQuietUntilMs(uint32_t ms) {
-    serialQuietUntilMs_ = ms;
+void FirmwareApp::clear() {
+    assert(wifiManager_ && "FirmwareApp::clear called before init()");
+    (void)wifiManager_->clearCredentials();
 }
 
 void FirmwareApp::setDiscoveryEnabled(bool enabled) {
-    discovery_.enabled = enabled;
     if (discoveryPolicy_) discoveryPolicy_->setEnabled(enabled);
 }
 
@@ -276,11 +211,6 @@ void FirmwareApp::setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& seria
 void FirmwareApp::handleTcpAtCommand(const std::string& cmd) {
     assert(atDispatcher_ && "FirmwareApp::handleTcpAtCommand called before setAtCommandAdapters()");
     atDispatcher_->handleTcpCommand(cmd);
-}
-
-void FirmwareApp::handleSerialAtCommand(const std::string& cmd) {
-    assert(atDispatcher_ && "FirmwareApp::handleSerialAtCommand called before setAtCommandAdapters()");
-    atDispatcher_->handleSerialCommand(cmd);
 }
 
 void FirmwareApp::setClientConnectionSource(IClientConnectionSource* source) {

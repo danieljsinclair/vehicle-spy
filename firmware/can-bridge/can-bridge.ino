@@ -472,8 +472,8 @@ static void drainSerialATCommands() {
     // this handler once per complete, non-empty line — the same behavior the
     // inline loop performed (dispatch + serial-quiet window).
     serialFramer().drain([](const std::string& line) {
-        firmwareApp.handleSerialAtCommand(line.c_str());
-        firmwareApp.setSerialQuietUntilMs(millis() + Constants::SERIAL_QUIET_DURATION_MS);
+        firmwareApp.atDispatcher().handleSerialCommand(line.c_str());
+        firmwareApp.canBridge().setSerialQuietUntilMs(millis() + Constants::SERIAL_QUIET_DURATION_MS);
     });
 }
 
@@ -483,7 +483,7 @@ static void drainSerialATCommands() {
 // only reads/clears it through the FirmwareApp seam and performs the actual
 // WiFiServer end/begin + client cleanup (hardware-side effects stay in the .ino).
 static void restartTcpServerIfNeeded() {
-    if (firmwareApp.shouldRestartTcpServer()) {
+    if (firmwareApp.tcpRestartPolicy().shouldRestart()) {
         // The TCP server restart is real (end/begin), but the user-facing
         // serial message is intentionally omitted: the [STATE]/[EVENT] stream
         // (emitted by FirmwareApp on WIFI_CONNECTED) already conveys the
@@ -493,7 +493,7 @@ static void restartTcpServerIfNeeded() {
         // internal-model detail, not a user-facing diagnostic.
         tcpServer().end();
         tcpServer().begin();
-        firmwareApp.clearTcpServerRestartFlag();
+        firmwareApp.tcpRestartPolicy().clear();
 
         // Disconnect any existing client ONLY when the listening socket was
         // genuinely rebound (a reconnect/IP-change). The manager owns the single
@@ -511,27 +511,8 @@ static void restartTcpServerIfNeeded() {
     }
 }
 
-// ── FirmwareApp Callback Handlers ──────────────────────────────────────────────────
-// Bridge FirmwareApp signals to .ino-side hardware effects (TCP/Discovery/OTA).
-// The TCP-restart flag itself is owned by WiFiManager (set on the WIFI_CONNECTED /
-// WIFI_CONNECTING transition); this callback is a post-transition firmware-effect
-// hook. The actual WiFiServer end/begin runs in loop() via
-// restartTcpServerIfNeeded(), which reads firmwareApp.shouldRestartTcpServer().
-static void onRestartTcpServer() {
-    // No-op: WiFiManager already set its own tcpServerNeedsRestart flag on the
-    // transition. restartTcpServerIfNeeded() picks it up next loop tick.
-}
-
-static void onBroadcastDiscovery() {
-    // FirmwareApp owns DiscoveryManager and performs the UDP send itself; this
-    // callback is a post-broadcast firmware-effect hook (DiscoveryManager fires it
-    // after each successful send). Leave as a documented no-op for now — any
-    // .ino-only side effect (e.g. LED pulse) would be added here.
-}
-
-// FirmwareCallbacks structure for FirmwareApp — constructed locally in setup()
-// and copied into FirmwareApp via setCallbacks() (which stores its own copy).
-// Kept out of global scope (S5421).
+// FirmwareApp owns DiscoveryManager and performs the UDP send itself; discovery
+// broadcast callbacks are no-ops in the .ino.
 
 // ── Serial Event Logger (centralized observability) ──────────────────────────
 // IEventLogger implementation that writes [EVENT] and [STATE] lines to Serial.
@@ -603,10 +584,6 @@ void setup() {
     // stalls we are trying to remove. WIFI_PS_NONE keeps the radio awake.
     WiFi.setSleep(false);
 
-    firmwareApp.setCallbacks(esp32_firmware::FirmwareCallbacks{
-        .restartTcpServer = onRestartTcpServer,
-        .broadcastDiscovery = onBroadcastDiscovery
-    });
     firmwareApp.setEventLogger(serialEventLogger());
 
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
@@ -722,11 +699,11 @@ void loop() {
                        firmwareApp.getWiFiState(),
                        firmwareApp.isMonitorActive(),
                        firmwareApp.getClientIp(),
-                       firmwareApp.getDiscoveryCadence(millis()),
-                       firmwareApp.getCurrentLedPattern(),
-                       firmwareApp.getWiFiDiagnostic().targetSsid,
-                       firmwareApp.getOwnIp(),
-                       firmwareApp.getWiFiDiagnostic().authCampaignDetail)) {
+                       firmwareApp.discoveryPolicy().cadenceString(millis()),
+                       firmwareApp.ledPatternPolicy().currentPattern(),
+                       firmwareApp.wifiManager().resolveTargetSsid(),
+                       (firmwareApp.wifi().getMode() == 2) ? firmwareApp.wifi().softAPIP() : firmwareApp.wifi().localIP(),
+                       firmwareApp.wifiManager().getAuthCampaignDetail())) {
         Serial.print(heartbeat.snapshot().c_str());
     }
 

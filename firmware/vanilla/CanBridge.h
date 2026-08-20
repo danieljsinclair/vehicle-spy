@@ -77,10 +77,12 @@ public:
     bool init();
 
     // Process received CAN frames - call from main loop().
-    // nowMs is the current tick (millis()); serialQuietUntilMs is a DEADLINE in
-    // the same time base, NOT a boolean flag. Serial frame emission is
-    // suppressed only while nowMs is strictly before that deadline.
-    void processFrames(bool monitorActive, uint32_t nowMs, uint32_t serialQuietUntilMs);
+    // nowMs is the current tick (millis()). Serial frame emission is suppressed
+    // while nowMs is strictly before the serialQuietUntilMs deadline.
+    void processFrames(bool monitorActive, uint32_t nowMs);
+
+    // Set the serial-quiet deadline (call after each serial AT command line).
+    void setSerialQuietUntilMs(uint32_t ms) { serialQuietUntilMs_ = ms; }
 
     // Set monitor active state
     void setMonitorActive(bool active) { monitorActive_ = active; }
@@ -98,6 +100,7 @@ private:
 
     bool monitorActive_ = false;
     bool initialized_ = false;
+    uint32_t serialQuietUntilMs_ = 0;
 };
 
 } // namespace esp32_firmware

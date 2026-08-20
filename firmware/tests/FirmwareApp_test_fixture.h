@@ -181,16 +181,6 @@ protected:
                                              0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
                                              0xEE, 0xFF, 0x00};
 
-    // Spy flags for callback verification
-    bool restartTcpServerCalled = false;
-    bool broadcastDiscoveryCalled = false;
-
-    // Captured SNTP sync-notification callback (wired through ISntp by NtpTimeSync)
-    std::function<void(struct timeval*)> capturedSyncCallback_;
-
-    // Callback spies
-    FirmwareCallbacks callbackSpies;
-
     void SetUp() override {
         wifiMock.reset();
         prefsMock.reset();
@@ -198,14 +188,6 @@ protected:
 
         // Set WiFi to AP mode so DiscoveryManager will broadcast
         wifiMock.setMode(2);  // WIFI_AP mode
-
-        // Initialize callback spies with capture lambdas
-        callbackSpies.restartTcpServer = [this]() { restartTcpServerCalled = true; };
-        callbackSpies.broadcastDiscovery = [this]() { broadcastDiscoveryCalled = true; };
-
-        // Reset spy flags
-        resetSpyFlags();
-        capturedSyncCallback_ = nullptr;
 
         // Allow NiceMock leak (gmock quirk with NiceMock members)
         testing::Mock::AllowLeak(&udpMock);
@@ -222,8 +204,7 @@ protected:
     }
 
     void resetSpyFlags() {
-        restartTcpServerCalled = false;
-        broadcastDiscoveryCalled = false;
+        // No-op: callback spy flags removed with FirmwareCallbacks.
     }
 
     // Helper to create FirmwareApp with all dependencies

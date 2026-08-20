@@ -143,6 +143,10 @@ set(VEHICLE_SIM_LIB_SOURCES
     firmware/vanilla/OtaUpdateServer.cpp
     firmware/vanilla/CanBridge.cpp
     firmware/vanilla/FirmwareApp.cpp
+    firmware/vanilla/TokenStore.cpp
+    firmware/vanilla/DiscoveryPolicy.cpp
+    firmware/vanilla/LedPatternPolicy.cpp
+    firmware/vanilla/TcpServerRestartPolicy.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds

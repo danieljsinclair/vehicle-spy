@@ -8,7 +8,6 @@
 // TokenStore extracted as a separate class (TCP auth token NVS persistence).
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <array>
 #include <cassert>
@@ -33,12 +32,7 @@ class CanBridge;
 struct CanBridgeDeps;
 class AtCommandDispatcher;
 
-struct FirmwareCallbacks {
-    std::function<void()> restartTcpServer;
-    std::function<void()> broadcastDiscovery;
-};
-
-// FirmwareApp - Main application orchestrator (post-S1448: 35 methods)
+// FirmwareApp - Main application orchestrator (post-S1448: 34 methods)
 // Delegates to: TokenStore, LedPatternPolicy, DiscoveryPolicy, TcpServerRestartPolicy
 class FirmwareApp : public ITcpHostCallbacks,
                     public IMonitorState,
@@ -56,55 +50,67 @@ public:
 
     ~FirmwareApp();
 
+    // Lifecycle
     void init();
     void update(uint32_t now);
     void onWiFiDisconnected(int reason);
-    bool factoryReset();
-    bool storeCredentials(const std::string& ssid, const std::string& pass);
-    bool hasStoredCredentials() const;
-    bool storeAuthToken(const std::string& token);
 
+    // Token store access (used by AT adapters)
     TokenStore& tokenStore() { return tokenStore_; }
     const TokenStore& tokenStore() const { return tokenStore_; }
 
-    void setCallbacks(const FirmwareCallbacks& callbacks);
+    // Observability
     void setEventLogger(IEventLogger& logger);
+
+    // ITcpHostCallbacks
     int getWiFiState() const override;
     void onClientConnected(const std::string& ip) override;
     void onAuthFailed(const std::string& ip) override;
     void onClientDisconnected(const std::string& ip, int reason) override;
-    std::string getClientIp() const { return observability_.clientIp; }
-    std::string getOwnIp() const {
-        return (wifi_.getMode() == 2) ? wifi_.softAPIP() : wifi_.localIP();
-    }
-    struct WiFiDiagnostic {
-        std::string targetSsid;
-        std::string authCampaignDetail;
-    };
-    WiFiDiagnostic getWiFiDiagnostic() const {
-        assert(wifiManager_ && "FirmwareApp::getWiFiDiagnostic called before init()");
-        return WiFiDiagnostic{wifiManager_->resolveTargetSsid(),
-                              wifiManager_->getAuthCampaignDetail()};
-    }
-    std::string getDiscoveryCadence(uint32_t nowMs) const;
-    int getCurrentLedPattern() const;
-    bool shouldRestartTcpServer() const;
-    void clearTcpServerRestartFlag();
-    bool clearCredentials();
-    bool loadCredentials(std::string& ssid, std::string& pass) const;
-    void clear() override;
     void setMonitorActive(bool active) override;
-    bool isMonitorActive() const;
-    void processCanFrames(uint32_t nowMs);
-    void setSerialQuietUntilMs(uint32_t ms);
-    void setDiscoveryEnabled(bool enabled);
+    void handleTcpAtCommand(const std::string& cmd) override;
     void resetDiscoveryBackoff() override;
+
+    // IMonitorState
+    std::string getClientIp() const { return observability_.clientIp; }
+    bool isMonitorActive() const;
+
+    // ICredentialClear
+    void clear() override;
+
+    // ITransitionEventSink
+    void onTransitionEvent(const char* eventType, const std::string& detail) override;
+
+    // Accessors for underlying components (callers use these directly instead of
+    // FirmwareApp forwarding wrappers to reduce method count).
+    IWiFi& wifi() { return wifi_; }
+    WiFiManager& wifiManager() {
+        assert(wifiManager_ && "FirmwareApp::wifiManager() called before init()");
+        return *wifiManager_;
+    }
+    LedPatternPolicy& ledPatternPolicy() {
+        assert(ledPatternPolicy_ && "FirmwareApp::ledPatternPolicy() called before init()");
+        return *ledPatternPolicy_;
+    }
+    DiscoveryPolicy& discoveryPolicy() {
+        assert(discoveryPolicy_ && "FirmwareApp::discoveryPolicy() called before init()");
+        return *discoveryPolicy_;
+    }
+    TcpServerRestartPolicy& tcpRestartPolicy() {
+        assert(tcpRestartPolicy_ && "FirmwareApp::tcpRestartPolicy() called before init()");
+        return *tcpRestartPolicy_;
+    }
+    CanBridge& canBridge() {
+        assert(canBridge_ && "FirmwareApp::canBridge() called before init()");
+        return *canBridge_;
+    }
+
+    // Configuration
+    void setDiscoveryEnabled(bool enabled);
     void setAtCommandAdapters(ITcpClientAt& tcpClient, ISerialAt& serial, IEspAt& esp,
                               IWifiCredentialStore& wifiStore, IWifiTokenStore& tokenStore,
                               IWifiCredentialClear& credClear, IMonitorState& monitor,
                               const std::array<uint8_t, 16>& deviceId);
-    void handleTcpAtCommand(const std::string& cmd) override;
-    void handleSerialAtCommand(const std::string& cmd);
     void setClientConnectionSource(IClientConnectionSource* source);
 
 private:
@@ -124,22 +130,15 @@ private:
     std::unique_ptr<DiscoveryPolicy> discoveryPolicy_;
     std::unique_ptr<TcpServerRestartPolicy> tcpRestartPolicy_;
 
-    FirmwareCallbacks callbacks_;
     bool initialized_;
     bool ntpStarted_;
-    uint32_t serialQuietUntilMs_ = 0;
+    uint32_t lastBroadcastEventIntervalMs_ = 0;
 
-    struct DiscoveryState {
-        bool started = false;
-        bool enabled = true;
-        uint32_t lastBroadcastEventIntervalMs = 0;
-    };
     struct ObservabilityState {
         IEventLogger* logger = nullptr;
         std::string clientIp;
         int lastLedPattern = 0;
     };
-    DiscoveryState discovery_;
     ObservabilityState observability_;
     WifiTransitionObserver wifiTransitionObserver_;
 
@@ -149,10 +148,8 @@ private:
     void setupPolicies(IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime& time,
                        const std::array<uint8_t, 16>& deviceId);
     void emitEvent(const char* eventType, const std::string& detail);
-    void startDiscoveryIfNeeded();
     void updateWifiStateAndEmitEvents(uint32_t now);
     void maybeStartNtp();
-    void onTransitionEvent(const char* eventType, const std::string& detail) override;
 };
 
 } // namespace esp32_firmware
