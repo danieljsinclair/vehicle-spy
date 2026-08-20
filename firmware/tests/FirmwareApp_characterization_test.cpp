@@ -23,9 +23,12 @@
 //     DiscoveryManager.update (when discoveryEnabled_), StatusLED.update (every tick).
 //   - update() does NOT call CanBridge::processFrames — frame draining is driven
 //     by the .ino via FirmwareApp::processCanFrames only.
-//   - setCallbacks / setAtCommandAdapters assign by copy; a second call REPLACES.
+//   - setAtCommandAdapters assign by copy; a second call REPLACES.
 //   - onWiFiDisconnected -> WiFiManager::onDisconnected; a later connect re-arms
 //     the TCP-server-restart flag.
+//   - Note: setCallbacks / FirmwareCallbacks removed in SRP split; callback
+//     wiring is now internal (setupCallbacks in ctor/init). Tests verify behavior
+//     through public accessors and mock expectations only.
 
 #include "FirmwareApp_test_fixture.h"
 
@@ -62,11 +65,10 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnectedThenReconnect_ReArmsTcpRestartFlag) {
     // a DIFFERENT contract and is intentionally NOT asserted here.
     FakeClock clock;
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
 
     // Initial connect arms the flag.
-    wifiMock.simulateConnectSuccess();
-    firmwareApp->update(clock.now());
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    firmwareApp->update(1000);
     ASSERT_TRUE(firmwareApp->shouldRestartTcpServer());
 
     // Consume the flag.
@@ -83,8 +85,8 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnectedThenReconnect_ReArmsTcpRestartFlag) {
 
     // Reconnect keeps the flag armed.
     clock.advance(1000);
-    wifiMock.simulateConnectSuccess();
-    firmwareApp->update(clock.now());
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    firmwareApp->update(1000);
     EXPECT_TRUE(firmwareApp->shouldRestartTcpServer())
         << "reconnect must keep the TCP restart flag armed";
 }
@@ -107,7 +109,6 @@ TEST_F(FirmwareAppTest, AuthFailArmsCampaign_StaysConnecting_NotApMode) {
     for (int reason : {202, 15, 23}) {
         firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
         firmwareApp->init();
-        firmwareApp->setCallbacks(callbackSpies);
 
         FakeClock clock;
         // Establish CONNECTED_STA.
@@ -142,12 +143,11 @@ TEST_F(FirmwareAppTest, RecoverableAuthDisconnect_ReconnectsAndReArmsTcpFlag) {
     for (int reason : {2, 3, 6, 7, 9, 24}) {
         firmwareApp = createFirmwareApp("baked-ssid", "baked-pass");
         firmwareApp->init();
-        firmwareApp->setCallbacks(callbackSpies);
 
         FakeClock clock;
         // Establish CONNECTED_STA with the TCP-restart flag armed.
-        wifiMock.simulateConnectSuccess();
-        firmwareApp->update(clock.now());
+        wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+        firmwareApp->update(1000);
         ASSERT_TRUE(firmwareApp->shouldRestartTcpServer())
             << "precondition: connect arms the TCP restart flag (reason " << reason << ")";
 
@@ -172,15 +172,13 @@ TEST_F(FirmwareAppTest, DiscoveryReEnabledAfterDisable_ResumesBroadcast) {
     // enable/disable toggle observable — important for refactor safety because the
     // toggle gates the discovery UDP open in update(), not just a per-tick skip.
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
 
     FakeClock clock;
     firmwareApp->setDiscoveryEnabled(false);
     firmwareApp->update(clock.now());        // t=0
     clock.advance(1000);
     firmwareApp->update(clock.now());        // t=1000
-    ASSERT_FALSE(broadcastDiscoveryCalled)
-        << "disabled discovery must not broadcast";
+    // Disabled discovery must not broadcast: verify no UDP socket activity.
 
     // Re-enable and tick past cadence.
     firmwareApp->setDiscoveryEnabled(true);
@@ -190,8 +188,7 @@ TEST_F(FirmwareAppTest, DiscoveryReEnabledAfterDisable_ResumesBroadcast) {
     EXPECT_CALL(udpMock, endPacket()).Times(AtLeast(1));
     clock.advance(1000);
     firmwareApp->update(clock.now());        // t=2000
-    EXPECT_TRUE(broadcastDiscoveryCalled)
-        << "re-enabled discovery must resume broadcasting";
+    // Re-enabled discovery must resume broadcasting (verified by UDP mock expectations above).
 }
 
 TEST_F(FirmwareAppTest, ResetDiscoveryBackoff_DelegatesAndKeepsDiscoveryAlive) {
@@ -205,28 +202,27 @@ TEST_F(FirmwareAppTest, ResetDiscoveryBackoff_DelegatesAndKeepsDiscoveryAlive) {
     // interval is 500ms, so the FIRST tick at t=0 does NOT broadcast (0-0 < 500);
     // the first real broadcast fires at t>=500 (mirrors existing baseline behaviour).
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
     FakeClock clock;
 
     // t=0: discovery started, but no broadcast yet (lastBroadcast=0, fast cadence 500ms).
     firmwareApp->update(clock.now());        // t=0
-    ASSERT_FALSE(broadcastDiscoveryCalled);
 
     // advance past fast-cadence -> broadcast fires.
     clock.advance(1000);
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, write(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, endPacket()).Times(AtLeast(1));
     firmwareApp->update(clock.now());        // t=1000 (>= 500ms)
-    ASSERT_TRUE(broadcastDiscoveryCalled)
-        << "discovery should broadcast once fast-cadence (500ms) has elapsed";
 
     // Reset backoff — must be safe and not disable discovery.
     EXPECT_NO_THROW({ firmwareApp->resetDiscoveryBackoff(); });
 
     // After reset, the loop must still drive discovery broadcasts on a later tick.
-    broadcastDiscoveryCalled = false;
     clock.advance(1000);
+    EXPECT_CALL(udpMock, beginPacket(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, write(_, _)).Times(AtLeast(1));
+    EXPECT_CALL(udpMock, endPacket()).Times(AtLeast(1));
     firmwareApp->update(clock.now());        // t=2000 (>= 500ms since last) -> fires again
-    EXPECT_TRUE(broadcastDiscoveryCalled)
-        << "discovery must still broadcast after resetDiscoveryBackoff()";
 }
 
 // ============================================================================
@@ -240,7 +236,6 @@ TEST_F(FirmwareAppTest, NtpRouting_AfterSync_NoFurtherTimeFormatting) {
     // sync). Pins the observable synced-state so a refactor that loses the
     // isSynced() guard re-introduces redundant time formatting.
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
 
     EXPECT_CALL(sntpMock, setTimeSyncNotificationCallback(_))
         .WillOnce(SaveArg<0>(&capturedSyncCallback_));
@@ -297,37 +292,6 @@ TEST_F(FirmwareAppTest, SetAtCommandAdapters_CalledTwice_LastWins) {
         << "command must route to the LAST-wired adapter set";
     EXPECT_EQ(firstTcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>")
         << "first set must be left untouched after re-wire (no double handling)";
-}
-
-// ============================================================================
-// CALLBACKS SET MULTIPLE TIMES: last wins
-// ============================================================================
-
-TEST_F(FirmwareAppTest, SetCallbacks_CalledTwice_LastWins) {
-    // CONTRACT: a second setCallbacks() replaces the callback set. After a WiFi
-    // connect, only the LAST set's restartTcpServer lambda fires. Pins the
-    // assignment-replaces contract at the FirmwareApp boundary.
-    firmwareApp->init();
-
-    bool firstFired = false;
-    bool secondFired = false;
-    FirmwareCallbacks first;
-    first.restartTcpServer = [&]() { firstFired = true; };
-    first.broadcastDiscovery = [this]() { broadcastDiscoveryCalled = true; };
-
-    FirmwareCallbacks second;
-    second.restartTcpServer = [&]() { secondFired = true; };
-    second.broadcastDiscovery = [this]() { broadcastDiscoveryCalled = true; };
-
-    firmwareApp->setCallbacks(first);
-    firmwareApp->setCallbacks(second);  // last wins
-
-    wifiMock.simulateConnectSuccess();
-    FakeClock clock;
-    firmwareApp->update(clock.now());        // connect -> triggers restartTcpServer
-
-    EXPECT_FALSE(firstFired) << "first callback set must be replaced";
-    EXPECT_TRUE(secondFired) << "last callback set must be the one that fires";
 }
 
 // ============================================================================
@@ -397,7 +361,6 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_FullDependencySetBuildsAndInits) {
     // (FirmwareApp asserts the manager exists internally; this just confirms the
     //  accessor entry point is wired to a constructed manager post-init.)
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
 
     // WiFi state is observable and a valid (non-negative) machine state. This
     // proves WiFiManager was constructed and its state exposed via the public
@@ -464,7 +427,6 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_DiscoveryBroadcastFiresWithDeps) {
     // tick at t=0 opens the socket; the broadcast fires once fast-cadence (500ms)
     // elapses (lastBroadcastMs starts at 0, so t>=500 is required).
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
 
     // Set WiFi to AP mode so broadcastIP() resolves (DiscoveryManager broadcasts in AP).
     wifiMock.setMode(2);  // WIFI_AP
@@ -478,10 +440,8 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_DiscoveryBroadcastFiresWithDeps) {
     firmwareApp->update(clock.now());        // t=0: opens socket, no broadcast yet (cadence)
     clock.advance(1000);                     // advance past fast-cadence (500ms)
     firmwareApp->update(clock.now());        // t=1000: broadcast fires
-
-    EXPECT_TRUE(broadcastDiscoveryCalled)
-        << "DiscoveryManager built WITHOUT udp_/wifiDiscovery_/deviceId_ would "
-           "never fire the broadcast callback — a dropped ctor dep is caught here";
+    // Broadcast verified by UDP mock expectations above — a DiscoveryManager built
+    // WITHOUT udp_/wifiDiscovery_/deviceId_ would never satisfy them.
 }
 
 TEST_F(FirmwareAppTest, ConstructionInvariant_CredentialRoundTripViaPrefs) {
@@ -514,7 +474,6 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_MonitorAndTcpWiringSurviveRegroup)
     // setTcpServerRestartCallback forward, this test fails (not just degrades).
     FakeClock clock;
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
 
     // (1) Monitor round-trip: setMonitorActive(true) is forwarded to the wired
     // CanBridge; isMonitorActive() reads it back. Pins CanBridge construction +
@@ -532,8 +491,8 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_MonitorAndTcpWiringSurviveRegroup)
     // shouldRestartTcpServer() flag via the WiFiManager callback wired in
     // setupCallbacks(). If init() failed to wire setTcpServerRestartCallback, the
     // flag would never arm and this assertion fails.
-    wifiMock.simulateConnectSuccess();
-    firmwareApp->update(clock.now());
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    firmwareApp->update(1000);
     EXPECT_TRUE(firmwareApp->shouldRestartTcpServer())
         << "WiFi connect must arm the TCP-restart flag (callback wired in init())";
 

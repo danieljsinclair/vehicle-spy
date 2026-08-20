@@ -21,9 +21,13 @@ void LedPatternPolicy::update(uint32_t now, bool clientConnected) {
     statusLed_.update(now);
 
     // Restart TCP server if WiFi reconnected with new IP.
+    // NOTE: we only CALL the restart callback here; we do NOT clear the flag.
+    // The caller (FirmwareApp::update or the .ino's restartTcpServerIfNeeded)
+    // clears the flag AFTER the actual restart succeeds, so that
+    // shouldRestartTcpServer() remains true across the tick boundary for any
+    // observer that polls it after update() returns.
     if (wifiManager_.shouldRestartTcpServer() && restartTcpServer_) {
         restartTcpServer_();
-        wifiManager_.clearTcpServerRestartFlag();
     }
 }
 

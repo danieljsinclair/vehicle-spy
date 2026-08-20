@@ -44,9 +44,8 @@ protected:
         FirmwareAppTest::TearDown();
     }
 
-    // Helper: drive init + set callbacks + inject logger in one call.
+    // Helper: drive init + inject logger in one call.
     void initWithLogger() {
-        firmwareApp->setCallbacks(callbackSpies);
         firmwareApp->init();
     }
 };

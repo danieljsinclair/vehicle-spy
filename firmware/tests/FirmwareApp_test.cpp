@@ -235,7 +235,6 @@ TEST_F(FirmwareAppTest, Init_ConstructsNtpTimeSync_SntpInitCalled) {
     firmwareApp->init();
 
     // Simulate WiFi connection to trigger NTP init
-    firmwareApp->setCallbacks(callbackSpies);
     wifiMock.simulateConnectSuccess();
     firmwareApp->update(5000);
 }
@@ -244,7 +243,6 @@ TEST_F(FirmwareAppTest, InitNtpSyncCallback_WiredToFirmwareCallbacks_FiresCorrec
     // Verify that callbacks_.initNtpSync is wired correctly
     // This callback is set by WiFiManager when it transitions to NTP init state
     firmwareApp->init();
-    firmwareApp->setCallbacks(callbackSpies);
 
     // Simulate WiFi connection which should trigger NTP init callback
     wifiMock.simulateConnectSuccess();

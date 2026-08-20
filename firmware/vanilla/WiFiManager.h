@@ -8,6 +8,9 @@
 #include <functional>
 #include <array>
 #include <memory>
+#include <iostream>
+#include <execinfo.h>
+#include <iostream>
 
 namespace esp32_firmware {
 

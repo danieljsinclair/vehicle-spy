@@ -175,6 +175,7 @@ protected:
     StubSerialCan serialStub;
     CanBridgeDeps canDeps{canDriverStub, tcpClientStub, serialStub};
     std::unique_ptr<FirmwareApp> firmwareApp;
+    std::function<void(struct timeval*)> capturedSyncCallback_;
 
     // Test device ID for DiscoveryManager
     std::array<uint8_t, 16> testDeviceId = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,

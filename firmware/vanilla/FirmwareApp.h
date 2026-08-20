@@ -61,6 +61,23 @@ public:
 
     // Observability
     void setEventLogger(IEventLogger& logger);
+    int getCurrentLedPattern() { return ledPatternPolicy().currentPattern(); }
+
+    struct WiFiDiagnostic {
+        std::string targetSsid;
+        std::string authCampaignDetail;
+    };
+    WiFiDiagnostic getWiFiDiagnostic() const {
+        assert(wifiManager_ && "FirmwareApp::getWiFiDiagnostic called before init()");
+        return WiFiDiagnostic{wifiManager_->resolveTargetSsid(),
+                              wifiManager_->getAuthCampaignDetail()};
+    }
+    bool shouldRestartTcpServer() { return tcpRestartPolicy().shouldRestart(); }
+    void clearTcpServerRestartFlag() { tcpRestartPolicy().clear(); }
+    void processCanFrames(uint32_t nowMs) { canBridge().processFrames(isMonitorActive(), nowMs); }
+    bool hasStoredCredentials() const { return wifiManager_->hasStoredCredentials(); }
+    bool loadCredentials(std::string& ssid, std::string& pass) const { return wifiManager_->loadCredentials(ssid, pass); }
+    bool storeCredentials(const std::string& ssid, const std::string& pass) { return wifiManager_->storeCredentials(ssid, pass); }
 
     // ITcpHostCallbacks
     int getWiFiState() const override;
