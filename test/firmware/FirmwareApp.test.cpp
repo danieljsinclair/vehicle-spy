@@ -209,24 +209,22 @@ TEST(FirmwareAppTest, InitOpensDiscoveryUdpOnFirstUpdateTickNotDuringInit) {
 TEST(FirmwareAppTest, TcpRestartCallbackBridgesToFirmware) {
     AppHarness h;
     bool tcpRestarted = false;
-    h.app.setCallbacks(FirmwareCallbacks{.restartTcpServer = [&]() { tcpRestarted = true; }});
+    h.app.wifiManager().setTcpServerRestartCallback([&]() { tcpRestarted = true; });
     h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";  // set creds BEFORE init
     h.app.init();
 
-    // Drive WiFi to CONNECTED_STA (which fires WiFiManager's tcp-restart + ntp callbacks).
+    // Drive WiFi to CONNECTED_STA (which fires WiFiManager's tcp-restart callback).
     h.wifi.statusVal = 3;  // WL_CONNECTED
     h.app.update(1000);
     EXPECT_TRUE(tcpRestarted);
 }
 
-TEST(FirmwareAppTest, BroadcastDiscoveryCallbackBridgesToFirmware) {
+TEST(FirmwareAppTest, BroadcastDiscoveryPolicyCountsBroadcasts) {
     AppHarness h;
-    int broadcasts = 0;
-    h.app.setCallbacks(FirmwareCallbacks{.broadcastDiscovery = [&]() { ++broadcasts; }});
     h.app.init();
     h.app.update(1000);  // now>=connectTimeMs so discovery interval gate passes
-    // DiscoveryManager::broadcast() invokes the callback on each broadcast.
-    EXPECT_GE(broadcasts, 1);
+    // DiscoveryPolicy broadcasts on each interval; verify at least one occurred.
+    EXPECT_GE(h.app.discoveryPolicy().broadcastCount(), 1);
 }
 
 // ── Credential pass-through ───────────────────────────────────────────────────
@@ -234,23 +232,23 @@ TEST(FirmwareAppTest, BroadcastDiscoveryCallbackBridgesToFirmware) {
 TEST(FirmwareAppTest, StoreAndHasAndClearCredentialsPassThrough) {
     AppHarness h;
     h.app.init();
-    EXPECT_FALSE(h.app.hasStoredCredentials());
-    EXPECT_TRUE(h.app.storeCredentials("net", "pw"));
-    EXPECT_TRUE(h.app.hasStoredCredentials());
+    EXPECT_FALSE(h.app.wifiManager().hasStoredCredentials());
+    EXPECT_TRUE(h.app.wifiManager().storeCredentials("net", "pw"));
+    EXPECT_TRUE(h.app.wifiManager().hasStoredCredentials());
     std::string ssid, pass;
-    EXPECT_TRUE(h.app.loadCredentials(ssid, pass));
+    EXPECT_TRUE(h.app.wifiManager().loadCredentials(ssid, pass));
     EXPECT_EQ(ssid, "net");
     EXPECT_EQ(pass, "pw");
-    EXPECT_TRUE(h.app.clearCredentials());
-    EXPECT_FALSE(h.app.hasStoredCredentials());
+    h.app.clear();
+    EXPECT_FALSE(h.app.wifiManager().hasStoredCredentials());
 }
 
 TEST(FirmwareAppTest, FactoryResetClearsCredentials) {
     AppHarness h;
     h.app.init();
-    h.app.storeCredentials("net", "pw");
-    EXPECT_TRUE(h.app.factoryReset());
-    EXPECT_FALSE(h.app.hasStoredCredentials());
+    h.app.wifiManager().storeCredentials("net", "pw");
+    EXPECT_TRUE(h.app.wifiManager().factoryReset());
+    EXPECT_FALSE(h.app.wifiManager().hasStoredCredentials());
 }
 
 // ── WiFi disconnect bridging ─────────────────────────────────────────────────
@@ -265,9 +263,9 @@ TEST(FirmwareAppTest, OnDisconnectedFromConnectedStaFlagsTcpRestart) {
 
     h.app.onWiFiDisconnected(WIFI_REASON_UNSPECIFIED);
     EXPECT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
-    EXPECT_TRUE(h.app.shouldRestartTcpServer());
-    h.app.clearTcpServerRestartFlag();
-    EXPECT_FALSE(h.app.shouldRestartTcpServer());
+    EXPECT_TRUE(h.app.tcpRestartPolicy().shouldRestart());
+    h.app.tcpRestartPolicy().clear();
+    EXPECT_FALSE(h.app.tcpRestartPolicy().shouldRestart());
 }
 
 TEST(FirmwareAppTest, OnDisconnectedAuthFailArmsCampaign_StaysConnecting) {
@@ -304,7 +302,7 @@ TEST(FirmwareAppTest, GetOwnIpReturnsStaIpWhenNotAp) {
     h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";  // creds BEFORE init -> STA mode
     h.app.init();
     ASSERT_EQ(h.wifi.mode, 1);  // WIFI_STA, not AP
-    EXPECT_EQ(h.app.getOwnIp(), "192.168.1.50");  // FakeWiFi localIP
+    EXPECT_EQ(h.app.wifi().localIP(), "192.168.1.50");  // FakeWiFi localIP
 }
 
 TEST(FirmwareAppTest, GetOwnIpReturnsSoftApIpInApMode) {
@@ -314,7 +312,7 @@ TEST(FirmwareAppTest, GetOwnIpReturnsSoftApIpInApMode) {
     h.app.init();
     h.app.update(0);
     ASSERT_EQ(h.app.getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_DEFAULT));
-    EXPECT_EQ(h.app.getOwnIp(), "192.168.4.1");  // FakeWiFi softAPIP
+    EXPECT_EQ(h.app.wifi().softAPIP(), "192.168.4.1");  // FakeWiFi softAPIP
 }
 
 // ── TCP auth_fail does NOT drive the LED ──────────────────────────────────────

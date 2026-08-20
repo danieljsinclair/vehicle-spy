@@ -384,7 +384,7 @@ TEST(WiFiManagerWiringTest, RetriesBeginWithStoredCredsAfterDisconnectInterval) 
     const int beginsBeforeDisconnect = h.wifi.beginCalls;
     h.app->onWiFiDisconnected(WIFI_REASON_UNSPECIFIED);
     EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
-    EXPECT_TRUE(h.app->shouldRestartTcpServer());
+    EXPECT_TRUE(h.app->tcpRestartPolicy().shouldRestart());
 
     // Mirror real hardware: the disconnect event fires BECAUSE the link dropped,
     // so status must read non-connected on the next tick. Leaving statusVal at

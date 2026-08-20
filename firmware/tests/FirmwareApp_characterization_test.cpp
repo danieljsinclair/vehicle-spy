@@ -69,25 +69,25 @@ TEST_F(FirmwareAppTest, OnWiFiDisconnectedThenReconnect_ReArmsTcpRestartFlag) {
     // Initial connect arms the flag.
     wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
     firmwareApp->update(1000);
-    ASSERT_TRUE(firmwareApp->shouldRestartTcpServer());
+    ASSERT_TRUE(firmwareApp->tcpRestartPolicy().shouldRestart());
 
     // Consume the flag.
-    firmwareApp->clearTcpServerRestartFlag();
-    ASSERT_FALSE(firmwareApp->shouldRestartTcpServer());
+    firmwareApp->tcpRestartPolicy().clear();
+    ASSERT_FALSE(firmwareApp->tcpRestartPolicy().shouldRestart());
 
     // Non-auth disconnect from CONNECTED_STA -> RECONNECTING, which re-arms the flag.
     clock.advance(1000);  // deterministic advance, no realtime wait
     wifiMock.simulateDisconnect(200);
     firmwareApp->onWiFiDisconnected(200);
     firmwareApp->update(clock.now());
-    ASSERT_TRUE(firmwareApp->shouldRestartTcpServer())
+    ASSERT_TRUE(firmwareApp->tcpRestartPolicy().shouldRestart())
         << "non-auth disconnect from CONNECTED_STA must re-arm the flag (RECONNECTING)";
 
     // Reconnect keeps the flag armed.
     clock.advance(1000);
     wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
     firmwareApp->update(1000);
-    EXPECT_TRUE(firmwareApp->shouldRestartTcpServer())
+    EXPECT_TRUE(firmwareApp->tcpRestartPolicy().shouldRestart())
         << "reconnect must keep the TCP restart flag armed";
 }
 
@@ -148,7 +148,7 @@ TEST_F(FirmwareAppTest, RecoverableAuthDisconnect_ReconnectsAndReArmsTcpFlag) {
         // Establish CONNECTED_STA with the TCP-restart flag armed.
         wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
         firmwareApp->update(1000);
-        ASSERT_TRUE(firmwareApp->shouldRestartTcpServer())
+        ASSERT_TRUE(firmwareApp->tcpRestartPolicy().shouldRestart())
             << "precondition: connect arms the TCP restart flag (reason " << reason << ")";
 
         // The recoverable drop must NOT bail to AP mode; it re-enters RECONNECTING
@@ -156,7 +156,7 @@ TEST_F(FirmwareAppTest, RecoverableAuthDisconnect_ReconnectsAndReArmsTcpFlag) {
         clock.advance(1000);  // deterministic advance, no realtime wait
         firmwareApp->onWiFiDisconnected(reason);
         firmwareApp->update(clock.now());
-        EXPECT_TRUE(firmwareApp->shouldRestartTcpServer())
+        EXPECT_TRUE(firmwareApp->tcpRestartPolicy().shouldRestart())
             << "recoverable auth drop (reason " << reason
             << ") must stay in RECONNECTING and keep the TCP restart flag armed";
     }
@@ -309,11 +309,11 @@ TEST_F(FirmwareAppTest, StoreCredentials_VeryLongPass_StoresAndRoundTrips) {
     const std::string ssid = "ssid";
     const std::string longPass(100, 'B');
 
-    bool result = firmwareApp->storeCredentials(ssid, longPass);
+    bool result = firmwareApp->wifiManager().storeCredentials(ssid, longPass);
     ASSERT_TRUE(result);
 
     std::string loadedSsid, loadedPass;
-    ASSERT_TRUE(firmwareApp->loadCredentials(loadedSsid, loadedPass));
+    ASSERT_TRUE(firmwareApp->wifiManager().loadCredentials(loadedSsid, loadedPass));
     EXPECT_EQ(loadedSsid, ssid);
     EXPECT_EQ(loadedPass, longPass);
 }
@@ -372,7 +372,7 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_FullDependencySetBuildsAndInits) {
     // Credential store is observable: with no prior store call, the public
     // hasStoredCredentials() contract returns false (real WiFiManager behavior,
     // not a stub).
-    EXPECT_FALSE(firmwareApp->hasStoredCredentials())
+    EXPECT_FALSE(firmwareApp->wifiManager().hasStoredCredentials())
         << "fresh init with no stored creds must report hasStoredCredentials()==false";
 
     // Monitor is observable and defaults inactive; the CanBridge must have been
@@ -452,15 +452,15 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_CredentialRoundTripViaPrefs) {
     // ctor is caught.
     firmwareApp->init();
 
-    ASSERT_TRUE(firmwareApp->storeCredentials("roundtrip-ssid", "roundtrip-pass"));
+    ASSERT_TRUE(firmwareApp->wifiManager().storeCredentials("roundtrip-ssid", "roundtrip-pass"));
 
-    EXPECT_TRUE(firmwareApp->hasStoredCredentials())
+    EXPECT_TRUE(firmwareApp->wifiManager().hasStoredCredentials())
         << "WiFiManager built WITHOUT prefs_ would have no persistence and report "
            "false — a dropped prefs_ ctor dep is caught here";
 
     // Sanity: the value actually round-trips through the backing store.
     std::string loadedSsid, loadedPass;
-    ASSERT_TRUE(firmwareApp->loadCredentials(loadedSsid, loadedPass));
+    ASSERT_TRUE(firmwareApp->wifiManager().loadCredentials(loadedSsid, loadedPass));
     EXPECT_EQ(loadedSsid, "roundtrip-ssid");
     EXPECT_EQ(loadedPass, "roundtrip-pass");
 }
@@ -484,7 +484,7 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_MonitorAndTcpWiringSurviveRegroup)
     ASSERT_TRUE(firmwareApp->isMonitorActive())
         << "setMonitorActive(true) must forward to the wired CanBridge";
 
-    EXPECT_NO_THROW({ firmwareApp->processCanFrames(/*nowMs=*/1000); })
+    EXPECT_NO_THROW({ firmwareApp->canBridge().processFrames(firmwareApp->isMonitorActive(), /*nowMs=*/1000); })
         << "processCanFrames must route through the wired CanBridge without throwing";
 
     // (2) TCP-restart callback wiring: a WiFi connect must arm the
@@ -493,13 +493,13 @@ TEST_F(FirmwareAppTest, ConstructionInvariant_MonitorAndTcpWiringSurviveRegroup)
     // flag would never arm and this assertion fails.
     wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
     firmwareApp->update(1000);
-    EXPECT_TRUE(firmwareApp->shouldRestartTcpServer())
+    EXPECT_TRUE(firmwareApp->tcpRestartPolicy().shouldRestart())
         << "WiFi connect must arm the TCP-restart flag (callback wired in init())";
 
     // Consuming the flag must be observable and reset to false (real WiFiManager
     // behavior), confirming the flag is the live wired one, not a constant.
-    firmwareApp->clearTcpServerRestartFlag();
-    EXPECT_FALSE(firmwareApp->shouldRestartTcpServer())
+    firmwareApp->tcpRestartPolicy().clear();
+    EXPECT_FALSE(firmwareApp->tcpRestartPolicy().shouldRestart())
         << "clearTcpServerRestartFlag() must reset the armed flag to false";
 
     // Monitor state must survive the connect tick (independent of WiFi state).

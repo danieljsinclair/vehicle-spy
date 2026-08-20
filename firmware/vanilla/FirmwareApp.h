@@ -6,6 +6,8 @@
 // Post-S1448-refactor: delegates LED pattern, discovery, and TCP server
 // restart to LedPatternPolicy, DiscoveryPolicy, and TcpServerRestartPolicy.
 // TokenStore extracted as a separate class (TCP auth token NVS persistence).
+// Post-SRP-split: ObservabilityHub and NtpSupervisor extracted to cut
+// method/field count below S1448/S1820 thresholds.
 
 #include <cstdint>
 #include <memory>
@@ -20,11 +22,12 @@
 #include "IClientConnectionSource.h"
 #include "FactoryResetCheck.h"
 #include "ISerialEventLogger.h"
-#include "WifiTransitionObserver.h"
 #include "TokenStore.h"
 #include "LedPatternPolicy.h"
 #include "DiscoveryPolicy.h"
 #include "TcpServerRestartPolicy.h"
+#include "ObservabilityHub.h"
+#include "NtpSupervisor.h"
 
 namespace esp32_firmware {
 
@@ -32,12 +35,12 @@ class CanBridge;
 struct CanBridgeDeps;
 class AtCommandDispatcher;
 
-// FirmwareApp - Main application orchestrator (post-S1448: 34 methods)
-// Delegates to: TokenStore, LedPatternPolicy, DiscoveryPolicy, TcpServerRestartPolicy
+// FirmwareApp - Main application orchestrator (post-SRP-split: 26 public methods)
+// Delegates to: TokenStore, LedPatternPolicy, DiscoveryPolicy, TcpServerRestartPolicy,
+//               ObservabilityHub, NtpSupervisor
 class FirmwareApp : public ITcpHostCallbacks,
                     public IMonitorState,
-                    public ICredentialClear,
-                    public ITransitionEventSink {
+                    public ICredentialClear {
 public:
     FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed, ISerial& serial,
                 IWiFiDiscovery& wifiDiscovery, IUdp& udp, ITime& time,
@@ -59,25 +62,8 @@ public:
     TokenStore& tokenStore() { return tokenStore_; }
     const TokenStore& tokenStore() const { return tokenStore_; }
 
-    // Observability
+    // Observability - retained for test injection; body delegates to ObservabilityHub
     void setEventLogger(IEventLogger& logger);
-    int getCurrentLedPattern() { return ledPatternPolicy().currentPattern(); }
-
-    struct WiFiDiagnostic {
-        std::string targetSsid;
-        std::string authCampaignDetail;
-    };
-    WiFiDiagnostic getWiFiDiagnostic() const {
-        assert(wifiManager_ && "FirmwareApp::getWiFiDiagnostic called before init()");
-        return WiFiDiagnostic{wifiManager_->resolveTargetSsid(),
-                              wifiManager_->getAuthCampaignDetail()};
-    }
-    bool shouldRestartTcpServer() { return tcpRestartPolicy().shouldRestart(); }
-    void clearTcpServerRestartFlag() { tcpRestartPolicy().clear(); }
-    void processCanFrames(uint32_t nowMs) { canBridge().processFrames(isMonitorActive(), nowMs); }
-    bool hasStoredCredentials() const { return wifiManager_->hasStoredCredentials(); }
-    bool loadCredentials(std::string& ssid, std::string& pass) const { return wifiManager_->loadCredentials(ssid, pass); }
-    bool storeCredentials(const std::string& ssid, const std::string& pass) { return wifiManager_->storeCredentials(ssid, pass); }
 
     // ITcpHostCallbacks
     int getWiFiState() const override;
@@ -89,14 +75,11 @@ public:
     void resetDiscoveryBackoff() override;
 
     // IMonitorState
-    std::string getClientIp() const { return observability_.clientIp; }
+    std::string getClientIp() const { return observabilityHub_.clientIp(); }
     bool isMonitorActive() const;
 
     // ICredentialClear
     void clear() override;
-
-    // ITransitionEventSink
-    void onTransitionEvent(const char* eventType, const std::string& detail) override;
 
     // Accessors for underlying components (callers use these directly instead of
     // FirmwareApp forwarding wrappers to reduce method count).
@@ -121,6 +104,10 @@ public:
         assert(canBridge_ && "FirmwareApp::canBridge() called before init()");
         return *canBridge_;
     }
+    AtCommandDispatcher& atDispatcher() {
+        assert(atDispatcher_ && "FirmwareApp::atDispatcher() called before setAtCommandAdapters()");
+        return *atDispatcher_;
+    }
 
     // Configuration
     void setDiscoveryEnabled(bool enabled);
@@ -139,7 +126,6 @@ private:
     const char* bakedPass_;
 
     std::unique_ptr<WiFiManager> wifiManager_;
-    std::unique_ptr<NtpTimeSync> ntpTimeSync_;
     std::unique_ptr<CanBridge> canBridge_;
     std::unique_ptr<AtCommandDispatcher> atDispatcher_;
     TokenStore tokenStore_;
@@ -148,25 +134,10 @@ private:
     std::unique_ptr<TcpServerRestartPolicy> tcpRestartPolicy_;
 
     bool initialized_;
-    bool ntpStarted_;
     uint32_t lastBroadcastEventIntervalMs_ = 0;
 
-    struct ObservabilityState {
-        IEventLogger* logger = nullptr;
-        std::string clientIp;
-        int lastLedPattern = 0;
-    };
-    ObservabilityState observability_;
-    WifiTransitionObserver wifiTransitionObserver_;
-
-    void constructManagers(IPreferences& prefs, ISerial& serial,
-                           ISntp& sntp, ITimeNtp& timeNtp);
-    void setupCallbacks();
-    void setupPolicies(IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime& time,
-                       const std::array<uint8_t, 16>& deviceId);
-    void emitEvent(const char* eventType, const std::string& detail);
-    void updateWifiStateAndEmitEvents(uint32_t now);
-    void maybeStartNtp();
+    ObservabilityHub observabilityHub_;
+    std::unique_ptr<NtpSupervisor> ntpSupervisor_;
 };
 
 } // namespace esp32_firmware

@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include "DiscoveryManager.h"
 
 namespace esp32_firmware {

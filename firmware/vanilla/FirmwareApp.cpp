@@ -25,52 +25,28 @@ FirmwareApp::FirmwareApp(IWiFi& wifi, IPreferences& prefs, IStatusLED& statusLed
     , clientConnectionSource_(clientConnectionSource)
     , bakedSsid_(bakedSsid)
     , bakedPass_(bakedPass)
+    , wifiManager_(std::make_unique<WiFiManager>(wifi_, prefs, serial, bakedSsid_, bakedPass_))
+    , canBridge_(std::make_unique<CanBridge>(canBridgeDeps_))
+    , atDispatcher_(nullptr)
     , tokenStore_(prefs, bakedToken ? bakedToken : "")
     , ledPatternPolicy_(nullptr)
     , discoveryPolicy_(nullptr)
     , tcpRestartPolicy_(nullptr)
     , initialized_(false)
-    , ntpStarted_(false)
-    , wifiTransitionObserver_(static_cast<ITransitionEventSink&>(*this)) {
-    constructManagers(prefs, serial, sntp, timeNtp);
-    setupCallbacks();
-    setupPolicies(udp, wifiDiscovery, time, deviceId);
-}
-
-FirmwareApp::~FirmwareApp() = default;
-
-void FirmwareApp::init() {
-    assert(!initialized_ && "FirmwareApp::init() called twice");
-    wifiManager_->init();
-    canBridge_->init();
-    setupCallbacks();
-    initialized_ = true;
-    ntpStarted_ = false;
-    wifiTransitionObserver_.setInitialState(static_cast<int>(wifiManager_->getState()));
-}
-
-void FirmwareApp::constructManagers(IPreferences& prefs, ISerial& serial,
-                                     ISntp& sntp, ITimeNtp& timeNtp) {
-    wifiManager_ = std::make_unique<WiFiManager>(wifi_, prefs, serial, bakedSsid_, bakedPass_);
-    constexpr int WIFI_MODE_PLACEHOLDER = 0;
-    constexpr int WIFI_STATUS_PLACEHOLDER = 0;
-    ntpTimeSync_ = std::make_unique<NtpTimeSync>(sntp, timeNtp, WIFI_MODE_PLACEHOLDER, WIFI_STATUS_PLACEHOLDER);
-    canBridge_ = std::make_unique<CanBridge>(canBridgeDeps_);
-}
-
-void FirmwareApp::setupCallbacks() {
+    , lastBroadcastEventIntervalMs_(0)
+    , observabilityHub_()
+    , ntpSupervisor_(std::make_unique<NtpSupervisor>(wifi_, std::make_unique<NtpTimeSync>(sntp, timeNtp, 0, 0))) {
+    // Wire callbacks (was setupCallbacks)
     wifiManager_->setTcpServerRestartCallback([]() {
         // No-op: WiFiManager sets its own tcpServerNeedsRestart flag on the
         // transition; restartTcpServerIfNeeded() in the .ino picks it up next tick.
     });
-    wifiManager_->setNtpInitCallback([this]() { ntpStarted_ = true; });
+    wifiManager_->setNtpInitCallback([this]() { ntpSupervisor_->onNtpInitRequested(); });
     wifiManager_->setDiscoveryResetCallback([this]() {
         if (discoveryPolicy_) discoveryPolicy_->resetBackoff();
     });
-}
 
-void FirmwareApp::setupPolicies(IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime& time,
-                                 const std::array<uint8_t, 16>& deviceId) {
+    // Setup policies (was setupPolicies)
     ledPatternPolicy_ = std::make_unique<LedPatternPolicy>(
         statusLed_, *wifiManager_, [](){}, [](){});
 
@@ -92,53 +68,55 @@ void FirmwareApp::setupPolicies(IUdp& udp, IWiFiDiscovery& wifiDiscovery, ITime&
                 std::string cadence = (intervalMs >= 1000)
                     ? std::to_string(intervalMs / 1000) + "s"
                     : std::to_string(intervalMs) + "ms";
-                emitEvent("discovery_broadcast",
+                observabilityHub_.emit("discovery_broadcast",
                           "cadence=" + cadence + " n=" + std::to_string(discoveryPolicy_->broadcastCount()));
             }
         },
         [this]() {
             if (discoveryPolicy_) discoveryPolicy_->resetBackoff();
         });
+
+    // Seed the WiFi state observer with the post-construction state.
+    observabilityHub_.observeWifiState(
+        static_cast<int>(wifiManager_->getState()),
+        wifi_.localIP(),
+        wifiManager_->getContext().escalatedToApReason);
+}
+
+FirmwareApp::~FirmwareApp() = default;
+
+void FirmwareApp::init() {
+    assert(!initialized_ && "FirmwareApp::init() called twice");
+    wifiManager_->init();
+    canBridge_->init();
+    initialized_ = true;
+    observabilityHub_.observeWifiState(
+        static_cast<int>(wifiManager_->getState()),
+        wifi_.localIP(),
+        wifiManager_->getContext().escalatedToApReason);
 }
 
 void FirmwareApp::update(uint32_t now) {
     assert(initialized_ && "FirmwareApp::update() called before init()");
     if (discoveryPolicy_) discoveryPolicy_->startIfNeeded();
-    updateWifiStateAndEmitEvents(now);
+    wifiManager_->update(now);
+    observabilityHub_.observeWifiState(
+        static_cast<int>(wifiManager_->getState()),
+        wifi_.localIP(),
+        wifiManager_->getContext().escalatedToApReason);
     if (ledPatternPolicy_) {
         bool clientConnected = clientConnectionSource_ ? clientConnectionSource_->isClientConnected() : false;
         ledPatternPolicy_->update(now, clientConnected);
     }
-    maybeStartNtp();
+    ntpSupervisor_->maybeStart();
     if (discoveryPolicy_) {
         bool clientConnected = clientConnectionSource_ ? clientConnectionSource_->isClientConnected() : false;
         discoveryPolicy_->update(now, clientConnected);
     }
 }
 
-void FirmwareApp::updateWifiStateAndEmitEvents(uint32_t now) {
-    wifiManager_->update(now);
-    wifiTransitionObserver_.observe(static_cast<int>(wifiManager_->getState()),
-                                    wifi_.localIP(),
-                                    wifiManager_->getContext().escalatedToApReason);
-}
-
-void FirmwareApp::maybeStartNtp() {
-    if (ntpStarted_ && !ntpTimeSync_->isSynced()) {
-        ntpTimeSync_->startIfWiFiConnected(wifi_.getMode(), wifi_.status());
-    }
-}
-
-void FirmwareApp::onTransitionEvent(const char* eventType, const std::string& detail) {
-    emitEvent(eventType, detail);
-}
-
-void FirmwareApp::emitEvent(const char* eventType, const std::string& detail) {
-    if (observability_.logger) observability_.logger->logEvent(eventType, detail);
-}
-
 void FirmwareApp::onWiFiDisconnected(int reason) {
-    wifiTransitionObserver_.recordDisconnectReason(reason);
+    observabilityHub_.recordDisconnectReason(reason);
     assert(wifiManager_ && "FirmwareApp::onWiFiDisconnected called before init()");
     wifiManager_->onDisconnected(reason);
     const char* name = wifiReasonName(reason);
@@ -149,7 +127,7 @@ void FirmwareApp::onWiFiDisconnected(int reason) {
     if (!bssid.empty()) {
         detail += " bssid=" + bssid + " rssi=" + std::to_string(static_cast<int>(rssi));
     }
-    emitEvent("wifi_drop", detail);
+    observabilityHub_.emit("wifi_drop", detail);
 }
 
 int FirmwareApp::getWiFiState() const {
@@ -158,21 +136,19 @@ int FirmwareApp::getWiFiState() const {
 }
 
 void FirmwareApp::onClientConnected(const std::string& ip) {
-    observability_.clientIp = ip;
-    emitEvent("client_connected", "ip=" + ip);
+    observabilityHub_.onClientConnected(ip);
 }
 
 void FirmwareApp::onAuthFailed(const std::string& ip) {
-    emitEvent("auth_fail", "ip=" + ip + " reason=bad_token");
+    observabilityHub_.onAuthFailed(ip);
 }
 
 void FirmwareApp::onClientDisconnected(const std::string& ip, int reason) {
-    observability_.clientIp.clear();
-    emitEvent("client_disconnected", "ip=" + ip + " reason=" + std::to_string(reason));
+    observabilityHub_.onClientDisconnected(ip, reason);
 }
 
 void FirmwareApp::setEventLogger(IEventLogger& logger) {
-    observability_.logger = &logger;
+    observabilityHub_.setLogger(logger);
 }
 
 void FirmwareApp::setMonitorActive(bool active) {

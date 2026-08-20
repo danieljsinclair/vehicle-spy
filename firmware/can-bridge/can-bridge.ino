@@ -348,13 +348,13 @@ extern FirmwareApp firmwareApp;
 // later in this TU.
 struct FirmwareTokenStore : public esp32_firmware::IWifiTokenStore {
     explicit FirmwareTokenStore(esp32_firmware::FirmwareApp& app) : app_(app) {}
-    bool storeToken(const std::string& token) override { return app_.storeAuthToken(token); }
+    bool storeToken(const std::string& token) override { return app_.tokenStore().store(token); }
     esp32_firmware::FirmwareApp& app_;
 };
 
 struct FirmwareCredentialClearAt : public esp32_firmware::IWifiCredentialClear {
     explicit FirmwareCredentialClearAt(esp32_firmware::FirmwareApp& app) : app_(app) {}
-    bool clear() override { return app_.clearCredentials(); }
+    bool clear() override { app_.clear(); return true; }
     esp32_firmware::FirmwareApp& app_;
 };
 
@@ -566,7 +566,7 @@ void setup() {
     // ATSETTOKEN writes the token to NVS; on boot we read it here and fall back to
     // the build-time default if NVS has none.
     loadedAuthToken();  // initialize the static
-    std::string nvsToken = firmwareApp.loadAuthToken();
+    std::string nvsToken = firmwareApp.tokenStore().loadOrDefault();
     loadedAuthToken() = nvsToken.empty() ? std::string(TCP_AUTH_TOKEN) : nvsToken;
 
     // Wire tcpManager + clientConnectionSource now that firmwareApp is fully
@@ -755,7 +755,7 @@ void loop() {
     // serial logging live otherwise, with no WiFi client). Single RX drain —
     // never double-reads a frame.
 #if VEHICLE_SIM_ENABLE_TWAI
-    firmwareApp.processCanFrames(static_cast<uint32_t>(millis()));
+    firmwareApp.canBridge().processFrames(firmwareApp.isMonitorActive(), static_cast<uint32_t>(millis()));
 #endif
 }
 
