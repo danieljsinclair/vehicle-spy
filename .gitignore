@@ -138,3 +138,4 @@ build-verify/test/Makefile
 # SonarCloud cfamily analyzer crash reproducer (auto-generated at repo root by sonar-scanner)
 sonar-cfamily-reproducer.tar.xz
 firmware/Makefile
+firmware/esp32-firmware-tests
