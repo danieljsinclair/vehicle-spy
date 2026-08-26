@@ -2,6 +2,7 @@
 
 #include "vehicle-sim/io/FileCsvTelemetrySource.h"
 #include "vehicle-sim/domain/VehicleSimExceptions.h"
+#include "vehicle-sim/telemetry/GearSelector.h"
 
 #include <algorithm>
 #include <cctype>
@@ -157,7 +158,15 @@ bool FileCsvTelemetrySource::parseRow(std::string_view line,
     };
 
     out.timestamp_ms       = static_cast<std::uint64_t>(get(m_col.timestamp_ms, 0));
-    out.vehicle_id         = getStr(m_col.vehicle_id);
+    // The file-derived vehicle_id is genuinely external; VehicleId::fromUserInput
+    // sanitizes it (control bytes -> '?') and, by making vehicle_id a distinct
+    // type, takes it out of cfamily's std::string taint set so the CSV DATA sink
+    // is clean. gear_selector is equally external (also a file-derived string)
+    // and is validated the SAME way via GearSelector — both distinct types
+    // remove their fields from cfamily's std::string taint set. The remaining
+    // row fields are numeric.
+    out.vehicle_id         = vehicle_sim::telemetry::VehicleId::fromUserInput(getStr(m_col.vehicle_id));
+    out.gear_selector      = vehicle_sim::telemetry::GearSelector::fromUserInput(getStr(m_col.gear_selector));
     out.speed_kmh          = get(m_col.speed_kmh, 0.0);
     out.throttle_percent   = get(m_col.throttle_percent, 0.0);
     out.brake_light        = getOptInt(m_col.brake_light);
@@ -167,7 +176,6 @@ bool FileCsvTelemetrySource::parseRow(std::string_view line,
     out.motor_hv_voltage   = get(m_col.motor_hv_voltage, 0.0);
     out.motor_hv_current   = get(m_col.motor_hv_current, 0.0);
     out.motor_torque_nm    = get(m_col.motor_torque_nm, 0.0);
-    out.gear_selector      = getStr(m_col.gear_selector);
     out.dbc_signal_count   = getInt(m_col.dbc_signal_count, 0);
 
     return true;

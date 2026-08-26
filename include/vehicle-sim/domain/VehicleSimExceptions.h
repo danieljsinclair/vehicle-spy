@@ -5,6 +5,8 @@
 #include <vector>
 #include <sstream>
 
+#include "vehicle-sim/cli/LogSanitizer.h"
+
 namespace vehicle_sim::domain {
 
 /**
@@ -36,7 +38,7 @@ public:
 private:
     static std::string buildMessage(const std::string& vehicleType, const std::vector<std::string>& availableVehicles) {
         std::ostringstream oss;
-        oss << "Vehicle config not found: " << vehicleType << "\n";
+        oss << "Vehicle config not found: " << cli::forLog(vehicleType) << "\n";
         oss << "Available vehicles: ";
         for (const auto& v : availableVehicles) {
             oss << v << " ";

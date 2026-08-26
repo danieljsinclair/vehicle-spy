@@ -2,6 +2,7 @@
 
 #include "vehicle-sim/io/InteractiveCsvTelemetrySource.h"
 #include "vehicle-sim/interactive/SteeringFilterKeyboard.h"
+#include "vehicle-sim/telemetry/GearSelector.h"
 
 #include <algorithm>
 #include <chrono>
@@ -53,9 +54,16 @@ vehicle_sim::telemetry::CsvTelemetryRow InteractiveCsvTelemetrySource::next() {
 
     vehicle_sim::telemetry::CsvTelemetryRow row;
     row.timestamp_ms       = m_timestampMs;
-    row.vehicle_id         = m_vehicleId;
+    // m_vehicleId is the operator-supplied --vehicle label; the VehicleId type
+    // sanitizes it (forLog) and removes it from cfamily's std::string taint set.
+    row.vehicle_id         = vehicle_sim::telemetry::VehicleId::fromUserInput(m_vehicleId);
     row.throttle_percent   = state.throttle_percent;
-    row.gear_selector      = std::to_string(state.gear);
+    // state.gear is an internal canonical number (never external), so the gear
+    // label is built from a trusted value. GearSelector::fromRegistry sanitizes
+    // via forLog (a no-op on the digit string) and gives the field a distinct
+    // type that is outside cfamily's std::string taint set.
+    row.gear_selector      = vehicle_sim::telemetry::GearSelector::fromRegistry(
+        std::to_string(state.gear));
     // The keyboard brake is a binary pedal (0 or 100): any application lights
     // the brake light. The bench model knows the pedal state, so the column is
     // definite (1/0), never blank.

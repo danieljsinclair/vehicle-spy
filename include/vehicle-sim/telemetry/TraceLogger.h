@@ -4,12 +4,13 @@
 #include <fstream>
 #include <optional>
 #include "vehicle-sim/domain/VehicleSignal.h"
+#include "vehicle-sim/telemetry/VehicleId.h"
 
 namespace vehicle_sim::telemetry {
 
 class TraceLogger {
 public:
-    explicit TraceLogger(const std::string& filePath, std::string vehicleId = "");
+    explicit TraceLogger(const std::string& filePath, const std::string& vehicleId = "");
 
     // rule of zero: std::ofstream owns the file; the compiler-generated special
     // members (move/copy + dtor) are correct and noexcept where needed.
@@ -23,7 +24,7 @@ private:
     void writeRow(const domain::VehicleSignal& signal);
 
     std::ofstream file_;
-    std::string vehicleId_;
+    VehicleId vehicleId_;
 };
 
 }
