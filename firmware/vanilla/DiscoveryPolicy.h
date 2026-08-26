@@ -49,6 +49,9 @@ public:
     // For observability: number of broadcasts sent.
     const DiscoveryContext& context() const { return manager_ ? manager_->getContext() : emptyCtx_; }
     uint32_t broadcastCount() const;
+    // For observability: number of resetBackoff() invocations (boot + each
+    // WiFi reconnect). Test seam proving the reconnect→resetBackoff transition.
+    uint32_t resetCount() const { return manager_ ? manager_->resetCount() : 0; }
 
 private:
     DiscoveryContext emptyCtx_;

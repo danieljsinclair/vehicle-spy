@@ -67,10 +67,14 @@ public:
 class MockWifiCredentialStore : public IWifiCredentialStore {
 public:
     MOCK_METHOD(bool, store, (const std::string& ssid, const std::string& password), (override));
+    MOCK_METHOD(bool, load, (std::string & ssid, std::string & pass), (override));
 
     void delegateToDummy() {
         ON_CALL(*this, store(_, _)).WillByDefault([](const std::string&, const std::string&) {
             return true;
+        });
+        ON_CALL(*this, load(_, _)).WillByDefault([](std::string&, std::string&) {
+            return false;
         });
     }
 
@@ -272,6 +276,30 @@ TEST_F(AtCommandDispatcherTest, HandleSerialCommand_PrintsToSerial) {
 
     EXPECT_CALL(serialMock, println(::testing::StrEq("PONG")));
     dispatcher->handleSerialCommand("AT+PING");
+}
+
+// ATDUMPWIFI surfaces the stored-credential state the boot reader sees.
+TEST_F(AtCommandDispatcherTest, Atdumpwifi_NoStoredCredentials_ReportsNone) {
+    ON_CALL(wifiStoreMock, load(_, _)).WillByDefault([](std::string& ssid, std::string& pass) {
+        ssid.clear();
+        pass.clear();
+        return false;
+    });
+
+    EXPECT_CALL(serialMock, println(::testing::StrEq("OK no stored credentials")));
+    dispatcher->handleSerialCommand("ATDUMPWIFI");
+}
+
+TEST_F(AtCommandDispatcherTest, Atdumpwifi_StoredCredentials_ReportsSsidAndLen) {
+    ON_CALL(wifiStoreMock, load(_, _)).WillByDefault([](std::string& ssid, std::string& pass) {
+        ssid = "manht2";
+        pass = "luckyshoe478";
+        return true;
+    });
+
+    EXPECT_CALL(serialMock,
+                println(::testing::StrEq("OK stored ssid=manht2 pass_len=12")));
+    dispatcher->handleSerialCommand("ATDUMPWIFI");
 }
 
 TEST_F(AtCommandDispatcherTest, HandleSerialCommand_NoMatch_PrintsQuestionMark) {

@@ -32,7 +32,16 @@ public:
     }
 
     size_t getBytesLength(const char* key) override {
-        return prefs_.getBytesLength(key);
+        // ESP32 Preferences::getBytesLength returns 0 for STRING-typed keys
+        // (it is sized for blobs), yet this interface is used to probe key
+        // PRESENCE before loading credentials. A string key therefore reads as
+        // "absent" and the device wrongly falls back to AP mode despite valid
+        // stored creds. Fall back to the string length so presence-probing is
+        // correct for the string values this namespace actually stores.
+        size_t blobLen = prefs_.getBytesLength(key);
+        if (blobLen > 0) return blobLen;
+        String s = prefs_.getString(key, String());
+        return s.length();
     }
 
     std::string getString(const char* key, const std::string& defaultValue) override {
@@ -53,6 +62,13 @@ public:
     void clear() override {
         prefs_.clear();
     }
+
+    // Expose the underlying Arduino Preferences handle so callers that need the
+    // concrete type (e.g. ArduinoAtWifiStore, which is built directly over a
+    // Preferences&) can share THIS exact NVS handle. WiFi credentials must be
+    // written and read through one backing store, or the AT store and the
+    // boot-time reader silently diverge (see WifiCredentialSharedBacking_test).
+    Preferences& rawPreferences() { return prefs_; }
 
 private:
     Preferences prefs_;

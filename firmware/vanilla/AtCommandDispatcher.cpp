@@ -122,6 +122,25 @@ struct AtsetwifiCommandHandler : public IAtCommandHandler {
     IWifiCredentialStore& wifiStore_;
 };
 
+// Diagnostic: report the stored WiFi credential state as the boot reader sees
+// it (same loadCredentialsImpl path). Does not print the password.
+struct AtdumpwifiCommandHandler : public IAtCommandHandler {
+    explicit AtdumpwifiCommandHandler(IWifiCredentialStore& wifiStore) : wifiStore_(wifiStore) {}
+    bool matches(const std::string& normalizedCmd) const override {
+        return normalizedCmd == "ATDUMPWIFI";
+    }
+    AtCommandResult execute(const std::string& /*originalCmd*/) const override {
+        std::string ssid, pass;
+        if (wifiStore_.load(ssid, pass)) {
+            const std::string msg = "OK stored ssid=" + ssid +
+                                    " pass_len=" + std::to_string(pass.size());
+            return AtCommandResult(msg.c_str());
+        }
+        return AtCommandResult("OK no stored credentials");
+    }
+    IWifiCredentialStore& wifiStore_;
+};
+
 struct AtsettokenCommandHandler : public IAtCommandHandler {
     explicit AtsettokenCommandHandler(IWifiTokenStore& tokenStore) : tokenStore_(tokenStore) {}
     bool matches(const std::string& normalizedCmd) const override {
@@ -214,6 +233,7 @@ void AtCommandDispatcher::registerFirmwareHandlers() {
     registerHandler(std::make_unique<AtpcCommandHandler>(monitor_));
     registerHandler(std::make_unique<AtheloCommandHandler>(deviceId_));
     registerHandler(std::make_unique<AtsetwifiCommandHandler>(wifiStore_));
+    registerHandler(std::make_unique<AtdumpwifiCommandHandler>(wifiStore_));
     registerHandler(std::make_unique<AtsettokenCommandHandler>(tokenStore_));
     registerHandler(std::make_unique<AtclearwifiCommandHandler>(credClear_));
     registerHandler(std::make_unique<AtiCommandHandler>());

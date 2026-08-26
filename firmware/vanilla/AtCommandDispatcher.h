@@ -45,6 +45,9 @@ struct IAtCommandHandler {
 // WiFi credential persistence (NVS on-device; faked in tests)
 struct IWifiCredentialStore {
     virtual bool store(const std::string& ssid, const std::string& password) = 0;
+    // Load stored credentials (mirrors the boot-time reader). Returns false if
+    // none are present. Used by ATDUMPWIFI for on-device diagnostics.
+    virtual bool load(std::string& ssid, std::string& pass) = 0;
     virtual ~IWifiCredentialStore() = default;
 };
 

@@ -124,6 +124,7 @@ add_executable(esp32-firmware-tests
     tests/LoopHeartbeat_test.cpp
     tests/WifiTransitionObserver_test.cpp
     tests/NvsWifiCredentialStore_test.cpp
+    tests/WifiCredentialSharedBacking_test.cpp
     tests/TokenStore_test.cpp
 )
 

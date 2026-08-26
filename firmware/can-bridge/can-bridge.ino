@@ -192,10 +192,13 @@ static const char* const NC     = "\033[0m";
 // command NVS-write adapter). READ / has / clear paths are owned by WiFiManager
 // via the injected IPreferences (ArduinoPreferences) — FirmwareApp exposes
 // hasStoredCredentials()/loadCredentials()/clearCredentials() for them.
-// cpp:S5421: was a mutable global. Function-local static accessor — the NVS
-// Preferences handle for WiFi SSID/pass, opened/closed around each credential
-// write in storeWifiCredentials() below.
-Preferences& wifiCredentials() { static Preferences inst; return inst; }
+//
+// SINGLE SOURCE OF TRUTH: ArduinoAtWifiStore (the ATSETWIFI handler) is
+// constructed with arduinoPrefs() — the EXACT ArduinoPreferences instance
+// WiFiManager reads at boot via FirmwareApp's IPreferences. So ATSETWIFI writes
+// land in the identical NVS handle the boot path probes. If these ever diverge
+// (two Preferences handles), ATSETWIFI reports "stored" yet the device boots
+// into AP mode. See WifiCredentialSharedBacking_test for the contract guard.
 
 // NVS keys for WiFi credentials storage are defined in
 // firmware/vanilla/NvsWifiCredentialStore.cpp (the vanilla storeWifiCredentials
@@ -362,7 +365,7 @@ struct AtAdapters {
     ArduinoAtTcpClient tcpClient{client()};
     ArduinoAtSerial serial;
     ArduinoAtEsp esp{Constants::TCP_REBOOT_DELAY_MS};
-    ArduinoAtWifiStore wifiStore{wifiCredentials()};
+    ArduinoAtWifiStore wifiStore{arduinoPrefs()};
     FirmwareTokenStore tokenStore{firmwareApp};
     FirmwareCredentialClearAt credClear{firmwareApp};
 };

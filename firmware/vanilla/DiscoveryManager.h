@@ -89,8 +89,9 @@ public:
     // Reset discovery backoff timer (call on boot and disconnect)
     void resetBackoff();
 
-    // Force a discovery broadcast (for testing)
-    void forceBroadcast();
+    // Force a discovery broadcast (for testing). Returns true if the packet
+    // was actually sent (beginPacket + endPacket succeeded), false otherwise.
+    bool forceBroadcast();
 
     // Get current context (for testing)
     const DiscoveryContext& getContext() const { return ctx_; }
@@ -135,7 +136,7 @@ private:
         return instance;
     }
 
-    void broadcast();
+    bool broadcast();
 };
 
 } // namespace esp32_firmware

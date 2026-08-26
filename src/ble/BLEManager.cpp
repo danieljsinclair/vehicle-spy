@@ -1,5 +1,6 @@
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/domain/VehicleDetector.h"
+#include "vehicle-sim/cli/LogSanitizer.h"
 #include <iostream>
 
 #if defined(__APPLE__)
@@ -46,7 +47,7 @@ bool BLEManager::connect(const std::string& device_identifier) {
 
     bool success = platform_->connect(device_identifier);
     if (success) {
-        std::cout << "[BLEManager] Connected to device: " << device_identifier << std::endl;
+        std::cout << "[BLEManager] Connected to device: " << cli::forLog(device_identifier) << std::endl;
     } else {
         std::cout << "[BLEManager] Connection failed" << std::endl;
     }

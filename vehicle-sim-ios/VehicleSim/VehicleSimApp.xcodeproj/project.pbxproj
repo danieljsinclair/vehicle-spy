@@ -15,6 +15,7 @@
 		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
 		B1000011 /* TelemetryFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000011 /* TelemetryFormatter.cpp */; };
 		B1000012 /* BLEManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000012 /* BLEManager.cpp */; };
+		B1Q00099 /* LogSanitizer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2Q00099 /* LogSanitizer.cpp */; };
 		B1000013 /* BLEManagerBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000013 /* BLEManagerBase.cpp */; };
 		B1000014 /* TeslaBLETransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000014 /* TeslaBLETransport.cpp */; };
 		B1000015 /* BLEManagerMock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000015 /* BLEManagerMock.cpp */; };
@@ -129,6 +130,7 @@
 		B2000010 /* VehicleSim.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSim.cpp; path = ../../src/VehicleSim.cpp; sourceTree = "<group>"; };
 		B2000011 /* TelemetryFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetryFormatter.cpp; path = ../../src/presentation/TelemetryFormatter.cpp; sourceTree = "<group>"; };
 		B2000012 /* BLEManager.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManager.cpp; path = ../../src/ble/BLEManager.cpp; sourceTree = "<group>"; };
+		B2Q00099 /* LogSanitizer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = LogSanitizer.cpp; path = ../../src/cli/LogSanitizer.cpp; sourceTree = "<group>"; };
 		B2000013 /* BLEManagerBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerBase.cpp; path = ../../src/ble/BLEManagerBase.cpp; sourceTree = "<group>"; };
 		B2000014 /* TeslaBLETransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaBLETransport.cpp; path = ../../src/ble/TeslaBLETransport.cpp; sourceTree = "<group>"; };
 		B2000015 /* BLEManagerMock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerMock.cpp; path = ../../src/ble/platform/BLEManagerMock.cpp; sourceTree = "<group>"; };
@@ -301,6 +303,7 @@
 				B2000010 /* VehicleSim.cpp */,
 				B2000011 /* TelemetryFormatter.cpp */,
 				B2000012 /* BLEManager.cpp */,
+				B2Q00099 /* LogSanitizer.cpp */,
 				B2000013 /* BLEManagerBase.cpp */,
 				B2000014 /* TeslaBLETransport.cpp */,
 				B2000015 /* BLEManagerMock.cpp */,
@@ -503,6 +506,7 @@
 				B1000010 /* VehicleSim.cpp in Sources */,
 				B1000011 /* TelemetryFormatter.cpp in Sources */,
 				B1000012 /* BLEManager.cpp in Sources */,
+				B1Q00099 /* LogSanitizer.cpp in Sources */,
 				B1000013 /* BLEManagerBase.cpp in Sources */,
 				B1000014 /* TeslaBLETransport.cpp in Sources */,
 				B1000015 /* BLEManagerMock.cpp in Sources */,

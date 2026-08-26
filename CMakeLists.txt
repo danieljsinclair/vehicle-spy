@@ -100,6 +100,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/PacedFrameScheduler.cpp
     src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
+    src/cli/ProvisioningRunner.cpp
+    src/cli/LogSanitizer.cpp
     src/cli/Orchestration.cpp
     src/cli/BLEConnectionManager.cpp
     src/cli/TelemetryRunner.cpp

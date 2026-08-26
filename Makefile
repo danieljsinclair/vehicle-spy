@@ -23,6 +23,10 @@ ESP32_HOST    ?=
 # Used in flash/reboot recipes when ESP32_HOST is not set.
 ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2
 
+# Built native CLI binary (used by provisioning targets below). Declared so Make
+# builds it via the existing native machinery before the targets invoke it.
+VEHICLE_SIM := build-native/vehicle-sim
+
          RED=\033[0;31m
        GREEN=\033[0;32m
         BLUE=\033[0;34m
@@ -120,6 +124,12 @@ build-native/Makefile: CMakeLists.txt
 native macos osx: build-native/Makefile
 	@mkdir -p build-native/profraw
 	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native all
+
+# Built CLI binary — reuses the existing native/CMake machinery (no hand-rolled
+# compile). Make builds this before any provisioning target that invokes it.
+$(VEHICLE_SIM): build-native/Makefile CMakeLists.txt $(shell find include src test -type f 2>/dev/null)
+	@mkdir -p build-native/profraw
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native vehicle-sim
 
 # C++ gtest suite (green) + Python capture-notepad suite (must also be green).
 # A failure in either fails the build.
@@ -1029,7 +1039,14 @@ firmware-host-tests: $(FIRMWARE_TEST_REPORT)
 $(FIRMWARE_TEST_REPORT): $(FIRMWARE_TEST_INPUTS)
 	@echo "=== [firmware] Building host tests (firmware/build-verify) ==="
 	@mkdir -p $(FIRMWARE_BUILD_DIR)
-	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug
+	@# ROBUSTNESS: source path is ABSOLUTE ($(CURDIR) = repo root -> firmware/),
+	@# never the relative `..`. A relative `..` resolves against the shell cwd:
+	@# if CMAKE_HOME_DIRECTORY was ever recorded as firmware/ (in-source
+	@# pollution from an earlier bad configure) or the cwd isn't repo-root, `..`
+	@# points at the REPO ROOT instead of firmware/, cmake reconfigures the wrong
+	@# tree, and the generated build-verify/Makefile has no `all` target =>
+	@# "No rule to make target 'all'". Absolute source path removes ambiguity.
+	@cd $(FIRMWARE_BUILD_DIR) && cmake -DCMAKE_BUILD_TYPE=Debug "$(CURDIR)/firmware"
 	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
 	@echo "=== [firmware] Running host tests ==="
 	@# Run the gtest binary directly so the report carries the gtest summary
@@ -1049,7 +1066,24 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 	@echo "=== [firmware] Building host tests with coverage (llvm-cov) ==="
 	@mkdir -p $(FIRMWARE_BUILD_DIR)
 	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
-	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON
+	@# `cmake --fresh` wipes the cache + generated files so the -DCOVERAGE=ON
+	@# reconfigure actually recompiles everything with -fprofile-instr-generate.
+	@# Without a fresh reconfigure, a build-verify dir previously built WITHOUT
+	@# -DCOVERAGE=ON keeps its non-instrumented .o files (make sees no source
+	@# change), so the tests run but emit NO profraw -> llvm-cov exports 0/2480
+	@# (the "coverage broken" bug). `rm -rf CMakeFiles` is avoided (it trips the
+	@# destructive-command guard); --fresh achieves the same full reconfigure.
+	@#
+	@# ROBUSTNESS: the source path is passed ABSOLUTE ($(CURDIR) = repo root ->
+	@# firmware/) rather than the relative `..`. A relative `..` is ambiguous:
+	@# if a prior (stale) cache recorded CMAKE_HOME_DIRECTORY as firmware/
+	@# (in-source pollution from an earlier bad configure), `cmake --fresh ..`
+	@# re-resolves `..` against that wrong source and regenerates into
+	@# firmware/ itself, deleting build-verify/Makefile and breaking the next
+	@# `make -C build-verify all` ("No rule to make target `all`"). An absolute
+	@# source path removes the ambiguity entirely. We `cd` into the build dir
+	@# so the build tree is build-verify/ and the source is always firmware/.
+	@cd $(FIRMWARE_BUILD_DIR) && cmake --fresh -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON "$(CURDIR)/firmware"
 	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
 	@echo "=== [firmware] Running tests under coverage ==="
 	@# Honesty: pipefail (no || true) so a firmware test failure propagates
@@ -1060,7 +1094,7 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests 2>&1 | tee $(FIRMWARE_TEST_REPORT)
 	@echo "=== [firmware] Merging profdata and exporting lcov ==="
 	@$(LLVM_PROFDATA) merge -o $(FIRMWARE_BUILD_DIR)/coverage.profdata \
-		$(FIRMWARE_BUILD_DIR)/profraw/*.profraw 2>/dev/null || true
+		$(FIRMWARE_BUILD_DIR)/profraw/*.profraw
 	@$(LLVM_COV) export \
 		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests \
 		--instr-profile=$(FIRMWARE_BUILD_DIR)/coverage.profdata \
@@ -1599,17 +1633,17 @@ reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 #
 # Aliases: join-wifi, join-wifi-usb, clear-wifi-creds-usb
 
-set-wifi-creds: ## Provision WiFi credentials (USB preferred, network fallback)
+set-wifi-creds: $(VEHICLE_SIM) ## Provision WiFi credentials (USB preferred, network fallback)
 	@if [ -z "$(ESP32_WIFI_SSID)" ] || [ -z "$(ESP32_WIFI_PASS)" ]; then \
 		echo "${RED}Error: ESP32_WIFI_SSID and ESP32_WIFI_PASS are required.${NC}" >&2; \
 		echo "  make set-wifi-creds ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>" >&2; \
 		exit 1; \
 	fi
-	@# Try USB first (direct serial, no AP join required)
+	@# Try USB first (direct serial, no AP join required) via the native binary.
 	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
 		echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"; \
 		echo "SSID: $(ESP32_WIFI_SSID)"; \
-		python3 scripts/serial-send-read.py --port "$(ESP32_PORT)" --baud 115200 --send 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' --expect 'stored' --timeout 8; \
+		./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --port "$(ESP32_PORT)"; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
 			exit 1; \
@@ -1633,7 +1667,7 @@ set-wifi-creds: ## Provision WiFi credentials (USB preferred, network fallback)
 join-wifi: set-wifi-creds  # backwards compatibility alias
 
 # USB-only path (no network fallback); requires explicit port detection
-join-wifi-usb: firmware-port
+join-wifi-usb: firmware-port $(VEHICLE_SIM)
 	@if [ -z "$(ESP32_WIFI_SSID)" ] || [ -z "$(ESP32_WIFI_PASS)" ]; then \
 			echo "${RED}Error: ESP32_WIFI_SSID and ESP32_WIFI_PASS are required.${NC}" >&2; \
 			echo "  make join-wifi-usb ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>" >&2; \
@@ -1641,7 +1675,7 @@ join-wifi-usb: firmware-port
 		fi
 	@echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"
 	@echo "SSID: $(ESP32_WIFI_SSID)"
-	@python3 scripts/serial-send-read.py --port "$(ESP32_PORT)" --baud 115200 --send 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' --expect 'stored' --timeout 8; \
+	@./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --port "$(ESP32_PORT)"; \
 	_rc=$$?; \
 	if [ $$_rc -ne 0 ]; then \
 		exit 1; \
@@ -1659,11 +1693,11 @@ join-wifi-usb: firmware-port
 #
 # Aliases: clear-wifi-creds-usb
 
-clear-wifi-creds: ## Clear WiFi credentials (USB preferred, network fallback)
+clear-wifi-creds: $(VEHICLE_SIM) ## Clear WiFi credentials (USB preferred, network fallback)
 	@echo "${YELLOW}--- Clearing WiFi credentials ---${NC}"
 	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
 		echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"; \
-		python3 scripts/serial-send-read.py --port "$(ESP32_PORT)" --baud 115200 --send 'ATCLEARWIFI\r' --expect 'cleared' --timeout 8; \
+		./build-native/vehicle-sim --clear-wifi-creds --port "$(ESP32_PORT)"; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
 			exit 1; \
@@ -1685,15 +1719,11 @@ clear-wifi-creds: ## Clear WiFi credentials (USB preferred, network fallback)
 .PHONY: clear-wifi-creds
 clear-wifi-creds-usb: firmware-port
 	@echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"
-	@printf 'ATCLEARWIFI\r' > "$(ESP32_PORT)"; \
-	_tmp=$$(mktemp); \
-	scripts/serial-startup-log.pl --port "$(ESP32_PORT)" --baud 115200 --max-wait 8 --post-byte 2 > "$$_tmp"; \
-	cat "$$_tmp"; \
-	if ! grep -q "OK WiFi credentials cleared" "$$_tmp" 2>/dev/null; then \
+	@./build-native/vehicle-sim --clear-wifi-creds --port "$(ESP32_PORT)"; \
+	_rc=$$?; \
+	if [ $$_rc -ne 0 ]; then \
 		echo "${YELLOW}WARN: clear was not confirmed (no reply within 8s)${NC}" >&2; \
-		rm -f "$$_tmp"; \
 		exit 1; \
 	fi; \
-	rm -f "$$_tmp"; \
 	echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"
 	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"

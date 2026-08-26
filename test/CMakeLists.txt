@@ -34,6 +34,8 @@ add_executable(vehicle-sim-tests
     presentation/TelemetryFormatter.test.cpp
     presentation/VehicleSignalFormatter.test.cpp
     cli/CliOptions.test.cpp
+    cli/LogSanitizer.test.cpp
+    cli/ProvisioningRunner.test.cpp
     cli/TelemetryRunner.test.cpp
     cli/TelemetryRunnerStdoutCsv.test.cpp
     cli/Orchestration.test.cpp

@@ -438,3 +438,62 @@ TEST_F(FirmwareAppTest, SetClientConnectionSource_AfterInit_UsedByUpdate) {
 }
 
 // Delegation truism tests removed (clear, storeAuthToken, getDiscoveryCadence).
+
+// ============================================================================
+// RECONNECT → RESET BACKOFF STATE TRANSITION (RED → GREEN, Defect 1 family)
+//
+// This is the state-transition the user said was never tested: after a WiFi
+// drop and a successful reconnect, FirmwareApp must invoke resetBackoff() so
+// discovery resumes at the FAST (500ms) cadence instead of resuming a long
+// backoff tier. We drive the full cycle boot → WIFI_CONNECTED → drop →
+// WIFI_CONNECTING → WIFI_CONNECTED(reconnect) and assert:
+//   1. resetCount() increased across the reconnect (resetBackoff was invoked).
+//   2. discovery broadcasts resume at the FAST cadence afterward.
+// ============================================================================
+
+TEST_F(FirmwareAppTest, Reconnect_ResetsBackoffAndResumesFastBroadcast) {
+    // STA mode so a connect/disconnect cycle exercises the real transition.
+    wifiMock.setMode(1);  // WIFI_STA
+    wifiMock.setLocalIP("192.168.1.50");
+
+    firmwareApp->init();
+
+    // Bring WiFi up to WIFI_CONNECTED. After init() the manager is in
+    // WIFI_DISCONNECTED; simulateConnectSuccess flips status to WL_CONNECTED
+    // and fires the connect event, and the next update() transitions to
+    // WIFI_CONNECTED (which triggers the discovery-reset callback once).
+    wifiMock.simulateConnectSuccess();
+    firmwareApp->update(1000);
+
+    // UDP send success is the fixture default (see FirmwareApp_test_fixture.h),
+    // so broadcasts here exercise the success path.
+    uint32_t resetsAfterConnect = firmwareApp->discoveryPolicy().resetCount();
+    uint32_t broadcastsAfterConnect = firmwareApp->discoveryPolicy().broadcastCount();
+
+    // Drive a few broadcasts at the fast cadence while connected.
+    firmwareApp->update(1000 + 600);   // +600ms -> fast-tier broadcast
+    firmwareApp->update(1000 + 1200);  // +1200ms -> another fast-tier broadcast
+    EXPECT_GT(firmwareApp->discoveryPolicy().broadcastCount(), broadcastsAfterConnect);
+
+    // ── DROP ── simulate a WiFi disconnect (transient, recoverable reason).
+    firmwareApp->onWiFiDisconnected(2);  // WIFI_REASON_AUTH_EXPIRE
+    // State now WIFI_CONNECTING; no reset expected from the drop itself.
+    uint32_t resetsAfterDrop = firmwareApp->discoveryPolicy().resetCount();
+    EXPECT_EQ(resetsAfterDrop, resetsAfterConnect);
+
+    // ── RECONNECT ── WiFi reports connected again; the next update() must run
+    // the ConnectingStateHandler connect path which fires the discovery-reset
+    // callback (resetBackoff), then resume broadcasts at the FAST cadence.
+    wifiMock.simulateConnectSuccess();
+    firmwareApp->update(1000 + 2000);  // reconnect tick
+
+    // resetBackoff invoked on reconnect.
+    EXPECT_GT(firmwareApp->discoveryPolicy().resetCount(), resetsAfterDrop);
+
+    // After reset, connectTimeMs was re-seeded, so a tick 600ms later (still in
+    // the 0-2min fast tier) must broadcast again at the FAST cadence.
+    uint32_t broadcastsBeforeFast = firmwareApp->discoveryPolicy().broadcastCount();
+    firmwareApp->update(1000 + 2000 + 600);
+    EXPECT_GT(firmwareApp->discoveryPolicy().broadcastCount(), broadcastsBeforeFast);
+}
+

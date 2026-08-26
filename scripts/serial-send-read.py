@@ -60,8 +60,19 @@ def main():
 
     received = []
 
+    # The --send string is authored with shell-escaped terminators (e.g. the
+    # Makefile passes 'ATSETWIFI<ssid>,<pass>\r' inside single quotes, so the
+    # backslash-r is a LITERAL two characters, not a carriage return). The ESP32
+    # serial framer only terminates a command line on a REAL 0x0D/0x0A
+    # (SerialCommandFramer::handleByte), so a literal "\r" never ends the line
+    # and the AT command is never dispatched — the device never replies and the
+    # provisioning tool times out. Decode the escape sequences (unicode_escape)
+    # so \r/\n become real CR/LF before writing, matching what the framer expects.
+    # This fixes every USB send site (set-wifi-creds, clear-wifi-creds, etc.) in
+    # one place; the AP/nc fallback already worked because `printf` interprets \r.
+    send_bytes = args.send.encode("utf-8").decode("unicode_escape").encode("utf-8")
     try:
-        ser.write(args.send.encode("utf-8"))
+        ser.write(send_bytes)
         ser.flush()
     except serial.SerialException as exc:
         print(f"ERROR: write failed: {exc}", file=sys.stderr)

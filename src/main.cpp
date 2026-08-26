@@ -7,10 +7,12 @@
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/Orchestration.h"
+#include "vehicle-sim/cli/ProvisioningRunner.h"
 #include "vehicle-sim/cli/BLERunContext.h"
 #include "vehicle-sim/cli/ReplayRunContext.h"
 #include "vehicle-sim/cli/LiveRunContext.h"
 #include "vehicle-sim/cli/CsvReplayRunContext.h"
+#include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/cli/InteractiveRunContext.h"
 #include "vehicle-sim/io/FileCsvTelemetrySource.h"
 #include "vehicle-sim/util/IClock.h"
@@ -160,8 +162,8 @@ std::string autoDiscoverESP32(std::chrono::seconds timeout = std::chrono::second
 // --log is never overridden by a deprecated alias.
 std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
     using namespace vehicle_sim::cli;
-    if (!opts.log_base.empty()) {
-        return opts.log_base;
+    if (!opts.logging.log_base.empty()) {
+        return opts.logging.log_base;
     }
     auto stripSuffix = [](std::string s, std::string_view suffix) {
         if (s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0) {
@@ -169,11 +171,11 @@ std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
         }
         return s;
     };
-    if (!opts.log_csv.empty()) {
-        return stripSuffix(opts.log_csv, ".csv");
+    if (!opts.logging.log_csv.empty()) {
+        return stripSuffix(opts.logging.log_csv, ".csv");
     }
-    if (!opts.log_raw.empty()) {
-        return stripSuffix(stripSuffix(opts.log_raw, ".txt"), ".raw");
+    if (!opts.logging.log_raw.empty()) {
+        return stripSuffix(stripSuffix(opts.logging.log_raw, ".txt"), ".raw");
     }
     return {};
 }
@@ -193,11 +195,11 @@ int main(int argc, char* argv[]) {
     // out_.flush() (in CsvStdoutSink) only flushes the iostream layer. The C
     // layer remains block-buffered when piped, causing ~0.5s latency bursts.
     // setvbuf must be called before any I/O on the stream.
-    if (opts.stdout_csv) {
+    if (opts.telemetry.stdout_csv) {
         std::setvbuf(stdout, nullptr, _IOLBF, 0);
     }
 
-    cli::printBanner(opts.stdout_csv ? std::cerr : std::cout);
+    cli::printBanner(opts.telemetry.stdout_csv ? std::cerr : std::cout);
 
     domain::DBCTranslationService translationService;
     domain::DefaultVehicleConfigs::registerAll(translationService.registry());
@@ -216,22 +218,29 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (opts.scan_mode) {
+    if (opts.mode.scan_mode) {
         auto bleManager = std::make_unique<BLEManager>();
         return runScan(*bleManager);
     }
 
-    if (opts.discover_mode) {
+    if (opts.mode.discover_mode) {
         return runDiscovery();
+    }
+
+    // WiFi provisioning over USB serial (AT command set). Local, pre-association
+    // — no AUTH, no vehicle registry, no telemetry. Short-circuits before any
+    // connect-target handling.
+    if (opts.isProvisioning()) {
+        return cli::runProvisioning(opts.wifi, std::cout, std::cerr);
     }
 
     // Interactive bench mode: keyboard-driven CSV emission, no vehicle registry
     // or live transport required. Deterministic pace via a real SystemClock.
-    if (opts.interactive_mode) {
+    if (opts.telemetry.interactive_mode) {
         vehicle_sim::util::SystemClock systemClock;
         return cli::InteractiveRunContext::run(
-            opts.vehicle_type.empty() ? std::string{"tesla"} : opts.vehicle_type,
-            opts.update_interval_ms,
+            opts.telemetry.vehicle_type.empty() ? std::string{"tesla"} : opts.telemetry.vehicle_type,
+            opts.telemetry.update_interval_ms,
             std::cout,
             systemClock);
     }
@@ -245,12 +254,12 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         std::cout << "Found ESP32 at " << target << "\n";
-        opts.connect_target = target;
+        opts.telemetry.connect_target = target;
         // Fall through to the TCP handling below
     }
 
     if (opts.isFile()) {
-        std::string path = opts.connect_target.substr(5);
+        std::string path = opts.telemetry.connect_target.substr(5);
 
         // Decoded-telemetry CSV (CSV replay mode) routes to CsvReplayRunContext,
         // which replays the recorded rows as if they were live CAN — feeding the
@@ -260,19 +269,19 @@ int main(int argc, char* argv[]) {
             auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
             vehicle_sim::util::SystemClock systemClock;
             return cli::CsvReplayRunContext::run(
-                std::move(source), opts.vehicle_type,
-                opts.update_interval_ms, std::cout, systemClock,
-                opts.stdout_csv);
+                std::move(source), opts.telemetry.vehicle_type,
+                opts.telemetry.update_interval_ms, std::cout, systemClock,
+                opts.telemetry.stdout_csv);
         }
 
         // Raw CAN replay through the canonical seam: FileTransport →
         // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
         // file is the raw source of truth, so we write ONLY <base>.csv.
         std::string logBase = resolveLogBase(opts);
-        return cli::ReplayRunContext::run(path, opts.vehicle_type,
+        return cli::ReplayRunContext::run(path, opts.telemetry.vehicle_type,
                                           logBase, translationService,
-                                          opts.stdout_csv,
-                                          opts.start_from_s);
+                                          opts.telemetry.stdout_csv,
+                                          opts.telemetry.start_from_s);
     }
 
     if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
@@ -283,19 +292,19 @@ int main(int argc, char* argv[]) {
         // protocol default table + explicit override resolve here.
         std::string logBase = resolveLogBase(opts);
         std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
-            opts.connect_target, opts.adapter_protocol);
-        return cli::LiveRunContext::run(opts.connect_target, opts.vehicle_type,
+            opts.telemetry.connect_target, opts.logging.adapter_protocol);
+        return cli::LiveRunContext::run(opts.telemetry.connect_target, opts.telemetry.vehicle_type,
                                         protocol, logBase, translationService,
-                                        opts.stdout_csv);
+                                        opts.telemetry.stdout_csv);
     }
 
     if (opts.isBLE()) {
-        return cli::BLERunContext::run(opts.connect_target, opts.vehicle_type,
+        return cli::BLERunContext::run(opts.telemetry.connect_target, opts.telemetry.vehicle_type,
                                       translationService);
     }
 
     // No recognized connect target — validation should have caught this, but
     // fail closed rather than falling through to a default.
-    std::cerr << "No telemetry source for connect target: " << opts.connect_target << "\n";
+    std::cerr << "No telemetry source for connect target: " << cli::forLog(opts.telemetry.connect_target) << "\n";
     return 1;
 }

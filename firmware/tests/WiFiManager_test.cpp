@@ -558,6 +558,43 @@ TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToConnecting) 
         << "disconnectStartMs must be stamped at drop time";
 }
 
+TEST_F(WiFiManagerTest, ConnectedSta_IpZeroedWhileStatusConnected_TransitionsToConnecting) {
+    // Regression for the on-device field report: after an AP is toggled off then
+    // back on, ESP32's core keeps reporting WL_CONNECTED across the blip while
+    // DHCP does NOT re-complete, so localIP() reads 0.0.0.0. The old handler only
+    // checked status()!=WL_CONNECTED, so the device sat in WIFI_CONNECTED with no
+    // address — an unreachable, contradictory state. The invariant now treats
+    // "connected but no IP" as a drop so it re-enters CONNECTING and re-acquires.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+
+    // Establish the already-connected precondition. `init()`→`begin()` resets the
+    // mock to WL_IDLE_STATUS (WiFiMock::begin), so re-assert WL_CONNECTED AFTER
+    // init() — exactly as ConnectedSta_DroppedConnection does — otherwise the
+    // precondition never takes and the CONNECTING handler can't promote to
+    // WIFI_CONNECTED. (The field scenario is "connected, then AP blip zeroes IP";
+    // the promotion itself is the sibling test's job — here we only set up state.)
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    wifiMock.setLocalIP("172.20.10.2");  // IP assigned on connect
+    wifiManager->update(150);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // AP toggled off→on: status stays WL_CONNECTED but the IP is gone.
+    wifiMock.setLocalIP("0.0.0.0");
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(200);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "connected-with-no-IP must self-heal to CONNECTING";
+    EXPECT_TRUE(wifiManager->getContext().reconnectPending);
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Commit 6: #4 WiFi retry + AP serial event — auth→AP gate tests
 //

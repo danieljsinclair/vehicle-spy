@@ -45,6 +45,11 @@ public:
         lastPassword = password;
         return nextStoreResult;
     }
+    bool load(std::string& ssid, std::string& pass) override {
+        ssid = lastSsid;
+        pass = lastPassword;
+        return !lastSsid.empty();
+    }
 };
 
 class FakeMonitor : public IMonitorState {

@@ -136,6 +136,9 @@ public:
     bool store(const std::string& ssid, const std::string& pass) override {
         ++storeCalls; lastSsid = ssid; lastPass = pass; return nextResult;
     }
+    bool load(std::string& ssid, std::string& pass) override {
+        ssid = lastSsid; pass = lastPass; return !lastSsid.empty();
+    }
 };
 class SpyMonitorState : public IMonitorState {
 public:
@@ -189,6 +192,18 @@ protected:
 
         // Set WiFi to AP mode so DiscoveryManager will broadcast
         wifiMock.setMode(2);  // WIFI_AP mode
+
+        // Default UDP behaviour = a WORKING UDP stack: beginPacket/endPacket
+        // succeed and write() reports the full packet written. DiscoveryManager
+        // now checks these return codes (it must not count a broadcast that
+        // never left the radio), and gmock's built-in default for an int/size_t
+        // mock is 0 — i.e. "send failed". Without these defaults every discovery
+        // test would silently exercise the failure path. Tests that WANT the
+        // failure path override with an explicit WillOnce/WillRepeatedly.
+        ON_CALL(udpMock, beginPacket(_, _)).WillByDefault(Return(1));
+        ON_CALL(udpMock, write(_, _))
+            .WillByDefault(Return(DiscoveryConfig::DISCOVERY_PACKET_SIZE));
+        ON_CALL(udpMock, endPacket()).WillByDefault(Return(1));
 
         // Allow NiceMock leak (gmock quirk with NiceMock members)
         testing::Mock::AllowLeak(&udpMock);

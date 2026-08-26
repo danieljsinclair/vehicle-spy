@@ -148,49 +148,44 @@ public:
         return true;
     }
 
-    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout) {
-        std::vector<DiscoveredDevice> result;
-
-        // Clear previously seen addresses for this poll cycle
-        seenAddresses.clear();
-
-        auto remainingMs = static_cast<int>(timeout.count());
-        auto start = std::chrono::steady_clock::now();
-
-        while (remainingMs > 0) {
-            // One poll iteration; returns whether the loop should keep going.
-            // Both early-exit paths (stop flag, EINTR) funnel through Stop so
-            // there is a single break in the loop.
-            auto iteration = [&]() {
-                // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
-                if (stop_->stopRequested()) {
-                    return false;
-                }
-
-                int ret = socket_->pollReadable(std::min(remainingMs, 100));  // poll in 100ms chunks
-                if (ret < 0) {
-                    if (errno == EINTR) return false;  // SIGINT/SIGTERM: stop the poll immediately
-                    return true;                        // other transient error: keep going
-                }
-                if (ret > 0) {
-                    // Drain all available packets
-                    while (tryReceive()) {
-                        // keep draining
-                    }
-                }
-                return true;
-            };
-
-            if (!iteration()) {
-                break;
-            }
-
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start);
-            remainingMs = static_cast<int>(timeout.count()) - static_cast<int>(elapsed.count());
+    // Run ONE wait-and-drain step and report whether polling should continue.
+    //
+    // Returns false when the caller must stop: a cooperative stop was requested,
+    // a signal interrupted the wait, or at least one device is now pending.
+    // Extracted from poll() so each function has a single responsibility — this
+    // owns "what happened in one 100ms window", poll() owns the time budget and
+    // the dedup of the result set.
+    bool pollStepShouldContinue(int remainingMs) {
+        // Check the stop flag at each iteration (set by signal handler on Ctrl-C)
+        if (stop_->stopRequested()) {
+            return false;
         }
 
-        // Collect pending devices, deduplicating by address
+        const int ret = socket_->pollReadable(std::min(remainingMs, 100));  // 100ms chunks
+        if (ret < 0) {
+            // EINTR means SIGINT/SIGTERM arrived: stop. Any other transient
+            // error is retried on the next iteration.
+            return errno != EINTR;
+        }
+        if (ret > 0) {
+            // Drain everything currently readable, so a burst of packets from
+            // several devices in one window all surface together.
+            while (tryReceive()) {
+                // keep draining
+            }
+        }
+
+        // Adopt on the FIRST valid packet: discovery is "find a device and
+        // connect", not "enumerate everything on the LAN". Once at least one
+        // device is pending, return immediately instead of blocking the rest
+        // of the timeout window. The hunting path (TCPTransport) calls
+        // poll(500ms) in a loop and benefits from the same early return.
+        return pending.empty();
+    }
+
+    // Collect the pending devices, deduplicating by address, and clear the queue.
+    std::vector<DiscoveredDevice> drainPendingDeduplicated() {
+        std::vector<DiscoveredDevice> result;
         for (const auto& device : pending) {
             if (std::find(seenAddresses.begin(), seenAddresses.end(), device.address)
                 == seenAddresses.end()) {
@@ -199,8 +194,27 @@ public:
             }
         }
         pending.clear();
-
         return result;
+    }
+
+    std::vector<DiscoveredDevice> poll(std::chrono::milliseconds timeout) {
+        // Clear previously seen addresses for this poll cycle
+        seenAddresses.clear();
+
+        const auto budgetMs = static_cast<int>(timeout.count());
+        const auto start = std::chrono::steady_clock::now();
+
+        auto remainingMs = budgetMs;
+        bool keepGoing = true;
+        while (keepGoing && remainingMs > 0) {
+            keepGoing = pollStepShouldContinue(remainingMs);
+
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start);
+            remainingMs = budgetMs - static_cast<int>(elapsed.count());
+        }
+
+        return drainPendingDeduplicated();
     }
 
     void setPublicKey(const std::array<uint8_t, ED25519_PUBLIC_KEY_LEN>& key) {

@@ -29,7 +29,7 @@ TEST_F(OrchestrationTest, HandleEarlyExit_WithErrorMessage_ReturnsTrue) {
 
 TEST_F(OrchestrationTest, HandleEarlyExit_WithHelpFlag_ReturnsTrue) {
     CliOptions opts;
-    opts.help_requested = true;
+    opts.mode.help_requested = true;
 
     bool shouldExit = handleEarlyExit(opts, *service_);
 
@@ -38,7 +38,7 @@ TEST_F(OrchestrationTest, HandleEarlyExit_WithHelpFlag_ReturnsTrue) {
 
 TEST_F(OrchestrationTest, HandleEarlyExit_WithListSignalsFlag_ReturnsTrue) {
     CliOptions opts;
-    opts.list_signals = true;
+    opts.mode.list_signals = true;
 
     bool shouldExit = handleEarlyExit(opts, *service_);
 
@@ -47,8 +47,8 @@ TEST_F(OrchestrationTest, HandleEarlyExit_WithListSignalsFlag_ReturnsTrue) {
 
 TEST_F(OrchestrationTest, HandleEarlyExit_WithNoEarlyExitConditions_ReturnsFalse) {
     CliOptions opts;
-    opts.help_requested = false;
-    opts.list_signals = false;
+    opts.mode.help_requested = false;
+    opts.mode.list_signals = false;
     opts.error_message.clear();
 
     bool shouldExit = handleEarlyExit(opts, *service_);
@@ -57,8 +57,13 @@ TEST_F(OrchestrationTest, HandleEarlyExit_WithNoEarlyExitConditions_ReturnsFalse
 }
 
 TEST_F(OrchestrationTest, HandleEarlyExit_HelpFlagOutputsToStdout) {
-    CliOptions opts;
-    opts.help_requested = true;
+    // Help is derived from parseArgs (help_text captured on CallForHelp), so
+    // drive a real --help parse rather than hand-setting help_requested.
+    std::vector<std::string> args = {"vehicle-sim", "--help"};
+    std::vector<char*> argv;
+    for (auto& a : args) argv.push_back(a.data());
+    CliOptions opts = parseArgs(static_cast<int>(argv.size()), argv.data());
+    ASSERT_TRUE(opts.mode.help_requested);
 
     // Redirect stdout
     std::stringstream output;
@@ -77,7 +82,7 @@ TEST_F(OrchestrationTest, HandleEarlyExit_HelpFlagOutputsToStdout) {
 
 TEST_F(OrchestrationTest, HandleEarlyExit_ListSignalsOutputsToStdout) {
     CliOptions opts;
-    opts.list_signals = true;
+    opts.mode.list_signals = true;
 
     std::stringstream output;
     std::streambuf* old = std::cout.rdbuf(output.rdbuf());
