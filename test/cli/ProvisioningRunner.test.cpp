@@ -90,7 +90,7 @@ WifiProvisioningOptions provisioningOpts(bool clear, bool reboot, const std::str
     o.reboot_esp32 = reboot;
     o.set_wifi_ssid = ssid;
     o.set_wifi_pass = pass;
-    o.usb_port = "/dev/cu.usbserial-TEST";
+    o.transport = "usb:/dev/cu.usbserial-TEST";
     return o;
 }
 

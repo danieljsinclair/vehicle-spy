@@ -56,6 +56,11 @@ constexpr const char* PROVISION_OK_STORED = "stored";
 constexpr const char* PROVISION_OK_CLEARED = "cleared";
 constexpr const char* PROVISION_OK_REBOOT = "REBOOT";
 
+// Substring that marks a LoopHeartbeat [STATE] line. The device emits these
+// on a 5-second cadence (firmware/can-bridge/can-bridge.ino HEARTBEAT_INTERVAL_MS);
+// --status waits for the NEXT one and prints it verbatim.
+constexpr const char* PROVISION_OK_STATUS = "[STATE]";
+
 // Default provisioning timeout. The device floods periodic [STATE] heartbeat /
 // WiFi state lines over USB serial while it stores creds and reboots; under that
 // load the "OK WiFi credentials stored. Rebooting..." ack can arrive well after
@@ -63,6 +68,12 @@ constexpr const char* PROVISION_OK_REBOOT = "REBOOT";
 // TIMEOUT even though provisioning succeeded). 120s gives the store+reboot
 // sequence comfortable headroom so the matcher can capture the real ack.
 constexpr int PROVISION_TIMEOUT_S = 120;
+
+// --status wait budget. The heartbeat is on a 5-second cadence, so waiting up
+// to 8s gives one full cycle plus jitter headroom. A timeout is reported as
+// "no [STATE] line received in Ns" — the device is still alive, but no
+// heartbeat has been emitted yet.
+constexpr int PROVISION_STATUS_TIMEOUT_S = 8;
 
 /**
  * Send a single AT command over the ESP32 USB serial console and wait for the
@@ -91,16 +102,36 @@ constexpr int PROVISION_TIMEOUT_S = 120;
  * (std::cout) and errors to `err` (std::cerr).
  *
  * SRP: this function only decides WHICH command to send; the byte-level serial
- * I/O lives in runProvisioningCommand().
+ * I/O lives in runProvisioningCommand() / runStatus().
  *
  * Test seam: the overload taking an injected ISerialPort lets unit tests run
  * the full dispatch (flag -> AT command selection -> frame bytes) without a
- * real device. The (opts, out, err) form opens a real port and delegates.
+ * real device. The (opts, out, err) form resolves opts.transport via the
+ * universal connect selector (auto-detect or usb:<path>) and opens a real port.
  */
 [[nodiscard]] int runProvisioning(const WifiProvisioningOptions& opts,
                                   ISerialPort& port,
                                   std::ostream& out,
                                   std::ostream& err);
+
+/**
+ * Read from the serial port until the next "[STATE] ..." heartbeat line appears
+ * (or the deadline elapses), then write the captured line to `out`. The
+ * heartbeat is on a 5-second cadence, so a fresh [STATE] line should arrive
+ * within PROVISION_STATUS_TIMEOUT_S; the timeout is reported via err.
+ *
+ * No AT command is sent — [STATE] lines are device-driven, not acks.
+ *
+ * @return 0 on success (a [STATE] line was captured), 1 on timeout.
+ *
+ * SRP: this function only owns the wait-for-state-line loop; the byte-level
+ * serial I/O is delegated to the ISerialPort seam. The test suite injects a
+ * FakeSerialPort that scripts the [STATE] line directly.
+ */
+[[nodiscard]] int runStatus(ISerialPort& port,
+                            int timeoutS,
+                            std::ostream& out,
+                            std::ostream& err);
 
 [[nodiscard]] int runProvisioning(const WifiProvisioningOptions& opts,
                                   std::ostream& out,

@@ -70,7 +70,7 @@ TEST_F(CliOptionsTest, HelpTextSurfacesProvisioningFlags) {
     EXPECT_NE(opts.mode.help_text.find("--set-wifi-creds"), std::string::npos);
     EXPECT_NE(opts.mode.help_text.find("--clear-wifi-creds"), std::string::npos);
     EXPECT_NE(opts.mode.help_text.find("--reboot"), std::string::npos);
-    EXPECT_NE(opts.mode.help_text.find("--port"), std::string::npos);
+    EXPECT_NE(opts.mode.help_text.find("--status"), std::string::npos);
 
     // printHelp forwards help_text (plus the registry-driven SUPPORTED
     // VEHICLES block), so it must surface the same flags.
@@ -80,7 +80,12 @@ TEST_F(CliOptionsTest, HelpTextSurfacesProvisioningFlags) {
     EXPECT_NE(help.find("--set-wifi-creds"), std::string::npos);
     EXPECT_NE(help.find("--clear-wifi-creds"), std::string::npos);
     EXPECT_NE(help.find("--reboot"), std::string::npos);
-    EXPECT_NE(help.find("--port"), std::string::npos);
+    EXPECT_NE(help.find("--status"), std::string::npos);
+
+    // --port has been removed (the USB serial port is now a build-time
+    // default; --connect is the universal transport selector); the help
+    // must no longer mention --port.
+    EXPECT_EQ(help.find("--port"), std::string::npos);
 }
 
 // printHelp must surface at least one registered vehicle id from the registry.
@@ -587,12 +592,18 @@ TEST_F(CliOptionsTest, ProvisioningExemptsConnectRequirement_Probe) {
     EXPECT_TRUE(error.empty());
 }
 
-TEST_F(CliOptionsTest, PortFlagOverridesDefault) {
+// --port has been intentionally removed (the USB serial port is now a
+// build-time default; an explicit --port override was redundant and was the
+// source of more "which port did I pick again?" confusion than it solved).
+// The flag is now an unknown option; the way to select a specific port is
+// --connect usb:/dev/cu.usbserial-XXX.
+TEST_F(CliOptionsTest, PortFlagIsRemoved) {
     Args args({"vehicle-sim", "--reboot", "--port", "/dev/cu.usbserial-999"});
     auto opts = parseArgs(args.argc(), args.argv());
 
-    EXPECT_TRUE(opts.error_message.empty());
-    EXPECT_EQ(opts.wifi.usb_port, "/dev/cu.usbserial-999");
+    EXPECT_FALSE(opts.error_message.empty())
+        << "--port should now be rejected as an unknown option";
+    EXPECT_NE(opts.error_message.find("--port"), std::string::npos);
 }
 
 // The two free-form vehicle-label paths (interactive mode, decoded-CSV replay)

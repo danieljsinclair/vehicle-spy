@@ -2,6 +2,7 @@
 #include "vehicle-sim/cli/LogSanitizer.h"
 
 #include <fcntl.h>
+#include <glob.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace vehicle_sim::cli {
 
@@ -206,6 +208,53 @@ std::unique_ptr<ISerialPort> createSerialPort(const std::string& port) {
     return std::make_unique<PosixSerialPort>(port);
 }
 
+// Auto-detect glob patterns, in priority order. The device enumerates under
+// /dev/cu.usbserial-* on macOS, /dev/cu.SLAB_USBtoUART on Silicon Labs CP210x
+// boards, and /dev/cu.wchusbserial* on WCH CH340/CH341 boards. The first
+// pattern that yields at least one match wins; if no pattern matches, the
+// caller falls back to ESP32_DEFAULT_USB_PORT.
+constexpr const char* kUsbGlobPatterns[] = {
+    "/dev/cu.usbserial*",
+    "/dev/cu.SLAB_USBtoUART",
+    "/dev/cu.wchusbserial*",
+};
+
+// Return the first path that matches any auto-detect glob pattern. The order
+// of patterns is the priority order; the first non-empty result wins. Returns
+// an empty string if no pattern matched (caller falls back to the default).
+std::string autoDetectSerialPort() {
+    for (const char* pattern : kUsbGlobPatterns) {
+        glob_t globResult{};
+        if (::glob(pattern, GLOB_NOSORT, nullptr, &globResult) == 0) {
+            if (globResult.gl_pathc > 0) {
+                std::string first = globResult.gl_pathv[0];
+                ::globfree(&globResult);
+                return first;
+            }
+        }
+        ::globfree(&globResult);
+    }
+    return "";
+}
+
+std::string resolveSerialPort(const std::string& transport) {
+    // Empty or "auto" -> auto-detect, fall back to the build-time default.
+    if (transport.empty() || transport == "auto") {
+        std::string detected = autoDetectSerialPort();
+        if (!detected.empty()) {
+            return detected;
+        }
+        return ESP32_DEFAULT_USB_PORT;
+    }
+    // "usb:<path>" -> strip the prefix, return the path verbatim. Validation
+    // has already rejected anything that isn't empty / auto / usb:; this is
+    // defensive — return "" on any other form.
+    if (transport.rfind("usb:", 0) == 0) {
+        return transport.substr(4);
+    }
+    return "";
+}
+
 int runProvisioningCommand(ISerialPort& port,
                            const std::string& command,
                            const std::string& expect,
@@ -252,20 +301,100 @@ int runProvisioningCommand(ISerialPort& port,
     return rc;
 }
 
+int runStatus(ISerialPort& port,
+              int timeoutS,
+              std::ostream& out,
+              std::ostream& err) {
+    // [STATE] lines are device-driven (no AT ack), so we do not send a
+    // command. We just wait for the NEXT heartbeat line and print it.
+    //
+    // The read loop mirrors pollOnce()'s shape (single read step per
+    // iteration, single exit point) so the timeout-bounded wait is a
+    // single-exit construct — the only branch is "matched / keep polling /
+    // stop". When a [STATE] line lands, we extract everything up to the next
+    // CR/LF terminator and write that substring to `out` so callers can
+    // capture / pipe it cleanly.
+    std::string reply;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(timeoutS);
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        const int ready = port.selectReadable(SERIAL_POLL_INTERVAL_US);
+        if (ready < 0) {
+            err << "[provision] Select failed on serial port\n";
+            return 1;
+        }
+        if (ready == 0) {
+            continue;  // poll step elapsed, keep waiting up to the deadline
+        }
+
+        std::array<char, SERIAL_READ_CHUNK> buf{};
+        const ssize_t n = port.read(buf.data(), buf.size());
+        if (n < 0) {
+            err << "[provision] Read failed on serial port\n";
+            return 1;
+        }
+        if (n == 0) {
+            // Peer closed / no more data. The heartbeat is device-driven, so
+            // an EOF without a [STATE] line means the device is gone (most
+            // likely mid-reboot) — surface the same TIMEOUT diagnostic the
+            // deadline path uses so the operator gets a clear "no snapshot"
+            // message regardless of which way the wait ended.
+            err << "[provision] TIMEOUT: no [STATE] line received within "
+                << timeoutS << "s (peer closed)\n";
+            return 1;
+        }
+
+        const auto count = static_cast<std::size_t>(n);
+        reply.append(buf.data(), count);
+
+        // The [STATE] line is single-line; as soon as we see the marker AND
+        // a terminator we can slice the line out and print it. We search the
+        // WHOLE buffer (not just the new bytes) so a marker that arrived at
+        // the tail of a previous chunk is still caught.
+        const std::size_t markerPos = reply.find(PROVISION_OK_STATUS);
+        if (markerPos == std::string::npos) {
+            continue;
+        }
+        const std::size_t termPos =
+            reply.find_first_of("\r\n", markerPos);
+        if (termPos == std::string::npos) {
+            // Marker seen but the line is not yet complete; keep reading.
+            continue;
+        }
+
+        out << reply.substr(markerPos, termPos - markerPos) << "\n";
+        return 0;
+    }
+
+    err << "[provision] TIMEOUT: no [STATE] line received within "
+        << timeoutS << "s\n";
+    return 1;
+}
+
 int runProvisioning(const WifiProvisioningOptions& opts,
                     ISerialPort& port,
                     std::ostream& out,
                     std::ostream& err) {
     if (!port.open()) {
-        // Name the port that failed — this is the single open-failure diagnostic
-        // for both overloads. `usb_port` is argv-derived, hence sanitized.
-        err << "[provision] Failed to open serial port " << forLog(opts.usb_port)
+        // Name the port that failed. The caller resolves the transport
+        // (auto-detect or usb:<path>) before reaching this overload, so the
+        // port we tried is whatever the injected ISerialPort was opened on.
+        // The injected test port has no name; in production, the name comes
+        // from createSerialPort's argument. We extract it via ISerialPort's
+        // name accessor — but the seam doesn't expose that today. Log the
+        // transport string instead (sanitized) and the runtime default.
+        const std::string resolved = resolveSerialPort(opts.transport);
+        err << "[provision] Failed to open serial port " << forLog(resolved)
             << "\n";
         return 1;
     }
 
     int rc = 1;
-    if (opts.clear_wifi_creds) {
+    if (opts.status_requested) {
+        out << "[provision] Reading [STATE] snapshot from device\n";
+        rc = runStatus(port, PROVISION_STATUS_TIMEOUT_S, out, err);
+    } else if (opts.clear_wifi_creds) {
         out << "[provision] Clearing WiFi credentials over USB serial\n";
         rc = runProvisioningCommand(port, "ATCLEARWIFI", PROVISION_OK_CLEARED,
                                     PROVISION_TIMEOUT_S, out);
@@ -296,7 +425,17 @@ int runProvisioning(const WifiProvisioningOptions& opts,
     // again; PosixSerialPort::open() overwrites fd_ without closing the previous
     // descriptor, so every provisioning run leaked one fd (and the trailing
     // close() only reclaimed the second). One owner, one open, one close.
-    auto port = createSerialPort(opts.usb_port);
+    //
+    // The universal --connect transport (auto / usb:<path>) is resolved into
+    // a concrete /dev/cu.* path here, BEFORE we open the port. The dispatcher
+    // takes the resolved port's ISerialPort, never the transport string.
+    const std::string resolved = resolveSerialPort(opts.transport);
+    if (resolved.empty()) {
+        err << "[provision] Could not resolve provisioning transport '"
+            << forLog(opts.transport) << "'\n";
+        return 1;
+    }
+    auto port = createSerialPort(resolved);
     return runProvisioning(opts, *port, out, err);
 }
 

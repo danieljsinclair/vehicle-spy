@@ -21,32 +21,57 @@ constexpr const char* DEFAULT_FORMAT = "plain";
 // Default vehicle type — standard OBD2 PIDs (SAE J1979).
 constexpr const char* DEFAULT_VEHICLE_TYPE = "generic";
 
-// Default ESP32 USB serial port for provisioning. Mirrors the Makefile's
-// ESP32_PORT auto-detection fallback (/dev/cu.usbserial* et al.); the
-// --port flag and the ESP32_PORT env var override this.
+// Default ESP32 USB serial port for provisioning. Used as a last-resort
+// fallback when auto-detect finds no /dev/cu.* match (rare; the device
+// enumerates with a predictable name on macOS, and the Makefile's
+// ESP32_PORT auto-discovery covers the standard prefixes). The provisioner's
+// auto-detect helper is the primary resolver; this is just a backstop.
 constexpr const char* ESP32_DEFAULT_USB_PORT = "/dev/cu.usbserial-210";
 
 // WiFi provisioning over the ESP32 USB serial console (AT command set).
 // Local, pre-association (no AUTH required): USB serial is the bootstrap
 // channel used before any WiFi/credential state exists on the device.
+//
+// The transport for provisioning is selected by the universal `--connect`
+// flag, which folds onto `transport` here. Valid values are the same as for
+// telemetry: "auto" (auto-detect the first /dev/cu.* that matches the
+// standard ESP32 prefixes), or "usb:<path>" (explicit path). Anything else
+// (tcp:, ble:, demo, file:) is rejected at validation time — the device's
+// AT console is only reachable over USB serial.
 struct WifiProvisioningOptions {
     std::string set_wifi_ssid;   // --set-wifi-creds <SSID> <PASS>
     std::string set_wifi_pass;
     bool clear_wifi_creds = false;  // --clear-wifi-creds
     bool reboot_esp32 = false;      // --reboot (send ATREBOOT over USB)
-    std::string usb_port = ESP32_DEFAULT_USB_PORT;  // --port <path>
+    bool status_requested = false;  // --status (print a [STATE] snapshot from the device)
+    std::string transport;          // "auto" or "usb:<path>" (set from --connect; empty = auto-detect)
 
     // True when a USB-serial provisioning operation was requested. Used by
     // main.cpp to short-circuit to runProvisioning() before telemetry dispatch.
     [[nodiscard]] bool active() const {
-        return !set_wifi_ssid.empty() || clear_wifi_creds || reboot_esp32;
+        return !set_wifi_ssid.empty() || clear_wifi_creds || reboot_esp32 ||
+               status_requested;
     }
 };
 
 // Telemetry connect/transport options.
+//
+// The `connect_target` field is the canonical transport selector — both for
+// telemetry (when no provisioning flag is set) AND for provisioning (folded
+// onto `WifiProvisioningOptions::transport` by parseArgs when a provisioning
+// flag IS set). The --connect-{usb,tcp,ble,auto} aliases are sugar: parseArgs
+// folds them onto the same target so every downstream consumer sees a
+// single source of truth.
 struct TelemetryOptions {
     std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", "usb:<path>", or "auto"
     std::string connect_file;     // `--connect-file <path>` synonym for `--connect file:<path>`
+    // --connect-{usb,tcp} short-form values (the tail after the colon). Folded
+    // onto connect_target in parseArgs() so every downstream consumer sees a
+    // single source of truth.
+    std::string connect_usb;
+    std::string connect_tcp;
+    bool connect_ble = false;  // --connect-ble: marker flag (no value)
+    bool connect_auto = false;  // --connect-auto: marker flag
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
@@ -113,6 +138,13 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
 
 // Display StatusLED pattern reference guide.
 void printLedHelp(std::ostream& out);
+
+// Resolve a provisioning transport string to a concrete /dev/cu.* path.
+//   "auto"  / ""    -> auto-detect (first matching /dev/cu.{usbserial,SLAB_USBtoUART,wchusbserial}*)
+//   "usb:<path>"    -> <path> verbatim
+//   anything else   -> "" (validation has rejected it; resolver is defensive)
+// Returns the resolved path, or empty if no candidate was found.
+std::string resolveSerialPort(const std::string& transport);
 
 // Validate CLI options against the registry
 // Returns error message if validation fails, empty string if valid
