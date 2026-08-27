@@ -30,7 +30,7 @@ bool handleEarlyExit(
         return true;
     }
 
-    if (opts.mode.led_diag) {
+    if (opts.mode.led_help) {
         printLedHelp(std::cout);
         return true;
     }

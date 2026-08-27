@@ -8,78 +8,79 @@
 
 using namespace firmware;
 
-// Rendered output tests
+// Rendered output tests — divider-aligned visuals. One '|' divider at every
+// whole-second boundary (start, end, each whole second). One character per
+// 100ms: '-' ON, ' ' OFF, '#' solid ON, '.' solid OFF.
 TEST(StatusLEDRendererTest, RenderPattern_WifiSearching) {
-    // WIFI_SEARCHING: ON 100ms + OFF 900ms → "-         " (1 dash, 9 spaces)
+    // WIFI_SEARCHING: ON 100ms + OFF 900ms (1s total)
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::WIFI_SEARCHING);
-    EXPECT_EQ(rendered, "-         ");  // 1 dash, 9 spaces
+    EXPECT_EQ(rendered, "|-         |");  // 1 dash, 9 spaces, 2 dividers (0s/1s)
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_WifiConnected) {
-    // WIFI_CONNECTED: ON 800ms + OFF 200ms → "--------  " (8 dashes, 2 spaces)
+    // WIFI_CONNECTED: ON 800ms + OFF 200ms (1s total)
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::WIFI_CONNECTED);
-    EXPECT_EQ(rendered, "--------  ");  // 8 dashes, 2 spaces
+    EXPECT_EQ(rendered, "|--------  |");  // 8 dashes, 2 spaces, 2 dividers
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_ClientConnected) {
-    // CLIENT_CONNECTED (solid): "##########"
+    // CLIENT_CONNECTED (solid, 2s)
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::CLIENT_CONNECTED);
-    EXPECT_EQ(rendered, "##########");  // 10 hashes
+    EXPECT_EQ(rendered, "|##########|##########|");  // 20 hashes split by 1s divider; 3 dividers
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_Boot) {
-    // BOOT: ON 500ms + OFF 500ms → "-----     " (5 dashes, 5 spaces)
+    // BOOT: ON 500ms + OFF 500ms (1s total)
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::BOOT);
-    EXPECT_EQ(rendered, "-----     ");  // 5 dashes, 5 spaces
+    EXPECT_EQ(rendered, "|-----     |");  // 5 dashes, 5 spaces, 2 dividers (0s/1s)
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_Off) {
-    // OFF: SOLID OFF → "          " (10 spaces)
+    // OFF (solid, 2s)
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::OFF);
-    EXPECT_EQ(rendered, "          ");  // 10 spaces
+    EXPECT_EQ(rendered, "|..........|..........|");  // 20 dots split by 1s divider; 3 dividers
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_ApMode) {
-    // AP_MODE: LONG_FLASH ON(800ms), TINY_GAP OFF(100ms),
-    //          TINY_FLASH ON(100ms), TINY_GAP OFF(100ms),
-    //          TINY_FLASH ON(100ms), SEPARATOR OFF(2000ms)
-    // → "-------- - -|" (8 dashes, 1 space, 1 dash, 1 space, 1 pipe)
+    // AP_MODE: ON 800, OFF 100, ON 100, OFF 100, ON 100, OFF 2000 (3.2s)
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::AP_MODE);
-    EXPECT_EQ(rendered, "-------- - -|");  // 8 dashes (capped to 10), 1 space, 1 dash, 1 space, 1 pipe
+    EXPECT_EQ(rendered, "|-------- -| -        |          |  |");
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_OtaInProgress) {
-    // OTA_IN_PROGRESS: SHORT_FLASH ON(200ms) + SHORT_GAP OFF(200ms)
-    // → "--  " (2 dashes, 2 spaces)
+    // OTA_IN_PROGRESS: SHORT_FLASH ON 200ms + SHORT_GAP OFF 200ms (400ms total)
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::OTA_IN_PROGRESS);
-    EXPECT_EQ(rendered, "--  ");  // 2 dashes, 2 spaces
+    EXPECT_EQ(rendered, "|--  |");  // 2 dashes, 2 spaces, 2 dividers (0s/0.4s)
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_AuthFailure) {
-    // ERROR_AUTH_FAILURE: ERROR_3_PULSE (3x SHORT_FLASH 200ms + SHORT_GAP 200ms)
-    //              + 2×TINY_PULSE (2x TINY_FLASH 100ms + TINY_GAP 100ms)
-    //              + SEPARATOR (2000ms)
+    // ERROR_AUTH_FAILURE: 3×(SHORT_ON 200 + SHORT_OFF 200) + 2×(TINY_ON 100 + TINY_OFF 100) + SEP 2000
+    // 3.6s total
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::ERROR_AUTH_FAILURE);
-    // Expected: "--  --  --  - - |" (3 short pulses, separator, 2 tiny pulses, separator)
-    EXPECT_EQ(rendered, "--  --  --  - - |");
+    EXPECT_EQ(rendered, "|--  --  --|  - -     |          |      |");
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_ErrorRecoverable) {
-    // ERROR_RECOVERABLE: ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR
+    // ERROR_RECOVERABLE: 3×(SHORT_ON 200 + SHORT_OFF 200) + 3×(TINY_ON 100 + TINY_OFF 100) + SEP 2000
+    // 3.8s total
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::ERROR_RECOVERABLE);
-    EXPECT_EQ(rendered, "--  --  --  - - - |");  // 3 short, separator, 3 tiny, separator
+    EXPECT_EQ(rendered, "|--  --  --|  - - -   |          |        |");
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_ErrorNoNtpService) {
-    // ERROR_NO_NTP_SERVICE: ERROR_3_PULSE + 1×TINY_PULSE + SEPARATOR
+    // ERROR_NO_NTP_SERVICE: 3×(SHORT_ON 200 + SHORT_OFF 200) + 1×(TINY_ON 100 + TINY_OFF 100) + SEP 2000
+    // 3.4s total
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
-    EXPECT_EQ(rendered, "--  --  --  - |");  // 3 short, separator, 1 tiny, separator
+    EXPECT_EQ(rendered, "|--  --  --|  -       |          |    |");
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_FatalUnrecoverable) {
-    // FATAL_UNRECOVERABLE: SOS - 3 short, 3 long, 3 short, SEPARATOR
+    // FATAL_UNRECOVERABLE: SOS — 3×(SHORT_ON 200 + SHORT_OFF 200) + 3×(LONG_ON 800 + SHORT_OFF 200) +
+    //                       3×(SHORT_ON 200 + SHORT_OFF 200) + SEP 2000
+    // 7.4s total
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::FATAL_UNRECOVERABLE);
-    EXPECT_EQ(rendered, "--  --  --  --------  --------  --------  --  --  --  |");  // 3 short, 3 long, 3 short, separator
+    EXPECT_EQ(rendered,
+              "|--  --  --|  --------|  --------|  --------|  --  --  |--        |          |    |");
 }
 
 TEST(StatusLEDRendererTest, GenerateHelpText_ContainsAllPatterns) {
@@ -148,10 +149,10 @@ TEST(StatusLEDRendererTest, GenerateHelpText_OutputStructure) {
     EXPECT_NE(help.find("Visual key:"), std::string::npos);
     EXPECT_NE(help.find("BOOT"), std::string::npos);
 
-    // Verify visual patterns are present for key states
-    EXPECT_NE(help.find("-         "), std::string::npos);  // WIFI_SEARCHING pattern
-    EXPECT_NE(help.find("--------  "), std::string::npos);  // WIFI_CONNECTED pattern
-    EXPECT_NE(help.find("##########"), std::string::npos);  // CLIENT_CONNECTED pattern
+    // Verify visual patterns are present for key states (divider-aligned).
+    EXPECT_NE(help.find("|-         |"), std::string::npos);  // WIFI_SEARCHING pattern
+    EXPECT_NE(help.find("|--------  |"), std::string::npos);  // WIFI_CONNECTED pattern
+    EXPECT_NE(help.find("##########"), std::string::npos);  // CLIENT_CONNECTED (subset of 20 #'s)
 
     // Verify timing notes are present
     EXPECT_NE(help.find("0.1s"), std::string::npos);  // TINY_FLASH
@@ -159,7 +160,7 @@ TEST(StatusLEDRendererTest, GenerateHelpText_OutputStructure) {
 }
 
 // generateTable: the compact one-line-per-pattern diagnostic table that backs
-// the --led-diag CLI flag. Distinct from generateHelpText() (already tested).
+// the --led-help CLI flag. Distinct from generateHelpText() (already tested).
 // Drives generateTable() + getCategoryName() (all category cases, reached via
 // the category grouping) + timingNote() (incl. the SEPARATOR branch via the
 // AP_MODE / error / fatal patterns) and formatDuration(). (getPatternInfo /
@@ -209,8 +210,8 @@ TEST(StatusLEDRendererTest, GenerateTable_GroupsPatternsAdjacently) {
 
     // generateTable groups by PatternCategory (via std::map) but does NOT emit
     // category headers (that line is intentionally commented out — header
-    // rendering lives in generateHelpText). What we CAN assert: members of the
-    // same category appear adjacently. The two WIFI patterns are consecutive.
+    // rendering lives in generateHelpText). What we CAN assert: members of
+    // the same category appear adjacently. The two WIFI patterns are consecutive.
     const size_t searching = table.find("WIFI_SEARCHING");
     const size_t connected = table.find("WIFI_CONNECTED");
     ASSERT_NE(searching, std::string::npos);
@@ -232,4 +233,59 @@ TEST(StatusLEDRendererTest, GenerateTable_GroupsPatternsAdjacently) {
         EXPECT_TRUE(pos < lo || pos > hi)
             << "pattern '" << name << "' splits the WiFi group";
     }
+}
+
+// Divider-alignment contract: every rendered visual starts AND ends with '|',
+// and contains a '|' at every whole-second boundary of the pattern's period.
+// Together with the 1-char-per-100ms rule, this makes 0.8s flashes, 1s
+// patterns, and 2s separators line up across the table.
+TEST(StatusLEDRendererTest, RenderPattern_HasStartAndEndDividers) {
+    const StatusLED::Pattern all[] = {
+        StatusLED::Pattern::BOOT, StatusLED::Pattern::WIFI_SEARCHING,
+        StatusLED::Pattern::WIFI_CONNECTED, StatusLED::Pattern::CLIENT_CONNECTED,
+        StatusLED::Pattern::AP_MODE, StatusLED::Pattern::OTA_IN_PROGRESS,
+        StatusLED::Pattern::ERROR_AUTH_FAILURE, StatusLED::Pattern::ERROR_RECOVERABLE,
+        StatusLED::Pattern::ERROR_NO_NTP_SERVICE,
+        StatusLED::Pattern::FATAL_UNRECOVERABLE,
+        StatusLED::Pattern::OFF
+    };
+    for (auto p : all) {
+        std::string r = StatusLEDRenderer::renderPattern(p);
+        ASSERT_FALSE(r.empty()) << "empty render";
+        EXPECT_EQ(r.front(), '|') << "missing start divider";
+        EXPECT_EQ(r.back(), '|') << "missing end divider";
+    }
+}
+
+TEST(StatusLEDRendererTest, RenderPattern_DividersAtEveryWholeSecond) {
+    // 2s solid pattern (CLIENT_CONNECTED) must contain exactly 3 dividers
+    // (start, 1s, 2s-end) and the middle divider is 11 chars from the start.
+    std::string r = StatusLEDRenderer::renderPattern(StatusLED::Pattern::CLIENT_CONNECTED);
+    size_t count = 0;
+    for (char c : r) if (c == '|') ++count;
+    EXPECT_EQ(count, 3u);
+    EXPECT_EQ(r[11], '|');
+}
+
+TEST(StatusLEDRendererTest, GenerateTable_ContainsEnumNames) {
+    // The table must surface fully-qualified enum spellings so users can
+    // grep from CLI output to source.
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("StatusLED::Pattern::WIFI_SEARCHING"), std::string::npos);
+    EXPECT_NE(table.find("StatusLED::Pattern::FATAL_UNRECOVERABLE"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, GenerateTable_ContainsKeyExplainingDividers) {
+    // Key at the bottom of the table documents the '|' divider semantics.
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("whole second"), std::string::npos);
+    EXPECT_NE(table.find("100ms"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, EnumName_ReturnsQualifiedSpelling) {
+    // enumName is the data source for the enum-name column in generateTable.
+    EXPECT_EQ(StatusLEDRenderer::enumName(StatusLED::Pattern::BOOT),
+              "StatusLED::Pattern::BOOT");
+    EXPECT_EQ(StatusLEDRenderer::enumName(StatusLED::Pattern::CLIENT_CONNECTED),
+              "StatusLED::Pattern::CLIENT_CONNECTED");
 }

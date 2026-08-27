@@ -57,7 +57,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("-s,--scan", opts.mode.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.mode.list_signals, "List supported signals for each vehicle");
     app.add_flag("--discover", opts.mode.discover_mode, "Discover ESP32 devices on the network via UDP broadcast");
-    app.add_flag("--led-diag", opts.mode.led_diag, "Show StatusLED pattern reference guide");
+    app.add_flag("--led-help", opts.mode.led_help, "Show StatusLED pattern reference guide");
 
     app.add_option("-c,--connect", opts.telemetry.connect_target,
                    "Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', "
@@ -265,10 +265,10 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
 std::string validateOptions(const CliOptions& opts, const domain::DBCTranslationService& service) {
     auto& registry = service.registry();
 
-    // Skip validation for scan, list, help, discover, led-diag, and provisioning.
+    // Skip validation for scan, list, help, discover, led-help, and provisioning.
     // Provisioning talks over USB serial (no telemetry / vehicle / connect target).
     if (opts.mode.scan_mode || opts.mode.list_signals || opts.mode.help_requested ||
-        opts.mode.discover_mode || opts.mode.led_diag || opts.isProvisioning()) {
+        opts.mode.discover_mode || opts.mode.led_help || opts.isProvisioning()) {
         return "";
     }
 

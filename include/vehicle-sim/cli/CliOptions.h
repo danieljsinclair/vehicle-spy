@@ -69,7 +69,7 @@ struct ModeFlags {
     bool list_signals = false;
     bool discover_mode = false;
     bool help_requested = false;
-    bool led_diag = false;  // Show StatusLED pattern help
+    bool led_help = false;  // Show StatusLED pattern help
     std::string help_text;
 };
 
