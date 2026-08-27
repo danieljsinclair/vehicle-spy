@@ -322,7 +322,7 @@ std::unique_ptr<ISerialPort> createSerialPort(const std::string& port) {
 // boards, and /dev/cu.wchusbserial* on WCH CH340/CH341 boards. The first
 // pattern that yields at least one match wins; if no pattern matches, the
 // caller falls back to ESP32_DEFAULT_USB_PORT.
-constexpr const char* kUsbGlobPatterns[] = {
+constexpr std::array<const char*, 3> kUsbGlobPatterns = {
     "/dev/cu.usbserial*",
     "/dev/cu.SLAB_USBtoUART",
     "/dev/cu.wchusbserial*",
