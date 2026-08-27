@@ -334,12 +334,11 @@ constexpr std::array<const char*, 3> kUsbGlobPatterns = {
 std::string autoDetectSerialPort() {
     for (const char* pattern : kUsbGlobPatterns) {
         glob_t globResult{};
-        if (::glob(pattern, GLOB_NOSORT, nullptr, &globResult) == 0) {
-            if (globResult.gl_pathc > 0) {
-                std::string first = globResult.gl_pathv[0];
-                ::globfree(&globResult);
-                return first;
-            }
+        if (::glob(pattern, GLOB_NOSORT, nullptr, &globResult) == 0 &&
+            globResult.gl_pathc > 0) {
+            std::string first = globResult.gl_pathv[0];
+            ::globfree(&globResult);
+            return first;
         }
         ::globfree(&globResult);
     }
