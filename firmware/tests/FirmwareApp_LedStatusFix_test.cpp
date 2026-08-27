@@ -84,14 +84,14 @@ TEST_F(FirmwareAppTest, OnAuthFailed_DoesNotChangeLedPattern) {
     ON_CALL(clientConnSourceMock, isClientConnected()).WillByDefault(Return(false));
 
     firmwareApp->update(1000);
-    const int patternBefore = firmwareApp->getCurrentLedPattern();
+    const int patternBefore = firmwareApp->ledPatternPolicy().currentPattern();
     ASSERT_EQ(patternBefore, static_cast<int>(firmware::StatusLED::Pattern::WIFI_SEARCHING));
 
     // No setPattern() may be issued by the TCP auth rejection path.
     EXPECT_CALL(statusLedMock, setPattern(_)).Times(0);
     firmwareApp->onAuthFailed("1.2.3.4");
 
-    EXPECT_EQ(firmwareApp->getCurrentLedPattern(), patternBefore);
+    EXPECT_EQ(firmwareApp->ledPatternPolicy().currentPattern(), patternBefore);
 }
 
 // ============================================================================
@@ -106,7 +106,8 @@ TEST_F(FirmwareAppTest, CycleBeforeUpdate_AdoptedClientYieldsClientConnected) {
     // Real manager + real connection source (the production wiring seam).
     FakeTcpServer server;
     FakeTcpHostCallbacks host;
-    TcpServerManager manager(server, "vehicle-sim-2026", host);
+    const std::string kToken = "vehicle-sim-2026";
+    TcpServerManager manager(server, [&kToken]() -> const std::string& { return kToken; }, host);
     TcpManagerConnectionSource connSource(manager);
 
     // Build a FirmwareApp over the REAL connection source (not the mock).
@@ -114,13 +115,13 @@ TEST_F(FirmwareAppTest, CycleBeforeUpdate_AdoptedClientYieldsClientConnected) {
     auto app = std::make_unique<FirmwareApp>(
         wifiMock, prefsMock, statusLedMock, serialTraceMock,
         wifiMock, udpMock, timeMock, sntpMock, timeNtpMock,
-        testDeviceId, canDeps, connSource, "baked-ssid", "baked-pass");
+        testDeviceId, canDeps, &connSource, "baked-ssid", "baked-pass");
     app->init();
 
     // Before any client, the source reports disconnected → WIFI_SEARCHING.
     app->update(1000);
     ASSERT_EQ(connSource.isClientConnected(), false);
-    ASSERT_EQ(app->getCurrentLedPattern(),
+    ASSERT_EQ(app->ledPatternPolicy().currentPattern(),
               static_cast<int>(firmware::StatusLED::Pattern::WIFI_SEARCHING));
 
     // A client arrives and authenticates: cycle() adopts it.
@@ -132,6 +133,6 @@ TEST_F(FirmwareAppTest, CycleBeforeUpdate_AdoptedClientYieldsClientConnected) {
     // must now see the adopted client and show CLIENT_CONNECTED (SOLID BLUE).
     app->update(1020);
     EXPECT_EQ(connSource.isClientConnected(), true);
-    EXPECT_EQ(app->getCurrentLedPattern(),
+    EXPECT_EQ(app->ledPatternPolicy().currentPattern(),
               static_cast<int>(firmware::StatusLED::Pattern::CLIENT_CONNECTED));
 }

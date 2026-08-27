@@ -28,7 +28,25 @@ public:
     }
 
     int beginPacket(const std::string& ip, uint16_t port) override {
-        return udp_.beginPacket(ip.c_str(), port);
+        // Defect 2 fix: the old code called udp_.beginPacket(ip.c_str(), port),
+        // which routes to WiFiUDP::beginPacket(const char*). That does
+        // gethostbyname() on the literal string — including the broadcast
+        // address "255.255.255.255" used for discovery. gethostbyname on a
+        // literal broadcast address is unreliable on ESP32 and frequently
+        // returns NULL, so beginPacket() returned 0 and the packet never
+        // left the radio (the tcpdump anomaly: broadcast() called ~264× but
+        // only ~1 packet on the wire).
+        //
+        // Parse the address ourselves with IPAddress::fromString (no DNS) and
+        // call the IPAddress overload, which skips gethostbyname entirely and
+        // reliably opens the send. beginPacket() still returns 0 if the socket
+        // can't be created, so DiscoveryManager's Defect-1 return-code check
+        // will correctly NOT count a failed send.
+        IPAddress resolved;
+        if (!resolved.fromString(ip.c_str())) {
+            return 0;  // Not a valid numeric address — fail fast, don't broadcast.
+        }
+        return udp_.beginPacket(resolved, port);
     }
 
     size_t write(const uint8_t* data, size_t len) override {

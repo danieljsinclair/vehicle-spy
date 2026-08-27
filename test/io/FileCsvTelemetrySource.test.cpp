@@ -1,6 +1,8 @@
 #include "vehicle-sim/io/FileCsvTelemetrySource.h"
 #include "vehicle-sim/telemetry/CsvRowFormatter.h"
 
+#include "telemetry/CsvShape.h"
+
 #include <gtest/gtest.h>
 
 #include <cstdio>
@@ -41,6 +43,29 @@ public:
 private:
     std::string path_;
 };
+
+// Render a (possibly partially-populated) CsvTelemetryRow through the single-
+// param params-struct sink. Plain doubles are wrapped as present optionals (0.0
+// default -> "0.00", matching the old raw-<< rendering byte-for-byte). brake_light
+// stays optional<int> (already tri-state).
+std::string renderRow(const vehicle_sim::telemetry::CsvTelemetryRow& r) {
+    vehicle_sim::telemetry::CsvRowParams params{
+        r.timestamp_ms,
+        r.vehicle_id,
+        std::optional<double>(r.speed_kmh),
+        std::optional<double>(r.throttle_percent),
+        r.brake_light,
+        std::optional<double>(r.acceleration_g),
+        std::optional<double>(r.steering_angle_deg),
+        std::optional<double>(r.motor_rpm),
+        std::optional<double>(r.motor_hv_voltage),
+        std::optional<double>(r.motor_hv_current),
+        std::optional<double>(r.motor_torque_nm),
+        r.gear_selector,
+        r.dbc_signal_count,
+    };
+    return vehicle_sim::telemetry::csvRowLine(params);
+}
 
 } // namespace
 
@@ -88,14 +113,14 @@ TEST(FileCsvTelemetrySourceTest, BrakeLightBlankCellParsesAbsent) {
         out.timestamp_ms = 1000;
         out.brake_light = std::nullopt;
         TmpCsv f(vehicle_sim::telemetry::csvHeaderLine() + "\n" +
-                 vehicle_sim::telemetry::csvRowLine(out) + "\n");
+                 renderRow(out) + "\n");
         vehicle_sim::io::FileCsvTelemetrySource src(f.path());
         auto row = src.next();
         EXPECT_FALSE(row.brake_light.has_value());
 
         out.brake_light = 1;
         TmpCsv g(vehicle_sim::telemetry::csvHeaderLine() + "\n" +
-                 vehicle_sim::telemetry::csvRowLine(out) + "\n");
+                 renderRow(out) + "\n");
         vehicle_sim::io::FileCsvTelemetrySource src2(g.path());
         row = src2.next();
         ASSERT_TRUE(row.brake_light.has_value());
@@ -161,4 +186,22 @@ TEST(FileCsvTelemetrySourceTest, MissingFileThrows) {
     EXPECT_THROW(
         vehicle_sim::io::FileCsvTelemetrySource("/nonexistent/path.csv"),
         std::runtime_error);
+}
+
+// End-to-end sanitization: a control byte in the gear_selector cell of a CSV
+// file must be replaced with '?' by the time the row is rendered. This closes
+// the loop on the file-derived taint path (GearSelector::fromUserInput ->
+// forLog at FileCsvTelemetrySource -> csvRowLine -> rendered output).
+TEST(FileCsvTelemetrySourceTest, ControlCharInGearSelectorSanitizedOnRender) {
+    TmpCsv f(
+        "timestamp_ms,vehicle_id,gear_selector\n"
+        "1000,tesla,a\x07" "b\n");
+    vehicle_sim::io::FileCsvTelemetrySource src(f.path());
+    ASSERT_TRUE(src.hasNext());
+    auto row = src.next();
+    EXPECT_EQ(row.gear_selector, "a?b");
+    const auto rendered = renderRow(row);
+    const auto cells = vehicle_sim::test::cellsByColumn(
+        vehicle_sim::telemetry::csvHeaderLine(), rendered);
+    EXPECT_EQ(cells.at("gear_selector"), "a?b");
 }

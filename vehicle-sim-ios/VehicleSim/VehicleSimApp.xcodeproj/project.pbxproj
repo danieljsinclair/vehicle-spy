@@ -15,6 +15,7 @@
 		B1000010 /* VehicleSim.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000010 /* VehicleSim.cpp */; };
 		B1000011 /* TelemetryFormatter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000011 /* TelemetryFormatter.cpp */; };
 		B1000012 /* BLEManager.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000012 /* BLEManager.cpp */; };
+		B1Q00099 /* LogSanitizer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2Q00099 /* LogSanitizer.cpp */; };
 		B1000013 /* BLEManagerBase.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000013 /* BLEManagerBase.cpp */; };
 		B1000014 /* TeslaBLETransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000014 /* TeslaBLETransport.cpp */; };
 		B1000015 /* BLEManagerMock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2000015 /* BLEManagerMock.cpp */; };
@@ -62,6 +63,7 @@
 		B1D00001 /* Model3CAN.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00001 /* Model3CAN.dbc */; };
 		B1D00002 /* vw_mlb.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00002 /* vw_mlb.dbc */; };
 		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
+		B1P00026 /* TcpReader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00026 /* TcpReader.cpp */; };
 		B1P00002 /* RawFrameNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00002 /* RawFrameNormaliser.cpp */; };
 		B1P00003 /* PipelineReplay.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00003 /* PipelineReplay.cpp */; };
 		B1P00024 /* PacedFrameScheduler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00024 /* PacedFrameScheduler.cpp */; };
@@ -128,6 +130,7 @@
 		B2000010 /* VehicleSim.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = VehicleSim.cpp; path = ../../src/VehicleSim.cpp; sourceTree = "<group>"; };
 		B2000011 /* TelemetryFormatter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TelemetryFormatter.cpp; path = ../../src/presentation/TelemetryFormatter.cpp; sourceTree = "<group>"; };
 		B2000012 /* BLEManager.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManager.cpp; path = ../../src/ble/BLEManager.cpp; sourceTree = "<group>"; };
+		B2Q00099 /* LogSanitizer.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = LogSanitizer.cpp; path = ../../src/cli/LogSanitizer.cpp; sourceTree = "<group>"; };
 		B2000013 /* BLEManagerBase.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerBase.cpp; path = ../../src/ble/BLEManagerBase.cpp; sourceTree = "<group>"; };
 		B2000014 /* TeslaBLETransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TeslaBLETransport.cpp; path = ../../src/ble/TeslaBLETransport.cpp; sourceTree = "<group>"; };
 		B2000015 /* BLEManagerMock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = BLEManagerMock.cpp; path = ../../src/ble/platform/BLEManagerMock.cpp; sourceTree = "<group>"; };
@@ -176,6 +179,7 @@
 		B2D00001 /* Model3CAN.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = Model3CAN.dbc; path = ../../resources/dbc/Model3CAN.dbc; sourceTree = "<group>"; };
 		B2D00002 /* vw_mlb.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = vw_mlb.dbc; path = ../../resources/dbc/vw_mlb.dbc; sourceTree = "<group>"; };
 		B2P00001 /* TCPTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TCPTransport.cpp; path = ../../src/pipeline/TCPTransport.cpp; sourceTree = "<group>"; };
+		B2P00026 /* TcpReader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TcpReader.cpp; path = ../../src/pipeline/TcpReader.cpp; sourceTree = "<group>"; };
 		B2P00002 /* RawFrameNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawFrameNormaliser.cpp; path = ../../src/pipeline/RawFrameNormaliser.cpp; sourceTree = "<group>"; };
 		B2P00003 /* PipelineReplay.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineReplay.cpp; path = ../../src/pipeline/PipelineReplay.cpp; sourceTree = "<group>"; };
 		B2P00024 /* PacedFrameScheduler.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PacedFrameScheduler.cpp; path = ../../src/pipeline/PacedFrameScheduler.cpp; sourceTree = "<group>"; };
@@ -299,6 +303,7 @@
 				B2000010 /* VehicleSim.cpp */,
 				B2000011 /* TelemetryFormatter.cpp */,
 				B2000012 /* BLEManager.cpp */,
+				B2Q00099 /* LogSanitizer.cpp */,
 				B2000013 /* BLEManagerBase.cpp */,
 				B2000014 /* TeslaBLETransport.cpp */,
 				B2000015 /* BLEManagerMock.cpp */,
@@ -333,6 +338,7 @@
 				B2A0001B /* Elm327Session.cpp */,
 				B2A0001C /* Elm327Session.h */,
 				B2P00001 /* TCPTransport.cpp */,
+				B2P00026 /* TcpReader.cpp */,
 				B2P00021 /* PosixSocket.cpp */,
 				B2P00002 /* RawFrameNormaliser.cpp */,
 				B2P00003 /* PipelineReplay.cpp */,
@@ -500,6 +506,7 @@
 				B1000010 /* VehicleSim.cpp in Sources */,
 				B1000011 /* TelemetryFormatter.cpp in Sources */,
 				B1000012 /* BLEManager.cpp in Sources */,
+				B1Q00099 /* LogSanitizer.cpp in Sources */,
 				B1000013 /* BLEManagerBase.cpp in Sources */,
 				B1000014 /* TeslaBLETransport.cpp in Sources */,
 				B1000015 /* BLEManagerMock.cpp in Sources */,
@@ -532,6 +539,7 @@
 				B1A00019 /* BLESignalSource.cpp in Sources */,
 				B1A0001A /* IOSDBCContentProvider.mm in Sources */,
 				B1P00001 /* TCPTransport.cpp in Sources */,
+				B1P00026 /* TcpReader.cpp in Sources */,
 				B1P00021 /* PosixSocket.cpp in Sources */,
 				B1P00002 /* RawFrameNormaliser.cpp in Sources */,
 				B1P00003 /* PipelineReplay.cpp in Sources */,

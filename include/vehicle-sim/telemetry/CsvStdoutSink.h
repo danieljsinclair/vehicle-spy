@@ -1,11 +1,10 @@
 #pragma once
 
 #include "vehicle-sim/domain/VehicleSignal.h"
+#include "vehicle-sim/telemetry/VehicleId.h"
 
-#include <cstdint>
 #include <iosfwd>
 #include <memory>
-#include <optional>
 #include <string>
 
 namespace vehicle_sim::telemetry {
@@ -41,6 +40,8 @@ public:
  * piped stdout stream and a `--log <base>.csv` file are byte-comparable.
  *
  * Writes the header line on construction; each operator() call writes one row.
+ * The constructor's `vehicleId` string is converted to a validated `VehicleId`
+ * (forLog sanitization) so the CSV DATA sink sees no tainted `std::string`.
  */
 class CsvStdoutSink final : public ICsvStdoutSink {
 public:
@@ -48,7 +49,7 @@ public:
      * @param out       Stream receiving the CSV (header written immediately).
      * @param vehicleId Value for the `vehicle_id` column; "" leaves it blank.
      */
-    explicit CsvStdoutSink(std::ostream& out, std::string vehicleId = "");
+    explicit CsvStdoutSink(std::ostream& out, const std::string& vehicleId = "");
     ~CsvStdoutSink() override = default;
 
     void operator()(const domain::VehicleSignal& signal) noexcept override;
@@ -58,7 +59,7 @@ private:
     void writeRow(const domain::VehicleSignal& signal);
 
     std::ostream& out_;
-    std::string vehicleId_;
+    VehicleId vehicleId_;
 };
 
 /**

@@ -29,8 +29,13 @@ namespace esp32_firmware {
 //   - host_     : ITcpHostCallbacks (narrow FirmwareApp delegation)
 class TcpServerManager {
 public:
+    // Token provider callback — returns the current AUTH token by const reference.
+    // Using a provider instead of a stored value fixes the init-order bug where
+    // global-init construction copied an empty token before setup() loaded NVS.
+    using TokenProvider = std::function<const std::string&()>;
+
     TcpServerManager(ITcpServer& server,
-                     const std::string& authToken,
+                     TokenProvider tokenProvider,
                      ITcpHostCallbacks& host);
 
     // ── Pure helper: validate a received AUTH line ────────────────────────────
@@ -87,7 +92,7 @@ public:
 
 private:
     ITcpServer& server_;
-    const std::string authToken_;
+    TokenProvider tokenProvider_;
     ITcpHostCallbacks& host_;
 
     // The single adopted client (nullptr when none / after reject or drop).

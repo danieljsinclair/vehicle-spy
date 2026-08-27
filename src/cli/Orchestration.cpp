@@ -20,17 +20,17 @@ bool handleEarlyExit(
         return true;
     }
 
-    if (opts.help_requested) {
-        printHelp(std::cout, translationService);
+    if (opts.mode.help_requested) {
+        printHelp(std::cout, translationService, opts.mode.help_text);
         return true;
     }
 
-    if (opts.list_signals) {
+    if (opts.mode.list_signals) {
         printSupportedSignals(std::cout, translationService);
         return true;
     }
 
-    if (opts.led_diag) {
+    if (opts.mode.led_diag) {
         printLedHelp(std::cout);
         return true;
     }

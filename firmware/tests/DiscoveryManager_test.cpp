@@ -299,3 +299,93 @@ TEST_F(DiscoveryManagerTest, Broadcast_UsesCorrectBroadcastIP) {
     EXPECT_EQ(udpMock.lastPacketIp, "192.168.4.255");
     EXPECT_EQ(udpMock.lastPacketPort, DiscoveryConfig::DISCOVERY_PORT);
 }
+
+// ── Defect 1 (RED): broadcast() must NOT count / fire callback on send failure ──
+// If beginPacket() returns a failure code, the packet never leaves the radio.
+// The old code incremented broadcastCount_ BEFORE send and ignored the return
+// values of beginPacket()/endPacket(), so a failed send was counted as success
+// and the callback fired on a phantom packet. This is the unit-level proof of
+// the tcpdump anomaly: broadcast() called ~264× but the packet left ~1×.
+TEST_F(DiscoveryManagerTest, Broadcast_BeginPacketFails_DoesNotCountOrCallback) {
+    wifiMock.setMode(2);  // WIFI_AP
+    wifiMock.softAP("ESP32-CAN", "cancan12");
+    discoveryManager->init();
+
+    // Simulate UDP send failing at beginPacket().
+    udpMock.beginPacketResult = 0;
+
+    timeMock.setMillis(1000);
+    discoveryManager->update(1000, false);
+
+    // Send failed → must NOT count, must NOT fire callback, must NOT have
+    // delivered a packet to the wire (write).
+    EXPECT_EQ(discoveryManager->broadcastCount(), 0u);
+    EXPECT_EQ(capturedLen, 0u);
+    EXPECT_EQ(udpMock.lastPacketData.size(), 0u);
+}
+
+TEST_F(DiscoveryManagerTest, Broadcast_EndPacketFails_DoesNotCountOrCallback) {
+    wifiMock.setMode(2);  // WIFI_AP
+    wifiMock.softAP("ESP32-CAN", "cancan12");
+    discoveryManager->init();
+
+    // beginPacket succeeds but the final flush (endPacket) fails.
+    udpMock.beginPacketResult = 1;
+    udpMock.endPacketResult = 0;
+
+    timeMock.setMillis(1000);
+    discoveryManager->update(1000, false);
+
+    EXPECT_EQ(discoveryManager->broadcastCount(), 0u);
+    EXPECT_EQ(capturedLen, 0u);
+}
+
+// ── Sustained cadence / "packet actually sent via mock" (RED → GREEN) ──────────
+// The user explicitly demanded a unit test proving the packet is genuinely
+// emitted over time at the correct fast-tier cadence, with the real bytes on
+// the wire (magic VSIM + correct length). We advance a MockTime across >2 min
+// and assert MULTIPLE broadcasts at 500ms, not merely AtLeast(1) once.
+TEST_F(DiscoveryManagerTest, SustainedCadence_MultipleBroadcastsWithRealBytes) {
+    wifiMock.setMode(2);  // WIFI_AP
+    wifiMock.softAP("ESP32-CAN", "cancan12");
+    discoveryManager->init();
+
+    // Walk time forward in 500ms ticks from t=0 to t=130000ms (>2 min), calling
+    // update() each tick. The fast tier (0-2min) is 500ms, so we expect a
+    // broadcast at t=500,1000,...,125000 → ~250 packets, plus t=130000 falls in
+    // the 2-5min tier (10s) so it does NOT immediately fire at +500.
+    // Tick at the fast-tier period itself so each elapsed period can fire.
+    constexpr uint32_t kTickMs = DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS;
+    constexpr uint32_t kWalkEndMs = DiscoveryConfig::DISCOVERY_AGE_2_MIN_MS + 10000;
+    uint32_t now = 0;
+    for (uint32_t t = 0; t <= kWalkEndMs; t += kTickMs) {
+        discoveryManager->update(now, false);
+        now += kTickMs;
+    }
+
+    // The LAST packet handed to the UDP mock is a full, well-formed discovery
+    // packet — proof real bytes reached the wire, not just that a counter moved.
+    ASSERT_EQ(udpMock.lastPacketData.size(), DiscoveryConfig::DISCOVERY_PACKET_SIZE);
+    // Magic "VSIM" (offsets pinned by BuildDiscoveryPacket_CorrectFormat).
+    EXPECT_EQ(udpMock.lastPacketData[0], 0x56);
+    EXPECT_EQ(udpMock.lastPacketData[1], 0x53);
+    EXPECT_EQ(udpMock.lastPacketData[2], 0x49);
+    EXPECT_EQ(udpMock.lastPacketData[3], 0x4D);
+
+    // Pin the CADENCE, not merely "more than once". Across the 0-2min window one
+    // broadcast is due per fast-tier period, then the 2-5min tier slows to one
+    // per 10 s. Deriving the expectation from the config constants keeps this
+    // honest if a tier is retuned, and — crucially — makes it able to FAIL: a
+    // loose `> 100` would still pass if the fast tier silently doubled to 1 s
+    // (~120 broadcasts), which is exactly the regression this test must catch.
+    constexpr uint32_t kFastBroadcasts =
+        DiscoveryConfig::DISCOVERY_AGE_2_MIN_MS /
+        DiscoveryConfig::DISCOVERY_INTERVAL_FAST_MS;              // 240
+    constexpr uint32_t kSlowBroadcasts =
+        10000 / DiscoveryConfig::DISCOVERY_INTERVAL_2_5_MIN_MS;   // 1
+    EXPECT_EQ(discoveryManager->broadcastCount(),
+              kFastBroadcasts - 1 + kSlowBroadcasts)
+        << "sustained fast-tier cadence must hold across the 0-2min window "
+           "(one broadcast per DISCOVERY_INTERVAL_FAST_MS), then slow to the "
+           "2-5min tier";
+}

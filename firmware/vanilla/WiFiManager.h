@@ -8,6 +8,8 @@
 #include <functional>
 #include <array>
 #include <memory>
+#include <iostream>
+#include <iostream>
 
 namespace esp32_firmware {
 
@@ -185,8 +187,13 @@ struct WiFiConfig {
     static constexpr const char* AP_SSID = "ESP32-CAN";
     static constexpr const char* AP_PASS = "cancan12";
     static constexpr const char* NVS_WIFI_NAMESPACE = "wifi";
-    static constexpr const char* NVS_WIFI_SSID = "ssid";
-    static constexpr const char* NVS_WIFI_PASS = "pass";
+    // List-shaped schema (phase-2 additive): cred_count + indexed entry[0].
+    // Pinned here so phase-2 cannot silently change the on-disk key shape.
+    static constexpr const char* NVS_WIFI_CRED_COUNT = "cred_count";
+    static constexpr const char* NVS_WIFI_SSID = "ssid_0";
+    static constexpr const char* NVS_WIFI_PASS = "pass_0";
+    static constexpr const char* NVS_TOKEN_NAMESPACE = "auth";
+    static constexpr const char* NVS_TOKEN_KEY = "token";
     static constexpr const char* HOSTNAME = "esp32-can";
     static constexpr uint32_t LONG_OUTAGE_MS = 30000;  // safety: restart TCP server after this disconnect duration even if IP is unchanged
 };

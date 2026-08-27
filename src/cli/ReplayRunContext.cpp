@@ -1,4 +1,5 @@
 #include "vehicle-sim/cli/ReplayRunContext.h"
+#include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/pipeline/ConsoleProgressReporter.h"
 #include "vehicle-sim/pipeline/CompositeProgressReporter.h"
@@ -38,7 +39,7 @@ int ReplayRunContext::run(
 
     pipeline::FileTransport transport(filePath);
     if (!transport.open()) {
-        std::cerr << "Failed to open capture file: " << filePath << "\n";
+        std::cerr << "Failed to open capture file: " << forLog(filePath) << "\n";
         return 1;
     }
 
@@ -50,11 +51,11 @@ int ReplayRunContext::run(
         try {
             decodedSink = std::make_unique<pipeline::DecodedCsvSink>(logBase, translationService.getVehicleId());
         } catch (const domain::TelemetryFileException&) {
-            std::cerr << "Failed to open CSV log file: " << logBase << ".csv\n";
+            std::cerr << "Failed to open CSV log file: " << forLog(logBase) << ".csv\n";
             return 1;
         }
         if (!decodedSink->isValid()) {
-            std::cerr << "Failed to open CSV log file: " << logBase << ".csv\n";
+            std::cerr << "Failed to open CSV log file: " << forLog(logBase) << ".csv\n";
             return 1;
         }
     }
@@ -64,7 +65,7 @@ int ReplayRunContext::run(
     // lack a pre-existing source file will pass a non-null rawSink here.
     pipeline::CaptureNormaliser normaliser;
 
-    narrative << "Replaying " << filePath << "\n";
+    narrative << "Replaying " << forLog(filePath) << "\n";
 
     // Streaming progress: uniform across transports. The reporter lives in the
     // pipeline seam (not the decoder) and throttles itself, so a fast file

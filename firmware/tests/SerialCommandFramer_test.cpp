@@ -3,6 +3,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,55 @@ std::vector<std::string> captureDispatched(SerialCommandFramer& framer) {
     framer.drain([&](const std::string& line) { got.push_back(line); });
     return got;
 }
+
+// FakeUartStream simulates the ESP32 hardware UART RX path: a bounded ring buffer
+// (default 256 bytes, matching the ESP32 Arduino-core HardwareSerial default) and
+// the permanent-lockup behavior documented in arduino-esp32#6326: once the ring
+// buffer overflows, read() returns -1 forever (the UART RX is inert until reboot).
+//
+// On real ESP32 hardware the overflow clears the ring-buffer contents (the ISR
+// stops servicing the FIFO), so pending bytes are lost along with the lockup.
+// This simulation mirrors that: overflow drains the buffer and sets the lock.
+class FakeUartStream : public ISerialSource {
+public:
+    explicit FakeUartStream(size_t bufferSize = 256) : bufferSize_(bufferSize) {}
+
+    // Feed bytes into the simulated UART RX FIFO.  Bytes beyond the ring-buffer
+    // capacity trigger the lockup (matching the ESP32 Arduino-core bug).
+    void receive(const std::string& data) {
+        if (locked_) return;
+        for (unsigned char c : data) {
+            if (buffer_.size() < bufferSize_) {
+                buffer_.push_back(c);
+            } else {
+                // Overflow: drain the buffer (bytes are lost in the hardware
+                // lockup) and lock the UART permanently.
+                buffer_.clear();
+                locked_ = true;
+                break;
+            }
+        }
+    }
+
+    // Lock the UART manually (e.g., to simulate a prior overflow).
+    void lockUp() { locked_ = true; buffer_.clear(); }
+
+    int read() override {
+        if (locked_) return -1;
+        if (buffer_.empty()) return -1;
+        unsigned char c = buffer_.front();
+        buffer_.pop_front();
+        return static_cast<int>(c);
+    }
+
+    bool isLocked() const { return locked_; }
+    size_t pendingBytes() const { return buffer_.size(); }
+
+private:
+    std::deque<unsigned char> buffer_;
+    size_t bufferSize_;
+    bool locked_ = false;
+};
 
 } // namespace
 
@@ -210,4 +260,68 @@ TEST(SerialCommandFramerTest, DrainStopsWhenSourceReportsEmpty) {
     framer.drain([&](const std::string& line) { got.push_back(line); });
     ASSERT_EQ(got.size(), 1u);
     EXPECT_EQ(got[0], "ATZ");
+}
+
+// ── Red test: UART RX lockup wedge ────────────────────────────────────────────
+// Reproduces the production bug where loop() delays drainSerialATCommands()
+// long enough for the ESP32 256-byte RX ring buffer to overflow, after which
+// the Arduino-core UART driver locks up permanently (arduino-esp32#6326).
+// Once locked, read() returns -1 forever — the framer is blind even when
+// valid bytes were sent by the host.
+//
+// Post-fix: drain() runs at the TOP of loop(), so ATCLEARWIFI is dispatched
+// before the overflow window can destroy it.  The overflow still locks the
+// UART, but the AT command path already handled the command.
+TEST(SerialCommandFramerTest, UartLockupAfterDelayedDrainMakesFramerBlind) {
+    // 256-byte ring buffer matches the ESP32 Arduino-core HardwareSerial default.
+    FakeUartStream stream(256);
+    SerialCommandFramer framer(stream, 64);
+
+    std::vector<std::string> dispatched;
+
+    // Fix: drain() at the TOP of loop() — runs before any blocking operation.
+    // ATCLEARWIFI arrived during the previous tick's idle window and is
+    // sitting in the ring buffer.  drain() reads and dispatches it immediately.
+    stream.receive("ATCLEARWIFI\r");
+    framer.drain([&](const std::string& line) { dispatched.push_back(line); });
+    ASSERT_EQ(dispatched.size(), 1u);
+    EXPECT_EQ(dispatched[0], "ATCLEARWIFI");
+
+    // Now simulate the same blocking delay + overflow that wedged the device.
+    stream.receive(std::string(300, 'X'));
+    EXPECT_TRUE(stream.isLocked()) << "overflow must still lock the UART";
+
+    // The command was already handled; further drain() calls are futile but
+    // harmless — the AT path is already satisfied.
+    dispatched.clear();
+    framer.drain([&](const std::string& line) { dispatched.push_back(line); });
+    EXPECT_TRUE(dispatched.empty()) << "no new commands after lockup";
+}
+
+// Same hardware scenario, but drain() is called BEFORE the overflow-causing
+// delay (the fix: move drainSerialATCommands to the top of loop()).  The
+// command is drained and dispatched before the buffer can overflow.
+TEST(SerialCommandFramerTest, EarlyDrainDispatchesCommandBeforeOverflow) {
+    FakeUartStream stream(256);
+    SerialCommandFramer framer(stream, 64);
+
+    std::vector<std::string> dispatched;
+
+    // Fix: drain() at the TOP of loop() — runs before any blocking operation.
+    // ATCLEARWIFI arrived during the previous tick's idle window and is
+    // sitting in the ring buffer.  drain() reads and dispatches it immediately.
+    stream.receive("ATCLEARWIFI\r");
+    framer.drain([&](const std::string& line) { dispatched.push_back(line); });
+    ASSERT_EQ(dispatched.size(), 1u);
+    EXPECT_EQ(dispatched[0], "ATCLEARWIFI");
+
+    // Now simulate the same blocking delay + overflow that wedged the device.
+    stream.receive(std::string(300, 'X'));
+    EXPECT_TRUE(stream.isLocked()) << "overflow must still lock the UART";
+
+    // The command was already handled; further drain() calls are futile but
+    // harmless — the AT path is already satisfied.
+    dispatched.clear();
+    framer.drain([&](const std::string& line) { dispatched.push_back(line); });
+    EXPECT_TRUE(dispatched.empty()) << "no new commands after lockup";
 }

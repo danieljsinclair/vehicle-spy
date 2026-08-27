@@ -192,10 +192,13 @@ static const char* const NC     = "\033[0m";
 // command NVS-write adapter). READ / has / clear paths are owned by WiFiManager
 // via the injected IPreferences (ArduinoPreferences) — FirmwareApp exposes
 // hasStoredCredentials()/loadCredentials()/clearCredentials() for them.
-// cpp:S5421: was a mutable global. Function-local static accessor — the NVS
-// Preferences handle for WiFi SSID/pass, opened/closed around each credential
-// write in storeWifiCredentials() below.
-Preferences& wifiCredentials() { static Preferences inst; return inst; }
+//
+// SINGLE SOURCE OF TRUTH: ArduinoAtWifiStore (the ATSETWIFI handler) is
+// constructed with arduinoPrefs() — the EXACT ArduinoPreferences instance
+// WiFiManager reads at boot via FirmwareApp's IPreferences. So ATSETWIFI writes
+// land in the identical NVS handle the boot path probes. If these ever diverge
+// (two Preferences handles), ATSETWIFI reports "stored" yet the device boots
+// into AP mode. See WifiCredentialSharedBacking_test for the contract guard.
 
 // NVS keys for WiFi credentials storage are defined in
 // firmware/vanilla/NvsWifiCredentialStore.cpp (the vanilla storeWifiCredentials
@@ -261,17 +264,11 @@ void otaSetup();
 void otaLoop();
 #endif
 
-// WiFi credentials injected via compiler defines (never stored on disk)
-// Build with: make flash ESP32_WIFI_SSID=X ESP32_WIFI_PASS=Y
-#ifdef ESP32_WIFI_SSID
-#define _STRINGIZE(x) #x
-#define STRINGIZE(x) _STRINGIZE(x)
-static constexpr const char* WIFI_SSID = STRINGIZE(ESP32_WIFI_SSID);
-static constexpr const char* WIFI_PASSWORD = STRINGIZE(ESP32_WIFI_PASS);
-#else
+// WiFi credentials removed from build flags. Creds live in NVS only; provision
+// via ATSETWIFI or `make set-wifi-creds`. Firmware boots AP-first until creds
+// are stored (FirmwareApp falls back to AP mode when no NVS creds exist).
 static constexpr const char* WIFI_SSID = nullptr;
 static constexpr const char* WIFI_PASSWORD = nullptr;
-#endif
 
 static constexpr const char* AP_SSID = "ESP32-CAN";
 static constexpr const char* AP_PASS = "cancan12";
@@ -309,13 +306,11 @@ struct TimeAdapters {
 };
 TimeAdapters& timeAdapters() { static TimeAdapters inst; return inst; }
 
-// Baked credentials: use the build-injected ESP32_WIFI_SSID/ESP32_WIFI_PASS when
-// present (the real station credentials), otherwise nullptr so WiFiManager falls
-// back to AP mode. NOTE: the previous refactor hardcoded dummy "baked-ssid"/
-// "baked-pass" here, which made FirmwareApp call WiFi.begin() with bogus creds and
-// never join the real network. Must match the inline state machine's WIFI_SSID.
-static constexpr const char* BAKED_SSID = (WIFI_SSID != nullptr) ? WIFI_SSID : nullptr;
-static constexpr const char* BAKED_PASS = (WIFI_PASSWORD != nullptr) ? WIFI_PASSWORD : nullptr;
+// Baked credentials removed: creds now live in NVS only.
+// FirmwareApp falls back to AP mode when no NVS creds exist (user provisions
+// via ATSETWIFI / make set-wifi-creds).
+static constexpr const char* BAKED_SSID = nullptr;
+static constexpr const char* BAKED_PASS = nullptr;
 
 // ── CAN Bridge Arduino Adapters ──────────────────────────────────────────
 // Thin adapters implementing CanBridge's vanilla interfaces over the ESP32
@@ -350,11 +345,29 @@ extern FirmwareApp firmwareApp;
 // static accessor (struct instance is function-local -> not flagged; clears all
 // 4). The monitor-state boundary is no longer adapted here — FirmwareApp
 // implements IMonitorState directly (passed to its own AtCommandDispatcher).
+// Token store + credential-clear adapters: thin wrappers that delegate to
+// FirmwareApp (which owns the NVS write boundary). Defined here (not in
+// ArduinoAtAdapters.h) because they reference FirmwareApp, which is declared
+// later in this TU.
+struct FirmwareTokenStore : public esp32_firmware::IWifiTokenStore {
+    explicit FirmwareTokenStore(esp32_firmware::FirmwareApp& app) : app_(app) {}
+    bool storeToken(const std::string& token) override { return app_.tokenStore().store(token); }
+    esp32_firmware::FirmwareApp& app_;
+};
+
+struct FirmwareCredentialClearAt : public esp32_firmware::IWifiCredentialClear {
+    explicit FirmwareCredentialClearAt(esp32_firmware::FirmwareApp& app) : app_(app) {}
+    bool clear() override { app_.clear(); return true; }
+    esp32_firmware::FirmwareApp& app_;
+};
+
 struct AtAdapters {
     ArduinoAtTcpClient tcpClient{client()};
     ArduinoAtSerial serial;
     ArduinoAtEsp esp{Constants::TCP_REBOOT_DELAY_MS};
-    ArduinoAtWifiStore wifiStore{wifiCredentials()};
+    ArduinoAtWifiStore wifiStore{arduinoPrefs()};
+    FirmwareTokenStore tokenStore{firmwareApp};
+    FirmwareCredentialClearAt credClear{firmwareApp};
 };
 AtAdapters& atAdapters() { static AtAdapters inst; return inst; }
 
@@ -367,7 +380,7 @@ FirmwareApp firmwareApp(arduinoWiFi(), arduinoPrefs(), statusLed(), arduinoDebug
                               timeAdapters().sntp, timeAdapters().timeNtp,
                               discoveryDeviceId(),
                               canAdapters().deps,
-                              clientConnectionSource(),
+                              nullptr,  // clientConnectionSource deferred to setup()
                               BAKED_SSID, BAKED_PASS);
 
 // cpp:S5421: was `static WiFiServer tcpServer(Constants::TCP_PORT);`. Function-
@@ -391,11 +404,17 @@ ArduinoTcpServer& arduinoTcpServer() {
     static ArduinoTcpServer inst(tcpServer(), client());
     return inst;
 }
+// Auth token loaded from NVS at boot (with baked default fallback).
+// Initialized in setup() before the TCP server starts; tcpManager() reads it
+// at first construction so the AUTH gate uses the NVS value when present.
+std::string& loadedAuthToken() { static std::string inst; return inst; }
+
 TcpServerManager& tcpManager() {
-    // authToken is the bare token; the vanilla prepends "AUTH " when comparing
-    // (TcpServerManager::isValidAuthToken builds "AUTH " + authToken).
+    // Token provider bound to loadedAuthToken(): reads the live static on every
+    // AUTH check, so the value populated by setup() from NVS is honoured even
+    // though tcpManager() is statically constructed before setup() runs.
     static TcpServerManager inst(arduinoTcpServer(),
-                                 std::string(TCP_AUTH_TOKEN),
+                                 []() -> const std::string& { return loadedAuthToken(); },
                                  firmwareApp);
     return inst;
 }
@@ -456,8 +475,8 @@ static void drainSerialATCommands() {
     // this handler once per complete, non-empty line — the same behavior the
     // inline loop performed (dispatch + serial-quiet window).
     serialFramer().drain([](const std::string& line) {
-        firmwareApp.handleSerialAtCommand(line.c_str());
-        firmwareApp.setSerialQuietUntilMs(millis() + Constants::SERIAL_QUIET_DURATION_MS);
+        firmwareApp.atDispatcher().handleSerialCommand(line.c_str());
+        firmwareApp.canBridge().setSerialQuietUntilMs(millis() + Constants::SERIAL_QUIET_DURATION_MS);
     });
 }
 
@@ -467,7 +486,7 @@ static void drainSerialATCommands() {
 // only reads/clears it through the FirmwareApp seam and performs the actual
 // WiFiServer end/begin + client cleanup (hardware-side effects stay in the .ino).
 static void restartTcpServerIfNeeded() {
-    if (firmwareApp.shouldRestartTcpServer()) {
+    if (firmwareApp.tcpRestartPolicy().shouldRestart()) {
         // The TCP server restart is real (end/begin), but the user-facing
         // serial message is intentionally omitted: the [STATE]/[EVENT] stream
         // (emitted by FirmwareApp on WIFI_CONNECTED) already conveys the
@@ -477,7 +496,7 @@ static void restartTcpServerIfNeeded() {
         // internal-model detail, not a user-facing diagnostic.
         tcpServer().end();
         tcpServer().begin();
-        firmwareApp.clearTcpServerRestartFlag();
+        firmwareApp.tcpRestartPolicy().clear();
 
         // Disconnect any existing client ONLY when the listening socket was
         // genuinely rebound (a reconnect/IP-change). The manager owns the single
@@ -495,27 +514,8 @@ static void restartTcpServerIfNeeded() {
     }
 }
 
-// ── FirmwareApp Callback Handlers ──────────────────────────────────────────────────
-// Bridge FirmwareApp signals to .ino-side hardware effects (TCP/Discovery/OTA).
-// The TCP-restart flag itself is owned by WiFiManager (set on the WIFI_CONNECTED /
-// WIFI_CONNECTING transition); this callback is a post-transition firmware-effect
-// hook. The actual WiFiServer end/begin runs in loop() via
-// restartTcpServerIfNeeded(), which reads firmwareApp.shouldRestartTcpServer().
-static void onRestartTcpServer() {
-    // No-op: WiFiManager already set its own tcpServerNeedsRestart flag on the
-    // transition. restartTcpServerIfNeeded() picks it up next loop tick.
-}
-
-static void onBroadcastDiscovery() {
-    // FirmwareApp owns DiscoveryManager and performs the UDP send itself; this
-    // callback is a post-broadcast firmware-effect hook (DiscoveryManager fires it
-    // after each successful send). Leave as a documented no-op for now — any
-    // .ino-only side effect (e.g. LED pulse) would be added here.
-}
-
-// FirmwareCallbacks structure for FirmwareApp — constructed locally in setup()
-// and copied into FirmwareApp via setCallbacks() (which stores its own copy).
-// Kept out of global scope (S5421).
+// FirmwareApp owns DiscoveryManager and performs the UDP send itself; discovery
+// broadcast callbacks are no-ops in the .ino.
 
 // ── Serial Event Logger (centralized observability) ──────────────────────────
 // IEventLogger implementation that writes [EVENT] and [STATE] lines to Serial.
@@ -565,6 +565,18 @@ void setup() {
     // Same firmware, no reflash needed. Hold BOOT button (GPIO0) during boot.
     (void)checkFactoryReset();
 
+    // Load auth token from NVS (with baked default fallback) before TCP server starts.
+    // ATSETTOKEN writes the token to NVS; on boot we read it here and fall back to
+    // the build-time default if NVS has none.
+    loadedAuthToken();  // initialize the static
+    std::string nvsToken = firmwareApp.tokenStore().loadOrDefault();
+    loadedAuthToken() = nvsToken.empty() ? std::string(TCP_AUTH_TOKEN) : nvsToken;
+
+    // Wire tcpManager + clientConnectionSource now that firmwareApp is fully
+    // constructed and NVS token is loaded (avoids static-init-order capture
+    // of an incompletely-constructed FirmwareApp).
+    firmwareApp.setClientConnectionSource(&clientConnectionSource());
+
     // ── Initialize FirmwareApp (replaces inline WiFi state machine) ───────────────
     // FirmwareApp.init() sets up WiFiManager and drives initial connection
     firmwareApp.init();
@@ -575,10 +587,6 @@ void setup() {
     // stalls we are trying to remove. WIFI_PS_NONE keeps the radio awake.
     WiFi.setSleep(false);
 
-    firmwareApp.setCallbacks(esp32_firmware::FirmwareCallbacks{
-        .restartTcpServer = onRestartTcpServer,
-        .broadcastDiscovery = onBroadcastDiscovery
-    });
     firmwareApp.setEventLogger(serialEventLogger());
 
     // ── WiFi Event Handlers ───────────────────────────────────────────────────────────
@@ -655,7 +663,8 @@ void setup() {
     // FirmwareApp owns. The monitor-state boundary is satisfied by firmwareApp
     // itself (it implements IMonitorState), so no adapter is passed for it.
     firmwareApp.setAtCommandAdapters(atAdapters().tcpClient, atAdapters().serial, atAdapters().esp,
-                                     atAdapters().wifiStore, firmwareApp, discoveryDeviceId());
+                                     atAdapters().wifiStore, atAdapters().tokenStore, atAdapters().credClear,
+                                     firmwareApp, discoveryDeviceId());
 
     // Tagged boot diagnostic (carries the device-id tag once it is known)
     printTagged(GREEN, "CAN bridge ready");
@@ -677,6 +686,15 @@ void setup() {
 }
 
 void loop() {
+    // Drain serial AT commands FIRST — before any operation that can block or
+    // delay the loop.  The ESP32 Arduino-core UART RX ring buffer is 256 bytes;
+    // if loop() is delayed more than ~22 ms (the time for 256 bytes at 115200
+    // baud) the buffer overflows and the UART RX locks up permanently
+    // (arduino-esp32#6326, fixed in core 2.0.3).  Once locked, Serial.read()
+    // returns -1 forever and the AT command path is inert until reboot.
+    // Reading the serial input at the top of every tick minimises that window.
+    drainSerialATCommands();
+
     // 5-second heartbeat: delegate to vanilla LoopHeartbeat which formats the
     // enriched state snapshot (client IP, discovery cadence, LED pattern).
     static LoopHeartbeat heartbeat(Constants::HEARTBEAT_INTERVAL_MS);
@@ -684,11 +702,11 @@ void loop() {
                        firmwareApp.getWiFiState(),
                        firmwareApp.isMonitorActive(),
                        firmwareApp.getClientIp(),
-                       firmwareApp.getDiscoveryCadence(millis()),
-                       firmwareApp.getCurrentLedPattern(),
-                       firmwareApp.getWiFiDiagnostic().targetSsid,
-                       firmwareApp.getOwnIp(),
-                       firmwareApp.getWiFiDiagnostic().authCampaignDetail)) {
+                       firmwareApp.discoveryPolicy().cadenceString(millis()),
+                       firmwareApp.ledPatternPolicy().currentPattern(),
+                       firmwareApp.wifiManager().resolveTargetSsid(),
+                       (firmwareApp.wifi().getMode() == 2) ? firmwareApp.wifi().softAPIP() : firmwareApp.wifi().localIP(),
+                       firmwareApp.wifiManager().getAuthCampaignDetail())) {
         Serial.print(heartbeat.snapshot().c_str());
     }
 
@@ -733,8 +751,6 @@ void loop() {
     // (which calls DiscoveryManager::update on the cadence). No inline broadcast
     // logic remains in the .ino.
 
-    drainSerialATCommands();
-
     // Always drain the TWAI RX queue through the vanilla CanBridge. CanBridge
     // dispatches each frame to Serial unconditionally, and to TCP only when a
     // client is connected AND monitorActive. The serial quiet-window is passed
@@ -742,7 +758,7 @@ void loop() {
     // serial logging live otherwise, with no WiFi client). Single RX drain —
     // never double-reads a frame.
 #if VEHICLE_SIM_ENABLE_TWAI
-    firmwareApp.processCanFrames(static_cast<uint32_t>(millis()));
+    firmwareApp.canBridge().processFrames(firmwareApp.isMonitorActive(), static_cast<uint32_t>(millis()));
 #endif
 }
 

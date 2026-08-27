@@ -136,11 +136,29 @@ public:
     bool store(const std::string& ssid, const std::string& pass) override {
         ++storeCalls; lastSsid = ssid; lastPass = pass; return nextResult;
     }
+    bool load(std::string& ssid, std::string& pass) override {
+        ssid = lastSsid; pass = lastPass; return !lastSsid.empty();
+    }
 };
 class SpyMonitorState : public IMonitorState {
 public:
     bool active = false;
     void setMonitorActive(bool a) override { active = a; }
+};
+class SpyTokenStore : public IWifiTokenStore {
+public:
+    bool nextResult = true;
+    std::string lastToken;
+    int storeCalls = 0;
+    bool storeToken(const std::string& token) override {
+        ++storeCalls; lastToken = token; return nextResult;
+    }
+};
+class SpyCredentialClear : public IWifiCredentialClear {
+public:
+    bool nextResult = true;
+    int clearCalls = 0;
+    bool clear() override { ++clearCalls; return nextResult; }
 };
 
 class FirmwareAppTest : public ::testing::Test {
@@ -160,21 +178,12 @@ protected:
     StubSerialCan serialStub;
     CanBridgeDeps canDeps{canDriverStub, tcpClientStub, serialStub};
     std::unique_ptr<FirmwareApp> firmwareApp;
+    std::function<void(struct timeval*)> capturedSyncCallback_;
 
     // Test device ID for DiscoveryManager
     std::array<uint8_t, 16> testDeviceId = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
                                              0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
                                              0xEE, 0xFF, 0x00};
-
-    // Spy flags for callback verification
-    bool restartTcpServerCalled = false;
-    bool broadcastDiscoveryCalled = false;
-
-    // Captured SNTP sync-notification callback (wired through ISntp by NtpTimeSync)
-    std::function<void(struct timeval*)> capturedSyncCallback_;
-
-    // Callback spies
-    FirmwareCallbacks callbackSpies;
 
     void SetUp() override {
         wifiMock.reset();
@@ -184,13 +193,17 @@ protected:
         // Set WiFi to AP mode so DiscoveryManager will broadcast
         wifiMock.setMode(2);  // WIFI_AP mode
 
-        // Initialize callback spies with capture lambdas
-        callbackSpies.restartTcpServer = [this]() { restartTcpServerCalled = true; };
-        callbackSpies.broadcastDiscovery = [this]() { broadcastDiscoveryCalled = true; };
-
-        // Reset spy flags
-        resetSpyFlags();
-        capturedSyncCallback_ = nullptr;
+        // Default UDP behaviour = a WORKING UDP stack: beginPacket/endPacket
+        // succeed and write() reports the full packet written. DiscoveryManager
+        // now checks these return codes (it must not count a broadcast that
+        // never left the radio), and gmock's built-in default for an int/size_t
+        // mock is 0 — i.e. "send failed". Without these defaults every discovery
+        // test would silently exercise the failure path. Tests that WANT the
+        // failure path override with an explicit WillOnce/WillRepeatedly.
+        ON_CALL(udpMock, beginPacket(_, _)).WillByDefault(Return(1));
+        ON_CALL(udpMock, write(_, _))
+            .WillByDefault(Return(DiscoveryConfig::DISCOVERY_PACKET_SIZE));
+        ON_CALL(udpMock, endPacket()).WillByDefault(Return(1));
 
         // Allow NiceMock leak (gmock quirk with NiceMock members)
         testing::Mock::AllowLeak(&udpMock);
@@ -207,8 +220,7 @@ protected:
     }
 
     void resetSpyFlags() {
-        restartTcpServerCalled = false;
-        broadcastDiscoveryCalled = false;
+        // No-op: callback spy flags removed with FirmwareCallbacks.
     }
 
     // Helper to create FirmwareApp with all dependencies
@@ -221,7 +233,7 @@ protected:
             sntpMock, timeNtpMock,
             testDeviceId,
             canDeps,
-            clientConnSourceMock,
+            &clientConnSourceMock,
             bakedSsid, bakedPass
         );
     }

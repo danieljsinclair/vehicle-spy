@@ -186,7 +186,7 @@ TEST_F(CanBridgeTest, ProcessFrames_BeforeInit_DoesNotProcess) {
     msg.data[0] = 0xAB;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(false, /*nowMs=*/1000, 0);
+    canBridge->processFrames(false, /*nowMs=*/1000);
 
     EXPECT_TRUE(serialMock.printedData.empty());
 }
@@ -200,7 +200,7 @@ TEST_F(CanBridgeTest, ProcessFrames_AfterInit_ProcessesFrames) {
     msg.data[0] = 0xAB;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(false, /*nowMs=*/1000, 0);
+    canBridge->processFrames(false, /*nowMs=*/1000);
 
     EXPECT_FALSE(serialMock.printedData.empty());
     EXPECT_THAT(serialMock.printedData, testing::HasSubstr("123"));
@@ -217,7 +217,7 @@ TEST_F(CanBridgeTest, ProcessFrames_NoQuietPeriod_WritesToSerial) {
     msg.data[0] = 0xCD; msg.data[1] = 0xEF;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(false, /*nowMs=*/1000, 0);  // No quiet period
+    canBridge->processFrames(false, /*nowMs=*/1000);  // No quiet period
 
     EXPECT_THAT(serialMock.printedData, testing::HasSubstr("456 CD EF"));
 }
@@ -231,7 +231,8 @@ TEST_F(CanBridgeTest, ProcessFrames_DuringQuietPeriod_SuppressesSerial) {
     msg.data[0] = 0xAA;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(false, /*nowMs=*/1000, 10000);  // Quiet period active
+    canBridge->setSerialQuietUntilMs(10000);  // Quiet period active
+    canBridge->processFrames(false, /*nowMs=*/1000);
 
     EXPECT_TRUE(serialMock.printedData.empty());
 }
@@ -258,7 +259,8 @@ TEST_F(CanBridgeTest, ProcessFrames_AfterQuietDeadlinePasses_ResumesSerial) {
     canDriverMock.pushFrame(msg);
 
     // Deadline was armed at t=1000 (millis()+250); we are now at t=1300, past it.
-    canBridge->processFrames(false, /*nowMs=*/1300, /*serialQuietUntilMs=*/1250);
+    canBridge->setSerialQuietUntilMs(1250);
+    canBridge->processFrames(false, /*nowMs=*/1300);
 
     EXPECT_THAT(serialMock.printedData, testing::HasSubstr("7E8 41"))
         << "serial frame echo must resume once the quiet deadline has elapsed";
@@ -275,7 +277,8 @@ TEST_F(CanBridgeTest, ProcessFrames_AtQuietDeadlineInstant_ResumesSerial) {
 
     // Boundary: nowMs == deadline. The window is [armed, deadline) — the
     // deadline instant itself is no longer quiet.
-    canBridge->processFrames(false, /*nowMs=*/1250, /*serialQuietUntilMs=*/1250);
+    canBridge->setSerialQuietUntilMs(1250);
+    canBridge->processFrames(false, /*nowMs=*/1250);
 
     EXPECT_THAT(serialMock.printedData, testing::HasSubstr("7E9 42"))
         << "the quiet window is half-open: at the deadline instant serial is live again";
@@ -291,7 +294,8 @@ TEST_F(CanBridgeTest, ProcessFrames_BeforeQuietDeadline_StillSuppressesSerial) {
     canDriverMock.pushFrame(msg);
 
     // Inside the window: armed at 1000, deadline 1250, now 1100.
-    canBridge->processFrames(false, /*nowMs=*/1100, /*serialQuietUntilMs=*/1250);
+    canBridge->setSerialQuietUntilMs(1250);
+    canBridge->processFrames(false, /*nowMs=*/1100);
 
     EXPECT_TRUE(serialMock.printedData.empty())
         << "serial echo stays muted while the quiet window is still open";
@@ -309,8 +313,8 @@ TEST_F(CanBridgeTest, ProcessFrames_QuietWindowDoesNotGateTcpStream) {
     msg.data[0] = 0x44;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1100,
-                             /*serialQuietUntilMs=*/1250);
+    canBridge->setSerialQuietUntilMs(1250);
+    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1100);
 
     EXPECT_TRUE(serialMock.printedData.empty());
     EXPECT_THAT(tcpClientMock.printedData, testing::HasSubstr("7EB 44"))
@@ -329,7 +333,7 @@ TEST_F(CanBridgeTest, ProcessFrames_NoTcpClient_NoTcpOutput) {
     msg.data[0] = 0x22;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(true, /*nowMs=*/1000, 0);  // Monitor active
+    canBridge->processFrames(true, /*nowMs=*/1000);  // Monitor active
 
     EXPECT_TRUE(tcpClientMock.printedData.empty());
 }
@@ -345,7 +349,7 @@ TEST_F(CanBridgeTest, ProcessFrames_TcpConnectedButMonitorInactive_NoTcpOutput) 
     msg.data[0] = 0x33;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(false, /*nowMs=*/1000, 0);  // Monitor NOT active
+    canBridge->processFrames(false, /*nowMs=*/1000);  // Monitor NOT active
 
     EXPECT_TRUE(tcpClientMock.printedData.empty());
 }
@@ -361,7 +365,7 @@ TEST_F(CanBridgeTest, ProcessFrames_TcpConnectedAndMonitorActive_WritesToTcp) {
     msg.data[0] = 0x44;
     canDriverMock.pushFrame(msg);
 
-    canBridge->processFrames(true, /*nowMs=*/1000, 0);  // Monitor active
+    canBridge->processFrames(true, /*nowMs=*/1000);  // Monitor active
 
     EXPECT_THAT(tcpClientMock.printedData, testing::HasSubstr("333"));
     EXPECT_THAT(tcpClientMock.printedData, testing::HasSubstr("44"));
@@ -382,7 +386,7 @@ TEST_F(CanBridgeTest, ProcessFrames_MultipleFrames_ProcessesAll) {
     canDriverMock.pushFrame(msg2);
     canDriverMock.pushFrame(msg3);
 
-    canBridge->processFrames(true, /*nowMs=*/1000, 0);
+    canBridge->processFrames(true, /*nowMs=*/1000);
 
     EXPECT_THAT(serialMock.printedData, testing::HasSubstr("101 01"));
     EXPECT_THAT(serialMock.printedData, testing::HasSubstr("202 02 03"));
@@ -420,7 +424,7 @@ TEST_F(CanBridgeTest, ProcessFrames_TcpStream_FlushesEachFrame) {
     canDriverMock.pushFrame(msg1);
     canDriverMock.pushFrame(msg2);
 
-    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1000, 0);
+    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1000);
 
     // Two frames streamed -> two explicit flushes (one per frame).
     EXPECT_EQ(flushCalls, 2)
@@ -441,8 +445,8 @@ TEST_F(CanBridgeTest, ProcessFrames_TcpStream_FlushesEvenDuringSerialQuiet) {
     canDriverMock.pushFrame(msg);
 
     // Serial is in its quiet window — TCP must still flush.
-    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1100,
-                             /*serialQuietUntilMs=*/1250);
+    canBridge->setSerialQuietUntilMs(1250);
+    canBridge->processFrames(/*monitorActive=*/true, /*nowMs=*/1100);
 
     EXPECT_EQ(flushCalls, 1)
         << "TCP flush must be independent of the serial quiet window";
@@ -452,9 +456,9 @@ TEST_F(CanBridgeTest, ProcessFrames_UpdatesMonitorState) {
     canBridge->init();
     EXPECT_FALSE(canBridge->isMonitorActive());
 
-    canBridge->processFrames(true, /*nowMs=*/1000, 0);
+    canBridge->processFrames(true, /*nowMs=*/1000);
     EXPECT_TRUE(canBridge->isMonitorActive());
 
-    canBridge->processFrames(false, /*nowMs=*/1000, 0);
+    canBridge->processFrames(false, /*nowMs=*/1000);
     EXPECT_FALSE(canBridge->isMonitorActive());
 }

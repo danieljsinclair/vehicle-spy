@@ -70,7 +70,7 @@ TEST(CsvReplayRunContextTest, EmitsHeaderThenRows) {
 TEST(CsvReplayRunContextTest, VehicleIdOverrideWhenRowBlank) {
     InstantClock clock;
     auto rows = std::vector<vehicle_sim::telemetry::CsvTelemetryRow>{row(1000, 10.0)};
-    rows[0].vehicle_id = "";   // blank in the row
+    rows[0].vehicle_id = vehicle_sim::telemetry::VehicleId::fromUserInput("");   // blank in the row
     auto src = std::make_unique<MemSource>(rows);
 
     std::ostringstream out;

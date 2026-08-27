@@ -1,5 +1,6 @@
 #include "vehicle-sim/cli/BLERunContext.h"
 #include "vehicle-sim/cli/BLEConnectionManager.h"
+#include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/domain/VehicleDetector.h"
@@ -61,7 +62,7 @@ int BLERunContext::runWithAutoDetection(const std::string& address,
 
     // Connect BLE adapter
     if (!bleManager->connect(address)) {
-        std::cerr << "\nFailed to connect to BLE device: " << address << "\n"
+        std::cerr << "\nFailed to connect to BLE device: " << forLog(address) << "\n"
                   << "Try running --scan to verify device is available.\n";
         return 1;
     }

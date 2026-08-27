@@ -168,7 +168,10 @@ public:
     }
 };
 
-constexpr char kToken[] = "vehicle-sim-2026";
+static const std::string kToken = "vehicle-sim-2026";
+// Stable string backing the TokenProvider lambda (the constructor takes a
+// std::function<const std::string&()>, not a raw token, to fix the init-order
+// bug where the manager copied an empty token before NVS load).
 
 MockTcpClient* makeConnected(MockTcpServer& srv, const std::string& ip) {
     return srv.enqueueClient(ip);
@@ -181,7 +184,7 @@ MockTcpClient* makeConnected(MockTcpServer& srv, const std::string& ip) {
 // Accept → AUTH → dispatch: a valid AUTH line authenticates and opens the stream.
 TEST(TcpRefusalTest, ValidAuthConnectsAndActivatesMonitor) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
     auto* c = makeConnected(srv, "10.0.0.9");
     c->readLines_ = {"AUTH " + std::string(kToken)};
 
@@ -201,7 +204,7 @@ TEST(TcpRefusalTest, ValidAuthConnectsAndActivatesMonitor) {
 // is asserted (not the destroyed mock's write buffer).
 TEST(TcpRefusalTest, BadAuthRejectsAndFreesSlot) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
     auto* c = makeConnected(srv, "10.0.0.9");
     c->readLines_ = {"AUTH wrong-token"};
 
@@ -216,7 +219,7 @@ TEST(TcpRefusalTest, BadAuthRejectsAndFreesSlot) {
 // (last-wins, never a stuck slot → no TCP refusal).
 TEST(TcpRefusalTest, CleanDisconnectThenNewClientConnects) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
     a->readLines_ = {"AUTH " + std::string(kToken)};
@@ -243,7 +246,7 @@ TEST(TcpRefusalTest, CleanDisconnectThenNewClientConnects) {
 // last-wins and evict the stale handle — NO refusal of the new client.
 TEST(TcpRefusalTest, DirtyDisconnectThenNewAcceptEvictsStaleSlot) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
     a->readLines_ = {"AUTH " + std::string(kToken)};
@@ -267,7 +270,7 @@ TEST(TcpRefusalTest, DirtyDisconnectThenNewAcceptEvictsStaleSlot) {
 // is released on that tick — never permanently stuck.
 TEST(TcpRefusalTest, StaleConnectedSlotReleasedWhenDropDetected) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
     a->readLines_ = {"AUTH " + std::string(kToken)};
@@ -288,7 +291,7 @@ TEST(TcpRefusalTest, StaleConnectedSlotReleasedWhenDropDetected) {
 // Concurrent arrival while a client is live: accept() wins, prior is evicted.
 TEST(TcpRefusalTest, NewAcceptWhileLiveClientPresentEvictsPrior) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
     a->readLines_ = {"AUTH " + std::string(kToken)};
@@ -314,7 +317,7 @@ TEST(TcpRefusalTest, NewAcceptWhileLiveClientPresentEvictsPrior) {
 // future "refuse when busy" optimization cannot regress road-test reliability.
 TEST(TcpRefusalTest, AlwaysAllowConnectNeverRefusesNewClient) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
     a->readLines_ = {"AUTH " + std::string(kToken)};
@@ -341,7 +344,7 @@ TEST(TcpRefusalTest, AlwaysAllowConnectNeverRefusesNewClient) {
 // and the manager splits on '\r' to dispatch.
 TEST(TcpRefusalTest, AuthenticatedClientCommandsAreDispatched) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
     a->readLines_ = {"AUTH " + std::string(kToken)};
@@ -356,7 +359,7 @@ TEST(TcpRefusalTest, AuthenticatedClientCommandsAreDispatched) {
 // Phase 1 latency: TCP_NODELAY must be requested on the adopted client at accept.
 TEST(TcpRefusalTest, ValidAuthRequestsNoDelayOnClient) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
     auto* c = makeConnected(srv, "10.0.0.9");
     c->readLines_ = {"AUTH " + std::string(kToken)};
 
@@ -370,7 +373,7 @@ TEST(TcpRefusalTest, ValidAuthRequestsNoDelayOnClient) {
 // only once the delimiter arrives on a later tick.
 TEST(TcpRefusalTest, PartialCommandDoesNotDispatchOrBlock) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
     auto* c = makeConnected(srv, "10.0.0.7");
     c->readLines_ = {"AUTH " + std::string(kToken)};
     mgr.cycle(0);  // auth
@@ -394,7 +397,7 @@ TEST(TcpRefusalTest, PartialCommandDoesNotDispatchOrBlock) {
 // Repeated connect/disconnect cycles must never accumulate slots or get stuck.
 TEST(TcpRecoveryTest, ManyConnectDisconnectCyclesNeverStuck) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     for (int i = 0; i < 20; ++i) {
         auto* c = makeConnected(srv, "10.0.0." + std::to_string(i % 250 + 1));
@@ -418,7 +421,7 @@ TEST(TcpRecoveryTest, ManyConnectDisconnectCyclesNeverStuck) {
 // Asserts only observable manager state — the mock is destroyed by stop().
 TEST(TcpRecoveryTest, StopReleasesAdoptedClient) {
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
     auto* c = makeConnected(srv, "10.0.0.7");
     c->readLines_ = {"AUTH " + std::string(kToken)};
     mgr.cycle(0);
@@ -615,7 +618,7 @@ TEST(AlwaysAllowConnectTest, NewAcceptWhileStaleSlotConnectedEvictsAndAdopts) {
     // stale handle is evicted, the new client is authenticated and adopted. No
     // refusal, no held slot.
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     auto* a = makeConnected(srv, "10.0.0.1");
     a->readLines_ = {"AUTH " + std::string(kToken)};
@@ -638,7 +641,7 @@ TEST(AlwaysAllowConnectTest, RepeatedReconnectsAlwaysAccepted) {
     // Simulate the app dropping and reconnecting repeatedly: each new accept is
     // accepted (never refused) regardless of prior state — sticky/order-independent.
     MockTcpServer srv; MockHost host;
-    TcpServerManager mgr(srv, kToken, host);
+    TcpServerManager mgr(srv, [&]() -> const std::string& { return kToken; }, host);
 
     for (int i = 0; i < 3; ++i) {
         auto* c = makeConnected(srv, "10.0.0." + std::to_string(10 + i));

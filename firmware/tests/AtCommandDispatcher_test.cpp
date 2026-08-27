@@ -67,10 +67,14 @@ public:
 class MockWifiCredentialStore : public IWifiCredentialStore {
 public:
     MOCK_METHOD(bool, store, (const std::string& ssid, const std::string& password), (override));
+    MOCK_METHOD(bool, load, (std::string & ssid, std::string & pass), (override));
 
     void delegateToDummy() {
         ON_CALL(*this, store(_, _)).WillByDefault([](const std::string&, const std::string&) {
             return true;
+        });
+        ON_CALL(*this, load(_, _)).WillByDefault([](std::string&, std::string&) {
+            return false;
         });
     }
 
@@ -84,6 +88,32 @@ public:
 
     void delegateToDummy() {
         ON_CALL(*this, setMonitorActive(_)).WillByDefault([](bool) {});
+    }
+
+    void reset() {}
+};
+
+// Mock WiFi token store interface
+class MockTokenStore : public IWifiTokenStore {
+public:
+    MOCK_METHOD(bool, storeToken, (const std::string& token), (override));
+
+    void delegateToDummy() {
+        ON_CALL(*this, storeToken(_)).WillByDefault([](const std::string&) {
+            return true;
+        });
+    }
+
+    void reset() {}
+};
+
+// Mock WiFi credential clear interface
+class MockCredentialClear : public IWifiCredentialClear {
+public:
+    MOCK_METHOD(bool, clear, (), (override));
+
+    void delegateToDummy() {
+        ON_CALL(*this, clear()).WillByDefault([]() { return true; });
     }
 
     void reset() {}
@@ -113,6 +143,8 @@ protected:
     MockSerialAt serialMock;
     MockEspAt espMock;
     MockWifiCredentialStore wifiStoreMock;
+    MockTokenStore tokenStoreMock;
+    MockCredentialClear credClearMock;
     MockMonitorState monitorMock;
     std::array<uint8_t, 16> deviceIdMock = {};
     std::unique_ptr<AtCommandDispatcher> dispatcher;
@@ -122,6 +154,8 @@ protected:
         serialMock.reset();
         espMock.reset();
         wifiStoreMock.reset();
+        tokenStoreMock.reset();
+        credClearMock.reset();
         monitorMock.reset();
         arduino_mock::resetAllMocks();
 
@@ -129,10 +163,13 @@ protected:
         serialMock.delegateToDummy();
         espMock.delegateToDummy();
         wifiStoreMock.delegateToDummy();
+        tokenStoreMock.delegateToDummy();
+        credClearMock.delegateToDummy();
         monitorMock.delegateToDummy();
 
         dispatcher = std::make_unique<AtCommandDispatcher>(
-            tcpClientMock, serialMock, espMock, wifiStoreMock, monitorMock, deviceIdMock
+            tcpClientMock, serialMock, espMock, wifiStoreMock,
+            tokenStoreMock, credClearMock, monitorMock, deviceIdMock
         );
     }
 
@@ -241,6 +278,30 @@ TEST_F(AtCommandDispatcherTest, HandleSerialCommand_PrintsToSerial) {
     dispatcher->handleSerialCommand("AT+PING");
 }
 
+// ATDUMPWIFI surfaces the stored-credential state the boot reader sees.
+TEST_F(AtCommandDispatcherTest, Atdumpwifi_NoStoredCredentials_ReportsNone) {
+    ON_CALL(wifiStoreMock, load(_, _)).WillByDefault([](std::string& ssid, std::string& pass) {
+        ssid.clear();
+        pass.clear();
+        return false;
+    });
+
+    EXPECT_CALL(serialMock, println(::testing::StrEq("OK no stored credentials")));
+    dispatcher->handleSerialCommand("ATDUMPWIFI");
+}
+
+TEST_F(AtCommandDispatcherTest, Atdumpwifi_StoredCredentials_ReportsSsidAndLen) {
+    ON_CALL(wifiStoreMock, load(_, _)).WillByDefault([](std::string& ssid, std::string& pass) {
+        ssid = "manht2";
+        pass = "luckyshoe478";
+        return true;
+    });
+
+    EXPECT_CALL(serialMock,
+                println(::testing::StrEq("OK stored ssid=manht2 pass_len=12")));
+    dispatcher->handleSerialCommand("ATDUMPWIFI");
+}
+
 TEST_F(AtCommandDispatcherTest, HandleSerialCommand_NoMatch_PrintsQuestionMark) {
     EXPECT_CALL(serialMock, println(::testing::StrEq("?")));
     dispatcher->handleSerialCommand("AT+UNKNOWN");
@@ -337,4 +398,225 @@ TEST_F(AtCommandDispatcherTest, HandleTcpCommand_Ati_UnknownDoesNotCrossToSerial
     EXPECT_CALL(serialMock, println(::testing::_)).Times(0);
 
     dispatcher->handleTcpCommand("ATI");
+}
+
+// ── Concrete firmware handler dispatch tests (extracted from .h to .cpp) ──────
+// These lock the business behaviour of each AT command handler through the
+// dispatcher's public TCP path. The dispatcher registers the canonical handler
+// set lazily on first handle* call, so we just call handleTcpCommand directly.
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetWifi_ValidParams_StoresAndReboots) {
+    // ATSETWIFI with a valid SSID/password pair should persist credentials and
+    // signal reboot+flush so the TCP client sees the response before ESP.restart().
+    EXPECT_CALL(wifiStoreMock, store("MySSID", "MyPass")).WillOnce(Return(true));
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("OK WiFi credentials stored")));
+    EXPECT_CALL(tcpClientMock, flush()).Times(2);  // sendTcpPrompt + shouldFlushClient
+    EXPECT_CALL(serialMock, println(::testing::StrEq("REBOOT")));
+    EXPECT_CALL(serialMock, flush());
+    EXPECT_CALL(espMock, restart());
+
+    dispatcher->handleTcpCommand("ATSETWIFI MySSID,MyPass");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetWifi_InvalidFormat_ReturnsError) {
+    // Missing comma means parseSetWifiParams returns invalid — no store call.
+    EXPECT_CALL(wifiStoreMock, store(_, _)).Times(0);
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Invalid format")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSETWIFI MySSID");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetWifi_EmptySsid_ReturnsError) {
+    // SSID must be 1-32 chars; empty SSID is rejected before store.
+    // ATSETWIFI with whitespace then comma parses as invalid format (comma at
+    // position 0 after trim), so the SSID-length check is unreachable from the
+    // handler — parseSetWifiParams catches it first. This test asserts the
+    // actual error the handler emits for that input.
+    EXPECT_CALL(wifiStoreMock, store(_, _)).Times(0);
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Invalid format")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSETWIFI  ,MyPass");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetWifi_SsidTooLong_ReturnsError) {
+    // SSID length > 32 chars is rejected.
+    std::string longSsid(33, 'A');
+    EXPECT_CALL(wifiStoreMock, store(_, _)).Times(0);
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Invalid SSID length")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSETWIFI " + longSsid + ",MyPass");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetWifi_PasswordTooLong_ReturnsError) {
+    // Password length > 64 chars is rejected.
+    std::string longPass(65, 'B');
+    EXPECT_CALL(wifiStoreMock, store(_, _)).Times(0);
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Invalid password length")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSETWIFI MySSID," + longPass);
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetWifi_StoreFailure_ReturnsError) {
+    // NVS store returning false propagates as "ERROR Failed to store credentials".
+    EXPECT_CALL(wifiStoreMock, store("MySSID", "MyPass")).WillOnce(Return(false));
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Failed to store credentials")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSETWIFI MySSID,MyPass");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetToken_ValidToken_StoresAndReboots) {
+    // ATSETTOKEN stores the auth token and signals reboot.
+    EXPECT_CALL(tokenStoreMock, storeToken("MySecretToken")).WillOnce(Return(true));
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("OK Token stored")));
+    EXPECT_CALL(tcpClientMock, flush()).Times(2);  // sendTcpPrompt + shouldFlushClient
+    EXPECT_CALL(serialMock, println(::testing::StrEq("REBOOT")));
+    EXPECT_CALL(serialMock, flush());
+    EXPECT_CALL(espMock, restart());
+
+    dispatcher->handleTcpCommand("ATSETTOKEN MySecretToken");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetToken_EmptyToken_ReturnsError) {
+    // Token must not be empty — whitespace-only input trims to empty.
+    EXPECT_CALL(tokenStoreMock, storeToken(_)).Times(0);
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Token cannot be empty")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSETTOKEN   ");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSetToken_TokenTooLong_ReturnsError) {
+    // Token must be <= 64 chars.
+    std::string longToken(65, 'X');
+    EXPECT_CALL(tokenStoreMock, storeToken(_)).Times(0);
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Token too long")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSETTOKEN " + longToken);
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtClearWifi_ClearSuccess_ReturnsOkAndReboots) {
+    // ATCLEARWIFI clears credentials and signals reboot+flush.
+    EXPECT_CALL(credClearMock, clear()).WillOnce(Return(true));
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("OK WiFi credentials cleared")));
+    EXPECT_CALL(tcpClientMock, flush()).Times(2);  // sendTcpPrompt + shouldFlushClient
+    EXPECT_CALL(serialMock, println(::testing::StrEq("REBOOT")));
+    EXPECT_CALL(serialMock, flush());
+    EXPECT_CALL(espMock, restart());
+
+    dispatcher->handleTcpCommand("ATCLEARWIFI");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtClearWifi_ClearFailure_ReturnsError) {
+    // NVS clear failure propagates as an error — no reboot.
+    EXPECT_CALL(credClearMock, clear()).WillOnce(Return(false));
+    EXPECT_CALL(tcpClientMock, print(::testing::HasSubstr("ERROR Failed to clear credentials")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATCLEARWIFI");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtReboot_SetsRebootFlagWithoutExtraFlush) {
+    // ATREBOOT returns shouldReboot=true but shouldFlushClient=false.
+    // sendTcpPrompt already flushes, so the shouldFlushClient block must NOT
+    // fire — an extra flush on a dead/half-closed socket would hang.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("REBOOT\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush()).Times(1);  // only from sendTcpPrompt
+    EXPECT_CALL(serialMock, println(::testing::_)).Times(0);  // no REBOOT echo
+    EXPECT_CALL(serialMock, flush()).Times(0);
+    EXPECT_CALL(espMock, restart());
+
+    dispatcher->handleTcpCommand("ATREBOOT");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtZ_DeactivatesMonitor) {
+    // ATZ resets monitor state and returns the ELM327 banner.
+    EXPECT_CALL(monitorMock, setMonitorActive(false));
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("ELM327 v2.3\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATZ");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtMa_ActivatesMonitor) {
+    // ATMA turns monitor on.
+    EXPECT_CALL(monitorMock, setMonitorActive(true));
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("OK\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATMA");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtPc_DeactivatesMonitor) {
+    // ATPC turns monitor off.
+    EXPECT_CALL(monitorMock, setMonitorActive(false));
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("OK\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATPC");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtHeLo_ReturnsHeloResponse) {
+    // ATHELO echoes the device discovery banner including the device ID hex.
+    EXPECT_CALL(tcpClientMock, print(::testing::AllOf(
+        ::testing::HasSubstr("ACK DEVICE=ESP32-CAN-Bridge"),
+        ::testing::HasSubstr("FIRMWARE=0.2.0"),
+        ::testing::HasSubstr("DEVICEID=")
+    )));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATHELO");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtE0_ReturnsOk) {
+    // ATE0 (echo off) is a no-op acknowledgement.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("OK\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATE0");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtSp_ReturnsOk) {
+    // ATSP (set protocol) is acknowledged without side effects.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("OK\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATSP0");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtH0_ReturnsOk) {
+    // ATH0 (headers off) is acknowledged.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("OK\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATH0");
+}
+
+TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtCsm0_ReturnsOk) {
+    // ATCSM0 (CSM off) is acknowledged.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("OK\r\r>")));
+    EXPECT_CALL(tcpClientMock, flush());
+    EXPECT_CALL(espMock, restart()).Times(0);
+
+    dispatcher->handleTcpCommand("ATCSM0");
 }

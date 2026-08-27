@@ -42,7 +42,22 @@ int InteractiveRunContext::runImpl(
 
     while (source->hasNext()) {
         auto row = source->next();
-        out << csvRowLine(row) << "\n";
+        const CsvRowParams params{
+            row.timestamp_ms,
+            row.vehicle_id,
+            std::optional<double>(row.speed_kmh),
+            std::optional<double>(row.throttle_percent),
+            row.brake_light,
+            std::optional<double>(row.acceleration_g),
+            std::optional<double>(row.steering_angle_deg),
+            std::optional<double>(row.motor_rpm),
+            std::optional<double>(row.motor_hv_voltage),
+            std::optional<double>(row.motor_hv_current),
+            std::optional<double>(row.motor_torque_nm),
+            row.gear_selector,
+            row.dbc_signal_count,
+        };
+        out << csvRowLine(params) << "\n";
         out.flush();
     }
 

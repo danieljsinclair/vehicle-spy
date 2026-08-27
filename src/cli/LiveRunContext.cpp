@@ -1,4 +1,5 @@
 #include "vehicle-sim/cli/LiveRunContext.h"
+#include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/pipeline/ConsoleProgressReporter.h"
 #include "vehicle-sim/pipeline/CompositeProgressReporter.h"
@@ -62,7 +63,7 @@ int LiveRunContext::run(
 
     auto source = pipeline::buildPipelineSource(connectTarget, adapterProtocol, stop);
     if (!source.transport || !source.normaliser) {
-        std::cerr << "Unsupported live connect target: " << connectTarget << "\n";
+        std::cerr << "Unsupported live connect target: " << forLog(connectTarget) << "\n";
         return 1;
     }
 
@@ -71,7 +72,7 @@ int LiveRunContext::run(
     (void)resolveVehicleContext(vehicleType, translationService);
 
     if (!source.transport->open()) {
-        std::cerr << "Failed to open live transport: " << connectTarget << "\n";
+        std::cerr << "Failed to open live transport: " << forLog(connectTarget) << "\n";
         return 1;
     }
 
@@ -84,22 +85,22 @@ int LiveRunContext::run(
     if (!logBase.empty()) {
         rawSink = std::make_unique<pipeline::RawLogSink>(logBase);
         if (!rawSink->isValid()) {
-            std::cerr << "Failed to open raw log file: " << logBase << ".raw.txt\n";
+            std::cerr << "Failed to open raw log file: " << forLog(logBase) << ".raw.txt\n";
             return 1;
         }
         try {
             decodedSink = std::make_unique<pipeline::DecodedCsvSink>(logBase, translationService.getVehicleId());
         } catch (const domain::TelemetryFileException&) {
-            std::cerr << "Failed to open CSV log file: " << logBase << ".csv\n";
+            std::cerr << "Failed to open CSV log file: " << forLog(logBase) << ".csv\n";
             return 1;
         }
         if (!decodedSink->isValid()) {
-            std::cerr << "Failed to open CSV log file: " << logBase << ".csv\n";
+            std::cerr << "Failed to open CSV log file: " << forLog(logBase) << ".csv\n";
             return 1;
         }
     }
 
-    narrative << "Streaming " << connectTarget << " (" << vehicleType << ")\n";
+    narrative << "Streaming " << forLog(connectTarget) << " (" << forLog(vehicleType) << ")\n";
     narrative << "Press Ctrl+C to stop\n\n";
 
     // The SAME runReplay loop serves file replay and live — uniform across

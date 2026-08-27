@@ -89,6 +89,7 @@ class FakePreferences : public IPreferences {
 public:
     std::string ssid;
     std::string pass;
+    int credCount = 0;
     bool cleared = false;
     // When true, putString reports 0 bytes written (simulating NVS write failure).
     bool putStringFails = false;
@@ -102,6 +103,7 @@ public:
     }
     void end() override { ++endCalls; }
     size_t getBytesLength(const char* key) override {
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? 1 : 0;
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid.size();
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass.size();
         return 0;
@@ -109,15 +111,17 @@ public:
     std::string getString(const char* key, const std::string&) override {
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) return ssid;
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) return pass;
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) return credCount > 0 ? "1" : "";
         return "";
     }
     size_t putString(const char* key, const std::string& value) override {
         if (putStringFails) return 0;
         if (strcmp(key, WiFiConfig::NVS_WIFI_SSID) == 0) { ssid = value; return value.size(); }
         if (strcmp(key, WiFiConfig::NVS_WIFI_PASS) == 0) { pass = value; return value.size(); }
+        if (strcmp(key, WiFiConfig::NVS_WIFI_CRED_COUNT) == 0) { credCount = std::stoi(value); return value.size(); }
         return 0;
     }
-    void clear() override { ssid.clear(); pass.clear(); cleared = true; }
+    void clear() override { ssid.clear(); pass.clear(); credCount = 0; cleared = true; }
 };
 
 // No-op ISerial: WiFiManager's serial-trace contract is exercised by the
@@ -148,7 +152,7 @@ struct Harness {
 
 TEST(WiFiBehaviorCredentialSourceTest, StoredNvsTakesPriorityOverBaked) {
     FakePreferences prefs;
-    prefs.ssid = "stored"; prefs.pass = "storedpw";
+    prefs.credCount = 1; prefs.ssid = "stored"; prefs.pass = "storedpw";
     // Both stored AND baked present -> STORED_NVS wins.
     EXPECT_EQ(determineCredentialSource(prefs, "baked", "bakedpw"), CredentialSource::STORED_NVS);
 }
@@ -224,7 +228,7 @@ TEST(WiFiBehaviorRetryTest, ReconnectingAtExactIntervalIsTrue) {
 
 TEST(WiFiBehaviorDisconnectedTest, StoredNvsBeginsStaAndSetsHostnameAndTransitioningToConnecting) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();  // ticks DISCONNECTED handler
 
@@ -284,7 +288,7 @@ TEST(WiFiBehaviorDisconnectedTest, NoneCredentialGoesToApMode) {
 
 TEST(WiFiBehaviorConnectingTest, ConnectFailedStoredNvsOverTimeoutFallsBackToAp) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();  // -> CONNECTING at t=0
     ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
@@ -313,7 +317,7 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedBakedInOverTimeoutDoesNotFallBackT
 
 TEST(WiFiBehaviorConnectingTest, ConnectFailedRetryElapsedReBeginsWithStoredCreds) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();  // -> CONNECTING, begin() called once at t=0
     const int beginsBefore = h.wifi.beginCalls;
@@ -333,7 +337,7 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedAggressiveRetryReBeginsImmediately
     // RESILIENT RECONNECT (req-1): on a failed connect the very first retry happens
     // IMMEDIATELY (aggressive window, no backoff) — not after the 5000ms interval.
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();  // -> CONNECTING, begin once
     const int beginsBefore = h.wifi.beginCalls;
@@ -348,7 +352,7 @@ TEST(WiFiBehaviorConnectingTest, ConnectFailedAggressiveRetryReBeginsImmediately
 
 TEST(WiFiBehaviorConnectingTest, IdleStatusNoTimeoutStaysConnecting) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_IDLE_STATUS;
@@ -358,7 +362,7 @@ TEST(WiFiBehaviorConnectingTest, IdleStatusNoTimeoutStaysConnecting) {
 
 TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
@@ -392,7 +396,7 @@ TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutBakedInGoesReconnecting) {
 
 TEST(WiFiBehaviorReconnectingTest, ConnectedStatusTransitionsToConnectedSta) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     // Drive to CONNECTED_STA then disconnect to RECONNECTING.
@@ -409,7 +413,7 @@ TEST(WiFiBehaviorReconnectingTest, ConnectedStatusTransitionsToConnectedSta) {
 
 TEST(WiFiBehaviorReconnectingTest, RetryElapsedReBeginsWithStoredCreds) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -431,7 +435,7 @@ TEST(WiFiBehaviorReconnectingTest, RetryAggressiveReBeginsImmediatelyAfterDrop) 
     // retry fires IMMEDIATELY (aggressive window) — the ESP32 radio reset typically
     // re-associates on the next begin(), so we must not wait the 5000ms backoff.
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -452,7 +456,7 @@ TEST(WiFiBehaviorReconnectingTest, RetryAggressiveReBeginsImmediatelyAfterDrop) 
 
 TEST(WiFiBehaviorConnectedStaTest, LossOfConnectedStatusTransitionsToReconnecting) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -471,7 +475,7 @@ TEST(WiFiBehaviorConnectedStaTest, LossOfConnectedStatusTransitionsToReconnectin
 
 TEST(WiFiBehaviorConnectedStaTest, StaysConnectedStaWhenStatusRemainsConnected) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -507,7 +511,7 @@ TEST(WiFiBehaviorConnectedApTest, ApModeIsStableWithNoWifiCalls) {
 
 TEST(WiFiBehaviorOnDisconnectedTest, AuthExpireGoesToReconnecting) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -532,7 +536,7 @@ TEST(WiFiBehaviorOnDisconnectedTest, RecoverableAuthReasonsGoToReconnecting) {
                        WIFI_REASON_NOT_AUTHED, WIFI_REASON_NOT_ASSOCED,
                        WIFI_REASON_ASSOC_NOT_AUTHED}) {
         Harness h;
-        h.prefs.ssid = "net"; h.prefs.pass = "pw";
+        h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
         h.build();
         h.mgr->init();
         h.wifi.statusVal = WL_CONNECTED;
@@ -555,7 +559,7 @@ TEST(WiFiBehaviorOnDisconnectedTest, FourWayHandshakeTimeoutArmsCampaign_StaysCo
     // an auth-fail retry campaign and stays WIFI_CONNECTING, with the TCP
     // restart flag cleared (no confirmed drop to serve).
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -581,7 +585,7 @@ TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresArmCampaign_StayConnec
     for (int reason : {WIFI_REASON_AUTH_FAIL, WIFI_REASON_802_1X_AUTH_FAILED,
                        WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT}) {
         Harness h;
-        h.prefs.ssid = "net"; h.prefs.pass = "pw";
+        h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
         h.build();
         h.mgr->init();
         h.wifi.statusVal = WL_CONNECTED;
@@ -603,7 +607,7 @@ TEST(WiFiBehaviorOnDisconnectedTest, PermanentAuthFailuresArmCampaign_StayConnec
 
 TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromConnectedStaGoesReconnecting) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -617,7 +621,7 @@ TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromConnectedStaGoesReconnecti
 
 TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromNonStaStateLeavesStateUnchanged) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);  // not STA
@@ -636,7 +640,7 @@ TEST(WiFiBehaviorOnDisconnectedTest, NonAuthReasonFromNonStaStateLeavesStateUnch
 
 TEST(WiFiBehaviorTransitionTest, TransitionToConnectedSta) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -654,7 +658,7 @@ TEST(WiFiBehaviorTransitionTest, TransitionToConnectedAp) {
 
 TEST(WiFiBehaviorTransitionTest, TransitionToConnecting) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();  // DISCONNECTED -> CONNECTING
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
@@ -662,7 +666,7 @@ TEST(WiFiBehaviorTransitionTest, TransitionToConnecting) {
 
 TEST(WiFiBehaviorTransitionTest, StayingInSameStateIsNoOp) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     ASSERT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
@@ -674,7 +678,7 @@ TEST(WiFiBehaviorTransitionTest, StayingInSameStateIsNoOp) {
 
 TEST(WiFiBehaviorTransitionTest, ConnectedStaTransitionFiresNtpAndTcpRestartCallbacks) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     bool ntpFired = false;
     bool tcpFired = false;
@@ -714,7 +718,7 @@ TEST(WiFiBehaviorCredentialsTest, StoreCredentialsOpensWifiNamespaceReadWrite) {
 TEST(WiFiBehaviorCredentialsTest, HasStoredCredentialsOpensReadOnlyAndChecksBothKeys) {
     Harness h;
     h.build();
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.prefs.beginHistory.clear();
     EXPECT_TRUE(h.mgr->hasStoredCredentials());
     ASSERT_FALSE(h.prefs.beginHistory.empty());
@@ -759,7 +763,7 @@ TEST(WiFiBehaviorResilientReconnectTest, DropReconnectsImmediatelyNoBackoff) {
     // reconnect attempt must retry begin() IMMEDIATELY (aggressive window,
     // interval 0) — NOT wait out the 5000ms backoff.
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -783,7 +787,7 @@ TEST(WiFiBehaviorResilientReconnectTest, AggressiveWindowExhaustedFallsBackToBac
     // After the first few reconnect attempts the interval returns to 5000ms, so a
     // tick just past the aggressive window with a small delta does NOT re-begin.
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECT_FAILED;  // straight to CONNECTING with a failure
@@ -808,7 +812,7 @@ TEST(WiFiBehaviorResilientReconnectTest, AggressiveWindowExhaustedFallsBackToBac
 
 TEST(WiFiBehaviorResilientReconnectTest, ReconnectResetsDiscoveryBackoff) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     int discoveryResets = 0;
     h.mgr->setDiscoveryResetCallback([&]() { ++discoveryResets; });
@@ -837,7 +841,7 @@ TEST(WiFiBehaviorResilientReconnectTest, ReconnectResetsDiscoveryBackoff) {
 
 TEST(WiFiBehaviorResilientReconnectTest, SameIpReconnectReListsTcpServer) {
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;
@@ -872,7 +876,7 @@ TEST(WiFiBehaviorResilientReconnectTest, ReconnectNeverRefusesTcpConnect) {
     // no slot is held against the app. We assert the re-listen flag here; the
     // last-wins accept is covered by TcpServerManager tests.
     Harness h;
-    h.prefs.ssid = "net"; h.prefs.pass = "pw";
+    h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
     h.mgr->init();
     h.wifi.statusVal = WL_CONNECTED;

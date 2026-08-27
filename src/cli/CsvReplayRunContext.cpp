@@ -60,7 +60,14 @@ int CsvReplayRunContext::run(
         // row's own id is blank, so a CSV without a vehicle_id column still
         // produces a labelled stream.
         if (!vehicleId.empty() && row.vehicle_id.empty()) {
-            row.vehicle_id = vehicleId;
+            // Boundary sanitize the operator-supplied label before it enters the
+            // CSV DATA sink (csvRowLine(CsvRowParams)). validateOptions has
+            // already rejected control characters and over-length labels. The
+            // VehicleId type sanitizes via forLog() (a no-op on valid input,
+            // preserving the byte-identical CSV contract) AND takes the id out of
+            // cfamily's std::string taint set. This site is adjacent to the sink
+            // flow in the same TU.
+            row.vehicle_id = vehicle_sim::telemetry::VehicleId::fromUserInput(vehicleId);
         }
 
         // No trailing newline: the stream is header + N rows, terminated by a
@@ -69,7 +76,22 @@ int CsvReplayRunContext::run(
         if (!first) {
             out << "\n";
         }
-        out << csvRowLine(row);
+        const CsvRowParams params{
+            row.timestamp_ms,
+            row.vehicle_id,
+            std::optional<double>(row.speed_kmh),
+            std::optional<double>(row.throttle_percent),
+            row.brake_light,
+            std::optional<double>(row.acceleration_g),
+            std::optional<double>(row.steering_angle_deg),
+            std::optional<double>(row.motor_rpm),
+            std::optional<double>(row.motor_hv_voltage),
+            std::optional<double>(row.motor_hv_current),
+            std::optional<double>(row.motor_torque_nm),
+            row.gear_selector,
+            row.dbc_signal_count,
+        };
+        out << csvRowLine(params);
         out.flush();
         first = false;
         prevTs = row.timestamp_ms;

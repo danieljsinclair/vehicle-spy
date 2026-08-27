@@ -70,22 +70,24 @@ private:
 } // anonymous namespace
 
 // Happy path: valid SSID and password are written to the "wifi" namespace
-// under the correct keys; function returns true.
-TEST(NvsWifiCredentialStoreTest, WritesBothKeysAndReturnsTrue) {
+// under the list-shaped schema keys (cred_count + indexed entry[0]).
+// This test pins the on-disk key shape so phase-2 cannot silently change it.
+TEST(NvsWifiCredentialStoreTest, WritesListSchemaKeysAndReturnsTrue) {
     FakeNvsStore store;
     bool ok = storeWifiCredentials(store, "my-ssid", "my-pass");
 
     ASSERT_TRUE(ok);
-    // Namespace is set by begin() before end() clears it; check the value
-    // captured by the last putString call (still alive after end()).
     ASSERT_FALSE(store.entries().empty());
     EXPECT_EQ(store.entries().front().ns, "wifi");
 
-    ASSERT_EQ(store.entries().size(), 2);
-    EXPECT_EQ(store.entries()[0].key,   "ssid");
-    EXPECT_EQ(store.entries()[0].value, "my-ssid");
-    EXPECT_EQ(store.entries()[1].key,   "pass");
-    EXPECT_EQ(store.entries()[1].value, "my-pass");
+    // List-shaped schema: cred_count first, then indexed entry[0].
+    ASSERT_EQ(store.entries().size(), 3);
+    EXPECT_EQ(store.entries()[0].key,   "cred_count");
+    EXPECT_EQ(store.entries()[0].value, "1");
+    EXPECT_EQ(store.entries()[1].key,   "ssid_0");
+    EXPECT_EQ(store.entries()[1].value, "my-ssid");
+    EXPECT_EQ(store.entries()[2].key,   "pass_0");
+    EXPECT_EQ(store.entries()[2].value, "my-pass");
 }
 
 // Edge case: strings with special characters are stored verbatim.
@@ -94,21 +96,21 @@ TEST(NvsWifiCredentialStoreTest, WritesSpecialCharactersVerbatim) {
     bool ok = storeWifiCredentials(store, "my-ssid!@#", "p@ss:word/123");
 
     ASSERT_TRUE(ok);
-    ASSERT_EQ(store.entries().size(), 2);
-    EXPECT_EQ(store.entries()[0].value, "my-ssid!@#");
-    EXPECT_EQ(store.entries()[1].value, "p@ss:word/123");
+    ASSERT_EQ(store.entries().size(), 3);
+    EXPECT_EQ(store.entries()[1].value, "my-ssid!@#");
+    EXPECT_EQ(store.entries()[2].value, "p@ss:word/123");
 }
 
-// Edge case: if the first putString fails (returns 0), the second must NOT
-// be called — partial writes leave the namespace in an inconsistent state.
-TEST(NvsWifiCredentialStoreTest, SecondWriteSkippedWhenFirstFails) {
+// Edge case: if the first putString fails (returns 0), the remaining writes
+// must NOT be called — partial writes leave the namespace in an inconsistent state.
+TEST(NvsWifiCredentialStoreTest, RemainingWritesSkippedWhenFirstFails) {
     FakeNvsStore store;
     store.setPutStringResult(0);  // first putString returns 0 (failure)
 
     bool ok = storeWifiCredentials(store, "my-ssid", "my-pass");
 
     ASSERT_FALSE(ok);
-    // Only the first write should have been attempted; the second is skipped.
+    // Only the first write (cred_count) should have been attempted.
     ASSERT_EQ(store.entries().size(), 1);
-    EXPECT_EQ(store.entries()[0].key, "ssid");
+    EXPECT_EQ(store.entries()[0].key, "cred_count");
 }

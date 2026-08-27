@@ -1,4 +1,5 @@
 #include "vehicle-sim/cli/CliOptions.h"
+#include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "StatusLEDRenderer.h"
@@ -12,6 +13,30 @@
 #include <fstream>
 
 namespace vehicle_sim::cli {
+
+// Boundary validation for a free-form vehicle label (interactive mode and
+// decoded-CSV replay). A CR/LF/control byte in this label would already
+// corrupt the emitted CSV row today, so rejecting is a correctness fix as much
+// as a log-injection (cpp:S5145) remedy: the value flows unsubstituted into the
+// CSV DATA sink, which must stay byte-contract-clean. Reject control characters
+// (< 0x20 or 0x7F) and over-length labels; return an empty string if OK.
+static std::string validateVehicleLabel(const std::string& label) {
+    if (constexpr std::size_t kMaxVehicleLabel = 64; label.size() > kMaxVehicleLabel) {
+        std::ostringstream oss;
+        oss << "Invalid --vehicle '" << forLog(label) << "': label exceeds "
+            << kMaxVehicleLabel << " characters";
+        return oss.str();
+    }
+    for (const unsigned char c : label) {
+        if (c < 0x20 || c == 0x7F) {
+            std::ostringstream oss;
+            oss << "Invalid --vehicle '" << forLog(label)
+                << "': control characters are not allowed";
+            return oss.str();
+        }
+    }
+    return "";
+}
 
 // A decoded-telemetry CSV (for CSV replay mode) is distinguished from a raw
 // CAN capture by its header: the decoded schema leads with "timestamp_ms".
@@ -29,65 +54,127 @@ CliOptions parseArgs(int argc, char* argv[]) {
 
     CLI::App app{"Vehicle OBD2 Telemetry Display", "vehicle-sim"};
 
-    app.add_flag("-s,--scan", opts.scan_mode, "Scan for BLE OBD2 adapters");
-    app.add_flag("-l,--list", opts.list_signals, "List supported signals for each vehicle");
-    app.add_flag("--discover", opts.discover_mode, "Discover ESP32 devices on the network via UDP broadcast");
-    app.add_flag("--led-diag", opts.led_diag, "Show StatusLED pattern reference guide");
+    app.add_flag("-s,--scan", opts.mode.scan_mode, "Scan for BLE OBD2 adapters");
+    app.add_flag("-l,--list", opts.mode.list_signals, "List supported signals for each vehicle");
+    app.add_flag("--discover", opts.mode.discover_mode, "Discover ESP32 devices on the network via UDP broadcast");
+    app.add_flag("--led-diag", opts.mode.led_diag, "Show StatusLED pattern reference guide");
 
-    app.add_option("-c,--connect", opts.connect_target,
+    app.add_option("-c,--connect", opts.telemetry.connect_target,
                    "Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', "
                    "'auto' (auto-discover ESP32), or BLE adapter address")
         ->expected(1);
-    app.add_option("--connect-file", opts.connect_file,
+    app.add_option("--connect-file", opts.telemetry.connect_file,
                    "Synonym for '--connect file:<path>'. Equivalent to "
                    "--connect file:PATH; PATH is used verbatim (relative to CWD)")
         ->expected(1);
-    app.add_option("-v,--vehicle", opts.vehicle_type, "Vehicle type (required)")
+    app.add_option("-v,--vehicle", opts.telemetry.vehicle_type, "Vehicle type (required)")
         ->expected(1);
-    app.add_option("-f,--format", opts.format, "Output format: json, csv, or plain")
+    app.add_option("-f,--format", opts.telemetry.format, "Output format: json, csv, or plain")
         ->expected(1)
         ->capture_default_str();
-    app.add_option("-i,--interval", opts.update_interval_ms, "Update interval in milliseconds")
+    app.add_option("-i,--interval", opts.telemetry.update_interval_ms, "Update interval in milliseconds")
         ->expected(1)
         ->capture_default_str()
         ->check(CLI::Range(0, 60000));
     // Canonical logging flag — base path. Phase 1 file replay writes only
     // <base>.csv; the raw stream is not duplicated (input file is source of
     // truth). Later phases write <base>.raw.txt for live transports.
-    app.add_option("--log", opts.log_base,
+    app.add_option("--log", opts.logging.log_base,
                    "Log base path: writes <base>.csv (decoded). For live transports "
                    "also writes <base>.raw.txt (raw capture)")
         ->expected(1);
-    app.add_option("--adapter-protocol", opts.adapter_protocol,
+    app.add_option("--adapter-protocol", opts.logging.adapter_protocol,
                    "Adapter protocol: 'raw' (default) or 'elm327'. Default table "
                    "applies when omitted: demo/file/tcp/usb→raw, ble→elm327")
         ->expected(1)
         ->capture_default_str();
     // Deprecated aliases — mapped onto --log semantics in main.cpp.
-    app.add_option("--log-csv", opts.log_csv,
+    app.add_option("--log-csv", opts.logging.log_csv,
                    "(deprecated, use --log <base>) Log decoded CSV telemetry to file")
         ->expected(1);
-    app.add_option("--log-raw", opts.log_raw,
+    app.add_option("--log-raw", opts.logging.log_raw,
                    "(deprecated, use --log <base>) Log raw hex/TWAI data to file")
         ->expected(1);
-    app.add_flag("--stdout-csv", opts.stdout_csv,
+    app.add_flag("--stdout-csv", opts.telemetry.stdout_csv,
                  "Emit decoded CSV rows to stdout (same schema as <base>.csv); "
                  "progress output moves to stderr so stdout stays pipeable");
-    app.add_option("--start-from", opts.start_from_s,
+    app.add_option("--start-from", opts.telemetry.start_from_s,
                    "Replay-only: skip rows whose recorded timestamp is before "
                    "this many seconds (mirrors engine-sim-cli --start-from)")
         ->expected(1)
         ->capture_default_str();
-    app.add_flag("-k,--interactive", opts.interactive_mode,
+    app.add_flag("-k,--interactive", opts.telemetry.interactive_mode,
                  "Keyboard-driven bench mode: read throttle/gear/steering/brake "
                  "from the keyboard (1-9 = 10-90% throttle, 0 = 100%, arrows = "
                  "gear/steering, b = brake, q = quit) and emit CSV rows on stdout "
                  "at --interval Hz. Use with --stdout-csv for a clean pipe.");
 
+    // WiFi provisioning over USB serial (AT command set). Local, pre-association
+    // — no AUTH. --set-wifi-creds takes exactly two positional values (SSID,
+    // PASS) after the flag; CLI11's expected(2) captures them into a vector.
+    std::vector<std::string> setWifiArgs;
+    app.add_option("--set-wifi-creds", setWifiArgs,
+                   "Provision WiFi credentials over USB serial (ATSETWIFI). "
+                   "Takes <SSID> <PASS>")
+        ->expected(2);
+    app.add_flag("--clear-wifi-creds", opts.wifi.clear_wifi_creds,
+                 "Clear WiFi credentials over USB serial (ATCLEARWIFI)");
+    app.add_flag("--reboot", opts.wifi.reboot_esp32,
+                 "Reboot the ESP32 over USB serial (ATREBOOT)");
+    app.add_option("--port", opts.wifi.usb_port,
+                   "ESP32 USB serial port for provisioning (overrides "
+                   "ESP32_DEFAULT_USB_PORT / ESP32_PORT env)")
+        ->expected(1);
+
+    // Static, non-option help text (EXAMPLES / NOTES / REQUIREMENTS). Lifted
+    // verbatim from the old hand-rendered printHelp so it is appended after
+    // CLI11's auto-generated OPTIONS list. Because the OPTIONS themselves are
+    // derived from the registrations above, every registered flag is shown in
+    // --help by construction — adding an option here can never silently drop it
+    // from help again.
+    app.footer(R"(EXAMPLES:
+  vehicle-sim --connect demo --vehicle tesla
+  vehicle-sim --discover
+  vehicle-sim --connect auto --vehicle tesla
+  vehicle-sim --connect file:capture.csv --vehicle tesla --log-csv decoded.csv
+  vehicle-sim --connect-file capture.csv --vehicle tesla --stdout-csv | head -20
+  vehicle-sim --interactive --stdout-csv --vehicle tesla --interval 20
+  vehicle-sim --connect tcp:192.168.4.1:3333 --vehicle tesla --log-raw x.raw --log-csv x.csv
+  vehicle-sim --connect usb:/dev/cu.usbserial-110 --vehicle tesla --log captures/SecondDrive
+  vehicle-sim --connect tcp:192.168.4.1 --vehicle tesla
+  vehicle-sim --connect file:capture.csv --vehicle tesla --stdout-csv | head -20
+  vehicle-sim --connect <addr> --vehicle tesla
+  vehicle-sim --connect <addr> --vehicle auto
+  vehicle-sim --scan
+  vehicle-sim --list
+  vehicle-sim --set-wifi-creds MyNet s3cr3tpass --port /dev/cu.usbserial-110
+  vehicle-sim --clear-wifi-creds --port /dev/cu.usbserial-110
+  vehicle-sim --reboot --port /dev/cu.usbserial-110
+
+NOTES:
+  --connect and --vehicle are required for telemetry
+  'auto' discovers an ESP32 on the UDP discovery port (3335) and connects automatically
+  file:<path> replays a captured raw CAN CSV
+  tcp:<ip>:<port> streams live CAN frames from an ESP32 CAN-bridge over WiFi
+    (port defaults to 3333 when omitted; e.g. tcp:192.168.4.1)
+  usb:<path> streams live CAN frames from an ESP32 CAN-bridge over USB serial
+    (for example /dev/cu.usbserial-110 at 115200 8N1)
+  tesla and audi_mlb_evo use CAN monitor mode (DBC decoding)
+  generic uses standard OBD2 PID polling
+  CAN monitor mode is read-only (ATCSM1: no ACK bits on bus)
+
+REQUIREMENTS:
+  For real data: Connect a BLE OBD2 adapter to your vehicle's OBD-II port,
+  connect over WiFi to an ESP32 CAN-bridge (tcp:<ip>:3333), or connect
+  directly by USB serial (usb:/dev/cu.usbserial-110).)");
+
     try {
         app.parse(argc, argv);
     } catch (const CLI::CallForHelp&) {
-        opts.help_requested = true;
+        // Capture the CLI11-derived help (auto OPTIONS list + footer) so it can
+        // be surfaced verbatim by printHelp. app is still alive in this scope.
+        opts.mode.help_requested = true;
+        opts.mode.help_text = app.help();
     } catch (const CLI::ParseError& e) {
         opts.error_message = e.what();
     }
@@ -95,39 +182,58 @@ CliOptions parseArgs(int argc, char* argv[]) {
     // `--connect-file PATH` is a synonym for `--connect file:PATH`. Fold it into
     // connect_target so every downstream consumer (isFile(), main.cpp) sees a
     // single source of truth. If both are given, --connect wins.
-    if (!opts.connect_file.empty() && opts.connect_target.empty()) {
-        opts.connect_target = "file:" + opts.connect_file;
+    if (!opts.telemetry.connect_file.empty() && opts.telemetry.connect_target.empty()) {
+        opts.telemetry.connect_target = "file:" + opts.telemetry.connect_file;
+    }
+
+    // `--set-wifi-creds <SSID> <PASS>` captures two positional values into a
+    // vector; fold them onto the struct fields. expected(2) guarantees exactly
+    // two elements when parsing succeeds.
+    if (setWifiArgs.size() == 2) {
+        opts.wifi.set_wifi_ssid = setWifiArgs[0];
+        opts.wifi.set_wifi_pass = setWifiArgs[1];
+    }
+
+    // `--port` overrides the hardcoded default, but the ESP32_PORT env var (the
+    // Makefile's contract) wins when neither --port nor the default are sensible.
+    // Only apply the env default when --port was left at its built-in default
+    // and the env var is set, so an explicit --port is always respected.
+    if (opts.wifi.usb_port == ESP32_DEFAULT_USB_PORT) {
+        if (const char* envPort = std::getenv("ESP32_PORT")) {
+            if (std::string{envPort}.empty() == false) {
+                opts.wifi.usb_port = envPort;
+            }
+        }
     }
 
     return opts;
 }
 
-void printHelp(std::ostream& out, const domain::DBCTranslationService& service) {
+void printHelp(std::ostream& out, const domain::DBCTranslationService& service,
+                const std::string& help_text) {
     auto& registry = service.registry();
-    out << "vehicle-sim - Vehicle OBD2 Telemetry Display\n\n"
-        << "USAGE:\n"
-        << "  vehicle-sim [OPTIONS]\n\n"
-        << "OPTIONS:\n"
-        << "  -c,--connect <target> Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>',\n"
-        << "                        'usb:<path>', 'auto' (auto-discover ESP32), or BLE adapter address\n"
-        << "      --connect-file <path>  Synonym for '--connect file:<path>'\n"
-        << "  -v,--vehicle <type>   Vehicle type (required, or 'auto' to detect)\n"
-        << "  -s,--scan             Scan for BLE OBD2 adapters\n"
-        << "  -l,--list             List supported signals for each vehicle\n"
-        << "      --discover        Discover ESP32 devices on the network\n"
-        << "  -f,--format <fmt>     Output format: json, csv, or plain (default: plain)\n"
-        << "  -i,--interval <ms>    Update interval in milliseconds (default: 500)\n"
-        << "  --log <base>          Log base path: writes <base>.csv (decoded); live\n"
-        << "                        transports also write <base>.raw.txt (raw capture)\n"
-        << "  --adapter-protocol <p> Adapter protocol: raw (default) or elm327\n"
-        << "  --log-csv <file>      (deprecated, use --log) Log decoded CSV to file\n"
-        << "  --log-raw <file>      (deprecated, use --log) Log raw hex to file\n"
-        << "  --stdout-csv          Emit decoded CSV rows to stdout (same schema as\n"
-        << "                        <base>.csv); progress moves to stderr so stdout pipes cleanly\n"
-        << "  --start-from <sec>    Replay-only: skip rows before this recorded time\n"
-        << "  -k,--interactive      Keyboard-driven bench mode: throttle 1-9/0, arrows\n"
-        << "                        gear/steer, b=brake, q=quit; emits CSV on stdout\n"
-        << "  --help                Show this help message\n\n";
+
+    // The USAGE line, OPTIONS list, and footer are derived from the CLI11
+    // registrations via help_text (captured in parseArgs on CallForHelp). This
+    // guarantees every registered flag — including --set-wifi-creds /
+    // --clear-wifi-creds / --reboot / --port — is shown in --help by
+    // construction; adding an option in parseArgs can never silently drop it
+    // from help again.
+    //
+    // help_text is composed entirely from static option DESCRIPTIONS (string
+    // literals registered at compile time in parseArgs) plus the static app name
+    // ("vehicle-sim"); it never contains any argv-derived value. It MUST be
+    // help_text is NOT external taint in practice: it is composed entirely from
+    // static option DESCRIPTIONS (compile-time string literals) plus the static
+    // app name ("vehicle-sim"); it never contains any argv-derived value. Sonar
+    // flags app.help() as a taint false-positive because the value rides on the
+    // parse(argc, argv) call. We route it through cli::forLogKeepNewlines(), which
+    // rebuilds the string (severing cfamily's taint at the sink) while KEEPING the
+    // newline/tab the multi-line layout needs — only CR and other control bytes are
+    // neutralized. On this static, LF-delimited content it is a NO-OP, so the help
+    // layout is preserved exactly. (Plain forLog would mangle it; this variant does
+    // not.)
+    out << cli::forLogKeepNewlines(help_text);
 
     if (auto vehicles = registry.getRegisteredVehicles(); !vehicles.empty()) {
         out << "SUPPORTED VEHICLES:\n";
@@ -139,37 +245,6 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service) 
         }
         out << "\n";
     }
-
-    out << "EXAMPLES:\n"
-        << "  vehicle-sim --connect demo --vehicle tesla\n"
-        << "  vehicle-sim --discover\n"
-        << "  vehicle-sim --connect auto --vehicle tesla\n"
-        << "  vehicle-sim --connect file:capture.csv --vehicle tesla --log-csv decoded.csv\n"
-        << "  vehicle-sim --connect-file capture.csv --vehicle tesla --stdout-csv | head -20\n"
-        << "  vehicle-sim --interactive --stdout-csv --vehicle tesla --interval 20\n"
-        << "  vehicle-sim --connect tcp:192.168.4.1:3333 --vehicle tesla --log-raw x.raw --log-csv x.csv\n"
-        << "  vehicle-sim --connect usb:/dev/cu.usbserial-110 --vehicle tesla --log captures/SecondDrive\n"
-        << "  vehicle-sim --connect tcp:192.168.4.1 --vehicle tesla\n"
-        << "  vehicle-sim --connect file:capture.csv --vehicle tesla --stdout-csv | head -20\n"
-        << "  vehicle-sim --connect <addr> --vehicle tesla\n"
-        << "  vehicle-sim --connect <addr> --vehicle auto\n"
-        << "  vehicle-sim --scan\n"
-        << "  vehicle-sim --list\n\n"
-        << "NOTES:\n"
-        << "  --connect and --vehicle are required for telemetry\n"
-        << "  'auto' discovers an ESP32 on the UDP discovery port (3335) and connects automatically\n"
-        << "  file:<path> replays a captured raw CAN CSV\n"
-        << "  tcp:<ip>:<port> streams live CAN frames from an ESP32 CAN-bridge over WiFi\n"
-        << "    (port defaults to 3333 when omitted; e.g. tcp:192.168.4.1)\n"
-        << "  usb:<path> streams live CAN frames from an ESP32 CAN-bridge over USB serial\n"
-        << "    (for example /dev/cu.usbserial-110 at 115200 8N1)\n"
-        << "  tesla and audi_mlb_evo use CAN monitor mode (DBC decoding)\n"
-        << "  generic uses standard OBD2 PID polling\n"
-        << "  CAN monitor mode is read-only (ATCSM1: no ACK bits on bus)\n\n"
-        << "REQUIREMENTS:\n"
-        << "  For real data: Connect a BLE OBD2 adapter to your vehicle's OBD-II port,\n"
-        << "  connect over WiFi to an ESP32 CAN-bridge (tcp:<ip>:3333), or connect\n"
-        << "  directly by USB serial (usb:/dev/cu.usbserial-110).\n";
 }
 
 void printSupportedSignals(std::ostream& out, const domain::DBCTranslationService& service) {
@@ -190,46 +265,58 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
 std::string validateOptions(const CliOptions& opts, const domain::DBCTranslationService& service) {
     auto& registry = service.registry();
 
-    // Skip validation for scan, list, help, discover, led-diag
-    if (opts.scan_mode || opts.list_signals || opts.help_requested || opts.discover_mode || opts.led_diag) {
+    // Skip validation for scan, list, help, discover, led-diag, and provisioning.
+    // Provisioning talks over USB serial (no telemetry / vehicle / connect target).
+    if (opts.mode.scan_mode || opts.mode.list_signals || opts.mode.help_requested ||
+        opts.mode.discover_mode || opts.mode.led_diag || opts.isProvisioning()) {
         return "";
     }
 
     // --adapter-protocol must be a known value.
-    if (!opts.adapter_protocol.empty() &&
-        opts.adapter_protocol != "raw" &&
-        opts.adapter_protocol != "elm327" &&
-        opts.adapter_protocol != "default") {
+    if (!opts.logging.adapter_protocol.empty() &&
+        opts.logging.adapter_protocol != "raw" &&
+        opts.logging.adapter_protocol != "elm327" &&
+        opts.logging.adapter_protocol != "default") {
         std::ostringstream oss;
-        oss << "Unknown --adapter-protocol '" << opts.adapter_protocol
+        oss << "Unknown --adapter-protocol '" << forLog(opts.logging.adapter_protocol)
             << "'. Supported: raw, elm327";
         return oss.str();
     }
 
     // --connect is required for telemetry (interactive mode supplies its own
     // synthetic source, so it is exempt).
-    if (opts.connect_target.empty() && !opts.interactive_mode) {
+    if (opts.telemetry.connect_target.empty() && !opts.telemetry.interactive_mode) {
         return "--connect is required. Use --connect demo, --connect auto, or --connect <address>";
     }
 
     // Interactive mode is self-contained: no vehicle registry lookup needed.
-    if (opts.interactive_mode) {
+    // The --vehicle label is free-form (stamped onto each emitted CSV row), so
+    // it must pass boundary validation before reaching the CSV DATA sink.
+    if (opts.telemetry.interactive_mode) {
+        if (auto err = validateVehicleLabel(opts.telemetry.vehicle_type); !err.empty()) {
+            return err;
+        }
         return "";
     }
 
     // CSV replay of a decoded-telemetry file is bench testing: --vehicle is
     // only a label stamped onto each emitted row, so it need not be a real
-    // registered vehicle. Raw CAN replay (file:<raw>) still requires a valid
-    // vehicle for DBC translation, handled below.
+    // registered vehicle. It is still free-form and flows unsubstituted into the
+    // CSV sink, so it must pass boundary validation. Raw CAN replay
+    // (file:<raw>) still requires a valid vehicle for DBC translation, handled
+    // below.
     if (opts.isFile()) {
-        std::string path = opts.connect_target.substr(5);
+        std::string path = opts.telemetry.connect_target.substr(5);
         if (isDecodedTelemetryCsv(path)) {
+            if (auto err = validateVehicleLabel(opts.telemetry.vehicle_type); !err.empty()) {
+                return err;
+            }
             return "";
         }
     }
 
     // --vehicle is required
-    if (opts.vehicle_type.empty()) {
+    if (opts.telemetry.vehicle_type.empty()) {
         std::ostringstream oss;
         oss << "--vehicle is required. Available: ";
         auto vehicles = registry.getRegisteredVehicles();
@@ -240,7 +327,7 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
     }
 
     // "auto" is valid — resolved at runtime via UDP discovery
-    if (opts.vehicle_type == "auto") {
+    if (opts.telemetry.vehicle_type == "auto") {
         if (!opts.isBLE()) {
             return "--vehicle auto requires a BLE connection. Use --connect <address> --vehicle auto";
         }
@@ -248,9 +335,9 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
     }
 
     // Validate vehicle type against registry
-    if (!registry.hasConfig(opts.vehicle_type)) {
+    if (!registry.hasConfig(opts.telemetry.vehicle_type)) {
         std::ostringstream oss;
-        oss << "Unsupported vehicle type '" << opts.vehicle_type << "'. Available: ";
+        oss << "Unsupported vehicle type '" << forLog(opts.telemetry.vehicle_type) << "'. Available: ";
         auto vehicles = registry.getRegisteredVehicles();
         for (const auto& v : vehicles) {
             oss << v << " ";

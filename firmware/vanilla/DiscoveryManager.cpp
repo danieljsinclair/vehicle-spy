@@ -35,8 +35,8 @@ void DiscoveryManager::resetBackoff() {
     ctx_.backoffActive = true;
 }
 
-void DiscoveryManager::forceBroadcast() {
-    broadcast();
+bool DiscoveryManager::forceBroadcast() {
+    return broadcast();
 }
 
 bool DiscoveryManager::shouldBroadcast(bool haveClient) const {
@@ -57,8 +57,7 @@ bool DiscoveryManager::shouldBroadcast(bool haveClient) const {
     return false;
 }
 
-void DiscoveryManager::broadcast() {
-    ++broadcastCount_;
+bool DiscoveryManager::broadcast() {
     std::array<uint8_t, DiscoveryConfig::DISCOVERY_PACKET_SIZE> packet;
 
     uint64_t timestamp = time_.getCurrentTimestamp();
@@ -72,17 +71,35 @@ void DiscoveryManager::broadcast() {
     signer_.signPacket(packet.data());
 
     std::string broadcastIp = wifi_.broadcastIP();
-    udp_.beginPacket(broadcastIp, DiscoveryConfig::DISCOVERY_PORT);
-    udp_.write(packet.data(), DiscoveryConfig::DISCOVERY_PACKET_SIZE);
-    udp_.endPacket();
 
-    // Invoke callback if set
-    // DEBUG: Check if callback is null before invoking
+    // Defect 1 fix: the packet only "counts" as a real broadcast if it
+    // actually leaves the radio. beginPacket()/endPacket() return <= 0 on
+    // failure (e.g. ESP32 DNS-resolving a literal broadcast address — see
+    // ArduinoUdp.h Defect 2). Previously the count was incremented BEFORE
+    // send and the return codes were ignored, so a send that never reached
+    // the wire was still counted as success (and the callback fired on a
+    // phantom packet). That mismatch is exactly what the tcpdump anomaly
+    // showed: broadcast() called ~264× but only ~1 packet on the wire.
+    if (udp_.beginPacket(broadcastIp, DiscoveryConfig::DISCOVERY_PORT) <= 0) {
+        return false;
+    }
+    if (udp_.write(packet.data(), DiscoveryConfig::DISCOVERY_PACKET_SIZE)
+            != DiscoveryConfig::DISCOVERY_PACKET_SIZE) {
+        return false;
+    }
+    if (udp_.endPacket() <= 0) {
+        return false;
+    }
+
+    // Only now is the broadcast genuinely on the wire.
+    ++broadcastCount_;
+
+    // Invoke callback if set (lets the host observe a confirmed send).
     if (broadcastCallback_) {
         broadcastCallback_(packet.data(), packet.size());
-    } else {
-        // Callback is null - setBroadcastCallback was not called or was reset
     }
+
+    return true;
 }
 
 // Testable pure functions

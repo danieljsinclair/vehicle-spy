@@ -85,6 +85,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/CaptureNormaliser.cpp
     src/pipeline/DemoTransport.cpp
     src/pipeline/TCPTransport.cpp
+    src/pipeline/TcpReader.cpp
     src/pipeline/PosixSocket.cpp
     src/pipeline/USBTransport.cpp
     src/pipeline/OTAHttpTransport.cpp
@@ -99,6 +100,8 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/PacedFrameScheduler.cpp
     src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
+    src/cli/ProvisioningRunner.cpp
+    src/cli/LogSanitizer.cpp
     src/cli/Orchestration.cpp
     src/cli/BLEConnectionManager.cpp
     src/cli/TelemetryRunner.cpp
@@ -142,6 +145,10 @@ set(VEHICLE_SIM_LIB_SOURCES
     firmware/vanilla/OtaUpdateServer.cpp
     firmware/vanilla/CanBridge.cpp
     firmware/vanilla/FirmwareApp.cpp
+    firmware/vanilla/TokenStore.cpp
+    firmware/vanilla/DiscoveryPolicy.cpp
+    firmware/vanilla/LedPatternPolicy.cpp
+    firmware/vanilla/TcpServerRestartPolicy.cpp
 )
 
 # Add platform-specific BLE implementations for macOS builds

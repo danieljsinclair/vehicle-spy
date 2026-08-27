@@ -1,4 +1,5 @@
 #include "vehicle-sim/cli/BLEConnectionManager.h"
+#include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include <iostream>
 #include <iomanip>
@@ -28,10 +29,10 @@ bool BLEConnectionManager::connect(const std::string& address,
     protocol_ = protocol;
     const char* protocolLabel = (protocol == domain::VehicleProtocol::CAN) ? "CAN" : "OBD2";
 
-    std::cout << "Attempting to connect to: " << address << "\n";
+    std::cout << "Attempting to connect to: " << forLog(address) << "\n";
 
     if (!bleManager_->connect(address)) {
-        std::cerr << "\nFailed to connect to BLE device: " << address << "\n\n"
+        std::cerr << "\nFailed to connect to BLE device: " << forLog(address) << "\n\n"
                   << "Possible reasons:\n"
                   << "  - Device address is incorrect\n"
                   << "  - Device is out of range\n"

@@ -41,8 +41,9 @@ protected:
 };
 
 TEST_F(WiFiManagerTest, DetermineCredentialSource_StoredNVS_ReturnsStoredNVS) {
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     CredentialSource source = determineCredentialSource(prefsMock, nullptr, nullptr);
     EXPECT_EQ(source, CredentialSource::STORED_NVS);
@@ -59,8 +60,9 @@ TEST_F(WiFiManagerTest, DetermineCredentialSource_BakedCredentials_ReturnsBakedI
 }
 
 TEST_F(WiFiManagerTest, DetermineCredentialSource_StoredNVSPreferOverBaked_ReturnsStoredNVS) {
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     CredentialSource source = determineCredentialSource(prefsMock, "baked-ssid", "baked-pass");
     EXPECT_EQ(source, CredentialSource::STORED_NVS);
@@ -120,8 +122,9 @@ TEST_F(WiFiManagerTest, ShouldRetryWiFi_ConnectedState_ReturnsFalse) {
 }
 
 TEST_F(WiFiManagerTest, LoadCredentials_ValidCredentials_ReturnsTrue) {
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     std::string ssid, pass;
     bool result = wifiManager->loadCredentials(ssid, pass);
@@ -139,27 +142,29 @@ TEST_F(WiFiManagerTest, LoadCredentials_NoCredentials_ReturnsFalse) {
 TEST_F(WiFiManagerTest, StoreCredentials_ValidCredentials_ReturnsTrue) {
     bool result = wifiManager->storeCredentials("new-ssid", "new-pass");
     EXPECT_TRUE(result);
-    EXPECT_EQ(prefsMock.getValue("wifi", "ssid"), "new-ssid");
-    EXPECT_EQ(prefsMock.getValue("wifi", "pass"), "new-pass");
+    EXPECT_EQ(prefsMock.getValue("wifi", "ssid_0"), "new-ssid");
+    EXPECT_EQ(prefsMock.getValue("wifi", "pass_0"), "new-pass");
 }
 
 TEST_F(WiFiManagerTest, ClearCredentials_RemovesCredentials) {
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     bool result = wifiManager->clearCredentials();
     EXPECT_TRUE(result);
-    EXPECT_FALSE(prefsMock.hasKey("wifi", "ssid"));
-    EXPECT_FALSE(prefsMock.hasKey("wifi", "pass"));
+    EXPECT_FALSE(prefsMock.hasKey("wifi", "ssid_0"));
+    EXPECT_FALSE(prefsMock.hasKey("wifi", "pass_0"));
 }
 
 TEST_F(WiFiManagerTest, FactoryReset_CallsClearCredentials) {
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     bool result = wifiManager->factoryReset();
     EXPECT_TRUE(result);
-    EXPECT_FALSE(prefsMock.hasKey("wifi", "ssid"));
+    EXPECT_FALSE(prefsMock.hasKey("wifi", "ssid_0"));
 }
 
 TEST_F(WiFiManagerTest, Init_SetsInitialStateToDisconnected) {
@@ -192,8 +197,9 @@ TEST_F(WiFiManagerTest, IsApModeState_TrueOnlyForBothApStates) {
 }
 
 TEST_F(WiFiManagerTest, HasStoredCredentials_ReturnsTrueWhenCredentialsExist) {
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     EXPECT_TRUE(wifiManager->hasStoredCredentials());
 }
@@ -209,8 +215,9 @@ TEST_F(WiFiManagerTest, OnDisconnected_NonAuthFailure_SetsConnectingState) {
     // tcpServerNeedsRestart.
 
     // Set up stored credentials
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     // Re-create WiFiManager with fresh prefs after setting credentials
     wifiManager = std::make_unique<WiFiManager>(
@@ -243,8 +250,9 @@ TEST_F(WiFiManagerTest, OnDisconnected_AuthFail_StaysConnecting_ArmCampaign) {
     // reset connects), so 202 here is spurious/transient/wrong-mechanism. The
     // manager must stay in WIFI_CONNECTING and arm an auth-fail campaign.
 
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
 
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
@@ -294,8 +302,9 @@ TEST_F(WiFiManagerTest, Connecting_ConnectFailedAndTimeout_FallsBackToApMode) {
     // ConnectingStateHandler: status==CONNECT_FAILED + connectDuration past the
     // WIFI_CONNECT_TIMEOUT_MS threshold → shouldFallbackToApMode true. Stored
     // credentials existed and could not connect → the AUTH_FAIL AP state.
-    prefsMock.setValue("wifi", "ssid", "real-ssid");
-    prefsMock.setValue("wifi", "pass", "real-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
 
@@ -319,8 +328,9 @@ TEST_F(WiFiManagerTest, Connecting_ConnectFailedBeforeTimeout_RetriesStoredCrede
     // ConnectingStateHandler: status==CONNECT_FAILED but within the timeout →
     // no AP fallback; shouldRetryWiFi triggers a disconnect+begin retry using
     // the STORED_NVS credentials. State stays CONNECTING.
-    prefsMock.setValue("wifi", "ssid", "real-ssid");
-    prefsMock.setValue("wifi", "pass", "real-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
 
@@ -344,8 +354,9 @@ TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithStoredCredentials_FallsBack
     // ConnectingStateHandler isInitialConnectTimeout branch: status neither
     // CONNECTED nor CONNECT_FAILED/NO_SSID (idle), and connectDuration exceeds
     // the initial-connect budget → STORED_NVS → AUTH_FAIL AP (creds existed).
-    prefsMock.setValue("wifi", "ssid", "real-ssid");
-    prefsMock.setValue("wifi", "pass", "real-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
 
@@ -388,8 +399,9 @@ TEST_F(WiFiManagerTest, Connecting_WhenWifiConnected_TransitionsToConnected) {
     // ConnectingStateHandler body (covers former ReconnectingStateHandler path):
     // once status() reports WL_CONNECTED while in WIFI_CONNECTING, the handler
     // transitions back to WIFI_CONNECTED (tcpRestart + ntp init).
-    prefsMock.setValue("wifi", "ssid", "real-ssid");
-    prefsMock.setValue("wifi", "pass", "real-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
 
@@ -479,8 +491,9 @@ TEST_F(WiFiManagerTest, Connecting_NotConnectedAfterInterval_RetriesBakedCredent
 // Covers the ConnectingStateHandler retry branch (merged from ReconnectingStateHandler)
 // with STORED_NVS creds: hits wifi_.begin(storedSsid, storedPass) when loadCredentialsImpl succeeds.
 TEST_F(WiFiManagerTest, Connecting_NotConnectedAfterInterval_RetriesStoredCredentials) {
-    prefsMock.setValue("wifi", "ssid", "real-ssid");
-    prefsMock.setValue("wifi", "pass", "real-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
 
@@ -513,8 +526,9 @@ TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToConnecting) 
     // (event-callback driven): this is the per-tick self-heal that catches
     // drops the WiFi event callback did not surface. RECONNECTING was merged
     // into WIFI_CONNECTING (spec §1).
-    prefsMock.setValue("wifi", "ssid", "real-ssid");
-    prefsMock.setValue("wifi", "pass", "real-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
 
@@ -542,6 +556,43 @@ TEST_F(WiFiManagerTest, ConnectedSta_DroppedConnection_TransitionsToConnecting) 
         << "drop path must arm reconnectPending";
     EXPECT_EQ(wifiManager->getContext().disconnectStartMs, 200u)
         << "disconnectStartMs must be stamped at drop time";
+}
+
+TEST_F(WiFiManagerTest, ConnectedSta_IpZeroedWhileStatusConnected_TransitionsToConnecting) {
+    // Regression for the on-device field report: after an AP is toggled off then
+    // back on, ESP32's core keeps reporting WL_CONNECTED across the blip while
+    // DHCP does NOT re-complete, so localIP() reads 0.0.0.0. The old handler only
+    // checked status()!=WL_CONNECTED, so the device sat in WIFI_CONNECTED with no
+    // address — an unreachable, contradictory state. The invariant now treats
+    // "connected but no IP" as a drop so it re-enters CONNECTING and re-acquires.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+
+    // Establish the already-connected precondition. `init()`→`begin()` resets the
+    // mock to WL_IDLE_STATUS (WiFiMock::begin), so re-assert WL_CONNECTED AFTER
+    // init() — exactly as ConnectedSta_DroppedConnection does — otherwise the
+    // precondition never takes and the CONNECTING handler can't promote to
+    // WIFI_CONNECTED. (The field scenario is "connected, then AP blip zeroes IP";
+    // the promotion itself is the sibling test's job — here we only set up state.)
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    wifiMock.setLocalIP("172.20.10.2");  // IP assigned on connect
+    wifiManager->update(150);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // AP toggled off→on: status stays WL_CONNECTED but the IP is gone.
+    wifiMock.setLocalIP("0.0.0.0");
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(200);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "connected-with-no-IP must self-heal to CONNECTING";
+    EXPECT_TRUE(wifiManager->getContext().reconnectPending);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -589,8 +640,9 @@ TEST_F(WiFiManagerTest, AuthFail_ArmedCampaign_StaysConnectingAndRotatesStrategi
     // RESILIENT AUTH (req-1/2): 4WAY_HANDSHAKE_TIMEOUT (15) arms a campaign and
     // stays in WIFI_CONNECTING. Each retry tick advances the strategy index (and,
     // after wrapping, the loop counter) WITHOUT yet escalating to AP mode.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
     driveToConnected(*wifiManager, wifiMock);
@@ -623,8 +675,9 @@ TEST_F(WiFiManagerTest, AuthFail_ThreeLoopsExhausted_EscalatesToApMode) {
     // WIFI_AUTH_STRATEGY_COUNT strategies × WIFI_AUTH_STRATEGY_LOOP_COUNT loops
     // have all been attempted. After the last one, escalation to AP mode is
     // bounded (finite), not an infinite retry.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
     driveToConnected(*wifiManager, wifiMock);
@@ -658,8 +711,9 @@ TEST_F(WiFiManagerTest, AuthFail_SuccessfulConnectResetsCampaign) {
     // RESILIENT AUTH (req-3): a successful WL_CONNECTED after some auth-fails
     // resets the exhausted state (counters back to 0, pending cleared) so a
     // genuine later drop starts fresh rather than instantly escalating.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
     driveToConnected(*wifiManager, wifiMock);
@@ -690,8 +744,9 @@ TEST_F(WiFiManagerTest, AuthFail_ConnectAfterSomeFails_ResetExhaustedState) {
     // RESILIENT AUTH (req-3): even if we had progressed partway into the
     // campaign, a real connect resets everything; a subsequent fresh drop must
     // NOT immediately re-escalate (it re-arms a fresh campaign from strategy 0).
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
     driveToConnected(*wifiManager, wifiMock);
@@ -716,8 +771,9 @@ TEST_F(WiFiManagerTest, authExpireRetriesStaForever_Reason2StaysConnecting) {
     // AUTH_EXPIRE (2) is a TRANSIENT session-lifecycle reason: the auth
     // session timed out, but the credentials are still valid. Must NOT
     // transition to AP mode — must retry STA forever (re-enter CONNECTING).
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 
@@ -753,8 +809,9 @@ TEST_F(WiFiManagerTest, authExpireRetriesStaForever_Reason2StaysConnecting) {
 TEST_F(WiFiManagerTest, routerRebootRetriesSta_AssocExpireReason4) {
     // ASSOC_EXPIRE (4) is a TRANSIENT reason: the router rebooted or the
     // association expired. Must NOT transition to AP mode — must retry STA.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 
@@ -788,8 +845,9 @@ TEST_F(WiFiManagerTest, testFirstConnectRestartsTcpServer) {
     // Cold start: lastConnectedIp is empty → first WIFI_CONNECTED must set
     // tcpRestart=true (binds the listening socket for the first time).
     // This characterizes the preserved cold-start behavior.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 
@@ -815,8 +873,9 @@ TEST_F(WiFiManagerTest, testReconnectSameIpKeepsListeningSocket) {
     // tears down the port and drops an in-progress host AUTH (client_connected
     // then an immediate reason=0 disconnect). The ESP32 listening socket DOES
     // survive a brief radio reset, so we keep it bound across same-IP blips.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 
@@ -851,8 +910,9 @@ TEST_F(WiFiManagerTest, testReconnectSameIpKeepsListeningSocket) {
 
 TEST_F(WiFiManagerTest, testReconnectDifferentIpRestartsTcpServer) {
     // Different IP after a drop → tcpRestart FIRES (new DHCP lease, must rebind).
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 
@@ -887,8 +947,9 @@ TEST_F(WiFiManagerTest, testReconnectDifferentIpRestartsTcpServer) {
 TEST_F(WiFiManagerTest, testReconnectAfterLongDropRestartsTcpServer) {
     // Same IP but outage > LONG_OUTAGE_MS → restart as a safety net
     // (socket likely stale after a long outage).
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 
@@ -960,8 +1021,9 @@ TEST_F(WiFiManagerTest, testUserFacingSerialDoesNotLeakRestartDetail) {
     // re-bound after a radio reset. The serial trace is still controlled by
     // can-bridge.ino (it omits the user-facing message regardless). This test now
     // pins that BOTH same-IP and different-IP reconnects arm the flag.
-    prefsMock.setValue("wifi", "ssid", "test-ssid");
-    prefsMock.setValue("wifi", "pass", "test-pass");
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
     wifiManager = std::make_unique<WiFiManager>(
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
 

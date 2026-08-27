@@ -1,11 +1,11 @@
 .PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
-	        install-deps ios-icons app-icons scrub update-dbc firmware-wifi-sentinel \
+	        install-deps ios-icons app-icons scrub update-dbc \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
 	        capture-tcp ota-keys flash-over-tcp flash-over-usb \
 			reboot reboot-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
 	        sonar-scan sonar-scan-ios sonar-scan-esp32 sonar-summary sonar-compiledb sonar-compiledb-cpp sonar-compiledb-merge sonar-clean summary \
 	        coverage-run coverage-clean coverage-summary coverage-scorecard coverage-firmware coverage-firmware-clean \
-			header discovery join-wifi join-wifi-usb
+			header discovery set-wifi-creds clear-wifi-creds join-wifi join-wifi-usb clear-wifi-creds-usb
 
 # Device ID (first connected/available device, excluding unavailable)
 DEVICE_ID ?= $(shell xcrun devicectl list devices 2>/dev/null | awk 'NR>1 && !/unavailable/ && match($$0, /[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/) { print substr($$0, RSTART, RLENGTH); exit }')
@@ -19,13 +19,13 @@ ESPTOOL_DIR   ?= $(shell python3 -c 'import pathlib; roots=sorted(pathlib.Path.h
 ESPTOOL       ?= $(ESPTOOL_DIR)/esptool
 ESPTOOL_MERGE_CMD ?= $(shell if [ -x "$(ESPTOOL)" ] && "$(ESPTOOL)" --help 2>/dev/null | grep -q 'merge-bin'; then printf 'merge-bin'; else printf 'merge_bin'; fi)
 ESP32_HOST    ?=
-# ESP32_WIFI_PASS is the current var; ESP32_WIFI_PASSWORD is a legacy alias
-# still supported so older shells/docs keep working. PASS wins when both are set.
-ESP32_WIFI_PASSWORD ?=
-ESP32_WIFI_PASS ?= $(ESP32_WIFI_PASSWORD)
 # Shared auto-discovery command: extracts the first TCP IP from the vehicle-sim discovery output.
 # Used in flash/reboot recipes when ESP32_HOST is not set.
 ESP32_DISCOVER_CMD = ./build-native/vehicle-sim --discover 2>/dev/null | grep -oE 'tcp:[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1 | cut -d: -f2
+
+# Built native CLI binary (used by provisioning targets below). Declared so Make
+# builds it via the existing native machinery before the targets invoke it.
+VEHICLE_SIM := build-native/vehicle-sim
 
          RED=\033[0;31m
        GREEN=\033[0;32m
@@ -66,19 +66,9 @@ gate: test firmware-host-tests ios ios-test-gate ios-analyze firmware sonar-scan
 
 # Shared macro to show build config (DRY)
 define show_wifi
-	@if [ -z "$(ESP32_WIFI_SSID)" ]; then \
-		echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)"; \
-		echo " $(YELLOW)warning: ESP32_WIFI_SSID is blank — firmware will boot in AP mode (valid)$(NC)"; \
-	elif [ -z "$(ESP32_WIFI_PASS)" ]; then \
-		echo " ESP32_WIFI_SSID: $(PURPLE)$(ESP32_WIFI_SSID)$(NC)"; \
-		echo " $(YELLOW)warning: ESP32_WIFI_PASS is blank — auth will fail; firmware falls back to AP mode$(NC)"; \
-	else \
-		echo " ESP32_WIFI_SSID: $(GREEN)$(ESP32_WIFI_SSID)$(NC)"; \
-		_pass="$(ESP32_WIFI_PASS)"; \
-		_masked=$$(echo "$$_pass" | sed 's/./\*/g'); \
-		_masked=$${_pass%"$${_pass#?}"}$${_masked#?}; \
-		echo " ESP32_WIFI_PASS: $(RED)$${_masked}$(NC)"; \
-	fi
+	@echo "       WiFi: $(YELLOW)AP mode (ESP32-CAN)$(NC)";
+	@echo " $(YELLOW)creds in NVS — provision via: make set-wifi-creds ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>$(NC)";
+	@echo " $(YELLOW)clear via: make clear-wifi-creds$(NC)";
 endef
 
 define show_config
@@ -134,6 +124,12 @@ build-native/Makefile: CMakeLists.txt
 native macos osx: build-native/Makefile
 	@mkdir -p build-native/profraw
 	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native all
+
+# Built CLI binary — reuses the existing native/CMake machinery (no hand-rolled
+# compile). Make builds this before any provisioning target that invokes it.
+$(VEHICLE_SIM): build-native/Makefile CMakeLists.txt $(shell find include src test -type f 2>/dev/null)
+	@mkdir -p build-native/profraw
+	@LLVM_PROFILE_FILE="build-native/profraw/default-%p.profraw" $(MAKE) -C build-native vehicle-sim
 
 # C++ gtest suite (green) + Python capture-notepad suite (must also be green).
 # A failure in either fails the build.
@@ -284,8 +280,7 @@ ios-analyze: app-icons
 
 # -- iOS Icons -------------------------------------------------------------
 
-ICON_LIGHT = image/ODB2_car_logo_trans.png
-ICON_DARK  = image/ODB2_car_logo_white_trans.png
+ICON_SOURCE = image/OBD2-Vehicle-SPY.png
 
 ICON_CATALOG = vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset
 ICON_FILES = \
@@ -298,19 +293,30 @@ app-icons: $(ICON_FILES)
 clean-icons:
 	@rm -f $(ICON_CATALOG)/*.png
 
-define generate_icon
+define generate_icon_light
 @mkdir -p "$(ICON_CATALOG)"
 @IMGT=$$(command -v magick 2>/dev/null); \
 	if [ -z "$$IMGT" ]; then echo "${RED}Error: ImageMagick not installed. Run 'make install-deps'.${NC}" >&2; exit 1; fi; \
 	echo "  Generating $@ (1024x1024) from $<"; \
-	$$IMGT "$<" -trim +repage -resize "1600x1600" -background transparent -gravity center -extent "1024x1024" "$@"
+	$$IMGT "$<" -trim +repage -resize "1024x1024" -background transparent -gravity center -extent "1024x1024" "$@"
 endef
 
-$(ICON_CATALOG)/AppIcon.png: $(ICON_LIGHT)
-	$(generate_icon)
+define generate_icon_dark
+@mkdir -p "$(ICON_CATALOG)"
+@IMGT=$$(command -v magick 2>/dev/null); \
+	if [ -z "$$IMGT" ]; then echo "${RED}Error: ImageMagick not installed. Run 'make install-deps'.${NC}" >&2; exit 1; fi; \
+	echo "  Generating $@ (1024x1024) from $< (black -> white for dark mode)"; \
+	$$IMGT "$<" -channel RGB -fill white -opaque black +channel -trim +repage -resize "1024x1024" -background transparent -gravity center -extent "1024x1024" "$@"
+endef
 
-$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_DARK)
-	$(generate_icon)
+$(ICON_CATALOG)/AppIcon.png: $(ICON_SOURCE)
+	$(generate_icon_light)
+
+$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_SOURCE)
+	$(generate_icon_dark)
+
+# Rebuild icons when generation parameters in this Makefile change.
+$(ICON_FILES): Makefile
 
 # -- DBC ------------------------------------------------------------------
 #
@@ -393,58 +399,17 @@ install-deps:
 # make monitor             -- serial console (live view)
 # make capture             -- log CAN frames to captures/<tag>_<ts>.raw.txt + .csv
 #
-# WiFi: set ESP32_WIFI_SSID and ESP32_WIFI_PASS env vars (e.g. in .zshrc)
-#       Credentials are injected as compiler defines -- never written to disk
-#       Falls back to AP mode (ESP32-CAN / cancan12) if not set
+# WiFi: no build-time creds. Firmware boots AP-first; provision via
+#       `make set-wifi-creds` or ATSETWIFI (creds stored in NVS).
 #
 
-# WiFi credentials: read from environment, or prompt at build time.
-# Never use a silent default — the wrong SSID means the ESP32 won't connect.
-# ESP32_WIFI_PASS is current; ESP32_WIFI_PASSWORD is a legacy alias used only
-# when PASS is unset (defined above). Blank creds are permitted (AP mode).
-ESP32_WIFI_SSID ?=
-FIRMWARE_EXTRA_CFLAGS ?=
-# Force C++14 for std::make_unique, std::transform, std::round
-FIRMWARE_CFLAGS ?= -std=gnu++14
-
-# WiFi credentials as compiler defines (only in memory, never on disk)
-# Suppress SSID warning for discovery/discovery/join-wifi targets (not firmware-related)
-ifneq ($(ESP32_WIFI_SSID),)
-FIRMWARE_CFLAGS += -DESP32_WIFI_SSID=$(ESP32_WIFI_SSID) -DESP32_WIFI_PASS=$(ESP32_WIFI_PASS)
-ifeq ($(ESP32_WIFI_PASS),)
-$(warning ESP32_WIFI_SSID is set but ESP32_WIFI_PASS is blank — auth will fail; firmware will fall back to AP mode.)
-$(warning Set: export ESP32_WIFI_PASS=yourpassword  (or legacy ESP32_WIFI_PASSWORD=yourpassword))
-endif
-else ifeq ($(filter discovery join-wifi join-wifi-usb,$(MAKECMDGOALS)),)
-$(warning ESP32_WIFI_SSID is not set. Firmware will use AP mode (ESP32-CAN).)
-$(warning Set: export ESP32_WIFI_SSID=yourSSID ESP32_WIFI_PASS=yourpassword)
-endif
+# Credentials live in NVS only. Provision via `make set-wifi-creds` or ATSETWIFI.
+# Firmware boots in AP mode until creds are stored (first-boot fallback).
 
 # TCP auth token — single credential for both TCP commands and OTA
 # Generated by make ota-creds, persisted in ~/.zshrc, baked into firmware at build time
 ESP32_TCP_TOKEN ?= vehicle-sim-2026
 FIRMWARE_CFLAGS += -DTCP_AUTH_TOKEN=\"$(ESP32_TCP_TOKEN)\"
-
-# Force a re-bake when WiFi credentials or TCP token change.
-#
-# Make cannot observe command-line variable changes (e.g. ESP32_WIFI_SSID=...),
-# so a stale sentinel with old creds would never refresh and the firmware would
-# silently keep the previous credentials baked in. The sentinel recipe therefore
-# ALWAYS runs (via FORCE) and recomputes the md5 of the credential values; it
-# rewrites the file ONLY when the hash actually changed, so can-bridge.ino.bin
-# rebuilds exactly when a credential changed -- not on every invocation with the
-# same creds.
-FIRMWARE_CRED_SENTINEL = $(FIRMWARE_BUILD)/.cred-hash
-FORCE:
-
-$(FIRMWARE_CRED_SENTINEL): $(FIRMWARE_DIR)/*.ino FORCE
-	@mkdir -p $(FIRMWARE_BUILD)
-	@_new=$$(printf '%s%s%s' '$(ESP32_WIFI_SSID)' '$(ESP32_WIFI_PASS)' '$(ESP32_TCP_TOKEN)' | md5sum | awk '{print $$1}'); \
-	_old=$$(cat $@ 2>/dev/null || true); \
-	if [ "$$_new" != "$$_old" ]; then \
-		printf '%s\n' "$$_new" > $@; \
-		echo "  ${YELLOW}WiFi credentials changed${NC} -> ${GREEN}rebuilding firmware...${NC}"; \
-	fi
 
 # Firmware source inputs: the .ino sketch PLUS the extracted vanilla C++ it
 # #includes (firmware/vanilla/) and the ESP32-specific sources compiled into
@@ -464,7 +429,7 @@ FIRMWARE_SRCS := $(wildcard $(FIRMWARE_DIR)/*.ino) \
                  $(wildcard $(FIRMWARE_DIR)/*.h) \
                  $(wildcard $(FIRMWARE_DIR)/HardwareStatusLEDOutput.cpp)
 
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_CRED_SENTINEL) $(FIRMWARE_SRCS)
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_SRCS)
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
@@ -1074,7 +1039,14 @@ firmware-host-tests: $(FIRMWARE_TEST_REPORT)
 $(FIRMWARE_TEST_REPORT): $(FIRMWARE_TEST_INPUTS)
 	@echo "=== [firmware] Building host tests (firmware/build-verify) ==="
 	@mkdir -p $(FIRMWARE_BUILD_DIR)
-	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug
+	@# ROBUSTNESS: source path is ABSOLUTE ($(CURDIR) = repo root -> firmware/),
+	@# never the relative `..`. A relative `..` resolves against the shell cwd:
+	@# if CMAKE_HOME_DIRECTORY was ever recorded as firmware/ (in-source
+	@# pollution from an earlier bad configure) or the cwd isn't repo-root, `..`
+	@# points at the REPO ROOT instead of firmware/, cmake reconfigures the wrong
+	@# tree, and the generated build-verify/Makefile has no `all` target =>
+	@# "No rule to make target 'all'". Absolute source path removes ambiguity.
+	@cd $(FIRMWARE_BUILD_DIR) && cmake -DCMAKE_BUILD_TYPE=Debug "$(CURDIR)/firmware"
 	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
 	@echo "=== [firmware] Running host tests ==="
 	@# Run the gtest binary directly so the report carries the gtest summary
@@ -1094,7 +1066,24 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 	@echo "=== [firmware] Building host tests with coverage (llvm-cov) ==="
 	@mkdir -p $(FIRMWARE_BUILD_DIR)
 	@rm -rf $(FIRMWARE_BUILD_DIR)/profraw
-	@cd $(FIRMWARE_BUILD_DIR) && cmake .. -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON
+	@# `cmake --fresh` wipes the cache + generated files so the -DCOVERAGE=ON
+	@# reconfigure actually recompiles everything with -fprofile-instr-generate.
+	@# Without a fresh reconfigure, a build-verify dir previously built WITHOUT
+	@# -DCOVERAGE=ON keeps its non-instrumented .o files (make sees no source
+	@# change), so the tests run but emit NO profraw -> llvm-cov exports 0/2480
+	@# (the "coverage broken" bug). `rm -rf CMakeFiles` is avoided (it trips the
+	@# destructive-command guard); --fresh achieves the same full reconfigure.
+	@#
+	@# ROBUSTNESS: the source path is passed ABSOLUTE ($(CURDIR) = repo root ->
+	@# firmware/) rather than the relative `..`. A relative `..` is ambiguous:
+	@# if a prior (stale) cache recorded CMAKE_HOME_DIRECTORY as firmware/
+	@# (in-source pollution from an earlier bad configure), `cmake --fresh ..`
+	@# re-resolves `..` against that wrong source and regenerates into
+	@# firmware/ itself, deleting build-verify/Makefile and breaking the next
+	@# `make -C build-verify all` ("No rule to make target `all`"). An absolute
+	@# source path removes the ambiguity entirely. We `cd` into the build dir
+	@# so the build tree is build-verify/ and the source is always firmware/.
+	@cd $(FIRMWARE_BUILD_DIR) && cmake --fresh -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON "$(CURDIR)/firmware"
 	@$(MAKE) -C $(FIRMWARE_BUILD_DIR) all
 	@echo "=== [firmware] Running tests under coverage ==="
 	@# Honesty: pipefail (no || true) so a firmware test failure propagates
@@ -1105,7 +1094,7 @@ $(FIRMWARE_COVERAGE_LCOV): $(FIRMWARE_TEST_INPUTS) firmware/CMakeLists.txt scrip
 		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests 2>&1 | tee $(FIRMWARE_TEST_REPORT)
 	@echo "=== [firmware] Merging profdata and exporting lcov ==="
 	@$(LLVM_PROFDATA) merge -o $(FIRMWARE_BUILD_DIR)/coverage.profdata \
-		$(FIRMWARE_BUILD_DIR)/profraw/*.profraw 2>/dev/null || true
+		$(FIRMWARE_BUILD_DIR)/profraw/*.profraw
 	@$(LLVM_COV) export \
 		$(FIRMWARE_BUILD_DIR)/esp32-firmware-tests \
 		--instr-profile=$(FIRMWARE_BUILD_DIR)/coverage.profdata \
@@ -1568,6 +1557,11 @@ help:
 	@echo "  capture-tcp      - Log CAN frames over WiFi TCP (alias: capture-tcp; requires ESP32_HOST=<esp32-ip>)"
 	@echo "  firmware-port    - Show detected ESP32 serial port"
 	@echo "  ota-keys         - Generate per-user Ed25519 OTA signing keypair + bake public key"
+	@echo "  set-wifi-creds   - Provision WiFi credentials to NVS (USB preferred, network fallback)"
+	@echo "  clear-wifi-creds - Clear WiFi credentials from NVS (USB preferred, network fallback)"
+	@echo "  join-wifi        - Alias for set-wifi-creds"
+	@echo "  join-wifi-usb    - Provision WiFi credentials over USB serial only"
+	@echo "  clear-wifi-creds-usb - Clear WiFi credentials over USB serial only"
 	@echo "  coverage-run     - Build C++ core with llvm-cov instrumentation + run tests + lcov/XML"
 	@echo "  coverage-ios     - Run iOS tests with xcodebuild -enableCodeCoverage + xccov/XML"
 	@echo "  coverage-summary - Print local coverage % (C++ lcov + iOS xccov)"
@@ -1626,32 +1620,54 @@ reboot-tcp reboot-wifi reboot-over-wifi reboot-over-tcp:
 			echo "${YELLOW}WARN: no response (device may have already rebooted)${NC}"; \
 		fi
 
-# -- Configure WiFi over AP -------------------------------------------------
+# -- Configure / Clear WiFi (NVS provisioning) ---------------------------------
 #
-# Configure ESP32 WiFi credentials by connecting to its AP (192.168.4.1)
-#   make join-wifi ESP32_WIFI_SSID=... ESP32_WIFI_PASS=...
-#   make join-wifi-usb ESP32_WIFI_SSID=... ESP32_WIFI_PASS=...
+# Provision ESP32 WiFi credentials (stored in NVS, survives re-flash).
+#   make set-wifi-creds ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>
 #
-# Connects to device AP, AUTH, sends ATSETWIFI, waits for OK + reboot.
+# Clear ESP32 WiFi credentials (factory reset to default AP).
+#   make clear-wifi-creds
+#
+# USB preferred (direct serial, no AP join required); falls back to network
+# (connect host to ESP32-CAN AP at 192.168.4.1) if USB unavailable.
+#
+# Aliases: join-wifi, join-wifi-usb, clear-wifi-creds-usb
 
-join-wifi:
+set-wifi-creds: $(VEHICLE_SIM) ## Provision WiFi credentials (USB preferred, network fallback)
 	@if [ -z "$(ESP32_WIFI_SSID)" ] || [ -z "$(ESP32_WIFI_PASS)" ]; then \
-			echo "${RED}Error: ESP32_WIFI_SSID and ESP32_WIFI_PASS are required.${NC}" >&2; \
-			echo "  make join-wifi ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>" >&2; \
-			exit 1; \
-		fi
-	@echo "${YELLOW}--- Configuring WiFi credentials over AP (192.168.4.1:3333) ---${NC}"
-	@echo "SSID: $(ESP32_WIFI_SSID)"
-	@echo "${YELLOW}Make sure your host is connected to ESP32-CAN AP${NC}"
-	@printf 'AUTH $(ESP32_TCP_TOKEN)\rATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' | nc -w 5 192.168.4.1 3333 2>/dev/null; \
+		echo "${RED}Error: ESP32_WIFI_SSID and ESP32_WIFI_PASS are required.${NC}" >&2; \
+		echo "  make set-wifi-creds ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>" >&2; \
+		exit 1; \
+	fi
+	@# Try USB first (direct serial, no AP join required) via the native binary.
+	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
+		echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"; \
+		echo "SSID: $(ESP32_WIFI_SSID)"; \
+		./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --port "$(ESP32_PORT)"; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
-			echo "${RED}Failed to configure WiFi. Is the ESP32 in AP mode?${NC}" >&2; \
 			exit 1; \
 		fi; \
-		echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
+		echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"; \
+		$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"; \
+	else \
+		echo "${YELLOW}--- Configuring WiFi credentials over AP (192.168.4.1:3333) ---${NC}"; \
+		echo "SSID: $(ESP32_WIFI_SSID)"; \
+		echo "${YELLOW}Make sure your host is connected to ESP32-CAN AP${NC}"; \
+		_reply=$$(printf 'AUTH $(ESP32_TCP_TOKEN)\rATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' | nc -w 8 192.168.4.1 3333 2>/dev/null); \
+			echo "$$_reply"; \
+			if ! echo "$$_reply" | grep -q "OK WiFi credentials stored"; then \
+				echo "${RED}Failed to configure WiFi. Is the ESP32 in AP mode?${NC}" >&2; \
+				exit 1; \
+			fi; \
+			echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"; \
+	fi
 
-join-wifi-usb: firmware-port
+.PHONY: set-wifi-creds
+join-wifi: set-wifi-creds  # backwards compatibility alias
+
+# USB-only path (no network fallback); requires explicit port detection
+join-wifi-usb: firmware-port $(VEHICLE_SIM)
 	@if [ -z "$(ESP32_WIFI_SSID)" ] || [ -z "$(ESP32_WIFI_PASS)" ]; then \
 			echo "${RED}Error: ESP32_WIFI_SSID and ESP32_WIFI_PASS are required.${NC}" >&2; \
 			echo "  make join-wifi-usb ESP32_WIFI_SSID=<ssid> ESP32_WIFI_PASS=<password>" >&2; \
@@ -1659,6 +1675,55 @@ join-wifi-usb: firmware-port
 		fi
 	@echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"
 	@echo "SSID: $(ESP32_WIFI_SSID)"
-	@printf 'ATSETWIFI$(ESP32_WIFI_SSID),$(ESP32_WIFI_PASS)\r' > "$(ESP32_PORT)"
-	@echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
+	@./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --port "$(ESP32_PORT)"; \
+	_rc=$$?; \
+	if [ $$_rc -ne 0 ]; then \
+		exit 1; \
+	fi; \
+	echo "${GREEN}WiFi credentials configured. ESP32 is rebooting...${NC}"
+	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"
+
+# -- Clear WiFi credentials (factory reset) ------------------------------------
+#
+# Clear ESP32 WiFi credentials from NVS (factory reset to default AP).
+#   make clear-wifi-creds
+#
+# USB preferred (direct serial, no AP join required); falls back to network
+# (connect host to ESP32-CAN AP at 192.168.4.1) if USB unavailable.
+#
+# Aliases: clear-wifi-creds-usb
+
+clear-wifi-creds: $(VEHICLE_SIM) ## Clear WiFi credentials (USB preferred, network fallback)
+	@echo "${YELLOW}--- Clearing WiFi credentials ---${NC}"
+	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
+		echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"; \
+		./build-native/vehicle-sim --clear-wifi-creds --port "$(ESP32_PORT)"; \
+		_rc=$$?; \
+		if [ $$_rc -ne 0 ]; then \
+			exit 1; \
+		fi; \
+		echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"; \
+		$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"; \
+	else \
+		echo "${YELLOW}--- Clearing WiFi credentials over AP (192.168.4.1:3333) ---${NC}"; \
+		echo "${YELLOW}Make sure your host is connected to ESP32-CAN AP${NC}"; \
+		_reply=$$(printf 'AUTH $(ESP32_TCP_TOKEN)\rATCLEARWIFI\r' | nc -w 8 192.168.4.1 3333 2>/dev/null); \
+		echo "$$_reply"; \
+		if ! echo "$$_reply" | grep -q "OK WiFi credentials cleared"; then \
+			echo "${RED}Failed to clear WiFi. Is the ESP32 in AP mode?${NC}" >&2; \
+			exit 1; \
+		fi; \
+		echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"; \
+	fi
+
+.PHONY: clear-wifi-creds
+clear-wifi-creds-usb: firmware-port
+	@echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"
+	@./build-native/vehicle-sim --clear-wifi-creds --port "$(ESP32_PORT)"; \
+	_rc=$$?; \
+	if [ $$_rc -ne 0 ]; then \
+		echo "${YELLOW}WARN: clear was not confirmed (no reply within 8s)${NC}" >&2; \
+		exit 1; \
+	fi; \
+	echo "${GREEN}WiFi credentials cleared. ESP32 is rebooting...${NC}"
 	@$(MAKE) startup-log ESP32_PORT="$(ESP32_PORT)"

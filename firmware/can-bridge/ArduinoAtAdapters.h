@@ -16,6 +16,7 @@
 #include <WiFiClient.h>
 #include <Preferences.h>
 #include "AtCommandDispatcher.h"
+#include "WiFiManager.h"  // loadCredentialsImpl (boot-time credential reader)
 
 namespace esp32_firmware {
 
@@ -62,18 +63,24 @@ private:
     Preferences& prefs_;
 };
 
-// WiFi credential store adapter: bridges the concrete Arduino Preferences class
-// over the vanilla INvsWifiStore interface. The Preferences reference is injected
-// at construction; store() delegates to the vanilla storeWifiCredentials function.
+// WiFi credential store adapter: bridges the production ArduinoPreferences
+// (the IPreferences impl FirmwareApp/WiFiManager use at boot) to the vanilla
+// IWifiCredentialStore interface. Holding the SAME ArduinoPreferences instance
+// the boot reader uses guarantees ATSETWIFI writes land in the handle boot
+// reads — a single source of truth for WiFi creds.
 struct ArduinoAtWifiStore : public IWifiCredentialStore {
-    explicit ArduinoAtWifiStore(Preferences& prefs) : prefs_(prefs) {}
+    explicit ArduinoAtWifiStore(ArduinoPreferences& prefs) : prefs_(prefs) {}
 
     bool store(const std::string& ssid, const std::string& password) override {
-        ArduinoNvsWifiStore adapter(prefs_);
+        ArduinoNvsWifiStore adapter(prefs_.rawPreferences());
         return esp32_firmware::storeWifiCredentials(adapter, ssid, password);
     }
+
+    bool load(std::string& ssid, std::string& pass) override {
+        return esp32_firmware::loadCredentialsImpl(prefs_, ssid, pass);
+    }
 private:
-    Preferences& prefs_;
+    ArduinoPreferences& prefs_;
 };
 
 } // namespace esp32_firmware

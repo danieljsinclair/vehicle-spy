@@ -44,9 +44,8 @@ protected:
         FirmwareAppTest::TearDown();
     }
 
-    // Helper: drive init + set callbacks + inject logger in one call.
+    // Helper: drive init + inject logger in one call.
     void initWithLogger() {
-        firmwareApp->setCallbacks(callbackSpies);
         firmwareApp->init();
     }
 };
@@ -293,7 +292,7 @@ TEST_F(FirmwareAppSerialObservabilityTest, AuthFail_SingleFailureStaysConnecting
               static_cast<int>(WiFiState::State::WIFI_CONNECTED));
 
     // The campaign detail must be empty before any auth failure.
-    ASSERT_EQ(firmwareApp->getWiFiDiagnostic().authCampaignDetail, std::string());
+    ASSERT_EQ(firmwareApp->wifiManager().getAuthCampaignDetail(), std::string());
 
     // Single auth-mechanism failure → stays CONNECTING (no AP fallback yet).
     // onWiFiDisconnected delegates to WiFiManager::onDisconnected (arms the
@@ -307,11 +306,11 @@ TEST_F(FirmwareAppSerialObservabilityTest, AuthFail_SingleFailureStaysConnecting
     EXPECT_EQ(firmwareApp->getWiFiState(),
               static_cast<int>(WiFiState::State::WIFI_CONNECTING))
         << "single auth-mechanism failure must NOT bail to AP";
-    EXPECT_THAT(firmwareApp->getWiFiDiagnostic().authCampaignDetail, HasSubstr("reason=15"))
+    EXPECT_THAT(firmwareApp->wifiManager().getAuthCampaignDetail(), HasSubstr("reason=15"))
         << "heartbeat must report the active auth campaign detail";
-    EXPECT_THAT(firmwareApp->getWiFiDiagnostic().authCampaignDetail, HasSubstr("strategy="))
+    EXPECT_THAT(firmwareApp->wifiManager().getAuthCampaignDetail(), HasSubstr("strategy="))
         << "heartbeat must report the current strategy within the 3-strategy list";
-    EXPECT_THAT(firmwareApp->getWiFiDiagnostic().authCampaignDetail, HasSubstr("loop=0/3"))
+    EXPECT_THAT(firmwareApp->wifiManager().getAuthCampaignDetail(), HasSubstr("loop=0/3"))
         << "heartbeat must report the campaign is on the first loop";
 }
 
