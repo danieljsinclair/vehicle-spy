@@ -154,8 +154,14 @@ std::string stripStateLines(const std::string& reply);
 // don't care (runProvisioningCommand) can ignore it. runStatus() uses it to
 // distinguish "deadline elapsed" from "device disappeared mid-wait" so the
 // operator gets the right diagnostic.
+//
+// `Match` is a template so each caller can pass its concrete callable
+// (function pointer, lambda, etc.) without the type-erasure overhead of
+// std::function (cpp:S5213). The constraint matches MatchFn's signature:
+// `PollStep(const std::string&)`.
+template <typename Match>
 PollStep pollOnce(ISerialPort& port,
-                  const MatchFn& match,
+                  const Match& match,
                   std::string& reply,
                   std::ostream& log,
                   StopReason& stopReason);
@@ -165,11 +171,11 @@ PollStep pollOnce(ISerialPort& port,
 // successful read step (mirrors the original pollOnce() semantics for the
 // "no expected reply" path).
 //
-// The matcher takes a NON-CONST reference so it can strip complete [STATE]
-// lines from the buffer before searching. Under a state-flood the
-// firmware's periodic heartbeat noise otherwise buries the real ack; the
-// strip is local to the substring path because runStatus() wants to see
-// the [STATE] lines, not lose them.
+// The matcher takes a CONST reference (no in-place mutation) and asks
+// stripStateLines() to RETURN a filtered copy of the buffer for the
+// substring search. Under a state-flood the firmware's periodic heartbeat
+// noise otherwise buries the real ack; the strip is local to the substring
+// path because runStatus() wants to see the [STATE] lines, not lose them.
 MatchFn makeSubstringMatcher(std::string_view expect) {
     return [expect](const std::string& reply) {
         if (expect.empty()) {
@@ -206,8 +212,9 @@ MatchFn makeStateLineMatcher() {
 // per-byte echo of the bytes just read. runStatus() uses a discarding
 // stream for this argument so the operator sees only the captured
 // [STATE] line, not every raw heartbeat byte that flew by.
+template <typename Match>
 PollStep pollOnce(ISerialPort& port,
-                  const MatchFn& match,
+                  const Match& match,
                   std::string& reply,
                   std::ostream& log,
                   StopReason& stopReason) {
