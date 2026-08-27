@@ -2,6 +2,7 @@
 #include "vehicle-sim/cli/LogSanitizer.h"
 
 #include <fcntl.h>
+#include <functional>
 #include <glob.h>
 #include <termios.h>
 #include <unistd.h>
@@ -112,60 +113,158 @@ constexpr std::size_t SERIAL_READ_CHUNK = 256;
 // is explicit rather than a bool whose meaning depends on a second variable.
 enum class PollStep { KeepPolling, Matched, Stop };
 
+// Why pollOnce returned Stop. The runStatus() caller surfaces this in its
+// diagnostic — a peer-closed-without-data means the device rebooted mid-wait
+// (a separate operator-meaningful failure from "deadline elapsed with the
+// device silent"). runProvisioningCommand() ignores it (both are TIMEOUT).
+enum class StopReason { None, SelectError, ReadError, PeerClosed };
+
 // (forLog moved to the shared LogSanitizer — see vehicle-sim/cli/LogSanitizer.h.)
 
-// Drop whole "[STATE] ... <CR/LF>" lines so the matcher ignores periodic
-// heartbeat / WiFi-state noise. Declared here; defined after pollOnce.
-void stripStateLines(std::string& reply);
+// Match predicate over the accumulated reply buffer. Returns Matched when
+// the caller's success condition is satisfied, KeepPolling otherwise.
+// Defined per use site:
+//   * runProvisioningCommand: substring match against the AT ack (after
+//     stripping [STATE] heartbeat noise)
+//   * runStatus: a [STATE] marker followed by a CR/LF terminator
+// SRP: pollOnce() owns the wait+read step; the matcher's job is to ask "is
+// this reply good enough to stop?", nothing else. The reference is
+// const because both matchers are pure functions over the buffer — the
+// substring filter lives in stripStateLines() which returns a new string
+// (functional, no in-place mutation).
+using MatchFn = std::function<PollStep(const std::string& reply)>;
+
+// Drop whole "[STATE] ... <CR/LF>" lines so the substring matcher ignores
+// periodic heartbeat / WiFi-state noise. Declared here, defined after the
+// matcher factories (which call it from inside their lambdas at runtime —
+// forward declaration is the only ordering requirement).
+std::string stripStateLines(const std::string& reply);
 
 // Run ONE poll step: wait briefly for readable bytes, append whatever arrived
 // to `reply`, and report whether the caller should keep polling, stop having
 // matched, or stop without a match.
 //
-// SRP: this owns a single socket wait+read+match step; runProvisioningCommand()
-// owns the framing and the deadline. Keeping them apart is what lets the read
-// loop stay a three-line single-exit construct.
+// SRP: this owns a single socket wait+read+match step; the surrounding loop
+// (runProvisioningCommand, runStatus) owns the framing and the deadline.
+// Keeping them apart is what lets the read loop stay a three-line single-exit
+// construct shared by BOTH callers.
+//
+// `stopReason` is an out-parameter that names WHY the step returned Stop
+// (select error, read error, peer-closed). Set on every Stop; callers that
+// don't care (runProvisioningCommand) can ignore it. runStatus() uses it to
+// distinguish "deadline elapsed" from "device disappeared mid-wait" so the
+// operator gets the right diagnostic.
 PollStep pollOnce(ISerialPort& port,
-                  std::string_view expect,
+                  const MatchFn& match,
                   std::string& reply,
-                  std::ostream& log) {
+                  std::ostream& log,
+                  StopReason& stopReason);
+
+// Build a substring match predicate for an AT ack (e.g. "stored", "cleared").
+// An empty `expect` is "fire-and-forget": Matched immediately on the first
+// successful read step (mirrors the original pollOnce() semantics for the
+// "no expected reply" path).
+//
+// The matcher takes a NON-CONST reference so it can strip complete [STATE]
+// lines from the buffer before searching. Under a state-flood the
+// firmware's periodic heartbeat noise otherwise buries the real ack; the
+// strip is local to the substring path because runStatus() wants to see
+// the [STATE] lines, not lose them.
+MatchFn makeSubstringMatcher(std::string_view expect) {
+    return [expect](const std::string& reply) {
+        if (expect.empty()) {
+            return PollStep::Matched;
+        }
+        const std::string filtered = stripStateLines(reply);
+        return filtered.find(expect) != std::string::npos
+                   ? PollStep::Matched
+                   : PollStep::KeepPolling;
+    };
+}
+
+// Build a predicate that matches "[STATE] ... <CR/LF>" — the LoopHeartbeat
+// heartbeat the firmware emits on a 5s cadence. We require BOTH the marker
+// AND a terminator so a [STATE] line that arrived at the tail of a previous
+// chunk and is not yet terminated keeps us reading.
+MatchFn makeStateLineMatcher() {
+    return [](const std::string& reply) {
+        const std::size_t markerPos = reply.find(PROVISION_OK_STATUS);
+        if (markerPos == std::string::npos) {
+            return PollStep::KeepPolling;
+        }
+        return reply.find_first_of("\r\n", markerPos) != std::string::npos
+                   ? PollStep::Matched
+                   : PollStep::KeepPolling;
+    };
+}
+
+// One poll step: wait briefly for readable bytes, append whatever arrived
+// to `reply`, then ask the matcher to decide. See the forward declaration
+// above for the SRP / stopReason contract.
+//
+// `log` receives I/O-failure diagnostics (select/read errors) and the
+// per-byte echo of the bytes just read. runStatus() uses a discarding
+// stream for this argument so the operator sees only the captured
+// [STATE] line, not every raw heartbeat byte that flew by.
+PollStep pollOnce(ISerialPort& port,
+                  const MatchFn& match,
+                  std::string& reply,
+                  std::ostream& log,
+                  StopReason& stopReason) {
+    stopReason = StopReason::None;
     const int ready = port.selectReadable(SERIAL_POLL_INTERVAL_US);
     if (ready < 0) {
         log << "[provision] Select failed on serial port\n";
+        stopReason = StopReason::SelectError;
         return PollStep::Stop;
     }
     if (ready == 0) {
-        // No expected reply (e.g. fire-and-forget) — success once sent.
-        return expect.empty() ? PollStep::Matched : PollStep::KeepPolling;
+        // Poll step elapsed with no bytes. Consult the matcher on the
+        // current buffer anyway so fire-and-forget matchers (empty expect)
+        // can short-circuit to Matched without waiting for a read.
+        return match(reply);
     }
 
     std::array<char, SERIAL_READ_CHUNK> buf{};
     const ssize_t n = port.read(buf.data(), buf.size());
     if (n < 0) {
         log << "[provision] Read failed on serial port\n";
+        stopReason = StopReason::ReadError;
         return PollStep::Stop;
     }
     if (n == 0) {
-        return PollStep::Stop;  // peer closed / no more data
+        // Peer closed / no more data. The matcher is not consulted: an
+        // empty buffer cannot satisfy a substring or [STATE] match, and
+        // returning Matched here would lie to the caller. Caller
+        // distinguishes "peer closed" from "deadline" via stopReason.
+        stopReason = StopReason::PeerClosed;
+        return PollStep::Stop;
     }
 
     const auto count = static_cast<std::size_t>(n);
     reply.append(buf.data(), count);
     log << "[provision] <- " << std::string_view(buf.data(), count);
 
-    // The firmware emits periodic [STATE] heartbeat / WiFi-state lines that have
-    // nothing to do with the provisioning ack (LoopHeartbeat.cpp, WiFiManager.cpp).
-    // Under a state-flood these lines bury the real ack in noise; strip whole
-    // "[STATE] ... <CR/LF>" lines from the match buffer so find() sees only the
-    // relevant reply. We only drop [STATE] lines — the "ATSETWIFI" command echo and
-    // the "OK WiFi credentials stored" ack are preserved verbatim, so the data
-    // fields in the AT frame are never touched.
-    stripStateLines(reply);
-
-    const bool matched =
-        !expect.empty() && reply.find(expect) != std::string::npos;
-    return matched ? PollStep::Matched : PollStep::KeepPolling;
+    // Stripping [STATE] heartbeat lines is the substring matcher's job
+    // (it drops them so the AT-ack substring is not buried by noise).
+    // The state-line matcher does NOT strip — the [STATE] line IS the
+    // signal it is looking for.
+    return match(reply);
 }
+
+// Discarding stream sink. Used by runStatus() so the per-byte echo
+// (which is meaningful for AT-ack debugging in runProvisioningCommand)
+// does not flood the operator's stderr while a [STATE] heartbeat
+// streams by.
+class NullStream final : public std::ostream {
+public:
+    NullStream() : std::ostream(&buf_) {}
+private:
+    class NullBuffer final : public std::streambuf {
+    public:
+        int overflow(int c) override { return c; }
+    } buf_;
+};
 
 // Strip "[STATE] ... <terminator>" heartbeat lines from `reply` so the device's
 // periodic state broadcasts don't bury the AT-command ack the matcher looks for.
@@ -174,7 +273,9 @@ PollStep pollOnce(ISerialPort& port,
 // line is preserved verbatim — complete non-STATE lines (the "ATSETWIFI" echo,
 // the "OK WiFi credentials stored" ack), partial trailing lines, and partial
 // [STATE] lines left in place to be completed and dropped on a later poll step.
-void stripStateLines(std::string& reply) {
+// Returns a new string rather than mutating `reply` in place — the caller is
+// usually a const matcher that owns the buffer but must not rewrite it.
+std::string stripStateLines(const std::string& reply) {
     std::string out;
     out.reserve(reply.size());
 
@@ -199,7 +300,7 @@ void stripStateLines(std::string& reply) {
         pos = term + termLen;
     }
 
-    reply = std::move(out);
+    return out;
 }
 
 } // namespace
@@ -284,10 +385,15 @@ int runProvisioningCommand(ISerialPort& port,
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(timeoutS);
 
+    const MatchFn match = makeSubstringMatcher(expect);
     PollStep outcome = PollStep::KeepPolling;
     while (outcome == PollStep::KeepPolling &&
            std::chrono::steady_clock::now() < deadline) {
-        outcome = pollOnce(port, expect, reply, log);
+        // runProvisioningCommand does not distinguish WHY pollOnce stopped;
+        // any Stop maps to the same TIMEOUT diagnostic. The reason out-param
+        // is still required by the shared loop's contract.
+        StopReason reason;
+        outcome = pollOnce(port, match, reply, log, reason);
     }
 
     int rc = 1;
@@ -308,67 +414,44 @@ int runStatus(ISerialPort& port,
     // [STATE] lines are device-driven (no AT ack), so we do not send a
     // command. We just wait for the NEXT heartbeat line and print it.
     //
-    // The read loop mirrors pollOnce()'s shape (single read step per
-    // iteration, single exit point) so the timeout-bounded wait is a
-    // single-exit construct — the only branch is "matched / keep polling /
-    // stop". When a [STATE] line lands, we extract everything up to the next
-    // CR/LF terminator and write that substring to `out` so callers can
-    // capture / pipe it cleanly.
+    // The wait+read step is shared with runProvisioningCommand() via
+    // pollOnce(); only the matcher differs (substring vs. "[STATE] ...
+    // <CR/LF>"). When pollOnce reports Stop, the underlying cause is
+    // surfaced as the same TIMEOUT diagnostic the deadline path uses so the
+    // operator gets a clear "no snapshot" message regardless of which way
+    // the wait ended.
     std::string reply;
     const auto deadline =
         std::chrono::steady_clock::now() + std::chrono::seconds(timeoutS);
 
-    while (std::chrono::steady_clock::now() < deadline) {
-        const int ready = port.selectReadable(SERIAL_POLL_INTERVAL_US);
-        if (ready < 0) {
-            err << "[provision] Select failed on serial port\n";
-            return 1;
-        }
-        if (ready == 0) {
-            continue;  // poll step elapsed, keep waiting up to the deadline
-        }
+    const MatchFn match = makeStateLineMatcher();
+    PollStep outcome = PollStep::KeepPolling;
+    StopReason stopReason = StopReason::None;
+    NullStream sink;  // discard the per-byte echo — the [STATE] line is what we want
+    while (outcome == PollStep::KeepPolling &&
+           std::chrono::steady_clock::now() < deadline) {
+        outcome = pollOnce(port, match, reply, sink, stopReason);
+    }
 
-        std::array<char, SERIAL_READ_CHUNK> buf{};
-        const ssize_t n = port.read(buf.data(), buf.size());
-        if (n < 0) {
-            err << "[provision] Read failed on serial port\n";
-            return 1;
-        }
-        if (n == 0) {
-            // Peer closed / no more data. The heartbeat is device-driven, so
-            // an EOF without a [STATE] line means the device is gone (most
-            // likely mid-reboot) — surface the same TIMEOUT diagnostic the
-            // deadline path uses so the operator gets a clear "no snapshot"
-            // message regardless of which way the wait ended.
-            err << "[provision] TIMEOUT: no [STATE] line received within "
-                << timeoutS << "s (peer closed)\n";
-            return 1;
-        }
-
-        const auto count = static_cast<std::size_t>(n);
-        reply.append(buf.data(), count);
-
-        // The [STATE] line is single-line; as soon as we see the marker AND
-        // a terminator we can slice the line out and print it. We search the
-        // WHOLE buffer (not just the new bytes) so a marker that arrived at
-        // the tail of a previous chunk is still caught.
+    if (outcome == PollStep::Matched) {
+        // The matcher guaranteed both the [STATE] marker and a terminator
+        // are present, so this find is guaranteed to succeed.
         const std::size_t markerPos = reply.find(PROVISION_OK_STATUS);
-        if (markerPos == std::string::npos) {
-            continue;
-        }
-        const std::size_t termPos =
-            reply.find_first_of("\r\n", markerPos);
-        if (termPos == std::string::npos) {
-            // Marker seen but the line is not yet complete; keep reading.
-            continue;
-        }
-
+        const std::size_t termPos = reply.find_first_of("\r\n", markerPos);
         out << reply.substr(markerPos, termPos - markerPos) << "\n";
         return 0;
     }
 
-    err << "[provision] TIMEOUT: no [STATE] line received within "
-        << timeoutS << "s\n";
+    // Distinguish "deadline elapsed" from "device disappeared mid-wait" so
+    // the operator gets the right diagnostic — a peer-closed-without-data
+    // means the device is most likely mid-reboot, not silent.
+    if (stopReason == StopReason::PeerClosed) {
+        err << "[provision] TIMEOUT: no [STATE] line received within "
+            << timeoutS << "s (peer closed)\n";
+    } else {
+        err << "[provision] TIMEOUT: no [STATE] line received within "
+            << timeoutS << "s\n";
+    }
     return 1;
 }
 
