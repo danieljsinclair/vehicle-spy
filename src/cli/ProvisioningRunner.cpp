@@ -270,7 +270,8 @@ private:
     class NullBuffer final : public std::streambuf {
     public:
         int overflow(int c) override { return c; }
-    } buf_;
+    };
+    NullBuffer buf_;
 };
 
 // Strip "[STATE] ... <terminator>" heartbeat lines from `reply` so the device's
