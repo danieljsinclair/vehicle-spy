@@ -348,8 +348,7 @@ std::string autoDetectSerialPort() {
 std::string resolveSerialPort(const std::string& transport) {
     // Empty or "auto" -> auto-detect, fall back to the build-time default.
     if (transport.empty() || transport == "auto") {
-        std::string detected = autoDetectSerialPort();
-        if (!detected.empty()) {
+        if (const std::string detected = autoDetectSerialPort(); !detected.empty()) {
             return detected;
         }
         return ESP32_DEFAULT_USB_PORT;
