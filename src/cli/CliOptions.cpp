@@ -12,6 +12,9 @@
 
 #include <fstream>
 
+// Shared time parser from engine-sim-bridge (DRY).
+#include "common/TimeParser.h"
+
 namespace vehicle_sim::cli {
 
 // Boundary validation for a free-form vehicle label (interactive mode and
@@ -53,6 +56,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
     CliOptions opts;
 
     CLI::App app{"Vehicle OBD2 Telemetry Display", "vehicle-sim"};
+    app.allow_extras(false);
 
     app.add_flag("-s,--scan", opts.mode.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.mode.list_signals, "List supported signals for each vehicle");
@@ -98,9 +102,10 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("--stdout-csv", opts.telemetry.stdout_csv,
                  "Emit decoded CSV rows to stdout (same schema as <base>.csv); "
                  "progress output moves to stderr so stdout stays pipeable");
-    app.add_option("--start-from", opts.telemetry.start_from_s,
+    std::string startFromRaw;
+    app.add_option("--start-from", startFromRaw,
                    "Replay-only: skip rows whose recorded timestamp is before "
-                   "this many seconds (mirrors engine-sim-cli --start-from)")
+                   "this time (seconds, mm:ss, or hh:mm:ss; mirrors engine-sim-cli --start-from)")
         ->expected(1)
         ->capture_default_str();
     app.add_flag("-k,--interactive", opts.telemetry.interactive_mode,
@@ -203,6 +208,17 @@ REQUIREMENTS:
             if (std::string{envPort}.empty() == false) {
                 opts.wifi.usb_port = envPort;
             }
+        }
+    }
+
+    // Smart timecode parser (DRY with bridge) for --start-from. Applied only
+    // when --connect file: (replay mode). The skip stacks with engine-sim-cli's
+    // --start-from (both can apply) — expected convenient behavior.
+    if (!startFromRaw.empty()) {
+        opts.telemetry.start_from_s = engine_sim_bridge::parseTimecodeToSeconds(startFromRaw);
+        if (opts.telemetry.start_from_s < 0.0) {
+            opts.error_message = "Invalid --start-from time: " + startFromRaw +
+                " (expected seconds, mm:ss, or hh:mm:ss)";
         }
     }
 
