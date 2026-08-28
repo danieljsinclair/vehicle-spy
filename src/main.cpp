@@ -169,6 +169,142 @@ std::string autoDiscoverESP32() {
     return devices.front().tcpConnectionString();
 }
 
+// --status: print a [STATE] snapshot from the device. Short-circuits BEFORE
+// the generic provisioning dispatch because status_requested also makes
+// wifi.active()/isProvisioning() return true, and runProvisioning() returns
+// failure ("No provisioning operation") when no real provisioning op is set
+// — which is exactly the case for a pure --status invocation.
+//
+// Resolution order (mirrors autoDiscoverESP32 — USB-first, then network):
+//   1. USB serial — if the user gave --connect usb:/path, open it; otherwise
+//      autoDetectSerialPort() globs the standard /dev/cu.* prefixes. A
+//      detected device resolves INSTANTLY (no broadcast, no wait). Open it
+//      and read the next [STATE] heartbeat line.
+//   2. No USB device — fall back to UDP broadcast discovery
+//      (AUTO_DISCOVERY_TIMEOUT_S) to confirm the device is alive on the
+//      network. [STATE] is a serial-console line, so it can't be read over
+//      TCP; we report the discovered address as proof of life.
+//   3. Nothing found — clean failure (no hanging on a wrong default port).
+int runStatusFlow(const vehicle_sim::cli::CliOptions& opts) {
+    // 1. USB-first.
+    std::string usbPath;
+    if (opts.wifi.transport.rfind("usb:", 0) == 0) {
+        usbPath = opts.wifi.transport.substr(4);
+    } else {
+        usbPath = vehicle_sim::cli::autoDetectSerialPort();
+    }
+    if (!usbPath.empty()) {
+        auto port = vehicle_sim::cli::createSerialPort(usbPath);
+        if (!port->open()) {
+            // Name the port that failed so the operator sees WHICH device
+            // path failed — mirrors runProvisioning()'s diagnostic.
+            std::cerr << "[provision] Failed to open serial port "
+                      << vehicle_sim::cli::forLog(usbPath) << "\n";
+            return 1;
+        }
+        const int rc = vehicle_sim::cli::runStatus(*port, vehicle_sim::cli::PROVISION_STATUS_TIMEOUT_S,
+                                                   std::cout, std::cerr);
+        // runStatus already returns 1 on timeout / peer-closed with a stderr
+        // diagnostic; close the port before returning the rc.
+        port->close();
+        return rc;
+    }
+
+    // 2. No USB device — try UDP broadcast discovery as a fallback so the
+    //    operator gets a definite "device is / isn't on the network" answer
+    //    instead of silently timing out on a phantom serial port.
+    std::cout << "No USB serial device found; listening for ESP32 discovery "
+                 "beacons on UDP port " << vehicle_sim::discovery::DISCOVERY_PORT << "...\n";
+    auto discovered = autoDiscoverESP32();
+    if (!discovered.empty()) {
+        std::cout << "ESP32 discovered at " << discovered
+                  << " (no USB serial — [STATE] read requires a USB connection)\n";
+        return 0;
+    }
+
+    // 3. Clean failure.
+    std::cerr << "[provision] No ESP32 found on USB serial or the network. "
+                 "Connect the device over USB for [STATE] reads, or use "
+                 "--discover to scan the network manually.\n";
+    return 1;
+}
+
+// Handle --connect auto: discover ESP32 and assign to connect_target.
+// autoDiscoverESP32() tries USB serial first (instant), then falls back to
+// UDP broadcast discovery (AUTO_DISCOVERY_TIMEOUT_S). The result is either
+// "usb:<path>" or "tcp:<ip>:<port>" — both handled by runTransport() below.
+int autoDiscoverAndAssign(vehicle_sim::cli::CliOptions& opts) {
+    using namespace vehicle_sim::cli;
+    std::cout << "Auto-discovering ESP32...\n";
+    std::string target = autoDiscoverESP32();
+    if (target.empty()) {
+        std::cerr << "No ESP32 found on the network. Use --discover to scan manually.\n";
+        return 1;
+    }
+    std::cout << "Found ESP32 at " << target << "\n";
+    opts.telemetry.connect_target = target;
+    return 0;
+}
+
+// File replay dispatch: decoded-telemetry CSV (CSV replay mode) routes to
+// CsvReplayRunContext; raw CAN captures keep the DBC-translation replay path.
+int runFileReplay(const vehicle_sim::cli::CliOptions& opts,
+                  vehicle_sim::domain::DBCTranslationService& translationService) {
+    using namespace vehicle_sim::cli;
+    std::string path = opts.telemetry.connect_target.substr(5);
+
+    // Decoded-telemetry CSV (CSV replay mode) routes to CsvReplayRunContext,
+    // which replays the recorded rows as if they were live CAN — feeding the
+    // same --stdout-csv schema used for latency testing. Raw CAN captures
+    // keep the existing DBC-translation replay path.
+    if (isDecodedTelemetryCsv(path)) {
+        auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
+        vehicle_sim::util::SystemClock systemClock;
+        return CsvReplayRunContext::run(
+            std::move(source), opts.telemetry.vehicle_type,
+            opts.telemetry.update_interval_ms, std::cout, systemClock,
+            opts.telemetry.stdout_csv);
+    }
+
+    // Raw CAN replay through the canonical seam: FileTransport →
+    // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
+    // file is the raw source of truth, so we write ONLY <base>.csv.
+    std::string logBase = opts.logging.log_base;
+    return ReplayRunContext::run(path, opts.telemetry.vehicle_type,
+                                  logBase, translationService,
+                                  opts.telemetry.stdout_csv,
+                                  opts.telemetry.start_from_s);
+}
+
+// Live transport dispatch: tcp/demo/usb → LiveRunContext, ble → BLERunContext.
+int runTransport(const vehicle_sim::cli::CliOptions& opts,
+                 vehicle_sim::domain::DBCTranslationService& translationService) {
+    using namespace vehicle_sim::cli;
+    if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
+        // Live transports (demo/tcp/usb) through the canonical seam:
+        // (Demo|TCP|USB)Transport → Normaliser → DBCTranslationService →
+        // RawLogSink + DecodedCsvSink. The resolved --log base drives BOTH
+        // sinks for live (the raw stream is the source of truth). The adapter
+        // protocol default table + explicit override resolve here.
+        std::string logBase = opts.logging.log_base;
+        std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
+            opts.telemetry.connect_target, opts.logging.adapter_protocol);
+        return LiveRunContext::run(opts.telemetry.connect_target, opts.telemetry.vehicle_type,
+                                    protocol, logBase, translationService,
+                                    opts.telemetry.stdout_csv);
+    }
+
+    if (opts.isBLE()) {
+        return BLERunContext::run(opts.telemetry.connect_target, opts.telemetry.vehicle_type,
+                                  translationService);
+    }
+
+    // No recognized connect target — validation should have caught this, but
+    // fail closed rather than falling through to a default.
+    std::cerr << "No telemetry source for connect target: " << forLog(opts.telemetry.connect_target) << "\n";
+    return 1;
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -216,64 +352,8 @@ int main(int argc, char* argv[]) {
         return runDiscovery();
     }
 
-    // --status: print a [STATE] snapshot from the device. Short-circuits BEFORE
-    // the generic provisioning dispatch because status_requested also makes
-    // wifi.active()/isProvisioning() return true, and runProvisioning() returns
-    // failure ("No provisioning operation") when no real provisioning op is set
-    // — which is exactly the case for a pure --status invocation.
-    //
-    // Resolution order (mirrors autoDiscoverESP32 — USB-first, then network):
-    //   1. USB serial — if the user gave --connect usb:/path, open it; otherwise
-    //      autoDetectSerialPort() globs the standard /dev/cu.* prefixes. A
-    //      detected device resolves INSTANTLY (no broadcast, no wait). Open it
-    //      and read the next [STATE] heartbeat line.
-    //   2. No USB device — fall back to UDP broadcast discovery
-    //      (AUTO_DISCOVERY_TIMEOUT_S) to confirm the device is alive on the
-    //      network. [STATE] is a serial-console line, so it can't be read over
-    //      TCP; we report the discovered address as proof of life.
-    //   3. Nothing found — clean failure (no hanging on a wrong default port).
     if (opts.wifi.status_requested) {
-        // 1. USB-first.
-        std::string usbPath;
-        if (opts.wifi.transport.rfind("usb:", 0) == 0) {
-            usbPath = opts.wifi.transport.substr(4);
-        } else {
-            usbPath = vehicle_sim::cli::autoDetectSerialPort();
-        }
-        if (!usbPath.empty()) {
-            auto port = cli::createSerialPort(usbPath);
-            if (!port->open()) {
-                // Name the port that failed so the operator sees WHICH device
-                // path failed — mirrors runProvisioning()'s diagnostic.
-                std::cerr << "[provision] Failed to open serial port "
-                          << cli::forLog(usbPath) << "\n";
-                return 1;
-            }
-            const int rc = cli::runStatus(*port, cli::PROVISION_STATUS_TIMEOUT_S,
-                                          std::cout, std::cerr);
-            // runStatus already returns 1 on timeout / peer-closed with a stderr
-            // diagnostic; close the port before returning the rc.
-            port->close();
-            return rc;
-        }
-
-        // 2. No USB device — try UDP broadcast discovery as a fallback so the
-        //    operator gets a definite "device is / isn't on the network" answer
-        //    instead of silently timing out on a phantom serial port.
-        std::cout << "No USB serial device found; listening for ESP32 discovery "
-                     "beacons on UDP port " << discovery::DISCOVERY_PORT << "...\n";
-        auto discovered = autoDiscoverESP32();
-        if (!discovered.empty()) {
-            std::cout << "ESP32 discovered at " << discovered
-                      << " (no USB serial — [STATE] read requires a USB connection)\n";
-            return 0;
-        }
-
-        // 3. Clean failure.
-        std::cerr << "[provision] No ESP32 found on USB serial or the network. "
-                     "Connect the device over USB for [STATE] reads, or use "
-                     "--discover to scan the network manually.\n";
-        return 1;
+        return runStatusFlow(opts);
     }
 
     // WiFi provisioning over USB serial (AT command set). Local, pre-association
@@ -294,69 +374,15 @@ int main(int argc, char* argv[]) {
             systemClock);
     }
 
-    // Handle --connect auto: discover ESP32 and connect. autoDiscoverESP32()
-    // tries USB serial first (instant), then falls back to UDP broadcast
-    // discovery (AUTO_DISCOVERY_TIMEOUT_S). The result is either "usb:<path>"
-    // or "tcp:<ip>:<port>" — both handled by the transport dispatch below.
+    // Handle --connect auto: discover ESP32 and assign to connect_target,
+    // then fall through to the transport dispatch.
     if (opts.isAuto()) {
-        std::cout << "Auto-discovering ESP32...\n";
-        std::string target = autoDiscoverESP32();
-        if (target.empty()) {
-            std::cerr << "No ESP32 found on the network. Use --discover to scan manually.\n";
-            return 1;
-        }
-        std::cout << "Found ESP32 at " << target << "\n";
-        opts.telemetry.connect_target = target;
-        // Fall through to the transport handling below (usb: or tcp:).
+        if (int rc = autoDiscoverAndAssign(opts); rc != 0) return rc;
     }
 
     if (opts.isFile()) {
-        std::string path = opts.telemetry.connect_target.substr(5);
-
-        // Decoded-telemetry CSV (CSV replay mode) routes to CsvReplayRunContext,
-        // which replays the recorded rows as if they were live CAN — feeding the
-        // same --stdout-csv schema used for latency testing. Raw CAN captures
-        // keep the existing DBC-translation replay path.
-        if (isDecodedTelemetryCsv(path)) {
-            auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
-            vehicle_sim::util::SystemClock systemClock;
-            return cli::CsvReplayRunContext::run(
-                std::move(source), opts.telemetry.vehicle_type,
-                opts.telemetry.update_interval_ms, std::cout, systemClock,
-                opts.telemetry.stdout_csv);
-        }
-
-        // Raw CAN replay through the canonical seam: FileTransport →
-        // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
-        // file is the raw source of truth, so we write ONLY <base>.csv.
-        std::string logBase = opts.logging.log_base;
-        return cli::ReplayRunContext::run(path, opts.telemetry.vehicle_type,
-                                          logBase, translationService,
-                                          opts.telemetry.stdout_csv,
-                                          opts.telemetry.start_from_s);
+        return runFileReplay(opts, translationService);
     }
 
-    if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
-        // Live transports (demo/tcp/usb) through the canonical seam:
-        // (Demo|TCP|USB)Transport → Normaliser → DBCTranslationService →
-        // RawLogSink + DecodedCsvSink. The resolved --log base drives BOTH
-        // sinks for live (the raw stream is the source of truth). The adapter
-        // protocol default table + explicit override resolve here.
-        std::string logBase = opts.logging.log_base;
-        std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
-            opts.telemetry.connect_target, opts.logging.adapter_protocol);
-        return cli::LiveRunContext::run(opts.telemetry.connect_target, opts.telemetry.vehicle_type,
-                                        protocol, logBase, translationService,
-                                        opts.telemetry.stdout_csv);
-    }
-
-    if (opts.isBLE()) {
-        return cli::BLERunContext::run(opts.telemetry.connect_target, opts.telemetry.vehicle_type,
-                                      translationService);
-    }
-
-    // No recognized connect target — validation should have caught this, but
-    // fail closed rather than falling through to a default.
-    std::cerr << "No telemetry source for connect target: " << cli::forLog(opts.telemetry.connect_target) << "\n";
-    return 1;
+    return runTransport(opts, translationService);
 }
