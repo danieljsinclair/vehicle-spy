@@ -218,6 +218,13 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         auto port = cli::createSerialPort(resolved);
+        if (!port->open()) {
+            // Name the port that failed so the operator can see WHICH device
+            // path failed — mirrors runProvisioning()'s open-failure diagnostic.
+            std::cerr << "[provision] Failed to open serial port "
+                      << cli::forLog(resolved) << "\n";
+            return 1;
+        }
         const int rc = cli::runStatus(*port, cli::PROVISION_STATUS_TIMEOUT_S,
                                       std::cout, std::cerr);
         // runStatus already returns 1 on timeout / peer-closed with a stderr
