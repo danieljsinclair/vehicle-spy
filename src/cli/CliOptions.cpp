@@ -245,7 +245,7 @@ std::vector<std::string> registeredOptionNames(const CLI::App& app) {
         // `get_name()` may report several aliases separated by ','. Split
         // them so the lookup matches each individually.
         for (const auto& seg : splitCommaSeparated(opt->get_name())) {
-            const std::string name = trimmed(seg);
+            std::string name = trimmed(seg);
             if (!name.empty()) names.push_back(std::move(name));
         }
     }
@@ -536,7 +536,7 @@ struct ExampleSection {
 std::vector<std::string> splitTopicNames(std::string_view raw) {
     std::vector<std::string> out;
     for (const auto& seg : splitCommaSeparated(raw)) {
-        const std::string name = trimmed(seg);
+        std::string name = trimmed(seg);
         if (!name.empty()) out.push_back(std::move(name));
     }
     return out;
