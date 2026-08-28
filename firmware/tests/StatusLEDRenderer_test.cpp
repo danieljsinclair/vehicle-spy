@@ -332,16 +332,16 @@ TEST(StatusLEDRendererTest, GenerateTable_PerPatternCommentsAreFullSequences) {
     // known sequences.
     std::string table = StatusLEDRenderer::generateTable();
     EXPECT_NE(table.find("BOOT"), std::string::npos);  // BOOT row present
-    // BOOT: ON 0.5s, OFF 0.5s (MED_FLASH + MED_GAP).
-    EXPECT_NE(table.find("ON 0.5s, OFF 0.5s"), std::string::npos);
-    // WIFI_SEARCHING: ON 0.1s, OFF 0.9s.
-    EXPECT_NE(table.find("ON 0.1s, OFF 0.9s"), std::string::npos);
-    // WIFI_CONNECTED: ON 0.8s, OFF 0.2s.
-    EXPECT_NE(table.find("ON 0.8s, OFF 0.2s"), std::string::npos);
+    // BOOT: ON 0.5s, OFF 0.5s (MED_FLASH + MED_GAP) → symmetric → "PULSE 0.5s".
+    EXPECT_NE(table.find("PULSE 0.5s"), std::string::npos);
+    // WIFI_SEARCHING: ON 0.1s, OFF 0.9s → 9x asymmetric → "DASH 0.9s".
+    EXPECT_NE(table.find("DASH 0.9s"), std::string::npos);
+    // WIFI_CONNECTED: ON 0.8s, OFF 0.2s → 4x asymmetric → "DASH 0.8s".
+    EXPECT_NE(table.find("DASH 0.8s"), std::string::npos);
     // AP_MODE: trailing 2s separator is dropped (brief item #5) — the
     // sequence must end with "ON 0.1s", not "OFF 2.0s".
-    EXPECT_NE(table.find("ON 0.8s, OFF 0.2s, ON 0.1s, OFF 0.1s, ON 0.1s"),
-              std::string::npos);
+    // ON 0.8s/OFF 0.2s → DASH 0.8s; ON 0.1s/OFF 0.1s → PULSE 0.1s; lone ON 0.1s.
+    EXPECT_NE(table.find("DASH 0.8s, PULSE 0.1s, ON 0.1s"), std::string::npos);
     // And the trailing "OFF 2.0s" must NOT appear in any per-row # comment.
     // (The SEPARATOR's "OFF 2.0s" only appears in the KEY section below the
     // main table — assert by checking the AP_MODE row doesn't contain it.)
@@ -459,10 +459,14 @@ TEST(StatusLEDRendererTest, GenerateTable_KeyRowsHaveNoMidSecondDividers) {
 }
 #endif  // INCLUDE_LED_HELP_KEY
 
-// ── timingNote() PULSE notation (verified via the public generateTable()) ──
-// timingNote() presents patterns compactly: symmetric ON/OFF pairs collapse to
-// "PULSE Xs", and N consecutive identical pulses collapse to "NxPULSE Xs".
-// Asymmetric pairs stay as individual ON/OFF tokens (simplest representation).
+// ── timingNote() PULSE / DASH notation (verified via the public
+// generateTable()) ──
+// timingNote() presents patterns compactly:
+//   * symmetric ON/OFF pairs (equal duration) → "PULSE Xs"
+//   * clearly-asymmetric pairs (one step >= 3x the other) → "DASH Xs"
+//     where X is the longer step (either order collapses the same way)
+//   * N consecutive identical pulses/dashes → "NxPULSE Xs" / "NxDASH Xs"
+//   * near-symmetric asymmetric pairs stay as individual ON/OFF tokens
 // timingNote() is private, so we assert on its output as surfaced in the
 // diagnostic table (each row's "# <note>" column).
 
@@ -475,17 +479,35 @@ TEST(StatusLEDRendererTest, TimingNote_SingleSymmetricPairIsPulse) {
 TEST(StatusLEDRendererTest, TimingNote_RepeatedSymmetricPairIsNxPulse) {
     // FATAL_UNRECOVERABLE_SOS: 3 short, 3 long, 3 short, SEPARATOR.
     // The leading 3 short ON/OFF pairs (200ms each) collapse to "3xPULSE 0.2s";
-    // the 3 long pairs (ON 0.8s, OFF 0.2s — asymmetric) stay individual; the
-    // trailing 3 short pairs collapse to a second "3xPULSE 0.2s".
+    // the 3 long pairs (ON 0.8s, OFF 0.2s — 4x asymmetric) collapse to
+    // "3xDASH 0.8s"; the trailing 3 short pairs collapse to a second
+    // "3xPULSE 0.2s".
     std::string table = StatusLEDRenderer::generateTable();
     EXPECT_NE(table.find("3xPULSE 0.2s"), std::string::npos);
-    EXPECT_NE(table.find("ON 0.8s, OFF 0.2s"), std::string::npos);
+    EXPECT_NE(table.find("3xDASH 0.8s"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, TimingNote_AsymmetricLongDash_RendersDash) {
+    // WIFI_CONNECTED: ON 800ms + OFF 200ms → 4x asymmetric → "DASH 0.8s"
+    // (the longer step, 0.8s, is what DASH reports).
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("# DASH 0.8s"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, TimingNote_AsymmetricDashEitherOrder_RendersDash) {
+    // WIFI_SEARCHING: ON 100ms + OFF 900ms → 9x asymmetric, long step second.
+    // DASH reports the longer duration regardless of order → "DASH 0.9s".
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("# DASH 0.9s"), std::string::npos);
 }
 
 TEST(StatusLEDRendererTest, TimingNote_AsymmetricPairStaysIndividual) {
-    // WIFI_SEARCHING: ON 100ms + OFF 900ms → asymmetric → individual tokens.
+    // AP_MODE: ON 0.8s, OFF 0.2s (→ DASH 0.8s), ON 0.1s, OFF 0.1s (→ PULSE
+    // 0.1s), ON 0.1s (lone, ratio to neighbours is 1x — stays individual).
+    // The trailing lone ON 0.1s proves near-boundary asymmetric steps are NOT
+    // forced into DASH; only the clearly-asymmetric 0.8s/0.2s pair collapses.
     std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("# ON 0.1s, OFF 0.9s"), std::string::npos);
+    EXPECT_NE(table.find("DASH 0.8s, PULSE 0.1s, ON 0.1s"), std::string::npos);
 }
 
 TEST(StatusLEDRendererTest, TimingNote_SingleStateUnchanged) {

@@ -98,24 +98,38 @@ static std::vector<TimingStep> filterSteps(const LEDStep* steps, size_t stepCoun
     return kept;
 }
 
-// Stage 2 — tokenize into PULSE / ON / OFF tokens. A symmetric ON/OFF pair
-// (consecutive ON and OFF steps with equal duration) collapses to a single
-// "PULSE Xs" token. Asymmetric pairs are left as individual ON/OFF tokens — the
-// simplest representation (no nested grouping). This is a PRESENTATION-only
-// transformation; the underlying LEDStep{state, durationMs} model is unchanged.
-enum TokenKind { TK_PULSE, TK_ON, TK_OFF };
+// Stage 2 — tokenize into PULSE / DASH / ON / OFF tokens. Consecutive ON+OFF
+// pairs (in either order) collapse:
+//   * symmetric (equal duration)  → "PULSE Xs"
+//   * asymmetric (one step >= 3x the other) → "DASH Xs" (X = the longer step)
+// Near-symmetric asymmetric pairs are left as individual ON/OFF tokens — the
+// simplest representation (no nested grouping). The 3x threshold keeps DASH
+// firmly in the "clearly asymmetric" regime and never fires on pairs that are
+// merely uneven. This is a PRESENTATION-only transformation; the underlying
+// LEDStep{state, durationMs} model is unchanged.
+enum TokenKind { TK_PULSE, TK_DASH, TK_ON, TK_OFF };
 struct Token { TokenKind kind; uint32_t ms; };
+
+static bool isDashPair(uint32_t a, uint32_t b) {
+    if (a == 0 || b == 0) return false;
+    const uint32_t lo = std::min(a, b);
+    const uint32_t hi = std::max(a, b);
+    return hi >= 3 * lo;  // one step at least 3x the other
+}
 
 static std::vector<Token> tokenizePulses(const std::vector<TimingStep>& steps) {
     std::vector<Token> tokens;
     for (size_t i = 0; i < steps.size(); ++i) {
-        const bool paired = (i + 1 < steps.size())
-            && steps[i].state == LEDState::ON
-            && steps[i + 1].state == LEDState::OFF
-            && steps[i].ms == steps[i + 1].ms;
-        if (paired) {
+        const bool twoConsecutive = (i + 1 < steps.size())
+            && steps[i].state != steps[i + 1].state;  // one ON, one OFF
+        if (twoConsecutive && steps[i].ms == steps[i + 1].ms) {
+            // Symmetric pair → PULSE.
             tokens.push_back({TK_PULSE, steps[i].ms});
-            ++i;  // consume the matching OFF
+            ++i;  // consume the matching step
+        } else if (twoConsecutive && isDashPair(steps[i].ms, steps[i + 1].ms)) {
+            // Asymmetric long/short pair (either order) → DASH of the longer.
+            tokens.push_back({TK_DASH, std::max(steps[i].ms, steps[i + 1].ms)});
+            ++i;  // consume the matching step
         } else {
             tokens.push_back(steps[i].state == LEDState::ON
                                  ? Token{TK_ON, steps[i].ms}
@@ -125,21 +139,23 @@ static std::vector<Token> tokenizePulses(const std::vector<TimingStep>& steps) {
     return tokens;
 }
 
-// Stage 3 — collapse runs of N consecutive identical PULSE tokens into a single
-// "NxPULSE Xs" run. ON/OFF tokens are emitted individually (no run-collapse)
-// to keep the representation simple and unambiguous. Returns a list of (count,
-// token) pairs where count is the run length (1 for non-pulse tokens).
+// Stage 3 — collapse runs of N consecutive identical PULSE (or DASH) tokens into
+// a single "NxPULSE Xs" / "NxDASH Xs" run. ON/OFF tokens are emitted
+// individually (no run-collapse) to keep the representation simple and
+// unambiguous. Returns a list of (count, token) pairs where count is the run
+// length (1 for non-pulse/non-dash tokens).
 struct Run { uint32_t count; Token token; };
 
 static std::vector<Run> collapsePulseRuns(const std::vector<Token>& tokens) {
     std::vector<Run> runs;
     for (size_t i = 0; i < tokens.size(); ++i) {
-        if (tokens[i].kind == TK_PULSE) {
-            const uint32_t pulseMs = tokens[i].ms;
+        if (tokens[i].kind == TK_PULSE || tokens[i].kind == TK_DASH) {
+            const TokenKind groupKind = tokens[i].kind;
+            const uint32_t groupMs = tokens[i].ms;
             size_t runLen = 1;
             while (i + runLen < tokens.size()
-                   && tokens[i + runLen].kind == TK_PULSE
-                   && tokens[i + runLen].ms == pulseMs) {
+                   && tokens[i + runLen].kind == groupKind
+                   && tokens[i + runLen].ms == groupMs) {
                 ++runLen;
             }
             runs.push_back({static_cast<uint32_t>(runLen), tokens[i]});
@@ -172,6 +188,7 @@ static std::string renderTimingRuns(const std::vector<Run>& runs) {
         if (r.count > 1) out << r.count << "x";
         switch (r.token.kind) {
             case TK_PULSE: out << "PULSE " << fmtDuration(r.token.ms); break;
+            case TK_DASH:  out << "DASH "  << fmtDuration(r.token.ms); break;
             case TK_ON:    out << "ON "    << fmtDuration(r.token.ms); break;
             case TK_OFF:   out << "OFF "   << fmtDuration(r.token.ms); break;
         }
@@ -232,8 +249,9 @@ std::string StatusLEDRenderer::timingNote(StatusLED::Pattern pattern) {
 
     // Multi-stage pipeline, each stage a focused helper (SRP):
     //   1. filterSteps     — drop the trailing separator
-    //   2. tokenizePulses  — collapse symmetric ON/OFF pairs into PULSE tokens
-    //   3. collapsePulseRuns — merge N identical consecutive pulses into one run
+    //   2. tokenizePulses  — collapse symmetric ON/OFF pairs into PULSE tokens,
+    //      and clearly-asymmetric (>=3x) pairs into DASH tokens
+    //   3. collapsePulseRuns — merge N identical consecutive pulses/dashes into one run
     //   4. renderTimingRuns — format the runs to the final comma-separated string
     const std::vector<TimingStep> kept = filterSteps(steps, stepCount);
     if (kept.empty()) return "";
