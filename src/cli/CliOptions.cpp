@@ -507,40 +507,63 @@ void printHelp(std::ostream& out, const std::string& help_text) {
     out << cli::forLogKeepNewlines(help_text);
 }
 
-// printExamples renders the curated EXAMPLES block. The input is structured:
+// Parsed model for the EXAMPLES block. A block is a (topic-names, body-lines)
+// pair; the body of a block is everything between its `# topic:` line and the
+// next comment line (or end-of-string). A section groups blocks under a heading.
+struct ExampleBlock {
+    std::vector<std::string> topics;
+    std::vector<std::string> lines;
+};
+struct ExampleSection {
+    std::string name;
+    std::vector<ExampleBlock> blocks;
+};
+
+// Split a comma-separated topic tag into its trimmed, non-empty names.
+// "connect, connect-usb , " → ["connect","connect-usb"]. All-whitespace
+// segments are dropped (the regression target for the S134 nesting at the
+// segLead/segTrail check).
+std::vector<std::string> splitTopicNames(std::string_view raw) {
+    std::vector<std::string> out;
+    for (const auto& seg : splitCommaSeparated(raw)) {
+        const std::string name = trimmed(seg);
+        if (!name.empty()) out.push_back(std::move(name));
+    }
+    return out;
+}
+
+// Hierarchical topic/focus match. `topic` matches `focus` if they are equal,
+// if `topic` starts with `<focus>-`, or if `focus` starts with `<topic>-`
+// (i.e. `topic` is the prefix-segment of a longer focus). This is the single
+// source of truth for the focus filter so the renderer stays a thin composer.
+bool topicMatchesFocus(std::string_view topic, std::string_view focus) {
+    if (topic == focus) return true;
+    // Build the prefix strings explicitly: string_view + literal isn't
+    // directly expressible in C++17, so form the prefix and compare via
+    // rfind(..., 0) == 0 (the starts_with idiom).
+    const std::string focusPrefix(std::string(focus) + "-");
+    const std::string topicPrefix(std::string(topic) + "-");
+    if (topic.size() >= focusPrefix.size() &&
+        topic.compare(0, focusPrefix.size(), focusPrefix) == 0) return true;
+    if (focus.size() >= topicPrefix.size() &&
+        focus.compare(0, topicPrefix.size(), topicPrefix) == 0) return true;
+    return false;
+}
+
+// Parse the structured EXAMPLES document into the section/block model.
+// Input grammar:
 //   # section: <NAME>      — group heading; blocks until the next section line
 //   # topic: <name>[, ...] — topic block; body until the next comment line
 //   # ...                  — comment (and any other `#` line); stripped
-//
-// The hierarchical focus filter is unchanged from the previous design: a
-// topic matches `focus[i]` if it equals it, starts with `<focus>-`, or is
-// the prefix-segment of a longer focus. With an empty focus every block is
-// shown. Output groups sections that still have at least one matching block
-// and prints the heading once above its matching blocks.
-void printExamples(std::ostream& out, const std::string& examples_text,
-                   const std::vector<std::string>& focus) {
-    out << "EXAMPLES:\n";
-
-    // Parsed model: a list of sections, each with a name and a list of topic
-    // blocks. A block is a (topic-names, body-lines) pair; the body of a
-    // block is everything between its `# topic:` line and the next comment
-    // line (or end-of-string).
-    struct Block {
-        std::vector<std::string> topics;
-        std::vector<std::string> lines;
-    };
-    struct Section {
-        std::string name;
-        std::vector<Block> blocks;
-    };
-    std::vector<Section> sections;
+std::vector<ExampleSection> parseExamplesDocument(const std::string& text) {
+    std::vector<ExampleSection> sections;
 
     constexpr std::string_view kTopicTag = "# topic:";
     constexpr std::string_view kSectionTag = "# section:";
 
-    std::istringstream in(examples_text);
+    std::istringstream in(text);
     std::string line;
-    Block* current = nullptr;
+    ExampleBlock* current = nullptr;
     // Anchor: a "default" section so blocks preceding any `# section:` line
     // still render (defensive; the asset always opens with a section).
     sections.emplace_back();
@@ -577,26 +600,8 @@ void printExamples(std::ostream& out, const std::string& examples_text,
             currentSection = &sections.back();
             current = nullptr;
         } else if (startsWith(tag, kTopicTag)) {
-            Block b;
-            const std::string names(tag.substr(kTopicTag.size()));
-            // Split on commas, trim each name.
-            std::size_t start = 0;
-            while (start <= names.size()) {
-                const std::size_t end = names.find(',', start);
-                const std::size_t segLen =
-                    (end == std::string::npos) ? names.size() - start
-                                               : end - start;
-                const std::string_view seg(names.data() + start, segLen);
-                const auto segLead = seg.find_first_not_of(" \t");
-                if (const auto segTrail = seg.find_last_not_of(" \t");
-                    segLead != std::string_view::npos &&
-                    segTrail != std::string_view::npos) {
-                    b.topics.emplace_back(seg.substr(segLead,
-                        segTrail - segLead + 1));
-                }
-                if (end == std::string::npos) break;
-                start = end + 1;
-            }
+            ExampleBlock b;
+            b.topics = splitTopicNames(tag.substr(kTopicTag.size()));
             currentSection->blocks.push_back(std::move(b));
             current = &currentSection->blocks.back();
         } else if (current) {
@@ -609,24 +614,16 @@ void printExamples(std::ostream& out, const std::string& examples_text,
         }
         // `else`: stray comment line outside any block — drop.
     }
+    return sections;
+}
 
-    // Focus filter (hierarchical match). A block matches if any of its
-    // topic names equals a focus token OR starts with `<focus>-` OR is the
-    // prefix-segment of a longer focus. With empty focus every block
-    // matches. This is the same algorithm as before; it just lives in a
-    // helper now so the renderer stays a thin composer.
-    auto blockMatchesFocus = [&](const Block& b) {
-        if (focus.empty()) return true;
-        for (const auto& t : b.topics) {
-            for (const auto& f : focus) {
-                if (t == f) return true;
-                if (t.rfind(f + "-", 0) == 0) return true;
-                if (f.rfind(t + "-", 0) == 0) return true;
-            }
-        }
-        return false;
-    };
-
+// Render the parsed EXAMPLES model to `out`, filtered to `focus`. A block
+// matches if any of its topic names matches any focus token (hierarchical,
+// see topicMatchesFocus). With empty focus every block matches. Output groups
+// sections that still have at least one matching block and prints the heading
+// once above its matching blocks.
+void renderExamples(std::ostream& out, const std::vector<ExampleSection>& sections,
+                    const std::vector<std::string>& focus) {
     // Render: for each section with at least one matching block, print the
     // heading (skip if the heading name is empty) followed by the matching
     // blocks, blank-line separated.
@@ -634,9 +631,18 @@ void printExamples(std::ostream& out, const std::string& examples_text,
     for (const auto& s : sections) {
         // Filter the section's blocks up-front so the empty-section case
         // (no matches) collapses naturally.
-        std::vector<const Block*> kept;
+        std::vector<const ExampleBlock*> kept;
         for (const auto& b : s.blocks) {
-            if (blockMatchesFocus(b)) kept.push_back(&b);
+            const bool matches =
+                focus.empty() ||
+                std::any_of(b.topics.begin(), b.topics.end(),
+                            [&](const std::string& t) {
+                                return std::any_of(focus.begin(), focus.end(),
+                                    [&](const std::string& f) {
+                                        return topicMatchesFocus(t, f);
+                                    });
+                            });
+            if (matches) kept.push_back(&b);
         }
         if (kept.empty()) continue;
         if (!firstSection) out << "\n";
@@ -652,6 +658,23 @@ void printExamples(std::ostream& out, const std::string& examples_text,
         }
     }
     out << "\n";
+}
+
+// printExamples renders the curated EXAMPLES block. The input is structured:
+//   # section: <NAME>      — group heading; blocks until the next section line
+//   # topic: <name>[, ...] — topic block; body until the next comment line
+//   # ...                  — comment (and any other `#` line); stripped
+//
+// The hierarchical focus filter is unchanged from the previous design: a
+// topic matches `focus[i]` if it equals it, starts with `<focus>-`, or is
+// the prefix-segment of a longer focus. With an empty focus every block is
+// shown. Output groups sections that still have at least one matching block
+// and prints the heading once above its matching blocks.
+void printExamples(std::ostream& out, const std::string& examples_text,
+                   const std::vector<std::string>& focus) {
+    out << "EXAMPLES:\n";
+    auto sections = parseExamplesDocument(examples_text);
+    renderExamples(out, sections, focus);
 }
 
 void printSupportedSignals(std::ostream& out, const domain::DBCTranslationService& service) {
