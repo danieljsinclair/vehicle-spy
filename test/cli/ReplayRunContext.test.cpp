@@ -65,9 +65,9 @@ int TempDir::counter_ = 0;
 
 // A well-formed legacy CSV capture the tesla DBC can decode.
 const char* kDecodableCapture =
-    "timestamp_ms,can_id,dlc,data_hex\n"
-    "1000,118,8,3C00180004A001FF\n"
-    "2000,118,8,3C00180004A001FF\n";
+    "timestamp_ms,raw_line\n"
+    "1000,118 3C 00 18 00 04 A0 01 FF\n"
+    "2000,118 3C 00 18 00 04 A0 01 FF\n";
 
 } // namespace
 

@@ -71,12 +71,12 @@ int TempDir::counter_ = 0;
 TEST(PipelineReplayTest, FileReplayWritesOnlyCsv_NoRawTxt) {
     TempDir dir;
     std::string capture = dir.writeCapture("cap.csv",
-        "timestamp_ms,can_id,dlc,data_hex\n"
-        "1000,118,8,3C00180004A001FF\n"
+        "timestamp_ms,raw_line\n"
+        "1000,118 3C 00 18 00 04 A0 01 FF\n"
         "\n"                                  // blank -> skipped
         "1000,TWAI started @ 500kbps\n"       // status -> skipped
-        "999,GG,8,00112233\n"                 // malformed -> counted
-        "2000,225,3,AABBCC\n"
+        "999,GG 00 11 22 33\n"                 // malformed -> counted
+        "2000,118 3C 00 18 00 04 A0 01 FF\n"
     );
 
     DBCTranslationService service;
@@ -152,7 +152,7 @@ TEST(PipelineReplayTest, NullDecodedSinkRunsDecodeWithoutOutput) {
     // Pipeline must tolerate a null decoded sink (decode-disabled replay).
     TempDir dir;
     std::string capture = dir.writeCapture("cap3.csv",
-        "1000,118,8,3C00180004A001FF\n");
+        "1000,118 3C 00 18 00 04 A0 01 FF\n");
 
     DBCTranslationService service;
     DefaultVehicleConfigs::registerAll(service.registry());
@@ -169,7 +169,7 @@ TEST(PipelineReplayTest, NullDecodedSinkRunsDecodeWithoutOutput) {
 TEST(PipelineReplayTest, FrameWithUnknownCanId_StillCountsAsDecoded) {
     TempDir dir;
     std::string capture = dir.writeCapture("cap_unknown.csv",
-        "1000,4321,8,3C00180004A001FF\n");
+        "1000,123 3C 00 18 00 04 A0 01 FF\n");
 
     DBCTranslationService service;
     DefaultVehicleConfigs::registerAll(service.registry());
@@ -189,7 +189,7 @@ TEST(PipelineReplayTest, FrameWithUnknownCanId_StillCountsAsDecoded) {
 TEST(PipelineReplayTest, NullProgressReporter_DecodesAndWritesCsvWithoutDeref) {
     TempDir dir;
     std::string capture = dir.writeCapture("cap_noprogress.csv",
-        "1000,118,8,3C00180004A001FF\n");
+        "1000,118 3C 00 18 00 04 A0 01 FF\n");
 
     DBCTranslationService service;
     DefaultVehicleConfigs::registerAll(service.registry());
@@ -216,7 +216,7 @@ TEST(PipelineReplayTest, NullRawSink_WritesDecodedCsvAndRecordsNoRaw) {
     // decoded CSV and never a .raw.txt.
     TempDir dir;
     std::string capture = dir.writeCapture("cap_noraw.csv",
-        "1000,118,8,3C00180004A001FF\n");
+        "1000,118 3C 00 18 00 04 A0 01 FF\n");
 
     DBCTranslationService service;
     DefaultVehicleConfigs::registerAll(service.registry());

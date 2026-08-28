@@ -85,9 +85,9 @@ int TempDir::counter_ = 0;
 
 std::string makeCapture(const std::vector<std::uint64_t>& tsMs) {
     std::ostringstream out;
-    out << "timestamp_ms,can_id,dlc,data_hex\n";
+    out << "timestamp_ms,raw_line\n";
     for (auto ts : tsMs) {
-        out << ts << ",118,8,3C00180004A001FF\n";
+        out << ts << ",118 3C 00 18 00 04 A0 01 FF\n";
     }
     return out.str();
 }
@@ -224,9 +224,9 @@ TEST(ReplayPacingIntegrationTest, PacedReplay_AnchorsBaselineOnFirstNonBlankFram
     // happens (1000ms -> 2000ms).
     TempDir dir;
     std::string content =
-        "timestamp_ms,can_id,dlc,data_hex\n"
-        "1000,118,8,3C00180004A001FF\n"
-        "2000,118,8,3C00180004A001FF\n";
+        "timestamp_ms,raw_line\n"
+        "1000,118 3C 00 18 00 04 A0 01 FF\n"
+        "2000,118 3C 00 18 00 04 A0 01 FF\n";
     auto capture = dir.writeCapture("baseline.csv", content);
 
     DBCTranslationService service;
@@ -258,10 +258,10 @@ TEST(ReplayPacingIntegrationTest, PacedReplay_AnchorsBaselineOnFirstNonBlankFram
 TEST(ReplayPacingIntegrationTest, PacedReplay_MalformedRow_RoutedToMalformedNotSkippedOrDecoded) {
     TempDir dir;
     std::string content =
-        "timestamp_ms,can_id,dlc,data_hex\n"
-        "1000,118,8,3C00180004A001FF\n"
-        "999,GG,8,00112233\n"                 // malformed CAN id
-        "2000,118,8,3C00180004A001FF\n";
+        "timestamp_ms,raw_line\n"
+        "1000,118 3C 00 18 00 04 A0 01 FF\n"
+        "999,GG 00 11 22 33\n"                 // malformed CAN id
+        "2000,118 3C 00 18 00 04 A0 01 FF\n";
     auto capture = dir.writeCapture("malformed.csv", content);
 
     DBCTranslationService service;

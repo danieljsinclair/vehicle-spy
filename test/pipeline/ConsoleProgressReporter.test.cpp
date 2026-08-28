@@ -80,9 +80,9 @@ struct ReplayHarness {
         service.loadVehicle("tesla", VehicleProtocol::CAN);
         // Two real-shaped Tesla CAN frames (legacy CSV form).
         capture = dir.writeCapture("cap.csv",
-            "timestamp_ms,can_id,dlc,data_hex\n"
-            "1000,118,8,3C00180004A001FF\n"
-            "2000,118,8,3C00180004A001FF\n"
+            "timestamp_ms,raw_line\n"
+            "1000,118 3C 00 18 00 04 A0 01 FF\n"
+            "2000,118 3C 00 18 00 04 A0 01 FF\n"
         );
     }
     [[nodiscard]] std::string base(const std::string& name) const {

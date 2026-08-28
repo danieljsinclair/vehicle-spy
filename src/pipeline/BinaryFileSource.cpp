@@ -28,7 +28,13 @@ bool looksLikeAsciiLine(std::string_view payload) noexcept {
     if (payload.empty()) return false;
     for (unsigned char c : payload) {
         if (c < 0x20 || c > 0x7E) return false;
-        if (!(isHexDigit(c) || isTokenSeparator(c) || c == 'x' || c == 'X')) return false;
+        // Allow hex digits, token separators, and the '0x' prefix characters.
+        // Reject anything else (letters beyond x/X, underscores, punctuation)
+        // so that status text like "TWAI started" or headers like "raw_line"
+        // fall through to the binary path (where they fail cleanly) instead
+        // of being mis-tokenised as CAN frames.
+        if (!(isHexDigit(c) || c == ' ' || c == '\t' || c == ',' || c == '\r' || c == '\n'
+              || c == 'x' || c == 'X')) return false;
     }
     return true;
 }
@@ -116,7 +122,10 @@ std::optional<TwaiFrame> BinaryFileSource::parseAscii(
 
 std::optional<TwaiFrame> BinaryFileSource::parseBinary(
     std::uint64_t tsMs, std::string_view payload) const {
-    if (payload.size() < 10) return std::nullopt;
+    // Accept exactly 10 bytes — the TWAI frame layout. Reject anything
+    // longer (status text, headers, noise) so it is counted as skipped
+    // rather than decoded as a garbage frame.
+    if (payload.size() != 10) return std::nullopt;
     TwaiFrame f;
     f.timestampMs = tsMs;
     for (std::size_t k = 0; k < 10; ++k) f.bytes[k] = static_cast<std::uint8_t>(payload[k]);
