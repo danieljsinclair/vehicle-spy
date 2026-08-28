@@ -169,24 +169,39 @@ std::string stripLeadingDashes(std::string_view token) {
     return std::string(token.substr(pos));
 }
 
+// True when the next argv slot is a value (not a flag) — i.e. the token at
+// `i` takes a value that must NOT be treated as a focus token. The value-skip
+// is the only place the loop index advances by more than one; hoisting the
+// predicate makes that the single mutation point (cpp:S886).
+bool takesValue(std::string_view token) {
+    return !token.empty() && token.front() != '-';
+}
+
 // Populate `focus` from the argv tokens alongside --help / --examples.
 // Anything that isn't itself a help flag and starts with '-' is treated as a
 // bare topic name; the value that follows a value-taking option is skipped
 // (heuristic: skip the next slot if it doesn't itself start with '-'). This
 // keeps `--help --connect demo` from treating `demo` as a focus token.
 void computeHelpFocus(int argc, char* argv[], std::vector<std::string>& focus) {
-    for (int i = 1; i < argc; ++i) {
+    int i = 1;
+    while (i < argc) {
         const std::string_view a = argv[i];
-        if (a == "--help" || a == "-h" || a == "--examples") continue;
+        if (a == "--help" || a == "-h" || a == "--examples") {
+            ++i;
+            continue;
+        }
         const std::string bare = stripLeadingDashes(a);
-        if (bare.empty()) continue;
+        if (bare.empty()) {
+            ++i;
+            continue;
+        }
         focus.push_back(bare);
-        // Skip the value that follows a value-taking option.
-        if (i + 1 < argc) {
-            const std::string_view next = argv[i + 1];
-            if (!next.empty() && next.front() != '-') {
-                ++i;
-            }
+        // Skip the value that follows a value-taking option — this is the
+        // ONLY place `i` is mutated beyond the stride.
+        if (i + 1 < argc && takesValue(argv[i + 1])) {
+            i += 2;
+        } else {
+            ++i;
         }
     }
 }
