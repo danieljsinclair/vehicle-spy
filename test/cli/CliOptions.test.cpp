@@ -57,9 +57,6 @@ TEST_F(CliOptionsTest, HelpShortFlag) {
 // that drops an option from parseArgs would now also drop it from help, and
 // this test catches it.
 TEST_F(CliOptionsTest, HelpTextSurfacesProvisioningFlags) {
-    DBCTranslationService service;
-    DefaultVehicleConfigs::registerAll(service.registry());
-
     Args args({"vehicle-sim", "--help"});
     auto opts = parseArgs(args.argc(), args.argv());
 
@@ -72,10 +69,9 @@ TEST_F(CliOptionsTest, HelpTextSurfacesProvisioningFlags) {
     EXPECT_NE(opts.mode.help_text.find("--reboot"), std::string::npos);
     EXPECT_NE(opts.mode.help_text.find("--status"), std::string::npos);
 
-    // printHelp forwards help_text (plus the registry-driven SUPPORTED
-    // VEHICLES block), so it must surface the same flags.
+    // printHelp forwards help_text verbatim, so it must surface the same flags.
     std::ostringstream out;
-    printHelp(out, service, opts.mode.help_text);
+    printHelp(out, opts.mode.help_text);
     const std::string help = out.str();
     EXPECT_NE(help.find("--set-wifi-creds"), std::string::npos);
     EXPECT_NE(help.find("--clear-wifi-creds"), std::string::npos);
@@ -86,10 +82,19 @@ TEST_F(CliOptionsTest, HelpTextSurfacesProvisioningFlags) {
     // default; --connect is the universal transport selector); the help
     // must no longer mention --port.
     EXPECT_EQ(help.find("--port"), std::string::npos);
+
+    // The EXAMPLES / NOTES / REQUIREMENTS footer is no longer part of --help
+    // (it lives on --examples, and notes are folded into option descriptions).
+    // This is the single-screen guarantee the user asked for.
+    EXPECT_EQ(help.find("EXAMPLES:"), std::string::npos);
+    EXPECT_EQ(help.find("NOTES:"), std::string::npos);
+    EXPECT_EQ(help.find("REQUIREMENTS:"), std::string::npos);
 }
 
-// printHelp must surface at least one registered vehicle id from the registry.
-TEST_F(CliOptionsTest, PrintHelpEmitsRegisteredVehicleId) {
+// The SUPPORTED VEHICLES block is --list's job, not --help's. A regression
+// that re-adds it to printHelp would duplicate the list (it's also emitted
+// by printSupportedSignals, which --list routes to).
+TEST_F(CliOptionsTest, HelpDoesNotEmitSupportedVehicles) {
     DBCTranslationService service;
     DefaultVehicleConfigs::registerAll(service.registry());
 
@@ -97,13 +102,197 @@ TEST_F(CliOptionsTest, PrintHelpEmitsRegisteredVehicleId) {
     auto opts = parseArgs(args.argc(), args.argv());
 
     std::ostringstream out;
-    printHelp(out, service, opts.mode.help_text);
+    printHelp(out, opts.mode.help_text);
     const std::string help = out.str();
+    EXPECT_EQ(help.find("SUPPORTED VEHICLES"), std::string::npos);
+}
 
-    auto vehicles = service.registry().getRegisteredVehicles();
-    ASSERT_FALSE(vehicles.empty());
-    EXPECT_NE(help.find(vehicles.front()), std::string::npos);
-    EXPECT_NE(help.find("SUPPORTED VEHICLES"), std::string::npos);
+// --examples captures the curated EXAMPLES block into opts.mode.examples_text
+// and routes through printExamples(), which the orchestrator dispatches to.
+// The payload is the embedded copy of assets/examples.md (single source of
+// truth) — see ExamplesContent.h.
+TEST_F(CliOptionsTest, ExamplesFlagCapturesText) {
+    Args args({"vehicle-sim", "--examples"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.mode.examples_requested);
+    EXPECT_TRUE(opts.mode.help_requested);  // also short-circuits like --help
+    ASSERT_FALSE(opts.mode.examples_text.empty());
+    // The block must mention a representative example for every key topic
+    // (curated; the focus-filter tests below exercise the topic grammar).
+    EXPECT_NE(opts.mode.examples_text.find("vehicle-sim --connect demo"), std::string::npos);
+    EXPECT_NE(opts.mode.examples_text.find("vehicle-sim --set-wifi-creds"), std::string::npos);
+    // Section headings are embedded as `# section: NAME` markers in the
+    // asset; their rendered names appear in the printed output.
+    EXPECT_NE(opts.mode.examples_text.find("# section: CONNECTIONS"), std::string::npos);
+    EXPECT_NE(opts.mode.examples_text.find("# section: WIFI SETUP"), std::string::npos);
+    EXPECT_NE(opts.mode.examples_text.find("# section: LOGGING"), std::string::npos);
+    EXPECT_NE(opts.mode.examples_text.find("# section: OUTPUT"), std::string::npos);
+    // Trivial single-flag topics (--discover, --scan, --list, --led-help)
+    // are intentionally absent from the curated payload — the user already
+    // knows how to use them from the help text.
+    EXPECT_EQ(opts.mode.examples_text.find("# topic: discover"), std::string::npos);
+    EXPECT_EQ(opts.mode.examples_text.find("# topic: scan"), std::string::npos);
+    EXPECT_EQ(opts.mode.examples_text.find("# topic: list"), std::string::npos);
+    EXPECT_EQ(opts.mode.examples_text.find("# topic: led-help"), std::string::npos);
+}
+
+// printExamples with empty focus shows the full block, grouped by section
+// headings. The renderer prints the heading once above its matching blocks;
+// a focus-filtered render still emits the heading for any section that
+// retained at least one block.
+TEST_F(CliOptionsTest, PrintExamplesUnfiltered_ShowsAllTopics) {
+    Args args({"vehicle-sim", "--examples"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    std::ostringstream out;
+    printExamples(out, opts.mode.examples_text, {});
+    const std::string text = out.str();
+    EXPECT_NE(text.find("EXAMPLES:"), std::string::npos);
+    EXPECT_NE(text.find("--connect demo"), std::string::npos);
+    EXPECT_NE(text.find("--set-wifi-creds"), std::string::npos);
+    EXPECT_NE(text.find("--clear-wifi-creds"), std::string::npos);
+    // Section headings render as `NAME:` (no `#` prefix). The user asked
+    // for subtitles; this is the regression guard.
+    EXPECT_NE(text.find("CONNECTIONS:"), std::string::npos);
+    EXPECT_NE(text.find("WIFI SETUP:"), std::string::npos);
+    EXPECT_NE(text.find("LOGGING:"), std::string::npos);
+    EXPECT_NE(text.find("OUTPUT:"), std::string::npos);
+    // Trivial single-flag topics are absent even from the unfiltered
+    // render — the user doesn't need a "how to use --scan" example.
+    EXPECT_EQ(text.find("--discover\n"), std::string::npos);
+    EXPECT_EQ(text.find("--scan\n"), std::string::npos);
+    EXPECT_EQ(text.find("--led-help\n"), std::string::npos);
+}
+
+// `--help --connect` populates help_focus with "connect"; printExamples
+// filters to the connect topic and its children (connect-usb, connect-tcp,
+// connect-auto, connect-file). The synthetic sample below uses the section
+// markers too so the test covers the new parser grammar.
+TEST_F(CliOptionsTest, PrintExamplesFiltered_FocusConnect) {
+    Args args({"vehicle-sim", "--help", "--connect"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    ASSERT_TRUE(opts.mode.help_requested);
+    EXPECT_FALSE(opts.mode.help_focus.empty());
+    EXPECT_EQ(opts.mode.help_focus.front(), "connect");
+
+    // examples_text is empty on --help (it's only captured on --examples).
+    // We synthesise a tiny block to test the focus filter end-to-end.
+    const std::string sample =
+        "# section: CONNECTIONS\n"
+        "\n"
+        "# topic: connect\n"
+        "  vehicle-sim --connect demo --vehicle tesla\n"
+        "\n"
+        "# topic: connect-usb\n"
+        "  vehicle-sim --connect-usb /dev/cu.usbserial-110 --vehicle tesla\n"
+        "\n"
+        "# section: WIFI SETUP\n"
+        "\n"
+        "# topic: reboot\n"
+        "  vehicle-sim --reboot --connect auto\n"
+        "\n"
+        "# section: LOGGING\n"
+        "\n"
+        "# topic: scan\n"
+        "  vehicle-sim --scan\n";
+
+    std::ostringstream out;
+    printExamples(out, sample, opts.mode.help_focus);
+    const std::string text = out.str();
+    EXPECT_NE(text.find("--connect demo"), std::string::npos);
+    EXPECT_NE(text.find("--connect-usb"), std::string::npos);
+    // The CONNECTIONS heading survives (it has matching blocks). The
+    // WIFI SETUP and LOGGING headings must NOT appear (no matches under
+    // them after the focus filter).
+    EXPECT_NE(text.find("CONNECTIONS:"), std::string::npos);
+    EXPECT_EQ(text.find("WIFI SETUP:"), std::string::npos);
+    EXPECT_EQ(text.find("LOGGING:"), std::string::npos);
+    // scan must NOT appear when focus is "connect".
+    EXPECT_EQ(text.find("--scan"), std::string::npos);
+    EXPECT_EQ(text.find("--reboot --connect auto"), std::string::npos);
+}
+
+// `--help --reboot` filters to just the reboot examples (and its section
+// heading). The synthesis covers the section-aware filter.
+TEST_F(CliOptionsTest, PrintExamplesFiltered_FocusReboot) {
+    Args args({"vehicle-sim", "--help", "--reboot"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    ASSERT_TRUE(opts.mode.help_requested);
+    EXPECT_EQ(opts.mode.help_focus.front(), "reboot");
+
+    const std::string sample =
+        "# section: CONNECTIONS\n"
+        "\n"
+        "# topic: connect\n"
+        "  vehicle-sim --connect demo --vehicle tesla\n"
+        "\n"
+        "# section: WIFI SETUP\n"
+        "\n"
+        "# topic: reboot\n"
+        "  vehicle-sim --reboot --connect auto\n";
+
+    std::ostringstream out;
+    printExamples(out, sample, opts.mode.help_focus);
+    const std::string text = out.str();
+    EXPECT_NE(text.find("WIFI SETUP:"), std::string::npos);
+    EXPECT_NE(text.find("--reboot --connect auto"), std::string::npos);
+    // The CONNECTIONS heading and its blocks must NOT appear.
+    EXPECT_EQ(text.find("CONNECTIONS:"), std::string::npos);
+    EXPECT_EQ(text.find("--connect demo"), std::string::npos);
+}
+
+// `--examples --foo` is an UNKNOWN option. The user flagged this as the
+// worst possible UX (silent exit 0 with an empty EXAMPLES block). parseArgs
+// must now surface the parse error so main.cpp exits 1.
+TEST_F(CliOptionsTest, ExamplesUnknownArgIsRejected) {
+    Args args({"vehicle-sim", "--examples", "--foo"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_FALSE(opts.error_message.empty())
+        << "--examples --foo must be rejected, not silently swallowed";
+    EXPECT_NE(opts.error_message.find("--foo"), std::string::npos);
+    // The EXAMPLES payload must NOT be set on a failed parse — the
+    // orchestrator is going to short-circuit on the error before printing
+    // anything, and an empty payload would be confusing.
+    EXPECT_TRUE(opts.mode.examples_text.empty());
+}
+
+// `--examples connect` (positional-style) and `--examples --connect` must
+// both filter to the connect topic after the swallow-conditional fix above.
+TEST_F(CliOptionsTest, ExamplesFocus_FilterStillWorks_AfterUnknownArgFix) {
+    // Bare topic name as a positional arg.
+    {
+        Args args({"vehicle-sim", "--examples", "connect"});
+        auto opts = parseArgs(args.argc(), args.argv());
+        EXPECT_TRUE(opts.error_message.empty());
+        ASSERT_TRUE(opts.mode.examples_requested);
+        ASSERT_FALSE(opts.mode.help_focus.empty());
+        EXPECT_EQ(opts.mode.help_focus.front(), "connect");
+    }
+    // --<topic> with leading dashes — stripLeadingDashes turns it into
+    // "connect" too.
+    {
+        Args args({"vehicle-sim", "--examples", "--connect"});
+        auto opts = parseArgs(args.argc(), args.argv());
+        EXPECT_TRUE(opts.error_message.empty());
+        ASSERT_TRUE(opts.mode.examples_requested);
+        ASSERT_FALSE(opts.mode.help_focus.empty());
+        EXPECT_EQ(opts.mode.help_focus.front(), "connect");
+    }
+}
+
+// `printExamples` with empty payload still emits a header (regression guard
+// for the early-exit orchestrator path which always calls printExamples
+// when --examples was requested, even if the focus filter ends up matching
+// nothing).
+TEST_F(CliOptionsTest, PrintExamplesWithEmptyText_EmitsHeaderOnly) {
+    std::ostringstream out;
+    printExamples(out, "", {});
+    const std::string text = out.str();
+    EXPECT_NE(text.find("EXAMPLES:"), std::string::npos);
 }
 
 TEST_F(CliOptionsTest, ScanFlag) {
@@ -171,15 +360,30 @@ TEST_F(CliOptionsTest, ConnectTcpIpOnly_IsTcp) {
     EXPECT_FALSE(opts.isBLE());
 }
 
-TEST_F(CliOptionsTest, ConnectTcpWithLogFlags_Parses) {
+TEST_F(CliOptionsTest, ConnectTcpWithLogFlag_Parses) {
+    // The canonical --log <base> is the only logging flag. Earlier drafts
+    // also accepted --log-raw / --log-csv as deprecated aliases; those were
+    // removed. This test exercises the surviving --log form.
     Args args({"vehicle-sim", "--connect", "tcp:192.168.4.1:3333", "--vehicle", "tesla",
-               "--log-raw", "x.raw", "--log-csv", "x.csv"});
+               "--log", "captures/run1"});
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_TRUE(opts.error_message.empty());
     EXPECT_TRUE(opts.isTcp());
-    EXPECT_EQ(opts.logging.log_raw, "x.raw");
-    EXPECT_EQ(opts.logging.log_csv, "x.csv");
+    EXPECT_EQ(opts.logging.log_base, "captures/run1");
+}
+
+TEST_F(CliOptionsTest, DeprecatedLogFlagsAreRejected) {
+    // --log-raw / --log-csv are no longer registered; they must fail parsing
+    // as unknown options. Regression guard: a future refactor that re-adds
+    // them as aliases must update this test, not silently bring them back.
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
+               "--log-raw", "x.raw"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_FALSE(opts.error_message.empty())
+        << "--log-raw must now be rejected as an unknown option";
+    EXPECT_NE(opts.error_message.find("--log-raw"), std::string::npos);
 }
 
 TEST_F(CliOptionsTest, ConnectDemoWithVehicle) {
@@ -287,44 +491,9 @@ TEST_F(CliOptionsTest, ValidGenericVehicleType) {
     EXPECT_EQ(opts.telemetry.vehicle_type, "generic");
 }
 
-TEST_F(CliOptionsTest, LogCsvFlag) {
-    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-csv", "trace.csv"});
-    auto opts = parseArgs(args.argc(), args.argv());
-
-    EXPECT_EQ(opts.logging.log_csv, "trace.csv");
-    EXPECT_TRUE(opts.error_message.empty());
-}
-
-TEST_F(CliOptionsTest, LogRawFlag) {
-    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-raw", "raw.log"});
-    auto opts = parseArgs(args.argc(), args.argv());
-
-    EXPECT_EQ(opts.logging.log_raw, "raw.log");
-    EXPECT_TRUE(opts.error_message.empty());
-}
-
-TEST_F(CliOptionsTest, BothLogFlags) {
-    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-csv", "trace.csv", "--log-raw", "raw.log"});
-    auto opts = parseArgs(args.argc(), args.argv());
-
-    EXPECT_EQ(opts.logging.log_csv, "trace.csv");
-    EXPECT_EQ(opts.logging.log_raw, "raw.log");
-    EXPECT_TRUE(opts.error_message.empty());
-}
-
-TEST_F(CliOptionsTest, LogCsvWithoutValueReturnsError) {
-    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-csv"});
-    auto opts = parseArgs(args.argc(), args.argv());
-
-    EXPECT_FALSE(opts.error_message.empty());
-}
-
-TEST_F(CliOptionsTest, LogRawWithoutValueReturnsError) {
-    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log-raw"});
-    auto opts = parseArgs(args.argc(), args.argv());
-
-    EXPECT_FALSE(opts.error_message.empty());
-}
+// --log-csv / --log-raw were removed: the canonical --log <base> is the
+// only logging flag. Their dedicated tests are gone; see
+// DeprecatedLogFlagsAreRejected above for the negative-coverage guard.
 
 TEST_F(CliOptionsTest, ScanWithoutConnectNoError) {
     Args args({"vehicle-sim", "--scan"});
@@ -453,7 +622,7 @@ TEST_F(CliValidationTest, ValidateScan_NoError) {
 }
 
 // ============================================================
-// --log <base> (canonical) and deprecated --log-csv/--log-raw aliases
+// --log <base> (canonical) — deprecated --log-csv / --log-raw removed
 // ============================================================
 
 TEST_F(CliOptionsTest, LogBaseFlagSetsLogBase) {
@@ -467,15 +636,6 @@ TEST_F(CliOptionsTest, LogBaseWithoutValueReturnsError) {
     Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla", "--log"});
     auto opts = parseArgs(args.argc(), args.argv());
     EXPECT_FALSE(opts.error_message.empty());
-}
-
-TEST_F(CliOptionsTest, DeprecatedLogCsvStillParses) {
-    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla",
-               "--log-csv", "trace.csv"});
-    auto opts = parseArgs(args.argc(), args.argv());
-    EXPECT_EQ(opts.logging.log_csv, "trace.csv");
-    EXPECT_TRUE(opts.logging.log_base.empty());  // canonical unset when alias used
-    EXPECT_TRUE(opts.error_message.empty());
 }
 
 // ============================================================
@@ -661,5 +821,193 @@ TEST_F(CliValidationTest, InteractiveMode_AcceptsNormalVehicleLabel) {
     auto opts = parseArgs(args.argc(), args.argv());
     auto error = validateOptions(opts, service_);
     EXPECT_TRUE(error.empty());
+}
+
+// ============================================================
+// --connect-{usb,tcp,ble,auto} alias folding + provisioning transport fold
+// ============================================================
+
+// --connect-usb <path> is sugar for "--connect usb:<path>". The alias
+// captures the path tail (no prefix) and parseArgs() folds it onto
+// connect_target so every downstream consumer (isUsb(), main.cpp) sees a
+// single source of truth. Without the folding we'd ship two fields carrying
+// the same value, and any consumer reading the wrong one would diverge.
+TEST_F(CliOptionsTest, ConnectUsbAliasFoldsOntoConnectTarget) {
+    Args args({"vehicle-sim", "--connect-usb", "/dev/cu.usbserial-X1", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.telemetry.connect_target, "usb:/dev/cu.usbserial-X1");
+    EXPECT_TRUE(opts.isUsb());
+    EXPECT_FALSE(opts.isTcp());
+    EXPECT_FALSE(opts.isAuto());
+}
+
+// --connect-tcp <ip:port> is sugar for "--connect tcp:<ip:port>". The tail
+// already includes the colon, so the folding just prepends the prefix.
+TEST_F(CliOptionsTest, ConnectTcpAliasFoldsOntoConnectTarget) {
+    Args args({"vehicle-sim", "--connect-tcp", "192.168.4.1:3333", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.telemetry.connect_target, "tcp:192.168.4.1:3333");
+    EXPECT_TRUE(opts.isTcp());
+    EXPECT_FALSE(opts.isUsb());
+}
+
+// --connect-tcp without a port is also accepted (the runtime resolver
+// defaults to port 3333); the folding must NOT add a phantom port.
+TEST_F(CliOptionsTest, ConnectTcpAliasIpOnlyFoldsVerbatim) {
+    Args args({"vehicle-sim", "--connect-tcp", "192.168.4.1", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.telemetry.connect_target, "tcp:192.168.4.1");
+    EXPECT_TRUE(opts.isTcp());
+}
+
+// --connect-auto is a marker flag (no value). The folding just stamps
+// connect_target to the literal "auto".
+TEST_F(CliOptionsTest, ConnectAutoAliasFoldsOntoConnectTarget) {
+    Args args({"vehicle-sim", "--connect-auto", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.telemetry.connect_target, "auto");
+    EXPECT_TRUE(opts.isAuto());
+    EXPECT_FALSE(opts.isUsb());
+    EXPECT_FALSE(opts.isTcp());
+}
+
+// --connect-ble is a marker only — the BLE address is still supplied via
+// --connect. With only the marker set, connect_target stays empty (and
+// validateOptions flags the missing --connect address).
+TEST_F(CliOptionsTest, ConnectBleMarkerAloneLeavesTargetEmpty) {
+    Args args({"vehicle-sim", "--connect-ble", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_TRUE(opts.telemetry.connect_target.empty())
+        << "the marker alone is not a transport — the address must come via --connect";
+    EXPECT_TRUE(opts.telemetry.connect_ble);
+}
+
+// --connect-ble + --connect <addr> folds the address into connect_target;
+// the marker is preserved on connect_ble so downstream consumers that
+// branch on the marker (e.g. BLE-specific protocol hints) still fire.
+TEST_F(CliOptionsTest, ConnectBleMarkerWithAddressKeepsBothFields) {
+    Args args({"vehicle-sim", "--connect-ble", "--connect", "AA:BB:CC:DD:EE:FF",
+               "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.telemetry.connect_target, "AA:BB:CC:DD:EE:FF");
+    EXPECT_TRUE(opts.telemetry.connect_ble);
+    EXPECT_TRUE(opts.isBLE());
+}
+
+// --connect (canonical) takes precedence over any alias. If both --connect
+// and --connect-usb are given, the canonical --connect value wins and the
+// alias is ignored — the user explicitly chose the canonical form.
+TEST_F(CliOptionsTest, CanonicalConnectBeatsAlias) {
+    Args args({"vehicle-sim", "--connect", "demo", "--connect-usb",
+               "/dev/cu.usbserial-IGNORED", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.telemetry.connect_target, "demo");
+    EXPECT_TRUE(opts.isDemo());
+    EXPECT_NE(opts.telemetry.connect_usb.find("IGNORED"), std::string::npos)
+        << "the alias was captured into connect_usb but did NOT overwrite "
+           "the canonical --connect — the canonical value wins";
+}
+
+// ============================================================
+// Universal --connect transport → provisioning.transport fold
+// ============================================================
+
+// When a provisioning flag is set, --connect selects the PROVISIONING
+// transport (not the telemetry transport). The parsed value is moved from
+// telemetry.connect_target onto wifi.transport so the dispatcher
+// (runProvisioning) sees a single source of truth, and any downstream
+// telemetry dispatcher sees "no telemetry requested" (empty target).
+TEST_F(CliOptionsTest, ProvisioningFoldsConnectOntoWifiTransport) {
+    Args args({"vehicle-sim", "--set-wifi-creds", "MyNet", "s3cr3t",
+               "--connect", "usb:/dev/cu.usbserial-110"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.wifi.transport, "usb:/dev/cu.usbserial-110")
+        << "--connect must be folded onto wifi.transport when provisioning is active";
+    EXPECT_TRUE(opts.telemetry.connect_target.empty())
+        << "the moved value must NOT also remain on telemetry.connect_target";
+    EXPECT_TRUE(opts.isProvisioning());
+}
+
+// Same fold for --connect-auto: the alias folds to "auto" on
+// connect_target, then the provisioning-fold moves it to wifi.transport.
+TEST_F(CliOptionsTest, ProvisioningFoldsConnectAutoOntoWifiTransport) {
+    Args args({"vehicle-sim", "--reboot", "--connect-auto"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.wifi.transport, "auto");
+    EXPECT_TRUE(opts.telemetry.connect_target.empty());
+    EXPECT_TRUE(opts.isProvisioning());
+}
+
+// Same fold for --connect-usb (shorthand): the alias folds to
+// "usb:<path>" on connect_target, then the provisioning-fold moves it.
+TEST_F(CliOptionsTest, ProvisioningFoldsConnectUsbAliasOntoWifiTransport) {
+    Args args({"vehicle-sim", "--clear-wifi-creds", "--connect-usb",
+               "/dev/cu.usbserial-110"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.wifi.transport, "usb:/dev/cu.usbserial-110");
+    EXPECT_TRUE(opts.telemetry.connect_target.empty());
+}
+
+// When --status is requested WITHOUT --connect, the transport is left
+// empty (NOT "auto") so the resolver's auto-detect leg runs. The "no
+// transport" signal is the empty string, not the literal "auto".
+TEST_F(CliOptionsTest, ProvisioningWithoutConnectLeavesTransportEmpty) {
+    Args args({"vehicle-sim", "--status"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_TRUE(opts.wifi.transport.empty())
+        << "empty transport is the 'auto-detect' signal for the resolver";
+    EXPECT_TRUE(opts.isProvisioning());
+    EXPECT_TRUE(opts.wifi.status_requested);
+}
+
+// The provisioning-fold ONLY runs when a provisioning flag is set; a
+// pure-telemetry invocation with --connect must leave the value on
+// telemetry.connect_target and leave wifi.transport empty.
+TEST_F(CliOptionsTest, TelemetryAloneDoesNotMoveConnectToWifi) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.telemetry.connect_target, "demo");
+    EXPECT_TRUE(opts.wifi.transport.empty());
+    EXPECT_FALSE(opts.isProvisioning());
+}
+
+// --status is recognised as a provisioning flag — without it, the same
+// --connect value is telemetry, not provisioning. This is the regression
+// guard: someone adding a new --status-style flag must remember to add
+// it to WifiProvisioningOptions::active() too.
+TEST_F(CliOptionsTest, StatusFlagIsProvisioning) {
+    Args args({"vehicle-sim", "--status", "--connect", "auto"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_TRUE(opts.wifi.status_requested);
+    EXPECT_TRUE(opts.isProvisioning());
+    EXPECT_EQ(opts.wifi.transport, "auto")
+        << "the provisioning-fold MUST route --connect to wifi.transport";
+    EXPECT_TRUE(opts.telemetry.connect_target.empty());
 }
 

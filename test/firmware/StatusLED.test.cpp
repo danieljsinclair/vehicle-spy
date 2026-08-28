@@ -243,17 +243,17 @@ TEST(StatusLEDTest, ApModePattern_LongTinyTinySeparator) {
     // LONG_FLASH (800ms) ON
     EXPECT_TRUE(mock.getCurrentState()) << "Should start with LONG_FLASH ON";
 
-    // After 800ms, TINY_GAP (100ms) OFF
+    // After 800ms, SHORT_GAP (200ms) OFF — gap between LONG and first TINY
     mock.advanceTime(800, led);
-    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in TINY_GAP";
+    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in SHORT_GAP";
 
-    // After 100ms, TINY_FLASH (100ms) ON
-    mock.advanceTime(100, led);
+    // After 200ms, TINY_FLASH (100ms) ON
+    mock.advanceTime(200, led);
     EXPECT_TRUE(mock.getCurrentState()) << "Should be ON for first TINY_FLASH";
 
     // After 100ms, TINY_GAP (100ms) OFF
     mock.advanceTime(100, led);
-    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in second TINY_GAP";
+    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in TINY_GAP";
 
     // After 100ms, TINY_FLASH (100ms) ON
     mock.advanceTime(100, led);

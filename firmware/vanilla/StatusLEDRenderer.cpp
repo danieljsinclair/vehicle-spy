@@ -7,12 +7,6 @@
 
 namespace firmware {
 
-// ── Pattern Registry ─────────────────────────────────────────────────────────────
-// Single source of truth for pattern metadata (names, categories, descriptions).
-// The visual rendering is computed from PATTERN_REGISTRY + the LEDStep opcode
-// arrays (StatusLED.cpp); there is no hand-maintained help text. Adding a
-// pattern to StatusLED.cpp + this registry is sufficient to have it appear
-// in --led-help output by construction.
 static const std::vector<PatternInfo> PATTERN_REGISTRY = {
     {StatusLED::Pattern::BOOT,                  PatternCategory::BOOT,          "BOOT",                     "Startup sequence"},
     {StatusLED::Pattern::WIFI_SEARCHING,        PatternCategory::WIFI,          "WIFI_SEARCHING",           "Searching for WiFi network"},
@@ -27,102 +21,104 @@ static const std::vector<PatternInfo> PATTERN_REGISTRY = {
     {StatusLED::Pattern::OFF,                   PatternCategory::OFF,           "OFF",                      "LED off"}
 };
 
-// ── Total period (ms) for a pattern ─────────────────────────────────────────────
-// Sum of all step durations. Used to size the visual layout and to place
-// the final '|' divider. Single source of truth: derived from the LEDStep
-// array, not hand-maintained.
-static uint32_t totalPeriodMs(StatusLED::Pattern pattern) {
-    auto [steps, count] = StatusLED::getPatternSteps(pattern);
-    uint32_t total = 0;
-    for (size_t i = 0; i < count; ++i) {
-        total += steps[i].durationMs;
+struct NamedConstant {
+    const char* name;
+    LEDState state;
+    uint32_t durationMs;
+};
+
+static const std::vector<NamedConstant> NAMED_CONSTANTS = {
+    {"TINY_FLASH",         LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
+    {"SHORT_FLASH",        LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
+    {"MED_FLASH",          LEDState::ON,  StatusLEDConstants::MED_FLASH_MS},
+    {"LONG_FLASH",         LEDState::ON,  StatusLEDConstants::LONG_FLASH_MS},
+    {"VERY_LONG_FLASH",    LEDState::ON,  StatusLEDConstants::VERY_LONG_FLASH_MS},
+    {"TINY_GAP",           LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    {"SHORT_GAP",          LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
+    {"MED_GAP",            LEDState::OFF, StatusLEDConstants::MED_GAP_MS},
+    {"LONG_GAP",           LEDState::OFF, StatusLEDConstants::LONG_GAP_MS},
+    {"SEARCHING_GAP",      LEDState::OFF, StatusLEDConstants::SEARCHING_GAP_MS},
+    {"SEPARATOR",          LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
+};
+
+#ifdef INCLUDE_LED_HELP_KEY
+static std::string renderNamedConstant(const NamedConstant& c) {
+    const uint32_t tenths = c.durationMs / 100;
+    if (tenths == 0) return "|";
+    std::ostringstream out;
+    out << '|';
+    for (uint32_t i = 0; i < tenths; ++i) {
+        out << (c.state == LEDState::ON ? '-' : ' ');
     }
-    return total;
+    out << '|';
+    return out.str();
+}
+#endif
+
+#ifdef INCLUDE_LED_HELP_KEY
+static std::string renderNamedConstantPadded(const NamedConstant& c, size_t width) {
+    std::string bare = renderNamedConstant(c);
+    if (bare.size() >= width) return bare;
+    return bare + std::string(width - bare.size(), ' ');
+}
+#endif
+
+std::string StatusLEDRenderer::formatDuration(uint32_t durationMs) {
+    std::ostringstream formatted;
+    formatted << std::fixed << std::setprecision(1);
+    formatted << (durationMs / 1000.0) << "s";
+    return formatted.str();
 }
 
-// ── Render Pattern (divider-aligned visual) ─────────────────────────────────────
-// One character per 100ms:
-//   '-' = LED ON
-//   ' ' = LED OFF
-//   '#' = SOLID ON (single-state ON pattern)
-//   '.' = SOLID OFF (single-state OFF pattern)
-// A '|' divider is placed at every whole-second boundary — the start, the end,
-// and each whole second in between. This makes long separators (e.g. 2s
-// separator = '|          |          |') and 0.8s flashes ('|--------|')
-// immediately readable.
-//
-// Examples:
-//   BOOT (ON 500ms, OFF 500ms)            -> "|-----|     |"
-//   WIFI_SEARCHING (ON 100, OFF 900)       -> "|-         |"
-//   WIFI_CONNECTED (ON 800, OFF 200)       -> "|--------| |"
-//   CLIENT_CONNECTED (ON 2000 solid)      -> "|#################|"
-//   AP_MODE (1.4s pulses + 2s separator)  -> "|-------- - -         |"
-//   OFF (OFF 2000 solid)                  -> "|...................|"
+static bool isTrailingSeparator(const LEDStep& step, bool isLast) {
+    if (!isLast) return false;
+    if (step.state == LEDState::SEPARATOR) return true;
+    return step.state == LEDState::OFF
+        && step.durationMs >= StatusLEDConstants::SEPARATOR_MS;
+}
+
 std::string StatusLEDRenderer::renderPattern(StatusLED::Pattern pattern) {
     auto [steps, stepCount] = StatusLED::getPatternSteps(pattern);
     if (stepCount == 0) return "";
 
-    // Total period in tenths of a second (chars). For single-state patterns
-    // (CLIENT_CONNECTED, OFF) the duration is a SEPARATOR_MS constant that
-    // dictates the cycle length, so it is still informative.
-    const uint32_t periodMs = totalPeriodMs(pattern);
-    if (periodMs == 0) return "";
-
-    // Special-case: single-state patterns (SOLID ON / SOLID OFF) are
-    // unambiguous, so use a dedicated glyph instead of '-' / ' '.
     const bool isSingleState = (stepCount == 1);
 
+    struct Run { LEDState state; uint32_t tenths; };
+    std::vector<Run> plan;
+    uint32_t totalTenths = 0;
+    for (size_t i = 0; i < stepCount; ++i) {
+        if (!isSingleState && isTrailingSeparator(steps[i], i + 1 == stepCount)) {
+            continue;
+        }
+        const uint32_t tenths = steps[i].durationMs / 100;
+        if (tenths == 0) continue;
+        plan.push_back({steps[i].state, tenths});
+        totalTenths += tenths;
+    }
+    if (totalTenths == 0) return "";
+
     std::ostringstream out;
-    out << '|';  // Start divider (t = 0s boundary)
+    out << '|';
 
-    // Walk the pattern step-by-step, emitting one char per 100ms. Track
-    // elapsed tenths so we can insert '|' dividers at every whole-second
-    // boundary (1s, 2s, ...).
-    size_t stepIdx = 0;
-    uint32_t stepRemaining = steps[0].durationMs;
-    LEDState stepState = steps[0].state;
-
-    // 0.1s units elapsed so far (so we know when the next whole-second
-    // boundary is reached).
+    size_t runIdx = 0;
+    uint32_t runTenthsLeft = plan[0].tenths;
     uint32_t tenthsElapsed = 0;
-    const uint32_t totalTenths = periodMs / 100;
-
     while (tenthsElapsed < totalTenths) {
-        // Place a '|' divider at the next whole-second boundary (before
-        // emitting the char for that tenth) — i.e. at tenthsElapsed == 10, 20, ...
         if (tenthsElapsed > 0 && tenthsElapsed % 10 == 0) {
             out << '|';
         }
-
-        // Pick the glyph for this 0.1s slot from the current step.
-        char glyph;
-        if (isSingleState) {
-            glyph = (stepState == LEDState::ON) ? '#' : '.';
-        } else if (stepState == LEDState::ON) {
-            glyph = '-';
-        } else {
-            glyph = ' ';  // OFF or SEPARATOR (both render as gap)
-        }
-        out << glyph;
+        out << (plan[runIdx].state == LEDState::ON ? '-' : ' ');
         ++tenthsElapsed;
-        // Each iteration represents 100ms of pattern time, so consume 100ms
-        // from the current step's remaining duration.
-        stepRemaining = (stepRemaining > 100) ? stepRemaining - 100 : 0;
-        if (stepRemaining == 0 && stepIdx + 1 < stepCount) {
-            ++stepIdx;
-            stepState = steps[stepIdx].state;
-            stepRemaining = steps[stepIdx].durationMs;
+        if (--runTenthsLeft == 0 && runIdx + 1 < plan.size()) {
+            ++runIdx;
+            runTenthsLeft = plan[runIdx].tenths;
         }
     }
 
-    out << '|';  // End divider
+    out << '|';
     return out.str();
 }
 
-// ── Build the comment column for a pattern ──────────────────────────────────────
-// Human-readable timing note. e.g. "ON 0.1s, OFF 0.9s" / "solid ON".
-// Extracted from renderPattern() so the aligned table column is the same
-// string that the key/footer describes.
 std::string StatusLEDRenderer::timingNote(StatusLED::Pattern pattern) {
     auto [steps, stepCount] = StatusLED::getPatternSteps(pattern);
     if (stepCount == 0) return "";
@@ -131,30 +127,18 @@ std::string StatusLEDRenderer::timingNote(StatusLED::Pattern pattern) {
         return steps[0].state == LEDState::ON ? "solid ON" : "solid OFF";
     }
 
-    std::ostringstream note;
+    std::ostringstream out;
+    bool first = true;
     for (size_t i = 0; i < stepCount; ++i) {
-        const LEDStep& step = steps[i];
-        if (i > 0) note << ", ";
-        // Patterns encode the SEPARATOR as {OFF, SEPARATOR_MS} (a long OFF),
-        // not as LEDState::SEPARATOR. Detect the long-pause case from the
-        // duration so the timing note tells the user "this is a separator".
-        const bool isSeparator =
-            (step.state == LEDState::SEPARATOR) ||
-            (step.state == LEDState::OFF && step.durationMs >= StatusLEDConstants::SEPARATOR_MS);
-        if (isSeparator) {
-            note << "sep " << formatDuration(step.durationMs);
-        } else if (step.state == LEDState::ON) {
-            note << "ON " << formatDuration(step.durationMs);
-        } else {
-            note << "OFF " << formatDuration(step.durationMs);
-        }
+        if (isTrailingSeparator(steps[i], i + 1 == stepCount)) continue;
+        if (!first) out << ", ";
+        first = false;
+        out << (steps[i].state == LEDState::ON ? "ON " : "OFF ")
+            << formatDuration(steps[i].durationMs);
     }
-    return note.str();
+    return out.str();
 }
 
-// ── Build the C++ enum-name line for a pattern ──────────────────────────────────
-// Mirrors the StatusLED::Pattern enum spelling so users can grep from CLI
-// output to source. E.g. "StatusLED::Pattern::WIFI_SEARCHING".
 std::string StatusLEDRenderer::enumName(StatusLED::Pattern pattern) {
     const char* bare = nullptr;
     switch (pattern) {
@@ -173,11 +157,7 @@ std::string StatusLEDRenderer::enumName(StatusLED::Pattern pattern) {
     return std::string{"StatusLED::Pattern::"} + (bare ? bare : "?");
 }
 
-// ── Compute the max visual width across all patterns ────────────────────────────
-// Used to right-align the comment column so every row's # note lines up
-// (visual column width is data-driven — derived from the registered patterns,
-// not a hard-coded constant).
-static size_t maxVisualWidth() {
+static size_t maxPatternVisualWidth() {
     size_t maxWidth = 0;
     for (const auto& info : PATTERN_REGISTRY) {
         maxWidth = std::max(maxWidth, StatusLEDRenderer::renderPattern(info.pattern).size());
@@ -185,30 +165,28 @@ static size_t maxVisualWidth() {
     return maxWidth;
 }
 
-// ── Generate --led-help table ────────────────────────────────────────────────────
-// Format (one row per pattern):
-//   NAME  <visual>  # comment
-//   e.g. "WIFI_CONNECTED  |--------| |  # ON 0.8s, OFF 0.2s"
-// Header explains the encoding; the key at the bottom names the dividers and
-// the 100ms-per-char rule. Fully data-driven: visuals + comments + enum names
-// all derived from the LEDStep arrays via StatusLED::getPatternSteps() and the
-// PATTERN_REGISTRY above.
+#ifdef INCLUDE_LED_HELP_KEY
+static size_t maxConstantVisualWidth() {
+    size_t maxWidth = 0;
+    for (const auto& c : NAMED_CONSTANTS) {
+        maxWidth = std::max(maxWidth, renderNamedConstant(c).size());
+    }
+    return maxWidth;
+}
+#endif
+
 std::string StatusLEDRenderer::generateTable() {
     std::ostringstream out;
 
-    // ── Header
-    out << "Status LED patterns (1 char = 100ms, |'s mark each whole second)\n";
+    out << "Status LED patterns (1 char = 100ms, |'s mark each whole second; "
+        << "trailing 2s separator is omitted from each row)\n\n";
 
-    // ── Compute the visual column width for alignment
-    const size_t visualWidth = maxVisualWidth();
-
-    // ── Name column width: longest name in the registry
+    const size_t visualWidth = maxPatternVisualWidth();
     size_t nameWidth = 0;
     for (const auto& info : PATTERN_REGISTRY) {
         nameWidth = std::max(nameWidth, std::strlen(info.name));
     }
 
-    // ── Per-pattern rows
     for (const auto& info : PATTERN_REGISTRY) {
         std::string visual = renderPattern(info.pattern);
         std::string note = timingNote(info.pattern);
@@ -217,22 +195,32 @@ std::string StatusLEDRenderer::generateTable() {
             << "  # " << note << "\n";
     }
 
+#ifdef INCLUDE_LED_HELP_KEY
+    const size_t constVisualWidth = maxConstantVisualWidth();
+    size_t constNameWidth = 0;
+    for (const auto& c : NAMED_CONSTANTS) {
+        constNameWidth = std::max(constNameWidth, std::strlen(c.name));
+    }
+
+    out << "\nKey:\n";
+    for (const auto& c : NAMED_CONSTANTS) {
+        const std::string cVisual = renderNamedConstantPadded(c, constVisualWidth);
+        const std::string comment = (c.state == LEDState::ON ? "ON " : "OFF ")
+            + formatDuration(c.durationMs);
+        out << "  " << std::left << std::setw(static_cast<int>(constNameWidth)) << c.name
+            << "  " << cVisual
+            << "  # " << comment << "\n";
+    }
+#endif
+
     out << "\nEnum names (use with setPattern / getPattern):\n";
     for (const auto& info : PATTERN_REGISTRY) {
         out << "  " << enumName(info.pattern) << "\n";
     }
 
-    out << "\nKey:\n"
-        << "  1 char = 100ms     '|' divider = every whole second (start, 1s, 2s, ...)\n"
-        << "  '-' = LED ON       ' ' = LED OFF       '#' = solid ON       '.' = solid OFF\n";
-
     return out.str();
 }
 
-// ── Generate Help Text (long form) ──────────────────────────────────────────────
-// Same data-driven approach as generateTable() but with per-pattern detail
-// blocks (description, full timing breakdown). Kept for --help / external
-// consumers that want the verbose form.
 std::string StatusLEDRenderer::generateHelpText() {
     std::ostringstream help;
 
@@ -241,18 +229,15 @@ std::string StatusLEDRenderer::generateHelpText() {
     help << "Visual key:\n";
     help << "  '-' = LED ON\n";
     help << "  ' ' = LED OFF\n";
-    help << "  '#' = SOLID ON\n";
-    help << "  '.' = SOLID OFF\n";
-    help << "  '|' = whole-second boundary (start, 1s, 2s, ...)\n\n";
+    help << "  '|' = whole-second boundary (start, 1s, 2s, ...)\n";
+    help << "  Trailing 2s separators are omitted from the visual.\n\n";
     help << "Each character represents 100ms. Patterns repeat continuously.\n\n";
 
-    // Group patterns by category
     std::map<PatternCategory, std::vector<const PatternInfo*>> grouped;
     for (const auto& patternInfo : PATTERN_REGISTRY) {
         grouped[patternInfo.category].push_back(&patternInfo);
     }
 
-    // Render each category
     for (const auto& [category, patterns] : grouped) {
         help << "## " << getCategoryName(category) << "\n\n";
 
@@ -260,21 +245,15 @@ std::string StatusLEDRenderer::generateHelpText() {
             help << patternInfo->name << "\n";
             help << "  " << patternInfo->description << "\n";
 
-            // Render visual representation
             std::string visual = renderPattern(patternInfo->pattern);
             help << "  Visual: " << visual << "\n";
 
-            // Generate human-readable timing note
             auto [steps, stepCount] = StatusLED::getPatternSteps(patternInfo->pattern);
             if (stepCount > 0) {
                 help << "  Timing: ";
                 for (size_t i = 0; i < stepCount; ++i) {
                     const LEDStep& step = steps[i];
-
-                    if (i > 0) {
-                        help << ", ";
-                    }
-
+                    if (i > 0) help << ", ";
                     if (step.state == LEDState::SEPARATOR) {
                         help << "separator (" << formatDuration(step.durationMs) << ")";
                     } else if (step.state == LEDState::ON) {
@@ -295,7 +274,6 @@ std::string StatusLEDRenderer::generateHelpText() {
     return help.str();
 }
 
-// ── Get Category Name ───────────────────────────────────────────────────────────────
 const char* StatusLEDRenderer::getCategoryName(PatternCategory category) {
     switch (category) {
         case PatternCategory::BOOT:         return "Boot & Initialization";
@@ -308,14 +286,6 @@ const char* StatusLEDRenderer::getCategoryName(PatternCategory category) {
         case PatternCategory::OFF:          return "Power Off";
     }
     return "Unknown";
-}
-
-// ── Format Duration ───────────────────────────────────────────────────────────────────
-std::string StatusLEDRenderer::formatDuration(uint32_t durationMs) {
-    std::ostringstream formatted;
-    formatted << std::fixed << std::setprecision(1);
-    formatted << (durationMs / 1000.0) << "s";
-    return formatted.str();
 }
 
 } // namespace firmware

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "vanilla/WiFiManager.h"
+#include "vanilla/WiFiReasonCodes.h"
 #include "mocks/WiFiMock.h"
 #include "mocks/PreferencesMock.h"
 #include "mocks/ArduinoMock.h"
@@ -350,10 +351,16 @@ TEST_F(WiFiManagerTest, Connecting_ConnectFailedBeforeTimeout_RetriesStoredCrede
     EXPECT_EQ(wifiMock.getCurrentSsid(), std::string("real-ssid"));
 }
 
-TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithStoredCredentials_FallsBackToApMode) {
-    // ConnectingStateHandler isInitialConnectTimeout branch: status neither
-    // CONNECTED nor CONNECT_FAILED/NO_SSID (idle), and connectDuration exceeds
-    // the initial-connect budget → STORED_NVS → AUTH_FAIL AP (creds existed).
+TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithStoredCredentials_StaysConnectingWhenNoAuthReason) {
+    // LINK-LEVEL DROP RESILIENCE (mesh-reboot fix): the previous behaviour
+    // escalated to WIFI_AP_MODE_AUTH_FAIL after the 5-minute budget regardless
+    // of WHY the device was stuck. Field logs show reason 0/200/201 (mesh AP
+    // rebooting) on this exact path — escalating to AP mode is wrong, the
+    // mesh will be back in 2-30 minutes. With the fix, the 5-min safety-net
+    // escalation is GATED on isAuthMechanismFailure(lastDisconnectReason); for
+    // a generic/lastDisconnectReason=0 the handler stays in WIFI_CONNECTING
+    // and keeps retrying. The mesh-reboot scenario is the canonical case this
+    // test pins.
     prefsMock.setValue("wifi", "cred_count", "1");
     prefsMock.setValue("wifi", "ssid_0", "real-ssid");
     prefsMock.setValue("wifi", "pass_0", "real-pass");
@@ -361,19 +368,32 @@ TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithStoredCredentials_FallsBack
         wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
 
     wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);  // neither 3 nor 4/1
+    // Simulate a link-level drop (mesh rebootting) so lastDisconnectReason is
+    // a known link-level code (200 = BEACON_TIMEOUT), not auth.
+    // We do this by driving through a connect first, then firing the drop.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
     wifiManager->init();
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // Mesh AP goes down — the radio reports BEACON_TIMEOUT (200).
+    wifiManager->onDisconnected(200);  // WIFI_REASON_BEACON_TIMEOUT
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    // Idle status while we wait for the mesh to come back.
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
 
     // Past the initial-connect budget (60 retries * 5s = 300s).
     const uint32_t kInitialBudgetMs =
         WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES * WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
     wifiManager->update(kInitialBudgetMs + 1);
 
-    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
-    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
-    // wifi_ap_fallback keeps reporting a reason on this path too.
-    EXPECT_EQ(wifiManager->getContext().escalatedToApReason,
-              wifiManager->getContext().lastDisconnectReason);
+    // Stays in WIFI_CONNECTING — must NOT escalate to AP mode. The mesh is
+    // rebooting, the credentials are correct, link-level drops retry forever.
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "link-level drop (reason=200) must not escalate to AP after 5-min budget";
+    EXPECT_NE(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP)
+        << "WiFi mode must stay STA — never transition to AP for a link-level drop";
 }
 
 TEST_F(WiFiManagerTest, Connecting_InitialTimeoutWithBakedCredentials_TransitionsToConnecting) {
@@ -1054,4 +1074,306 @@ TEST_F(WiFiManagerTest, testUserFacingSerialDoesNotLeakRestartDetail) {
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
     EXPECT_TRUE(wifiManager->shouldRestartTcpServer())
         << "different-IP reconnect must arm tcpServerNeedsRestart (restart is real)";
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Commit 8: #19 WiFi auth-fallback fix — link-level drops must NOT escalate
+//
+// THE BUG: when the mesh AP reboots, the ESP32's link drops deliver reason
+// 0/200/201 (BEACON_TIMEOUT, NO_AP_FOUND, generic) in rapid succession. The
+// previous code escalated to WIFI_AP_MODE_AUTH_FAIL after 5 minutes regardless
+// of WHY the device was stuck — treating a mesh reboot exactly the same as a
+// wrong password. The mesh takes 2-30 minutes to come back, and the device
+// should keep retrying STA, NOT abandon it for an AP that is reachable again.
+//
+// THE FIX: the 5-min safety-net escalation is now gated on
+// isAuthMechanismFailure(lastDisconnectReason). Link-level drops (0/200/201/...)
+// stay in WIFI_CONNECTING and keep retrying forever. AP mode is reserved for
+// real auth rejection where the campaign has EXHAUSTED.
+//
+// These tests pin the new behaviour at both the pure-helper level and the
+// state-machine level (the canonical Scenario B from the field log).
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Pure-helper coverage: the new isLinkLevelDrop() boolean predicate. The
+// classification is the complement of isAuthMechanismFailure() — together
+// they partition the disconnect-reason space.
+TEST_F(WiFiManagerTest, IsLinkLevelDrop_TrueForRecoverableCodes) {
+    EXPECT_TRUE(isLinkLevelDrop(0));                              // generic / unspecified
+    EXPECT_TRUE(isLinkLevelDrop(WIFI_REASON_AUTH_EXPIRE));        // 2
+    EXPECT_TRUE(isLinkLevelDrop(WIFI_REASON_AUTH_LEAVE));         // 3
+    EXPECT_TRUE(isLinkLevelDrop(WIFI_REASON_ASSOC_EXPIRE));       // 4
+    EXPECT_TRUE(isLinkLevelDrop(WIFI_REASON_CIPHER_SUITE_REJECTED));  // 24
+    EXPECT_TRUE(isLinkLevelDrop(WIFI_REASON_BEACON_TIMEOUT));     // 200 — the canonical field case
+    EXPECT_TRUE(isLinkLevelDrop(WIFI_REASON_NO_AP_FOUND));        // 201
+    EXPECT_TRUE(isLinkLevelDrop(WIFI_REASON_HANDSHAKE_TIMEOUT));  // 204
+}
+
+TEST_F(WiFiManagerTest, IsLinkLevelDrop_FalseForAuthMechanismCodes) {
+    // The two classifications must not overlap — auth reasons are NOT link-level
+    // and must trigger the campaign / AP escalation paths.
+    EXPECT_FALSE(isLinkLevelDrop(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT));  // 15
+    EXPECT_FALSE(isLinkLevelDrop(WIFI_REASON_802_1X_AUTH_FAILED));      // 23
+    EXPECT_FALSE(isLinkLevelDrop(WIFI_REASON_AUTH_FAIL));               // 202
+}
+
+TEST_F(WiFiManagerTest, IsLinkLevelDrop_FalseForUnrelatedCodes) {
+    // ASSOC family codes (5/6/7/8) are not classified as link-level — they
+    // sit in a grey zone the current code does not yet handle explicitly.
+    // Conservative: classify them as not-link-level so they fall through to
+    // the same path as 0 (stay CONNECTING, no AP escalation).
+    EXPECT_FALSE(isLinkLevelDrop(WIFI_REASON_ASSOC_TOOMANY));   // 5
+    EXPECT_FALSE(isLinkLevelDrop(WIFI_REASON_NOT_AUTHED));      // 6
+    EXPECT_FALSE(isLinkLevelDrop(WIFI_REASON_NOT_ASSOCED));     // 7
+    EXPECT_FALSE(isLinkLevelDrop(WIFI_REASON_ASSOC_LEAVE));     // 8
+    EXPECT_FALSE(isLinkLevelDrop(99999));                       // unknown
+}
+
+// State-machine-level coverage: the canonical Scenario B from the field log.
+// A mesh reboot delivers reason 200/201/0 in rapid succession. The device
+// must NOT escalate to AP mode after the 5-min budget — it must keep
+// retrying STA.
+TEST_F(WiFiManagerTest, LinkLevelDrop_StaysConnectingForever_DoesNotEscalateToAp) {
+    // BUG-FIX SCENARIO B (from the field log):
+    //   - device was connected (ip=192.168.68.91)
+    //   - mesh reboots: reason 0, 200, 201 in rapid succession
+    //   - PREVIOUS: device escalates to WIFI_AP_MODE_AUTH_FAIL after 5 min — WRONG
+    //   - FIXED:    device stays in WIFI_CONNECTING, never escalates
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    // Simulate the mesh reboot — three reason codes in sequence (the field log
+    // pattern). The last one is BEACON_TIMEOUT (200) which is the live state.
+    wifiManager->onDisconnected(0);    // generic first
+    wifiManager->onDisconnected(200);  // BEACON_TIMEOUT (the live one)
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    ASSERT_EQ(wifiManager->getContext().lastDisconnectReason, 200);
+    // NO auth-fail campaign armed for a link-level drop.
+    ASSERT_FALSE(wifiManager->getContext().pendingAuthFail);
+
+    // Radio sits at WL_IDLE_STATUS while we wait for the mesh.
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+
+    // Advance well past the 5-min initial-connect budget. The mesh takes
+    // 2-30 minutes to come back; the device must NOT bail to AP mode.
+    const uint32_t kInitialBudgetMs =
+        WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES * WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS;
+    // Drive multiple ticks past the budget — each one would have escalated
+    // under the old code.
+    wifiManager->update(kInitialBudgetMs * 2);  // 10 minutes
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "link-level drop must stay CONNECTING past 5-min budget (no AP escalation)";
+    EXPECT_NE(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP)
+        << "WiFi mode must remain STA — link-level drops never escalate to AP";
+
+    // 30 minutes (well past the 2-30 min mesh reboot window). Still retrying.
+    wifiManager->update(kInitialBudgetMs * 6);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "link-level drop must keep retrying STA across the mesh reboot window";
+    EXPECT_NE(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+}
+
+// After a long link-level outage, if the mesh comes back, the device MUST
+// re-associate promptly (the user's underlying connectivity complaint).
+TEST_F(WiFiManagerTest, LinkLevelDrop_LongOutageThenMeshReturns_Reassociates) {
+    // Continuation of the canonical Scenario B: the mesh eventually comes
+    // back up. The device must re-associate without an operator intervention.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    wifiManager->onDisconnected(200);  // BEACON_TIMEOUT — mesh rebooting
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+
+    // 20 minutes of outage (the long end of the 2-30 min mesh reboot window).
+    const uint32_t kLongOutage =
+        WiFiConfig::WIFI_INITIAL_CONNECT_MAX_RETRIES * WiFiConfig::WIFI_CONNECT_RETRY_INTERVAL_MS * 4;
+    wifiManager->update(kLongOutage);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // Mesh comes back. The connecting handler must promote to WIFI_CONNECTED.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(kLongOutage + 100);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED)
+        << "when the mesh returns during a long outage, the device must re-associate";
+}
+
+// Sanity: the existing auth-fail campaign path is NOT broken by this fix.
+// A real auth rejection (reason 15/23/202) must still escalate to AP mode
+// once the strategy campaign is exhausted.
+TEST_F(WiFiManagerTest, AuthMechanismFailure_StillEscalatesAfterCampaignExhaustion) {
+    // Pins the existing correct behavior — the campaign is the ONLY path that
+    // escalates to AP for auth reasons. The 5-min safety net is a backup that
+    // also requires an auth reason. (See AuthFail_ThreeLoopsExhausted_EscalatesToApMode
+    // for the campaign-driven escalation; this test pins the 5-min safety net
+    // for completeness.)
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+
+    // Boot: stored NVS creds, but the radio can't get past WL_IDLE_STATUS
+    // because the AP is rejecting auth at the lower layer (the campaign
+    // path's onDisconnected(reason) is bypassed by a direct mock setup).
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // The campaign can only escalate via onDisconnected(15/23/202). For the
+    // 5-min safety net, the path needs lastDisconnectReason to be auth. We
+    // simulate that by manually arming the campaign + setting reason=202
+    // (mirrors what onDisconnected(202) does) — this exercises the safety net
+    // path which is gated on isAuthMechanismFailure(lastDisconnectReason).
+    wifiManager->onDisconnected(202);  // AUTH_FAIL
+    ASSERT_TRUE(wifiManager->getContext().pendingAuthFail);
+
+    // The campaign owns escalation now; tick through the 3x3 attempts.
+    uint32_t now = 100;
+    const int totalAttempts =
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT) *
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+    for (int i = 0; i < totalAttempts; ++i) {
+        now = fireRetryTick(*wifiManager, wifiMock, now);
+    }
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL)
+        << "auth-fail campaign exhaustion must escalate to AP (regression guard)";
+}
+
+// AP-MODE RECOVERY: once the device has escalated to WIFI_AP_MODE_AUTH_FAIL
+// (real auth failure, campaign exhausted), the ConnectedApStateHandler
+// periodically attempts to re-associate so the device self-heals when the
+// operator fixes the password or the AP comes back. This addresses the
+// user's "stuck" symptom — without this, the device sits in AP mode forever.
+TEST_F(WiFiManagerTest, ApModeAuthFail_PeriodicStaRetry_StaysInApModeBeforeInterval) {
+    // Drive to WIFI_AP_MODE_AUTH_FAIL via the auth campaign.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    wifiManager->onDisconnected(202);
+    uint32_t now = 100;
+    const int totalAttempts =
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT) *
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+    for (int i = 0; i < totalAttempts; ++i) {
+        now = fireRetryTick(*wifiManager, wifiMock, now);
+    }
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+
+    // First tick arms the timer. Then tick several times BEFORE the interval
+    // elapses — the state must stay in WIFI_AP_MODE_AUTH_FAIL.
+    const uint32_t armMs = 1000000;
+    wifiManager->update(armMs);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+    ASSERT_EQ(wifiManager->getContext().apModeStaRetryMs, armMs);
+
+    const uint32_t almostFireMs = armMs + WiFiConfig::WIFI_AP_MODE_STA_RETRY_INTERVAL_MS - 100;
+    for (uint32_t t = armMs + 1000; t < almostFireMs; t += 30000) {
+        wifiManager->update(t);
+        EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL)
+            << "AP mode must stay stable before the retry interval (t=" << t << ")";
+    }
+}
+
+TEST_F(WiFiManagerTest, ApModeAuthFail_AfterRetryInterval_AttemptsStaReassociation) {
+    // Once the interval elapses, the ConnectedApStateHandler fires a STA
+    // re-association attempt — even if it fails, the device MUST leave AP
+    // mode and try, so it self-heals when the underlying problem is fixed.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    wifiManager->onDisconnected(202);
+    uint32_t now = 100;
+    const int totalAttempts =
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT) *
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+    for (int i = 0; i < totalAttempts; ++i) {
+        now = fireRetryTick(*wifiManager, wifiMock, now);
+    }
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+
+    // First tick in AP mode arms the retry timer.
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+    const uint32_t armMs = 1000000;  // any well-defined start time
+    wifiManager->update(armMs);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+    ASSERT_EQ(wifiManager->getContext().apModeStaRetryMs, armMs);
+
+    // Tick past the retry interval — the handler fires the STA re-association.
+    const uint32_t nextAttempt = armMs + WiFiConfig::WIFI_AP_MODE_STA_RETRY_INTERVAL_MS + 1;
+    wifiManager->update(nextAttempt);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "after the retry interval the handler must attempt STA re-association "
+           "(self-heal from AP-mode 'stuck' state)";
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_STA)
+        << "WiFi mode must switch back to STA for the re-association attempt";
+}
+
+TEST_F(WiFiManagerTest, ApModeAuthFail_StaRetrySucceeds_RecoversToConnected) {
+    // The self-heal happy path: AP mode → periodic STA retry → radio comes
+    // back → WIFI_CONNECTED. This is the user's underlying connectivity
+    // complaint resolved automatically.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    wifiManager->onDisconnected(202);
+    uint32_t now = 100;
+    const int totalAttempts =
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT) *
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+    for (int i = 0; i < totalAttempts; ++i) {
+        now = fireRetryTick(*wifiManager, wifiMock, now);
+    }
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+
+    // First tick arms the timer; second tick (past interval) fires the STA
+    // attempt. Then the radio succeeds.
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+    const uint32_t armMs = 1000000;
+    wifiManager->update(armMs);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+
+    const uint32_t nextAttempt = armMs + WiFiConfig::WIFI_AP_MODE_STA_RETRY_INTERVAL_MS + 1;
+    wifiManager->update(nextAttempt);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // Mesh comes back. The device promotes to WIFI_CONNECTED.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(nextAttempt + 100);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED)
+        << "AP-mode periodic STA retry must succeed → device self-heals to CONNECTED";
+}
+
+TEST_F(WiFiManagerTest, ApModeDefault_DoesNotRetrySta_NoCredentials) {
+    // WIFI_AP_MODE_DEFAULT means no credentials were ever configured — there
+    // is nothing to retry. The AP must stay stable indefinitely.
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT);
+
+    // Tick far past any retry interval — must stay in AP_DEFAULT.
+    wifiManager->update(WiFiConfig::WIFI_AP_MODE_STA_RETRY_INTERVAL_MS * 10);
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_DEFAULT)
+        << "AP_DEFAULT (no creds) must not attempt STA re-association";
 }

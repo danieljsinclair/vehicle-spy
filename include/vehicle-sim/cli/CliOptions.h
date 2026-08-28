@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <iosfwd>
 
 namespace vehicle_sim::domain {
@@ -83,8 +84,6 @@ struct TelemetryOptions {
 // Logging output options.
 struct LoggingOptions {
     std::string log_base;        // --log <base>: canonical decoded-CSV base ("<base>.csv")
-    std::string log_csv;         // Deprecated alias (kept for migration). Mapped onto log_base in main.cpp.
-    std::string log_raw;         // Deprecated alias (kept for migration). Mapped onto log_base in main.cpp.
     std::string adapter_protocol = "raw";  // --adapter-protocol raw|elm327
 };
 
@@ -95,7 +94,10 @@ struct ModeFlags {
     bool discover_mode = false;
     bool help_requested = false;
     bool led_help = false;  // Show StatusLED pattern help
-    std::string help_text;
+    bool examples_requested = false;  // --examples: show curated usage examples
+    std::vector<std::string> help_focus;  // --help --<opt>: filter examples to these topics
+    std::string help_text;       // CLI11-derived OPTIONS list (captured on --help)
+    std::string examples_text;   // CLI11-derived EXAMPLES (captured on --examples)
 };
 
 struct CliOptions {
@@ -126,12 +128,18 @@ struct CliOptions {
 // Parse command-line arguments into a structured result.
 CliOptions parseArgs(int argc, char* argv[]);
 
-// Display help text including registered vehicles from the service.
-// help_text is the CLI11-derived help (auto OPTIONS + footer) captured in
-// parseArgs on --help; it is passed in rather than re-derived so printHelp
-// stays a pure presenter.
-void printHelp(std::ostream& out, const domain::DBCTranslationService& service,
-               const std::string& help_text);
+// Display the OPTIONS list (CLI11-derived). help_text is the rendered OPTIONS
+// block captured in parseArgs on --help; it is passed in rather than re-derived
+// so printHelp stays a pure presenter. The SUPPORTED VEHICLES block belongs to
+// --list (printed via printSupportedSignals), not to --help.
+void printHelp(std::ostream& out, const std::string& help_text);
+
+// Display curated usage examples. When focus is non-empty, only examples whose
+// topic intersects the focus set are shown (so "--help --connect" produces
+// just the --connect examples). topics are the bare flag names without leading
+// dashes, e.g. {"connect", "scan"}.
+void printExamples(std::ostream& out, const std::string& examples_text,
+                   const std::vector<std::string>& focus);
 
 // List supported signals for each registered vehicle.
 void printSupportedSignals(std::ostream& out, const domain::DBCTranslationService& service);

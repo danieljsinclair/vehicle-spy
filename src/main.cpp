@@ -155,31 +155,6 @@ std::string autoDiscoverESP32(std::chrono::seconds timeout = std::chrono::second
     return devices.front().tcpConnectionString();
 }
 
-// Derive the canonical --log <base> from whichever logging flag the caller
-// used. --log is already a base; --log-csv <file> contributes a base by
-// stripping a trailing .csv; --log-raw <file> contributes a base by stripping
-// a trailing .raw/.raw.txt. The first non-empty source wins so an explicit
-// --log is never overridden by a deprecated alias.
-std::string resolveLogBase(const vehicle_sim::cli::CliOptions& opts) {
-    using namespace vehicle_sim::cli;
-    if (!opts.logging.log_base.empty()) {
-        return opts.logging.log_base;
-    }
-    auto stripSuffix = [](std::string s, std::string_view suffix) {
-        if (s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0) {
-            s.erase(s.size() - suffix.size());
-        }
-        return s;
-    };
-    if (!opts.logging.log_csv.empty()) {
-        return stripSuffix(opts.logging.log_csv, ".csv");
-    }
-    if (!opts.logging.log_raw.empty()) {
-        return stripSuffix(stripSuffix(opts.logging.log_raw, ".txt"), ".raw");
-    }
-    return {};
-}
-
 } // namespace
 
 int main(int argc, char* argv[]) {
@@ -225,6 +200,30 @@ int main(int argc, char* argv[]) {
 
     if (opts.mode.discover_mode) {
         return runDiscovery();
+    }
+
+    // --status: print a [STATE] snapshot from the device's USB serial console.
+    // Short-circuits BEFORE the generic provisioning dispatch because
+    // status_requested also makes wifi.active()/isProvisioning() return true,
+    // and runProvisioning() returns failure ("No provisioning operation") when
+    // no real provisioning op is set — which is exactly the case for a pure
+    // --status --connect auto invocation. Doing the port resolution + runStatus
+    // here keeps --status a single-purpose read with its own clean error path
+    // (port resolution / open failures named explicitly, no AT-command noise).
+    if (opts.wifi.status_requested) {
+        const std::string resolved = cli::resolveSerialPort(opts.wifi.transport);
+        if (resolved.empty()) {
+            std::cerr << "[provision] Could not resolve provisioning transport '"
+                      << cli::forLog(opts.wifi.transport) << "'\n";
+            return 1;
+        }
+        auto port = cli::createSerialPort(resolved);
+        const int rc = cli::runStatus(*port, cli::PROVISION_STATUS_TIMEOUT_S,
+                                      std::cout, std::cerr);
+        // runStatus already returns 1 on timeout / peer-closed with a stderr
+        // diagnostic; we close the port before returning the rc.
+        port->close();
+        return rc;
     }
 
     // WiFi provisioning over USB serial (AT command set). Local, pre-association
@@ -277,7 +276,7 @@ int main(int argc, char* argv[]) {
         // Raw CAN replay through the canonical seam: FileTransport →
         // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
         // file is the raw source of truth, so we write ONLY <base>.csv.
-        std::string logBase = resolveLogBase(opts);
+        std::string logBase = opts.logging.log_base;
         return cli::ReplayRunContext::run(path, opts.telemetry.vehicle_type,
                                           logBase, translationService,
                                           opts.telemetry.stdout_csv,
@@ -290,7 +289,7 @@ int main(int argc, char* argv[]) {
         // RawLogSink + DecodedCsvSink. The resolved --log base drives BOTH
         // sinks for live (the raw stream is the source of truth). The adapter
         // protocol default table + explicit override resolve here.
-        std::string logBase = resolveLogBase(opts);
+        std::string logBase = opts.logging.log_base;
         std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
             opts.telemetry.connect_target, opts.logging.adapter_protocol);
         return cli::LiveRunContext::run(opts.telemetry.connect_target, opts.telemetry.vehicle_type,

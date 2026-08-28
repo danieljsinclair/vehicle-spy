@@ -131,11 +131,11 @@ TEST_F(StatusLEDTest, GetPatternSteps_ClientConnectedPattern) {
 TEST_F(StatusLEDTest, GetPatternSteps_ApModePattern) {
     auto [steps, count] = StatusLED::getPatternSteps(StatusLED::Pattern::AP_MODE);
     EXPECT_EQ(count, 6u);
-    // LONG_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR
+    // LONG_FLASH ON, SHORT_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR
     EXPECT_EQ(steps[0].state, LEDState::ON);
     EXPECT_EQ(steps[0].durationMs, StatusLEDConstants::LONG_FLASH_MS);
     EXPECT_EQ(steps[1].state, LEDState::OFF);
-    EXPECT_EQ(steps[1].durationMs, StatusLEDConstants::TINY_GAP_MS);
+    EXPECT_EQ(steps[1].durationMs, StatusLEDConstants::SHORT_GAP_MS);
     EXPECT_EQ(steps[2].state, LEDState::ON);
     EXPECT_EQ(steps[2].durationMs, StatusLEDConstants::TINY_FLASH_MS);
     EXPECT_EQ(steps[3].state, LEDState::OFF);
@@ -250,13 +250,13 @@ TEST_F(StatusLEDTest, Update_ApModePattern_FullCycle) {
     statusLed->update(t);
     EXPECT_TRUE(outputMock.ledOn);
 
-    // Step 2: TINY_GAP OFF
+    // Step 2: SHORT_GAP OFF (gap between LONG and first TINY)
     t += StatusLEDConstants::LONG_FLASH_MS;
     statusLed->update(t);
     EXPECT_FALSE(outputMock.ledOn);
 
     // Step 3: TINY_FLASH ON
-    t += StatusLEDConstants::TINY_GAP_MS;
+    t += StatusLEDConstants::SHORT_GAP_MS;
     statusLed->update(t);
     EXPECT_TRUE(outputMock.ledOn);
 

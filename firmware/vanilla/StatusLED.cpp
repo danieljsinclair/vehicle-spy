@@ -41,10 +41,11 @@ static constexpr LEDStep PATTERN_CLIENT_CONNECTED[] = {
     {LEDState::ON, StatusLEDConstants::SEPARATOR_MS}  // 2s - cycles but stays ON forever
 };
 
-// AP_MODE: LONG_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR OFF
+// AP_MODE: LONG_FLASH ON, SHORT_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR OFF
+// 0.8s ON, 0.2s OFF, 0.1s ON, 0.1s OFF, 0.1s ON, then 2.0s separator (implied cycle reset)
 static constexpr LEDStep PATTERN_AP_MODE[] = {
     {LEDState::ON,  StatusLEDConstants::LONG_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
