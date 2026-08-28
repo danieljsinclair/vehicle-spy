@@ -1,9 +1,9 @@
 // ReplayRunContext.test.cpp - Entry-point coverage for the offline replay
 // orchestration context. ReplayRunContext::run is a thin static orchestrator
-// (FileTransport + CaptureNormaliser + DecodedCsvSink + runReplay) over the
-// already-tested pipeline pieces; these tests drive the WHOLE run() path off
-// 0% via real (hermetic) temp files + a real DBCTranslationService — no mocks
-// of production code, no fragile assertions on exact strings.
+// (BinaryFileSource + DecodedCsvSink + runReplay) over the already-tested
+// pipeline pieces; these tests drive the WHOLE run() path off 0% via real
+// (hermetic) temp files + a real DBCTranslationService — no mocks of
+// production code, no fragile assertions on exact strings.
 
 #include <gtest/gtest.h>
 #include "vehicle-sim/cli/ReplayRunContext.h"
