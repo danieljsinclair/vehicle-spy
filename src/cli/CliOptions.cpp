@@ -405,6 +405,17 @@ void foldProvisioningTransport(CliOptions& opts) {
 
 }  // namespace
 
+// Format a --vehicle validation error message. `reason` is the specific
+// failure ("label exceeds N characters" / "control characters are not allowed");
+// `label` is the offending value (routed through forLog at the sink to sever
+// taint). Single source of truth for the two validateVehicleLabel branches.
+std::string invalidVehicleLabelMsg(std::string_view reason,
+                                    const std::string& label) {
+    std::ostringstream oss;
+    oss << "Invalid --vehicle '" << forLog(label) << "': " << reason;
+    return oss.str();
+}
+
 // Boundary validation for a free-form vehicle label (interactive mode and
 // decoded-CSV replay). A CR/LF/control byte in this label would already
 // corrupt the emitted CSV row today, so rejecting is a correctness fix as much
@@ -413,17 +424,12 @@ void foldProvisioningTransport(CliOptions& opts) {
 // (< 0x20 or 0x7F) and over-length labels; return an empty string if OK.
 static std::string validateVehicleLabel(const std::string& label) {
     if (constexpr std::size_t kMaxVehicleLabel = 64; label.size() > kMaxVehicleLabel) {
-        std::ostringstream oss;
-        oss << "Invalid --vehicle '" << forLog(label) << "': label exceeds "
-            << kMaxVehicleLabel << " characters";
-        return oss.str();
+        return invalidVehicleLabelMsg(
+            "label exceeds " + std::to_string(kMaxVehicleLabel) + " characters", label);
     }
     for (const unsigned char c : label) {
         if (c < 0x20 || c == 0x7F) {
-            std::ostringstream oss;
-            oss << "Invalid --vehicle '" << forLog(label)
-                << "': control characters are not allowed";
-            return oss.str();
+            return invalidVehicleLabelMsg("control characters are not allowed", label);
         }
     }
     return "";

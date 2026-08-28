@@ -2,27 +2,12 @@
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
+#include "test/cli/Args.h"
 
 using namespace vehicle_sim::cli;
 using namespace vehicle_sim::domain;
 
-class CliOptionsTest : public ::testing::Test {
-protected:
-    struct Args {
-        std::vector<std::string> strings;
-        std::vector<char*> ptrs;
-
-        explicit Args(std::vector<std::string> args) : strings(std::move(args)) {
-            ptrs.reserve(strings.size());
-            for (auto& s : strings) {
-                ptrs.push_back(s.data());
-            }
-        }
-
-        int argc() const { return static_cast<int>(ptrs.size()); }
-        char** argv() { return ptrs.data(); }
-    };
-};
+class CliOptionsTest : public ::testing::Test {};
 
 TEST_F(CliOptionsTest, DefaultsWhenNoArgs) {
     Args args({"vehicle-sim"});
@@ -567,21 +552,6 @@ protected:
     void SetUp() override {
         DefaultVehicleConfigs::registerAll(service_.registry());
     }
-
-    struct Args {
-        std::vector<std::string> strings;
-        std::vector<char*> ptrs;
-
-        explicit Args(std::vector<std::string> args) : strings(std::move(args)) {
-            ptrs.reserve(strings.size());
-            for (auto& s : strings) {
-                ptrs.push_back(s.data());
-            }
-        }
-
-        int argc() const { return static_cast<int>(ptrs.size()); }
-        char** argv() { return ptrs.data(); }
-    };
 
     DBCTranslationService service_;
 };

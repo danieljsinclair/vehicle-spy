@@ -43,6 +43,7 @@ add_executable(vehicle-sim-tests
     interactive/BridgeKeyboardIntegration.test.cpp
     cli/CsvReplayRunContext.test.cpp
     cli/InteractiveRunContext.test.cpp
+    cli/Args.h
     boundary/TeslaBLETransport.test.cpp
     boundary/OBD2Transport.test.cpp
     boundary/ELM327Protocol.test.cpp
