@@ -210,7 +210,7 @@ TEST(StatusLEDTest, ClientConnectedPattern_SolidOn) {
     led.update(0);
 
     // Should be ON
-    EXPECT_TRUE(mock.getCurrentState()) << "Should be solid ON";
+    EXPECT_TRUE(mock.getCurrentState()) << "Should be Solid ON";
 
     // Should stay ON regardless of time passing
     mock.advanceTime(1000, led);
@@ -461,7 +461,7 @@ TEST(StatusLEDTest, OffPattern_SolidOff) {
     led.update(0);
 
     // Should be OFF
-    EXPECT_FALSE(mock.getCurrentState()) << "Should be solid OFF";
+    EXPECT_FALSE(mock.getCurrentState()) << "Should be Solid OFF";
 
     // Should stay OFF regardless of time passing
     mock.advanceTime(1000, led);

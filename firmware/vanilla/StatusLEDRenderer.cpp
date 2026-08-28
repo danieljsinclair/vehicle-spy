@@ -244,7 +244,7 @@ std::string StatusLEDRenderer::timingNote(StatusLED::Pattern pattern) {
 
     // Single-state trivial case: a lone ON/OFF step is "solid ON"/"solid OFF".
     if (stepCount == 1) {
-        return steps[0].state == LEDState::ON ? "solid ON" : "solid OFF";
+        return steps[0].state == LEDState::ON ? "Solid ON" : "Solid OFF";
     }
 
     // Multi-stage pipeline, each stage a focused helper (SRP):

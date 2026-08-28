@@ -203,9 +203,9 @@ TEST(StatusLEDRendererTest, GenerateTable_RendersSolidOnAndSeparatorTiming) {
     std::string table = StatusLEDRenderer::generateTable();
 
     // Single-state ON pattern (CLIENT_CONNECTED) -> "solid ON" timing note.
-    EXPECT_NE(table.find("# solid ON"), std::string::npos);
+    EXPECT_NE(table.find("# Solid ON"), std::string::npos);
     // Single-state OFF pattern (OFF) -> "solid OFF" timing note.
-    EXPECT_NE(table.find("# solid OFF"), std::string::npos);
+    EXPECT_NE(table.find("# Solid OFF"), std::string::npos);
 }
 
 TEST(StatusLEDRendererTest, GenerateTable_GroupsPatternsAdjacently) {
@@ -513,7 +513,7 @@ TEST(StatusLEDRendererTest, TimingNote_AsymmetricPairStaysIndividual) {
 TEST(StatusLEDRendererTest, TimingNote_SingleStateUnchanged) {
     // CLIENT_CONNECTED is a single ON step → "solid ON" (not a PULSE).
     std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("# solid ON"), std::string::npos);
+    EXPECT_NE(table.find("# Solid ON"), std::string::npos);
     // OFF is a single OFF step → "solid OFF".
-    EXPECT_NE(table.find("# solid OFF"), std::string::npos);
+    EXPECT_NE(table.find("# Solid OFF"), std::string::npos);
 }
