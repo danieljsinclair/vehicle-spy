@@ -79,11 +79,11 @@ TEST(StatusLEDRendererTest, RenderPattern_ErrorNoNtpService) {
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_FatalUnrecoverable) {
-    // FATAL_UNRECOVERABLE: SOS — 3×(SHORT_ON 200 + SHORT_OFF 200) +
+    // FATAL_UNRECOVERABLE_SOS: SOS — 3×(SHORT_ON 200 + SHORT_OFF 200) +
     //                       3×(LONG_ON 800 + SHORT_OFF 200) +
     //                       3×(SHORT_ON 200 + SHORT_OFF 200) +
     //                       trailing SEP 2000 (omitted). Total rendered: 5.4s = 54 tenths.
-    std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
     EXPECT_EQ(rendered,
               "|--  --  --|  --------|  --------|  --------|  --  --  |--  |");
 }
@@ -101,7 +101,7 @@ TEST(StatusLEDRendererTest, GenerateHelpText_ContainsAllPatterns) {
     EXPECT_NE(help.find("ERROR_AUTH_FAILURE"), std::string::npos);
     EXPECT_NE(help.find("ERROR_RECOVERABLE"), std::string::npos);
     EXPECT_NE(help.find("ERROR_NO_NTP_SERVICE"), std::string::npos);
-    EXPECT_NE(help.find("FATAL_UNRECOVERABLE"), std::string::npos);
+    EXPECT_NE(help.find("FATAL_UNRECOVERABLE_SOS"), std::string::npos);
     EXPECT_NE(help.find("OFF"), std::string::npos);
 }
 
@@ -120,7 +120,7 @@ TEST(StatusLEDRendererTest, GenerateHelpText_GroupsPatternsLogically) {
     size_t authFailure = help.find("ERROR_AUTH_FAILURE");
     size_t errorRecoverable = help.find("ERROR_RECOVERABLE");
     size_t errorNoNtp = help.find("ERROR_NO_NTP_SERVICE");
-    size_t fatalUnrecoverable = help.find("FATAL_UNRECOVERABLE");
+    size_t fatalUnrecoverable = help.find("FATAL_UNRECOVERABLE_SOS");
 
     EXPECT_NE(authFailure, std::string::npos);
     EXPECT_NE(errorRecoverable, std::string::npos);
@@ -186,7 +186,7 @@ TEST(StatusLEDRendererTest, GenerateTable_ContainsEveryPatternName) {
     EXPECT_NE(table.find("ERROR_AUTH_FAILURE"), std::string::npos);
     EXPECT_NE(table.find("ERROR_RECOVERABLE"), std::string::npos);
     EXPECT_NE(table.find("ERROR_NO_NTP_SERVICE"), std::string::npos);
-    EXPECT_NE(table.find("FATAL_UNRECOVERABLE"), std::string::npos);
+    EXPECT_NE(table.find("FATAL_UNRECOVERABLE_SOS"), std::string::npos);
 }
 
 TEST(StatusLEDRendererTest, GenerateTable_HasHeaderAndTimingNotes) {
@@ -225,7 +225,7 @@ TEST(StatusLEDRendererTest, GenerateTable_GroupsPatternsAdjacently) {
     static const std::string kOtherPatterns[] = {
         "BOOT", "CLIENT_CONNECTED", "AP_MODE", "OTA_IN_PROGRESS",
         "ERROR_AUTH_FAILURE", "ERROR_RECOVERABLE", "ERROR_NO_NTP_SERVICE",
-        "FATAL_UNRECOVERABLE",
+        "FATAL_UNRECOVERABLE_SOS",
     };
     const size_t lo = std::min(searching, connected);
     const size_t hi = std::max(searching, connected);
@@ -249,7 +249,7 @@ TEST(StatusLEDRendererTest, RenderPattern_HasStartAndEndDividers) {
         StatusLED::Pattern::AP_MODE, StatusLED::Pattern::OTA_IN_PROGRESS,
         StatusLED::Pattern::ERROR_AUTH_FAILURE, StatusLED::Pattern::ERROR_RECOVERABLE,
         StatusLED::Pattern::ERROR_NO_NTP_SERVICE,
-        StatusLED::Pattern::FATAL_UNRECOVERABLE,
+        StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS,
         StatusLED::Pattern::OFF
     };
     for (auto p : all) {
@@ -270,12 +270,14 @@ TEST(StatusLEDRendererTest, RenderPattern_DividersAtEveryWholeSecond) {
     EXPECT_EQ(r[11], '|');
 }
 
-TEST(StatusLEDRendererTest, GenerateTable_ContainsEnumNames) {
-    // The table must surface fully-qualified enum spellings so users can
-    // grep from CLI output to source.
+TEST(StatusLEDRendererTest, GenerateTable_NoEnumNamesSection) {
+    // The trailing "Enum names (use with setPattern / getPattern)" section was
+    // removed from generateTable() — it was unhelpful. The table now ends after
+    // the per-pattern rows (and the optional Key section). Assert the section
+    // header is gone and no fully-qualified enum spellings leak into the table.
     std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("StatusLED::Pattern::WIFI_SEARCHING"), std::string::npos);
-    EXPECT_NE(table.find("StatusLED::Pattern::FATAL_UNRECOVERABLE"), std::string::npos);
+    EXPECT_EQ(table.find("Enum names"), std::string::npos);
+    EXPECT_EQ(table.find("StatusLED::Pattern::"), std::string::npos);
 }
 
 TEST(StatusLEDRendererTest, GenerateTable_ContainsKeyExplainingDividers) {
@@ -286,7 +288,8 @@ TEST(StatusLEDRendererTest, GenerateTable_ContainsKeyExplainingDividers) {
 }
 
 TEST(StatusLEDRendererTest, EnumName_ReturnsQualifiedSpelling) {
-    // enumName is the data source for the enum-name column in generateTable.
+    // enumName is the data source for the "Enum:" line in generateHelpText()
+    // (the table's enum-name section was removed — see GenerateTable_NoEnumNames).
     EXPECT_EQ(StatusLEDRenderer::enumName(StatusLED::Pattern::BOOT),
               "StatusLED::Pattern::BOOT");
     EXPECT_EQ(StatusLEDRenderer::enumName(StatusLED::Pattern::CLIENT_CONNECTED),
@@ -365,7 +368,7 @@ TEST(StatusLEDRendererTest, GenerateTable_CommentColumnsAlign) {
     static const char* kNames[] = {
         "BOOT", "WIFI_SEARCHING", "WIFI_CONNECTED", "CLIENT_CONNECTED",
         "AP_MODE", "OTA_IN_PROGRESS", "ERROR_AUTH_FAILURE", "ERROR_RECOVERABLE",
-        "ERROR_NO_NTP_SERVICE", "FATAL_UNRECOVERABLE", "OFF"
+        "ERROR_NO_NTP_SERVICE", "FATAL_UNRECOVERABLE_SOS", "OFF"
     };
     // Find a common column for '#' by locating the comment position in any
     // one row and asserting every other row's comment marker lives there too.
@@ -455,3 +458,40 @@ TEST(StatusLEDRendererTest, GenerateTable_KeyRowsHaveNoMidSecondDividers) {
     }
 }
 #endif  // INCLUDE_LED_HELP_KEY
+
+// ── timingNote() PULSE notation (verified via the public generateTable()) ──
+// timingNote() presents patterns compactly: symmetric ON/OFF pairs collapse to
+// "PULSE Xs", and N consecutive identical pulses collapse to "NxPULSE Xs".
+// Asymmetric pairs stay as individual ON/OFF tokens (simplest representation).
+// timingNote() is private, so we assert on its output as surfaced in the
+// diagnostic table (each row's "# <note>" column).
+
+TEST(StatusLEDRendererTest, TimingNote_SingleSymmetricPairIsPulse) {
+    // OTA_IN_PROGRESS: ON 200ms + OFF 200ms → one symmetric pair → "PULSE 0.2s".
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("# PULSE 0.2s"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, TimingNote_RepeatedSymmetricPairIsNxPulse) {
+    // FATAL_UNRECOVERABLE_SOS: 3 short, 3 long, 3 short, SEPARATOR.
+    // The leading 3 short ON/OFF pairs (200ms each) collapse to "3xPULSE 0.2s";
+    // the 3 long pairs (ON 0.8s, OFF 0.2s — asymmetric) stay individual; the
+    // trailing 3 short pairs collapse to a second "3xPULSE 0.2s".
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("3xPULSE 0.2s"), std::string::npos);
+    EXPECT_NE(table.find("ON 0.8s, OFF 0.2s"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, TimingNote_AsymmetricPairStaysIndividual) {
+    // WIFI_SEARCHING: ON 100ms + OFF 900ms → asymmetric → individual tokens.
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("# ON 0.1s, OFF 0.9s"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, TimingNote_SingleStateUnchanged) {
+    // CLIENT_CONNECTED is a single ON step → "solid ON" (not a PULSE).
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("# solid ON"), std::string::npos);
+    // OFF is a single OFF step → "solid OFF".
+    EXPECT_NE(table.find("# solid OFF"), std::string::npos);
+}

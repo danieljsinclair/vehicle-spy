@@ -58,7 +58,7 @@ public:
         ERROR_AUTH_FAILURE,         // ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
         ERROR_RECOVERABLE,    // ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR
         ERROR_NO_NTP_SERVICE, // ERROR_3_PULSE + 1×TINY_PULSE + SEPARATOR
-        FATAL_UNRECOVERABLE   // SOS: 3×SHORT, 3×LONG, 3×SHORT, SEPARATOR (morse SOS)
+        FATAL_UNRECOVERABLE_SOS   // SOS: 3×SHORT, 3×LONG, 3×SHORT, SEPARATOR (morse SOS)
     };
 
     // Constructor with dependency injection for testability

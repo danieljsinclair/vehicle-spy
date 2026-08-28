@@ -17,7 +17,7 @@ static const std::vector<PatternInfo> PATTERN_REGISTRY = {
     {StatusLED::Pattern::ERROR_AUTH_FAILURE,    PatternCategory::ERROR,         "ERROR_AUTH_FAILURE",       "Authentication failed"},
     {StatusLED::Pattern::ERROR_RECOVERABLE,     PatternCategory::ERROR,         "ERROR_RECOVERABLE",        "Recoverable error occurred"},
     {StatusLED::Pattern::ERROR_NO_NTP_SERVICE,  PatternCategory::ERROR,         "ERROR_NO_NTP_SERVICE",     "NTP time service unavailable"},
-    {StatusLED::Pattern::FATAL_UNRECOVERABLE,   PatternCategory::FATAL,         "FATAL_UNRECOVERABLE",      "Fatal error (system halted)"},
+    {StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS, PatternCategory::FATAL,       "FATAL_UNRECOVERABLE_SOS",  "Fatal error (system halted, SOS)"},
     {StatusLED::Pattern::OFF,                   PatternCategory::OFF,           "OFF",                      "LED off"}
 };
 
@@ -77,6 +77,108 @@ static bool isTrailingSeparator(const LEDStep& step, bool isLast) {
         && step.durationMs >= StatusLEDConstants::SEPARATOR_MS;
 }
 
+// ── timingNote() helpers ───────────────────────────────────────────────────
+// timingNote() renders a pattern's step sequence as a compact human-readable
+// string (e.g. "PULSE 0.2s", "3xPULSE 0.1s, ON 0.8s, OFF 0.2s"). The helpers
+// below split that transformation into four single-responsibility stages so the
+// public method reads top-to-bottom as prose.
+
+// Stage 1 — collect the renderable steps, dropping the trailing separator (the
+// existing isTrailingSeparator rule). This is the single source of truth for
+// what is "shown" — both the visualizer and the timing note agree on what
+// counts. Returns an empty vector when nothing survives the filter.
+struct TimingStep { LEDState state; uint32_t ms; };
+
+static std::vector<TimingStep> filterSteps(const LEDStep* steps, size_t stepCount) {
+    std::vector<TimingStep> kept;
+    for (size_t i = 0; i < stepCount; ++i) {
+        if (isTrailingSeparator(steps[i], i + 1 == stepCount)) continue;
+        kept.push_back({steps[i].state, steps[i].durationMs});
+    }
+    return kept;
+}
+
+// Stage 2 — tokenize into PULSE / ON / OFF tokens. A symmetric ON/OFF pair
+// (consecutive ON and OFF steps with equal duration) collapses to a single
+// "PULSE Xs" token. Asymmetric pairs are left as individual ON/OFF tokens — the
+// simplest representation (no nested grouping). This is a PRESENTATION-only
+// transformation; the underlying LEDStep{state, durationMs} model is unchanged.
+enum TokenKind { TK_PULSE, TK_ON, TK_OFF };
+struct Token { TokenKind kind; uint32_t ms; };
+
+static std::vector<Token> tokenizePulses(const std::vector<TimingStep>& steps) {
+    std::vector<Token> tokens;
+    for (size_t i = 0; i < steps.size(); ++i) {
+        const bool paired = (i + 1 < steps.size())
+            && steps[i].state == LEDState::ON
+            && steps[i + 1].state == LEDState::OFF
+            && steps[i].ms == steps[i + 1].ms;
+        if (paired) {
+            tokens.push_back({TK_PULSE, steps[i].ms});
+            ++i;  // consume the matching OFF
+        } else {
+            tokens.push_back(steps[i].state == LEDState::ON
+                                 ? Token{TK_ON, steps[i].ms}
+                                 : Token{TK_OFF, steps[i].ms});
+        }
+    }
+    return tokens;
+}
+
+// Stage 3 — collapse runs of N consecutive identical PULSE tokens into a single
+// "NxPULSE Xs" run. ON/OFF tokens are emitted individually (no run-collapse)
+// to keep the representation simple and unambiguous. Returns a list of (count,
+// token) pairs where count is the run length (1 for non-pulse tokens).
+struct Run { uint32_t count; Token token; };
+
+static std::vector<Run> collapsePulseRuns(const std::vector<Token>& tokens) {
+    std::vector<Run> runs;
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        if (tokens[i].kind == TK_PULSE) {
+            const uint32_t pulseMs = tokens[i].ms;
+            size_t runLen = 1;
+            while (i + runLen < tokens.size()
+                   && tokens[i + runLen].kind == TK_PULSE
+                   && tokens[i + runLen].ms == pulseMs) {
+                ++runLen;
+            }
+            runs.push_back({static_cast<uint32_t>(runLen), tokens[i]});
+            i += runLen - 1;
+        } else {
+            runs.push_back({1, tokens[i]});
+        }
+    }
+    return runs;
+}
+
+// Stage 4 — render the collapsed runs into the final comma-separated string.
+// Each run becomes "PULSE Xs", "NxPULSE Xs", "ON Xs", or "OFF Xs".
+// Local formatting shim (StatusLEDRenderer::formatDuration is private and must
+// not be exposed via the header — SRP is a .cpp-local concern).
+static std::string fmtDuration(uint32_t durationMs) {
+    std::ostringstream formatted;
+    formatted << std::fixed << std::setprecision(1);
+    formatted << (durationMs / 1000.0) << "s";
+    return formatted.str();
+}
+
+static std::string renderTimingRuns(const std::vector<Run>& runs) {
+    std::ostringstream out;
+    bool first = true;
+    auto emitSep = [&]() { if (!first) out << ", "; first = false; };
+
+    for (const Run& r : runs) {
+        emitSep();
+        if (r.count > 1) out << r.count << "x";
+        switch (r.token.kind) {
+            case TK_PULSE: out << "PULSE " << fmtDuration(r.token.ms); break;
+            case TK_ON:    out << "ON "    << fmtDuration(r.token.ms); break;
+            case TK_OFF:   out << "OFF "   << fmtDuration(r.token.ms); break;
+        }
+    }
+    return out.str();
+}
+
 std::string StatusLEDRenderer::renderPattern(StatusLED::Pattern pattern) {
     auto [steps, stepCount] = StatusLED::getPatternSteps(pattern);
     if (stepCount == 0) return "";
@@ -123,20 +225,21 @@ std::string StatusLEDRenderer::timingNote(StatusLED::Pattern pattern) {
     auto [steps, stepCount] = StatusLED::getPatternSteps(pattern);
     if (stepCount == 0) return "";
 
+    // Single-state trivial case: a lone ON/OFF step is "solid ON"/"solid OFF".
     if (stepCount == 1) {
         return steps[0].state == LEDState::ON ? "solid ON" : "solid OFF";
     }
 
-    std::ostringstream out;
-    bool first = true;
-    for (size_t i = 0; i < stepCount; ++i) {
-        if (isTrailingSeparator(steps[i], i + 1 == stepCount)) continue;
-        if (!first) out << ", ";
-        first = false;
-        out << (steps[i].state == LEDState::ON ? "ON " : "OFF ")
-            << formatDuration(steps[i].durationMs);
-    }
-    return out.str();
+    // Multi-stage pipeline, each stage a focused helper (SRP):
+    //   1. filterSteps     — drop the trailing separator
+    //   2. tokenizePulses  — collapse symmetric ON/OFF pairs into PULSE tokens
+    //   3. collapsePulseRuns — merge N identical consecutive pulses into one run
+    //   4. renderTimingRuns — format the runs to the final comma-separated string
+    const std::vector<TimingStep> kept = filterSteps(steps, stepCount);
+    if (kept.empty()) return "";
+    const std::vector<Token> tokens = tokenizePulses(kept);
+    const std::vector<Run> runs = collapsePulseRuns(tokens);
+    return renderTimingRuns(runs);
 }
 
 std::string StatusLEDRenderer::enumName(StatusLED::Pattern pattern) {
@@ -151,7 +254,7 @@ std::string StatusLEDRenderer::enumName(StatusLED::Pattern pattern) {
         case StatusLED::Pattern::ERROR_AUTH_FAILURE:   bare = "ERROR_AUTH_FAILURE"; break;
         case StatusLED::Pattern::ERROR_RECOVERABLE:    bare = "ERROR_RECOVERABLE"; break;
         case StatusLED::Pattern::ERROR_NO_NTP_SERVICE: bare = "ERROR_NO_NTP_SERVICE"; break;
-        case StatusLED::Pattern::FATAL_UNRECOVERABLE:  bare = "FATAL_UNRECOVERABLE"; break;
+        case StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS: bare = "FATAL_UNRECOVERABLE_SOS"; break;
         case StatusLED::Pattern::OFF:                  bare = "OFF"; break;
     }
     return std::string{"StatusLED::Pattern::"} + (bare ? bare : "?");
@@ -212,11 +315,6 @@ std::string StatusLEDRenderer::generateTable() {
             << "  # " << comment << "\n";
     }
 #endif
-
-    out << "\nEnum names (use with setPattern / getPattern):\n";
-    for (const auto& info : PATTERN_REGISTRY) {
-        out << "  " << enumName(info.pattern) << "\n";
-    }
 
     return out.str();
 }

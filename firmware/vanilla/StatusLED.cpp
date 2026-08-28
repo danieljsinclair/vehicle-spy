@@ -112,7 +112,7 @@ static constexpr LEDStep PATTERN_ERROR_NO_NTP_SERVICE[] = {
     {LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
 };
 
-// FATAL_UNRECOVERABLE: SOS - 3 short, 3 long, 3 short, SEPARATOR
+// FATAL_UNRECOVERABLE_SOS: SOS - 3 short, 3 long, 3 short, SEPARATOR
 static constexpr LEDStep PATTERN_FATAL_UNRECOVERABLE[] = {
     // 3 short (6 steps)
     {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
@@ -168,7 +168,7 @@ std::pair<const LEDStep*, size_t> StatusLED::getPatternSteps(Pattern pattern) {
             return {PATTERN_ERROR_RECOVERABLE, sizeof(PATTERN_ERROR_RECOVERABLE) / sizeof(LEDStep)};
         case Pattern::ERROR_NO_NTP_SERVICE:
             return {PATTERN_ERROR_NO_NTP_SERVICE, sizeof(PATTERN_ERROR_NO_NTP_SERVICE) / sizeof(LEDStep)};
-        case Pattern::FATAL_UNRECOVERABLE:
+        case Pattern::FATAL_UNRECOVERABLE_SOS:
             return {PATTERN_FATAL_UNRECOVERABLE, sizeof(PATTERN_FATAL_UNRECOVERABLE) / sizeof(LEDStep)};
         case Pattern::OFF:
         default:
@@ -210,7 +210,7 @@ const char* StatusLED::getPatternName(Pattern pattern) {
         case Pattern::ERROR_AUTH_FAILURE:   return "ERROR_AUTH_FAILURE";
         case Pattern::ERROR_RECOVERABLE:    return "ERROR_RECOVERABLE";
         case Pattern::ERROR_NO_NTP_SERVICE: return "ERROR_NO_NTP_SERVICE";
-        case Pattern::FATAL_UNRECOVERABLE:  return "FATAL_UNRECOVERABLE";
+        case Pattern::FATAL_UNRECOVERABLE_SOS:  return "FATAL_UNRECOVERABLE_SOS";
         default: return "UNKNOWN_PATTERN";
     }
 }

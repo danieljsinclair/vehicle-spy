@@ -404,7 +404,7 @@ TEST(StatusLEDTest, ErrorNoNtpServicePattern_Error3PulsePlus1TinyPlusSeparator) 
     EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in SEPARATOR";
 }
 
-// ── TEST: FATAL_UNRECOVERABLE SOS Pattern (3 short, 3 long, 3 short, SEPARATOR) ────
+// ── TEST: FATAL_UNRECOVERABLE_SOS SOS Pattern (3 short, 3 long, 3 short, SEPARATOR) ────
 
 TEST(StatusLEDTest, FatalUnrecoverablePattern_SOS) {
     MockStatusLEDOutput mock;
@@ -413,7 +413,7 @@ TEST(StatusLEDTest, FatalUnrecoverablePattern_SOS) {
     led.init();
     mock.currentTime = 0;
 
-    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
     led.update(0);
 
     // 3 short (SHORT_FLASH 200ms ON, SHORT_GAP 200ms OFF)
@@ -492,7 +492,7 @@ TEST(StatusLEDTest, AllErrorPatternsStartWithError3Pulse) {
         firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE,
         firmware::StatusLED::Pattern::ERROR_RECOVERABLE,
         firmware::StatusLED::Pattern::ERROR_NO_NTP_SERVICE,
-        firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE
+        firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS
     };
 
     for (auto pattern : errorPatterns) {
@@ -529,19 +529,19 @@ TEST(StatusLEDTest, ErrorPatternsDistinguishableByLength) {
     // ERROR_AUTH_FAILURE: 6 + 4 + 1 = 11 steps
     // ERROR_RECOVERABLE: 6 + 6 + 1 = 13 steps
     // ERROR_NO_NTP_SERVICE: 6 + 2 + 1 = 9 steps
-    // FATAL_UNRECOVERABLE: 6 + 6 + 6 + 1 = 19 steps
+    // FATAL_UNRECOVERABLE_SOS: 6 + 6 + 6 + 1 = 19 steps
 
     using namespace firmware;
 
     auto [authSteps, authCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_AUTH_FAILURE);
     auto [recovSteps, recovCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_RECOVERABLE);
     auto [ntpSteps, ntpCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
-    auto [fatalSteps, fatalCount] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    auto [fatalSteps, fatalCount] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
 
     EXPECT_EQ(authCount, 11) << "ERROR_AUTH_FAILURE should have 11 steps";
     EXPECT_EQ(recovCount, 13) << "ERROR_RECOVERABLE should have 13 steps";
     EXPECT_EQ(ntpCount, 9) << "ERROR_NO_NTP_SERVICE should have 9 steps";
-    EXPECT_EQ(fatalCount, 19) << "FATAL_UNRECOVERABLE should have 19 steps";
+    EXPECT_EQ(fatalCount, 19) << "FATAL_UNRECOVERABLE_SOS should have 19 steps";
 
     // All should be different
     std::vector<size_t> counts = {authCount, recovCount, ntpCount, fatalCount};
@@ -631,8 +631,8 @@ TEST(StatusLEDTest, PatternSwitching_ImmediateInterruption) {
     led.init();
     mock.currentTime = 0;
 
-    // Start with a pattern that has long steps (FATAL_UNRECOVERABLE SOS pattern)
-    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    // Start with a pattern that has long steps (FATAL_UNRECOVERABLE_SOS SOS pattern)
+    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
     led.update(0);
 
     // Advance partway through the first step (but not complete it)

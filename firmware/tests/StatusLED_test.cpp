@@ -170,7 +170,7 @@ TEST_F(StatusLEDTest, GetPatternSteps_ErrorPatterns) {
 }
 
 TEST_F(StatusLEDTest, GetPatternSteps_FatalPattern) {
-    auto [steps, count] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    auto [steps, count] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
     // SOS: 3 short, 3 long, 3 short, separator = 19 steps
     EXPECT_EQ(count, 19u);
 }
@@ -342,7 +342,7 @@ TEST_F(StatusLEDTest, GetPatternName_ReturnsDisplayNameForEachPattern) {
     EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_AUTH_FAILURE), "ERROR_AUTH_FAILURE");
     EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_RECOVERABLE), "ERROR_RECOVERABLE");
     EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_NO_NTP_SERVICE), "ERROR_NO_NTP_SERVICE");
-    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::FATAL_UNRECOVERABLE), "FATAL_UNRECOVERABLE");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS), "FATAL_UNRECOVERABLE_SOS");
 }
 
 TEST_F(StatusLEDTest, GetPatternName_OutOfRangeValue_ReturnsUnknownFallback) {
