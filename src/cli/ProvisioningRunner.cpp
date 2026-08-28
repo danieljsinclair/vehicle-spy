@@ -193,7 +193,7 @@ MatchFn makeSubstringMatcher(std::string_view expect) {
 // AND a terminator so a [STATE] line that arrived at the tail of a previous
 // chunk and is not yet terminated keeps us reading.
 MatchFn makeStateLineMatcher() {
-    return [](const std::string& reply) {
+    return [](std::string_view reply) {
         const std::size_t markerPos = reply.find(PROVISION_OK_STATUS);
         if (markerPos == std::string::npos) {
             return PollStep::KeepPolling;

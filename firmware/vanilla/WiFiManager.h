@@ -370,10 +370,6 @@ void applyAuthStrategy(IWiFi& wifi, CredentialSource source,
 // when ALL connection opportunities are exhausted (escalate to AP mode).
 bool isAuthCampaignExhausted(int strategyIndex, int loopIndex);
 
-// Forward-declared so AuthCampaign can hold a reference for the
-// (re)connect-time discovery backoff reset.
-class WiFiManager;
-
 // AuthCampaign — owns the resilient-auth rotation logic for the duration of an
 // auth-failure campaign. SRP extraction: the campaign's strategy index/loop
 // counters, "apply current strategy + advance rotation" step, and exhaustion
