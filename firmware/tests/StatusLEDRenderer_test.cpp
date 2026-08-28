@@ -58,17 +58,17 @@ TEST(StatusLEDRendererTest, RenderPattern_OtaInProgress) {
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_AuthFailure) {
-    // ERROR_AUTH_FAILURE: 3×(SHORT_ON 200 + SHORT_OFF 200) + 2×(TINY_ON 100 + TINY_OFF 100)
-    // + trailing SEP 2000 (omitted from visual). Total rendered: 1.6s = 16 tenths.
+    // ERROR_AUTH_FAILURE: 3×(SHORT_ON 200 + SHORT_OFF 200) + 3×(TINY_ON 100 + TINY_OFF 100)
+    // + trailing SEP 2000 (omitted from visual). Total rendered: 1.8s = 18 tenths.
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::ERROR_AUTH_FAILURE);
-    EXPECT_EQ(rendered, "|--  --  --|  - - |");
+    EXPECT_EQ(rendered, "|--  --  --|  - - - |");
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_ErrorRecoverable) {
-    // ERROR_RECOVERABLE: 3×(SHORT_ON 200 + SHORT_OFF 200) + 3×(TINY_ON 100 + TINY_OFF 100)
-    // + trailing SEP 2000 (omitted). Total rendered: 1.8s = 18 tenths.
+    // ERROR_RECOVERABLE: 3×(SHORT_ON 200 + SHORT_OFF 200) + 2×(TINY_ON 100 + TINY_OFF 100)
+    // + trailing SEP 2000 (omitted). Total rendered: 1.6s = 16 tenths.
     std::string rendered = StatusLEDRenderer::renderPattern(StatusLED::Pattern::ERROR_RECOVERABLE);
-    EXPECT_EQ(rendered, "|--  --  --|  - - - |");
+    EXPECT_EQ(rendered, "|--  --  --|  - - |");
 }
 
 TEST(StatusLEDRendererTest, RenderPattern_ErrorNoNtpService) {
@@ -296,61 +296,50 @@ TEST(StatusLEDRendererTest, EnumName_ReturnsQualifiedSpelling) {
               "StatusLED::Pattern::CLIENT_CONNECTED");
 }
 
-// Key section: the named-segment reference at the bottom of the table.
-// Each named segment must appear with its visual + duration. Data-driven:
-// adding a row to NAMED_SEGMENTS in the renderer is sufficient to surface it
-// here. The Key section is behind INCLUDE_LED_HELP_KEY, so these tests are
-// too — when the macro is undefined the Key section (and its tests) are
-// excluded together, keeping the build green in both configurations.
-#ifdef INCLUDE_LED_HELP_KEY
-TEST(StatusLEDRendererTest, GenerateTable_KeyContainsAllNamedSegments) {
+// Key section: a fixed four-entry legend at the bottom of the table that maps
+// each visual bar to the timing token it produces. Always rendered (no
+// INCLUDE_LED_HELP_KEY guard). Verified via the public generateTable().
+TEST(StatusLEDRendererTest, GenerateTable_KeyAlwaysRenders) {
+    // The Key section is NOT guarded by any ifdef — it must always appear.
     std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("TINY_FLASH"), std::string::npos);
-    EXPECT_NE(table.find("SHORT_FLASH"), std::string::npos);
-    EXPECT_NE(table.find("MED_FLASH"), std::string::npos);
-    EXPECT_NE(table.find("LONG_FLASH"), std::string::npos);
-    EXPECT_NE(table.find("VERY_LONG_FLASH"), std::string::npos);
-    EXPECT_NE(table.find("SEPARATOR"), std::string::npos);
+    EXPECT_NE(table.find("\nKey;\n"), std::string::npos);
 }
 
-TEST(StatusLEDRendererTest, GenerateTable_KeyShowsDurations) {
+TEST(StatusLEDRendererTest, GenerateTable_KeyShowsFourEntries) {
+    // Exactly four entries: FLASH, DOT, DASH, SEPARATOR — each a quoted visual
+    // bar followed by its token comment.
     std::string table = StatusLEDRenderer::generateTable();
-    // Each named segment's duration is in the "ON 0.Xs" / "OFF 2.0s" comment.
-    EXPECT_NE(table.find("ON 0.1s"), std::string::npos);  // TINY
-    EXPECT_NE(table.find("ON 0.2s"), std::string::npos);  // SHORT
-    EXPECT_NE(table.find("ON 0.5s"), std::string::npos);  // MED
-    EXPECT_NE(table.find("ON 0.8s"), std::string::npos);  // LONG
-    EXPECT_NE(table.find("ON 1.8s"), std::string::npos);  // VERY_LONG
-    EXPECT_NE(table.find("OFF 2.0s"), std::string::npos); // SEPARATOR
+    EXPECT_NE(table.find("'--'"), std::string::npos);             // DOT bar
+    EXPECT_NE(table.find("'--------'"), std::string::npos);       // DASH bar
+    EXPECT_NE(table.find("'          |          '"), std::string::npos);  // SEPARATOR bar
+    EXPECT_NE(table.find("# FLASH 0.1s"), std::string::npos);
+    EXPECT_NE(table.find("# DOT 0.2s"), std::string::npos);
+    EXPECT_NE(table.find("# DASH 0.8s"), std::string::npos);
+    EXPECT_NE(table.find("# 2s SEPARATOR"), std::string::npos);
 }
 
 TEST(StatusLEDRendererTest, GenerateTable_PerPatternCommentsAreFullSequences) {
-    // The per-pattern # comment is the FULL timing sequence
-    // ("ON 0.5s, OFF 0.5s" for BOOT) — not just the rightmost named flash.
-    // Brief item #2: full sequence, data-driven from the LEDStep array;
-    // the trailing 2s SEPARATOR is implied (not shown). Spot-check a few
-    // known sequences.
+    // The per-pattern # comment is the FULL timing sequence — data-driven from
+    // the LEDStep array; the trailing 2s SEPARATOR is implied (not shown).
+    // Spot-check the known sequences using the new FLASH/DOT/DASH/PULSE tokens.
     std::string table = StatusLEDRenderer::generateTable();
     EXPECT_NE(table.find("BOOT"), std::string::npos);  // BOOT row present
-    // BOOT: ON 0.5s, OFF 0.5s (MED_FLASH + MED_GAP) → symmetric → "PULSE 0.5s".
+    // BOOT: ON 0.5s, OFF 0.5s (symmetric, 3+ char) → "PULSE 0.5s".
     EXPECT_NE(table.find("PULSE 0.5s"), std::string::npos);
-    // WIFI_SEARCHING: ON 0.1s, OFF 0.9s → 9x asymmetric → "DASH 0.9s".
-    EXPECT_NE(table.find("DASH 0.9s"), std::string::npos);
-    // WIFI_CONNECTED: ON 0.8s, OFF 0.2s → 4x asymmetric → "DASH 0.8s".
+    // WIFI_SEARCHING: ON 0.1s (→ FLASH) + dominant OFF 0.9s → "FLASH, OFF 0.9s".
+    EXPECT_NE(table.find("FLASH, OFF 0.9s"), std::string::npos);
+    // WIFI_CONNECTED: ON 0.8s + OFF 0.2s (asymmetric, 3+ char) → "DASH 0.8s".
     EXPECT_NE(table.find("DASH 0.8s"), std::string::npos);
-    // AP_MODE: trailing 2s separator is dropped (brief item #5) — the
-    // sequence must end with "ON 0.1s", not "OFF 2.0s".
-    // ON 0.8s/OFF 0.2s → DASH 0.8s; ON 0.1s/OFF 0.1s → PULSE 0.1s; lone ON 0.1s.
-    EXPECT_NE(table.find("DASH 0.8s, PULSE 0.1s, ON 0.1s"), std::string::npos);
-    // And the trailing "OFF 2.0s" must NOT appear in any per-row # comment.
-    // (The SEPARATOR's "OFF 2.0s" only appears in the KEY section below the
-    // main table — assert by checking the AP_MODE row doesn't contain it.)
+    // AP_MODE: ON 0.8s (→ DASH 0.8s), ON 0.1s (→ FLASH), ON 0.1s (→ FLASH).
+    EXPECT_NE(table.find("DASH 0.8s, FLASH, FLASH"), std::string::npos);
+    // And the trailing "OFF 2.0s" must NOT appear in any per-row # comment —
+    // the 2s separator is dropped from every row's note.
     const size_t apRow = table.find("AP_MODE");
     ASSERT_NE(apRow, std::string::npos);
     const size_t nextRow = table.find("\n", apRow);
     const std::string apLine = table.substr(apRow, nextRow - apRow);
     EXPECT_EQ(apLine.find("OFF 2.0s"), std::string::npos)
-        << "AP_MODE # comment must drop the trailing 2.0s separator (brief item #5): '"
+        << "AP_MODE # comment must drop the trailing 2.0s separator: '"
         << apLine << "'";
 }
 
@@ -392,122 +381,74 @@ TEST(StatusLEDRendererTest, GenerateTable_CommentColumnsAlign) {
     }
 }
 
-// Key section: each named constant (flash + gap + specials) appears in the
-// key with its single-state visual and ON/OFF duration. Brief item #1: use
-// the ACTUAL constant names from StatusLEDConstants — TINY_FLASH, TINY_GAP,
-// MED_FLASH, MED_GAP, LONG_FLASH, LONG_GAP, SEARCHING_GAP, SEPARATOR — not
-// just the named-flash subset. The key must include BOTH flashes and gaps.
-TEST(StatusLEDRendererTest, GenerateTable_KeyContainsAllNamedConstants) {
-    std::string table = StatusLEDRenderer::generateTable();
+// ── timingNote() FLASH / DOT / DASH / PULSE notation (verified via the
+// public generateTable()) ──
+// timingNote() presents patterns compactly by classifying each ON run by its
+// visual width (1 char = FLASH, 2 = DOT, 3+ = DASH), folding a 3+ char ON run
+// with a symmetric following OFF into a PULSE, and emitting a dominant OFF
+// rest (≥ 3× the preceding ON). No run-collapse: repeated tokens render
+// long-hand. timingNote() is private, so we assert on its output as surfaced
+// in the diagnostic table (each row's "# <note>" column).
 
-    // Flashes
-    EXPECT_NE(table.find("TINY_FLASH"),     std::string::npos);
-    EXPECT_NE(table.find("SHORT_FLASH"),    std::string::npos);
-    EXPECT_NE(table.find("MED_FLASH"),      std::string::npos);
-    EXPECT_NE(table.find("LONG_FLASH"),     std::string::npos);
-    EXPECT_NE(table.find("VERY_LONG_FLASH"),std::string::npos);
-    // Gaps
-    EXPECT_NE(table.find("TINY_GAP"),       std::string::npos);
-    EXPECT_NE(table.find("SHORT_GAP"),      std::string::npos);
-    EXPECT_NE(table.find("MED_GAP"),        std::string::npos);
-    EXPECT_NE(table.find("LONG_GAP"),       std::string::npos);
-    // Specials
-    EXPECT_NE(table.find("SEARCHING_GAP"),  std::string::npos);
-    EXPECT_NE(table.find("SEPARATOR"),      std::string::npos);
+TEST(StatusLEDRendererTest, TimingNote_SingleCharOnIsFlash) {
+    // WIFI_SEARCHING: ON 100ms (1 char) → "FLASH", followed by a dominant OFF
+    // rest (900ms ≥ 3× 100ms) → "OFF 0.9s".
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("# FLASH, OFF 0.9s"), std::string::npos);
 }
 
-// Key section: each constant's visual must be a single ON or OFF block
-// (no mid-second dividers). Brief item #3: the old key had spurious
-// divider sections inside LONG_FLASH/VERY_LONG_FLASH rows. The new design
-// renders each constant as exactly N chars between start/end dividers,
-// where N = durationMs / 100. The SEPARATOR row (2s) shows 20 spaces
-// between dividers.
-TEST(StatusLEDRendererTest, GenerateTable_KeyRowsHaveNoMidSecondDividers) {
+TEST(StatusLEDRendererTest, TimingNote_TwoCharOnIsDot) {
+    // OTA_IN_PROGRESS: ON 200ms (2 chars) → "DOT" (a 2-char ON run is a DOT
+    // regardless of the following gap; the PULSE fold only applies to 3+ char
+    // ON runs with a symmetric following OFF).
     std::string table = StatusLEDRenderer::generateTable();
-    // Find each named constant's key row by name and check its visual
-    // (chars between the first '|' and the next '|') has no embedded '|'.
-    auto countMidDividers = [](const std::string& line) -> int {
-        // Find the visual block between the first '|' pair.
-        const size_t firstBar = line.find('|');
-        if (firstBar == std::string::npos) return 0;
-        const size_t secondBar = line.find('|', firstBar + 1);
-        if (secondBar == std::string::npos) return 0;
-        // Count '|' between the start and end bars.
-        int count = 0;
-        for (size_t i = firstBar + 1; i < secondBar; ++i) {
-            if (line[i] == '|') ++count;
-        }
-        return count;
-    };
-    const std::string kKeys[] = {
-        "TINY_FLASH", "SHORT_FLASH", "MED_FLASH", "LONG_FLASH", "VERY_LONG_FLASH",
-        "TINY_GAP", "SHORT_GAP", "MED_GAP", "LONG_GAP", "SEARCHING_GAP", "SEPARATOR"
-    };
-    for (const std::string& name : kKeys) {
-        // Find the row in the table starting with the name + 2 spaces (the
-        // key row's indent) — must be after the "Key:" header.
-        const size_t keyHeader = table.find("\nKey:\n");
-        ASSERT_NE(keyHeader, std::string::npos) << "Key section not found";
-        const std::string needle = "  " + name;
-        const size_t rowPos = table.find(needle, keyHeader);
-        ASSERT_NE(rowPos, std::string::npos) << "missing key row: " << name;
-        const size_t eol = table.find('\n', rowPos);
-        const std::string row = table.substr(rowPos, eol - rowPos);
-        EXPECT_EQ(countMidDividers(row), 0)
-            << "key row '" << name << "' has mid-second dividers: '" << row << "'";
-    }
-}
-#endif  // INCLUDE_LED_HELP_KEY
-
-// ── timingNote() PULSE / DASH notation (verified via the public
-// generateTable()) ──
-// timingNote() presents patterns compactly:
-//   * symmetric ON/OFF pairs (equal duration) → "PULSE Xs"
-//   * clearly-asymmetric pairs (one step >= 3x the other) → "DASH Xs"
-//     where X is the longer step (either order collapses the same way)
-//   * N consecutive identical pulses/dashes → "NxPULSE Xs" / "NxDASH Xs"
-//   * near-symmetric asymmetric pairs stay as individual ON/OFF tokens
-// timingNote() is private, so we assert on its output as surfaced in the
-// diagnostic table (each row's "# <note>" column).
-
-TEST(StatusLEDRendererTest, TimingNote_SingleSymmetricPairIsPulse) {
-    // OTA_IN_PROGRESS: ON 200ms + OFF 200ms → one symmetric pair → "PULSE 0.2s".
-    std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("# PULSE 0.2s"), std::string::npos);
+    EXPECT_NE(table.find("# DOT"), std::string::npos);
 }
 
-TEST(StatusLEDRendererTest, TimingNote_RepeatedSymmetricPairIsNxPulse) {
-    // FATAL_UNRECOVERABLE_SOS: 3 short, 3 long, 3 short, SEPARATOR.
-    // The leading 3 short ON/OFF pairs (200ms each) collapse to "3xPULSE 0.2s";
-    // the 3 long pairs (ON 0.8s, OFF 0.2s — 4x asymmetric) collapse to
-    // "3xDASH 0.8s"; the trailing 3 short pairs collapse to a second
-    // "3xPULSE 0.2s".
-    std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("3xPULSE 0.2s"), std::string::npos);
-    EXPECT_NE(table.find("3xDASH 0.8s"), std::string::npos);
-}
-
-TEST(StatusLEDRendererTest, TimingNote_AsymmetricLongDash_RendersDash) {
-    // WIFI_CONNECTED: ON 800ms + OFF 200ms → 4x asymmetric → "DASH 0.8s"
-    // (the longer step, 0.8s, is what DASH reports).
+TEST(StatusLEDRendererTest, TimingNote_ThreePlusCharAsymmetricIsDash) {
+    // WIFI_CONNECTED: ON 800ms (8 chars) + OFF 200ms — asymmetric, 3+ char ON
+    // → "DASH 0.8s" (the ON run's duration; the short OFF is < 3× ON so it is
+    // dropped as an inter-element gap).
     std::string table = StatusLEDRenderer::generateTable();
     EXPECT_NE(table.find("# DASH 0.8s"), std::string::npos);
 }
 
-TEST(StatusLEDRendererTest, TimingNote_AsymmetricDashEitherOrder_RendersDash) {
-    // WIFI_SEARCHING: ON 100ms + OFF 900ms → 9x asymmetric, long step second.
-    // DASH reports the longer duration regardless of order → "DASH 0.9s".
+TEST(StatusLEDRendererTest, TimingNote_SymmetricThreePlusCharPairIsPulse) {
+    // BOOT: ON 500ms + OFF 500ms — a 3+ char ON run with a symmetric (equal)
+    // following OFF → "PULSE 0.5s".
     std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("# DASH 0.9s"), std::string::npos);
+    EXPECT_NE(table.find("# PULSE 0.5s"), std::string::npos);
 }
 
-TEST(StatusLEDRendererTest, TimingNote_AsymmetricPairStaysIndividual) {
-    // AP_MODE: ON 0.8s, OFF 0.2s (→ DASH 0.8s), ON 0.1s, OFF 0.1s (→ PULSE
-    // 0.1s), ON 0.1s (lone, ratio to neighbours is 1x — stays individual).
-    // The trailing lone ON 0.1s proves near-boundary asymmetric steps are NOT
-    // forced into DASH; only the clearly-asymmetric 0.8s/0.2s pair collapses.
+TEST(StatusLEDRendererTest, TimingNote_NoNxCollapse_RendersLongHand) {
+    // FATAL_UNRECOVERABLE_SOS: 3 short, 3 long, 3 short, SEPARATOR. The three
+    // short ON runs (200ms each) render long-hand as "DOT, DOT, DOT" and the
+    // three long ON runs (800ms each) as "DASH 0.8s, DASH 0.8s, DASH 0.8s" —
+    // NOT collapsed to "3xDOT" / "3xDASH" (KISS: no Nx run-collapse).
     std::string table = StatusLEDRenderer::generateTable();
-    EXPECT_NE(table.find("DASH 0.8s, PULSE 0.1s, ON 0.1s"), std::string::npos);
+    EXPECT_NE(table.find("DOT, DOT, DOT, DASH 0.8s, DASH 0.8s, DASH 0.8s, DOT, DOT, DOT"),
+              std::string::npos);
+    // And the old collapsed forms must be gone.
+    EXPECT_EQ(table.find("3xPULSE"), std::string::npos);
+    EXPECT_EQ(table.find("3xDASH"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, TimingNote_ApModeIsDashFlashFlash) {
+    // AP_MODE: ON 0.8s (→ DASH 0.8s), ON 0.1s (→ FLASH), ON 0.1s (→ FLASH).
+    // The inter-element OFF gaps (0.2s, 0.1s, 0.1s) are all < 3× their
+    // preceding ON, so they are dropped — only the three ON runs remain.
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("DASH 0.8s, FLASH, FLASH"), std::string::npos);
+}
+
+TEST(StatusLEDRendererTest, TimingNote_ErrorPatternsAreDotsThenFlashes) {
+    // ERROR_AUTH_FAILURE = 3 dots + 3 flashes; ERROR_RECOVERABLE = 3 dots + 2
+    // flashes; ERROR_NO_NTP_SERVICE = 3 dots + 1 flash. The severity gradient
+    // (most flashes = auth failure) is the visual differentiator.
+    std::string table = StatusLEDRenderer::generateTable();
+    EXPECT_NE(table.find("# DOT, DOT, DOT, FLASH, FLASH, FLASH"), std::string::npos);
+    EXPECT_NE(table.find("# DOT, DOT, DOT, FLASH, FLASH"), std::string::npos);
+    EXPECT_NE(table.find("# DOT, DOT, DOT, FLASH"), std::string::npos);
 }
 
 TEST(StatusLEDRendererTest, TimingNote_SingleStateUnchanged) {

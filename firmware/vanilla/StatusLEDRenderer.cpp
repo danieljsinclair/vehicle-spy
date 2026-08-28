@@ -2,8 +2,6 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
-#include <cmath>
-#include <numeric>
 
 namespace firmware {
 
@@ -21,47 +19,32 @@ static const std::vector<PatternInfo> PATTERN_REGISTRY = {
     {StatusLED::Pattern::OFF,                   PatternCategory::OFF,           "OFF",                      "LED off"}
 };
 
-struct NamedConstant {
-    const char* name;
-    LEDState state;
-    uint32_t durationMs;
-};
+// ── Key-section helpers ───────────────────────────────────────────────────────
+// The Key section renders a fixed four-entry legend explaining how to read the
+// per-pattern timing notes. It is ALWAYS emitted (no INCLUDE_LED_HELP_KEY guard
+// any more) — see generateTable(). Each entry shows a quoted visual bar, then
+// a comment naming the token it produces.
 
-static const std::vector<NamedConstant> NAMED_CONSTANTS = {
-    {"TINY_FLASH",         LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
-    {"SHORT_FLASH",        LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
-    {"MED_FLASH",          LEDState::ON,  StatusLEDConstants::MED_FLASH_MS},
-    {"LONG_FLASH",         LEDState::ON,  StatusLEDConstants::LONG_FLASH_MS},
-    {"VERY_LONG_FLASH",    LEDState::ON,  StatusLEDConstants::VERY_LONG_FLASH_MS},
-    {"TINY_GAP",           LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
-    {"SHORT_GAP",          LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
-    {"MED_GAP",            LEDState::OFF, StatusLEDConstants::MED_GAP_MS},
-    {"LONG_GAP",           LEDState::OFF, StatusLEDConstants::LONG_GAP_MS},
-    {"SEARCHING_GAP",      LEDState::OFF, StatusLEDConstants::SEARCHING_GAP_MS},
-    {"SEPARATOR",          LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
-};
-
-#ifdef INCLUDE_LED_HELP_KEY
-static std::string renderNamedConstant(const NamedConstant& c) {
-    const uint32_t tenths = c.durationMs / 100;
-    if (tenths == 0) return "|";
-    std::ostringstream out;
-    out << '|';
-    for (uint32_t i = 0; i < tenths; ++i) {
-        out << (c.state == LEDState::ON ? '-' : ' ');
-    }
-    out << '|';
-    return out.str();
+// A plain visual bar of N identical chars (no surrounding dividers): used for
+// the FLASH / DOT / DASH entries where the bar is just the raw ON/OFF run.
+static std::string visualBar(char glyph, uint32_t tenths) {
+    return std::string(tenths, glyph);
 }
-#endif
 
-#ifdef INCLUDE_LED_HELP_KEY
-static std::string renderNamedConstantPadded(const NamedConstant& c, size_t width) {
-    std::string bare = renderNamedConstant(c);
-    if (bare.size() >= width) return bare;
-    return bare + std::string(width - bare.size(), ' ');
+// The 2s SEPARATOR bar: a 2-second OFF shown with the whole-second divider in
+// the middle (10 spaces, '|', 10 spaces) — mirrors how renderPattern() draws a
+// 2s solid-OFF pattern, but without the leading/trailing dividers.
+static std::string separatorBar() {
+    return std::string(10, ' ') + '|' + std::string(10, ' ');
 }
-#endif
+
+// A quoted, padded visual for a Key entry: "'" + bar + "'", left-padded to
+// width so the '#' comments column-align.
+static std::string quotedVisual(const std::string& bar, size_t width) {
+    const std::string quoted = "'" + bar + "'";
+    if (quoted.size() >= width) return quoted;
+    return quoted + std::string(width - quoted.size(), ' ');
+}
 
 std::string StatusLEDRenderer::formatDuration(uint32_t durationMs) {
     std::ostringstream formatted;
@@ -79,9 +62,20 @@ static bool isTrailingSeparator(const LEDStep& step, bool isLast) {
 
 // ── timingNote() helpers ───────────────────────────────────────────────────
 // timingNote() renders a pattern's step sequence as a compact human-readable
-// string (e.g. "PULSE 0.2s", "3xPULSE 0.1s, ON 0.8s, OFF 0.2s"). The helpers
-// below split that transformation into four single-responsibility stages so the
-// public method reads top-to-bottom as prose.
+// string (e.g. "PULSE 0.5s", "FLASH, OFF 0.9s", "DOT, DOT, DOT, FLASH, FLASH").
+// The helpers below split that transformation into single-responsibility stages
+// so the public method reads top-to-bottom as prose.
+//
+// RENDERING RULES (classify each contiguous ON run by its visual width; each
+// char = 100ms):
+//   * 1 char  ON            → "FLASH"
+//   * 2 chars ON            → "DOT"
+//   * 3+ chars ON           → "DASH <dur>", UNLESS the following OFF gap is
+//                             equal duration (symmetric pair) → "PULSE <dur>"
+//   * OFF gap ≥ 3× the preceding ON → "OFF <dur>" (a dominant rest; otherwise
+//                             the inter-element gap is omitted).
+// No run-collapse: three consecutive PULSE 0.5s tokens render long-hand as
+// "PULSE 0.5s, PULSE 0.5s, PULSE 0.5s" (KISS — never "3xPULSE 0.5s").
 
 // Stage 1 — collect the renderable steps, dropping the trailing separator (the
 // existing isTrailingSeparator rule). This is the single source of truth for
@@ -98,79 +92,53 @@ static std::vector<TimingStep> filterSteps(const LEDStep* steps, size_t stepCoun
     return kept;
 }
 
-// Stage 2 — tokenize into PULSE / DASH / ON / OFF tokens. Consecutive ON+OFF
-// pairs (in either order) collapse:
-//   * symmetric (equal duration)  → "PULSE Xs"
-//   * asymmetric (one step >= 3x the other) → "DASH Xs" (X = the longer step)
-// Near-symmetric asymmetric pairs are left as individual ON/OFF tokens — the
-// simplest representation (no nested grouping). The 3x threshold keeps DASH
-// firmly in the "clearly asymmetric" regime and never fires on pairs that are
-// merely uneven. This is a PRESENTATION-only transformation; the underlying
-// LEDStep{state, durationMs} model is unchanged.
-enum TokenKind { TK_PULSE, TK_DASH, TK_ON, TK_OFF };
+// Stage 2 — classify a single ON step by visual width into FLASH / DOT / DASH.
+// 1 char (100ms) → FLASH, 2 chars (200ms) → DOT, 3+ chars (≥300ms) → DASH.
+// Pure classification; PULSE/ OFF handling lives in the scan (Stage 3).
+enum TokenKind { TK_FLASH, TK_DOT, TK_DASH, TK_PULSE, TK_OFF };
 struct Token { TokenKind kind; uint32_t ms; };
 
-static bool isDashPair(uint32_t a, uint32_t b) {
-    if (a == 0 || b == 0) return false;
-    const uint32_t lo = std::min(a, b);
-    const uint32_t hi = std::max(a, b);
-    return hi >= 3 * lo;  // one step at least 3x the other
+static Token classifyOn(uint32_t onMs) {
+    if (onMs <= 100) return {TK_FLASH, onMs};
+    if (onMs <= 200) return {TK_DOT, onMs};
+    return {TK_DASH, onMs};
 }
 
-static std::vector<Token> tokenizePulses(const std::vector<TimingStep>& steps) {
+// Stage 3 — scan the filtered steps and emit one token per ON run (FLASH/DOT/
+// DASH), folding a symmetric ON/OFF pair into a PULSE, and emitting a dominant
+// OFF gap (≥ 3× the preceding ON) as an OFF token. Inter-element gaps shorter
+// than that are omitted — they are the "space between blips", not meaningful
+// rests. Returns the token list in order (long-hand, no run-collapse).
+static std::vector<Token> tokenize(const std::vector<TimingStep>& steps) {
     std::vector<Token> tokens;
     for (size_t i = 0; i < steps.size(); ++i) {
-        const bool twoConsecutive = (i + 1 < steps.size())
-            && steps[i].state != steps[i + 1].state;  // one ON, one OFF
-        if (twoConsecutive && steps[i].ms == steps[i + 1].ms) {
-            // Symmetric pair → PULSE.
-            tokens.push_back({TK_PULSE, steps[i].ms});
-            ++i;  // consume the matching step
-        } else if (twoConsecutive && isDashPair(steps[i].ms, steps[i + 1].ms)) {
-            // Asymmetric long/short pair (either order) → DASH of the longer.
-            tokens.push_back({TK_DASH, std::max(steps[i].ms, steps[i + 1].ms)});
-            ++i;  // consume the matching step
+        if (steps[i].state != LEDState::ON) continue;  // OFF handled inline below
+        const uint32_t onMs = steps[i].ms;
+        const bool hasFollowingOff = (i + 1 < steps.size())
+            && steps[i + 1].state == LEDState::OFF;
+        const uint32_t offMs = hasFollowingOff ? steps[i + 1].ms : 0;
+
+        // 3+ char ON with a symmetric (equal) following OFF → PULSE.
+        if (onMs >= 300 && hasFollowingOff && offMs == onMs) {
+            tokens.push_back({TK_PULSE, onMs});
+            ++i;  // consume the matching OFF
         } else {
-            tokens.push_back(steps[i].state == LEDState::ON
-                                 ? Token{TK_ON, steps[i].ms}
-                                 : Token{TK_OFF, steps[i].ms});
+            tokens.push_back(classifyOn(onMs));
+        }
+
+        // A dominant OFF rest (≥ 3× the ON that preceded it) is shown;
+        // shorter inter-element gaps are silently dropped.
+        if (hasFollowingOff && offMs >= 3 * onMs) {
+            tokens.push_back({TK_OFF, offMs});
         }
     }
     return tokens;
 }
 
-// Stage 3 — collapse runs of N consecutive identical PULSE (or DASH) tokens into
-// a single "NxPULSE Xs" / "NxDASH Xs" run. ON/OFF tokens are emitted
-// individually (no run-collapse) to keep the representation simple and
-// unambiguous. Returns a list of (count, token) pairs where count is the run
-// length (1 for non-pulse/non-dash tokens).
-struct Run { uint32_t count; Token token; };
-
-static std::vector<Run> collapsePulseRuns(const std::vector<Token>& tokens) {
-    std::vector<Run> runs;
-    for (size_t i = 0; i < tokens.size(); ++i) {
-        if (tokens[i].kind == TK_PULSE || tokens[i].kind == TK_DASH) {
-            const TokenKind groupKind = tokens[i].kind;
-            const uint32_t groupMs = tokens[i].ms;
-            size_t runLen = 1;
-            while (i + runLen < tokens.size()
-                   && tokens[i + runLen].kind == groupKind
-                   && tokens[i + runLen].ms == groupMs) {
-                ++runLen;
-            }
-            runs.push_back({static_cast<uint32_t>(runLen), tokens[i]});
-            i += runLen - 1;
-        } else {
-            runs.push_back({1, tokens[i]});
-        }
-    }
-    return runs;
-}
-
-// Stage 4 — render the collapsed runs into the final comma-separated string.
-// Each run becomes "PULSE Xs", "NxPULSE Xs", "ON Xs", or "OFF Xs".
-// Local formatting shim (StatusLEDRenderer::formatDuration is private and must
-// not be exposed via the header — SRP is a .cpp-local concern).
+// Stage 4 — render the token list into the final comma-separated string, one
+// token at a time (long-hand: no Nx collapse). Local formatting shim
+// (StatusLEDRenderer::formatDuration is private and must not be exposed via the
+// header — SRP is a .cpp-local concern).
 static std::string fmtDuration(uint32_t durationMs) {
     std::ostringstream formatted;
     formatted << std::fixed << std::setprecision(1);
@@ -178,19 +146,19 @@ static std::string fmtDuration(uint32_t durationMs) {
     return formatted.str();
 }
 
-static std::string renderTimingRuns(const std::vector<Run>& runs) {
+static std::string renderTokens(const std::vector<Token>& tokens) {
     std::ostringstream out;
     bool first = true;
     auto emitSep = [&]() { if (!first) out << ", "; first = false; };
 
-    for (const Run& r : runs) {
+    for (const Token& tok : tokens) {
         emitSep();
-        if (r.count > 1) out << r.count << "x";
-        switch (r.token.kind) {
-            case TK_PULSE: out << "PULSE " << fmtDuration(r.token.ms); break;
-            case TK_DASH:  out << "DASH "  << fmtDuration(r.token.ms); break;
-            case TK_ON:    out << "ON "    << fmtDuration(r.token.ms); break;
-            case TK_OFF:   out << "OFF "   << fmtDuration(r.token.ms); break;
+        switch (tok.kind) {
+            case TK_FLASH: out << "FLASH"; break;
+            case TK_DOT:   out << "DOT";   break;
+            case TK_DASH:  out << "DASH "  << fmtDuration(tok.ms); break;
+            case TK_PULSE: out << "PULSE " << fmtDuration(tok.ms); break;
+            case TK_OFF:   out << "OFF "   << fmtDuration(tok.ms); break;
         }
     }
     return out.str();
@@ -248,16 +216,14 @@ std::string StatusLEDRenderer::timingNote(StatusLED::Pattern pattern) {
     }
 
     // Multi-stage pipeline, each stage a focused helper (SRP):
-    //   1. filterSteps     — drop the trailing separator
-    //   2. tokenizePulses  — collapse symmetric ON/OFF pairs into PULSE tokens,
-    //      and clearly-asymmetric (>=3x) pairs into DASH tokens
-    //   3. collapsePulseRuns — merge N identical consecutive pulses/dashes into one run
-    //   4. renderTimingRuns — format the runs to the final comma-separated string
+    //   1. filterSteps  — drop the trailing separator
+    //   2. tokenize     — classify each ON run by width (FLASH/DOT/DASH), fold
+    //      symmetric ON/OFF pairs into PULSE, emit dominant OFF rests
+    //   3. renderTokens — format the tokens long-hand (no Nx collapse)
     const std::vector<TimingStep> kept = filterSteps(steps, stepCount);
     if (kept.empty()) return "";
-    const std::vector<Token> tokens = tokenizePulses(kept);
-    const std::vector<Run> runs = collapsePulseRuns(tokens);
-    return renderTimingRuns(runs);
+    const std::vector<Token> tokens = tokenize(kept);
+    return renderTokens(tokens);
 }
 
 std::string StatusLEDRenderer::enumName(StatusLED::Pattern pattern) {
@@ -286,16 +252,6 @@ static size_t maxPatternVisualWidth() {
     return maxWidth;
 }
 
-#ifdef INCLUDE_LED_HELP_KEY
-static size_t maxConstantVisualWidth() {
-    size_t maxWidth = 0;
-    for (const auto& c : NAMED_CONSTANTS) {
-        maxWidth = std::max(maxWidth, renderNamedConstant(c).size());
-    }
-    return maxWidth;
-}
-#endif
-
 std::string StatusLEDRenderer::generateTable() {
     std::ostringstream out;
 
@@ -316,23 +272,35 @@ std::string StatusLEDRenderer::generateTable() {
             << "  # " << note << "\n";
     }
 
-#ifdef INCLUDE_LED_HELP_KEY
-    const size_t constVisualWidth = maxConstantVisualWidth();
-    size_t constNameWidth = 0;
-    for (const auto& c : NAMED_CONSTANTS) {
-        constNameWidth = std::max(constNameWidth, std::strlen(c.name));
+    // Key: a fixed four-entry legend mapping each visual bar to the timing
+    // token it produces. Always rendered (no INCLUDE_LED_HELP_KEY guard). The
+    // quoted visual bars column-align so the '#' comments line up.
+    //
+    // Entries (visual → token):
+    //   '-'            → FLASH 0.1s
+    //   '--'           → DOT 0.2s
+    //   '--------'     → DASH 0.8s
+    //   '        |   ' → 2s SEPARATOR
+    struct KeyEntry { std::string bar; const char* comment; };
+    static const std::vector<KeyEntry> KEY_ENTRIES = {
+        {visualBar('-', 1),  "FLASH 0.1s"},
+        {visualBar('-', 2),  "DOT 0.2s"},
+        {visualBar('-', 8),  "DASH 0.8s"},
+        {separatorBar(),     "2s SEPARATOR"},
+    };
+
+    // Column-align the comments: find the widest quoted visual.
+    size_t keyVisualWidth = 0;
+    for (const auto& e : KEY_ENTRIES) {
+        keyVisualWidth = std::max(keyVisualWidth, std::string("'").size()
+            + e.bar.size() + std::string("'").size());
     }
 
-    out << "\nKey:\n";
-    for (const auto& c : NAMED_CONSTANTS) {
-        const std::string cVisual = renderNamedConstantPadded(c, constVisualWidth);
-        const std::string comment = (c.state == LEDState::ON ? "ON " : "OFF ")
-            + formatDuration(c.durationMs);
-        out << "  " << std::left << std::setw(static_cast<int>(constNameWidth)) << c.name
-            << "  " << cVisual
-            << "  # " << comment << "\n";
+    out << "\nKey;\n";
+    for (const auto& e : KEY_ENTRIES) {
+        out << "  " << quotedVisual(e.bar, keyVisualWidth)
+            << "  # " << e.comment << "\n";
     }
-#endif
 
     return out.str();
 }

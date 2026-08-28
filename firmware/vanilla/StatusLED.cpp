@@ -58,26 +58,8 @@ static constexpr LEDStep PATTERN_OTA_IN_PROGRESS[] = {
     {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS}
 };
 
-// ERROR_AUTH_FAILURE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
+// ERROR_AUTH_FAILURE: ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR (3 dots, 3 flashes)
 static constexpr LEDStep PATTERN_AUTH_FAILURE[] = {
-    // ERROR_3_PULSE (6 steps)
-    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
-    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
-    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
-    // 2×TINY_PULSE (4 steps)
-    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
-    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
-    // SEPARATOR
-    {LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
-};
-
-// ERROR_RECOVERABLE: ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR
-static constexpr LEDStep PATTERN_ERROR_RECOVERABLE[] = {
     // ERROR_3_PULSE (6 steps)
     {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
@@ -88,6 +70,24 @@ static constexpr LEDStep PATTERN_ERROR_RECOVERABLE[] = {
     // 3×TINY_PULSE (6 steps)
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    // SEPARATOR
+    {LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
+};
+
+// ERROR_RECOVERABLE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR (3 dots, 2 flashes)
+static constexpr LEDStep PATTERN_ERROR_RECOVERABLE[] = {
+    // ERROR_3_PULSE (6 steps)
+    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
+    // 2×TINY_PULSE (4 steps)
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
