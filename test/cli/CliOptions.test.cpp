@@ -137,6 +137,27 @@ TEST_F(CliOptionsTest, ExamplesFlagCapturesText) {
     EXPECT_EQ(opts.mode.examples_text.find("# topic: led-help"), std::string::npos);
 }
 
+// A topic tag with a trailing comma (or an all-whitespace segment) produces
+// an empty segment after the comma-split. The parser must skip it rather than
+// emplacing an empty topic name — that empty-segment branch is the regression
+// target (cpp:S134 nesting at the segLead/segTrail check). The non-empty
+// segment still parses and renders.
+TEST_F(CliOptionsTest, PrintExamplesSkipsEmptyTopicSegment) {
+    const std::string sample =
+        "# section: CONNECTIONS\n"
+        "\n"
+        "# topic: connect,   \n"
+        "  vehicle-sim --connect demo --vehicle tesla\n";
+
+    std::ostringstream out;
+    printExamples(out, sample, {});
+    const std::string text = out.str();
+    EXPECT_NE(text.find("CONNECTIONS:"), std::string::npos);
+    EXPECT_NE(text.find("--connect demo"), std::string::npos);
+    // The empty segment must NOT surface as a bare topic name in the output.
+    EXPECT_EQ(text.find("  \n"), std::string::npos);
+}
+
 // printExamples with empty focus shows the full block, grouped by section
 // headings. The renderer prints the heading once above its matching blocks;
 // a focus-filtered render still emits the heading for any section that
@@ -282,6 +303,31 @@ TEST_F(CliOptionsTest, ExamplesFocus_FilterStillWorks_AfterUnknownArgFix) {
         ASSERT_FALSE(opts.mode.help_focus.empty());
         EXPECT_EQ(opts.mode.help_focus.front(), "connect");
     }
+}
+
+// computeHelpFocus() must skip the value that follows a value-taking option so
+// `--help --connect demo` yields focus ["connect"], NOT ["connect", "demo"].
+// The value-skip branch (the `++i` inside the `if (i + 1 < argc)` block) is
+// the regression target: without it, a value that legitimately follows a
+// value-taking option would be misread as a focus token.
+TEST_F(CliOptionsTest, HelpFocus_SkipsValueFollowingValueTakingOption) {
+    Args args({"vehicle-sim", "--help", "--connect", "demo"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    ASSERT_TRUE(opts.mode.help_requested);
+    ASSERT_EQ(opts.mode.help_focus.size(), 1u);
+    EXPECT_EQ(opts.mode.help_focus.front(), "connect");
+}
+
+// A bare focus name followed by a value is also skipped (the same branch, but
+// the token has no leading dashes). `--help connect demo` → focus ["connect"].
+TEST_F(CliOptionsTest, HelpFocus_SkipsValueFollowingBareFocusToken) {
+    Args args({"vehicle-sim", "--help", "connect", "demo"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    ASSERT_TRUE(opts.mode.help_requested);
+    ASSERT_EQ(opts.mode.help_focus.size(), 1u);
+    EXPECT_EQ(opts.mode.help_focus.front(), "connect");
 }
 
 // `printExamples` with empty payload still emits a header (regression guard
@@ -805,6 +851,22 @@ TEST_F(CliValidationTest, DecodedCsvReplay_RejectsControlCharVehicleLabel) {
     std::remove(fpath.c_str());
     EXPECT_FALSE(error.empty());
     EXPECT_NE(error.find("control characters"), std::string::npos);
+}
+
+// isDecodedTelemetryCsv() returns false when the file can't be opened, so a
+// non-existent file is treated as "not a decoded CSV" and the free-form label
+// boundary check is skipped. The !in.is_open() failure branch is the
+// regression target. With a registered vehicle (which passes validateVehicle),
+// validation must succeed — proving the file was NOT routed through the
+// decoded-CSV label check.
+TEST_F(CliValidationTest, NonExistentFile_TreatedAsNonDecodedCsv) {
+    const std::string nonexistent = "/tmp/vsim_does_not_exist_" + std::to_string(getpid()) + ".csv";
+    Args args({"vehicle-sim", "--connect", "file:" + nonexistent, "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    auto error = validateOptions(opts, service_);
+    EXPECT_TRUE(error.empty())
+        << "a non-existent file must be treated as a non-decoded CSV; with a "
+           "registered vehicle the validation must pass";
 }
 
 TEST_F(CliValidationTest, InteractiveMode_RejectsOverlongVehicleLabel) {
