@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "vehicle-sim/pipeline/TCPTransport.h"
-#include "vehicle-sim/pipeline/RawFrameNormaliser.h"
+#include "vehicle-sim/pipeline/Elm327Normaliser.h"
 #include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/pipeline/FakeSocket.h"
 #include "vehicle-sim/util/IClock.h"
@@ -69,12 +69,14 @@ TEST(TCPTransportTest, RawProtocol_ParsesFrameLinesThroughNormaliser) {
     th.join();
     ASSERT_TRUE(opened.load());
 
-    RawFrameNormaliser n;
+    Elm327Normaliser n;
     std::vector<std::uint32_t> ids;
     while (auto line = t.nextLine()) {
         auto r = n.normalise(*line);
         if (r.kind == NormaliserResultKind::Frame) {
-            ids.push_back(r.frame.canId);
+            const auto canId = static_cast<std::uint32_t>(r.frame.bytes[0])
+                             | (static_cast<std::uint32_t>(r.frame.bytes[1]) << 8);
+            ids.push_back(canId);
         }
         if (ids.size() >= 2) break;
     }

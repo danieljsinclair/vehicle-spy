@@ -35,18 +35,24 @@ struct WifiProvisioningOptions {
     bool clear_wifi_creds = false;  // --clear-wifi-creds
     bool reboot_esp32 = false;      // --reboot (send ATREBOOT over USB)
     std::string usb_port = ESP32_DEFAULT_USB_PORT;  // --port <path>
+    std::string transport;          // resolved transport (filled in by parseArgs)
+    bool status_requested = false;  // --status: print ESP32 status
 
     // True when a USB-serial provisioning operation was requested. Used by
     // main.cpp to short-circuit to runProvisioning() before telemetry dispatch.
     [[nodiscard]] bool active() const {
-        return !set_wifi_ssid.empty() || clear_wifi_creds || reboot_esp32;
+        return !set_wifi_ssid.empty() || clear_wifi_creds || reboot_esp32 || status_requested;
     }
 };
 
 // Telemetry connect/transport options.
 struct TelemetryOptions {
     std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", "usb:<path>", or "auto"
-    std::string connect_file;     // `--connect-file <path>` synonym for `--connect file:<path>`
+    std::string connect_usb;     // `--connect-usb <path>` shortcut for `--connect usb:<path>`
+    std::string connect_tcp;     // `--connect-tcp <ip>[:<port>]` shortcut for `--connect tcp:...`
+    std::string connect_file;    // `--connect-file <path>` synonym for `--connect file:<path>`
+    bool connect_ble = false;    // `--connect-ble` flag
+    bool connect_auto = false;   // `--connect-auto` flag
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
@@ -69,7 +75,8 @@ struct ModeFlags {
     bool list_signals = false;
     bool discover_mode = false;
     bool help_requested = false;
-    bool led_diag = false;  // Show StatusLED pattern help
+    bool led_help = false;   // --led-help: show StatusLED pattern reference
+    bool led_diag = false;   // Show StatusLED pattern help
     std::string help_text;
 };
 
