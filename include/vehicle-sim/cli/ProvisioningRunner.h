@@ -47,6 +47,14 @@ public:
 /** Build the production serial port for `port` (a /dev/cu.* path). */
 std::unique_ptr<ISerialPort> createSerialPort(const std::string& port);
 
+// Auto-detect the ESP32's USB serial port by globbing the standard macOS
+// prefixes (/dev/cu.usbserial*, /dev/cu.SLAB_USBtoUART, /dev/cu.wchusbserial*).
+// Returns the first match, or "" if none matched. Used by the USB-first leg of
+// --status / --connect auto so a connected device resolves instantly with no
+// broadcast. (resolveSerialPort() wraps this with a default-port fallback; call
+// this directly when you need to distinguish "found USB" from "nothing".)
+std::string autoDetectSerialPort();
+
 // Provisioning reply substrings the firmware emits over USB serial.
 //   ATSETWIFI<ssid>,<pass>\r -> "OK WiFi credentials stored. Rebooting to connect..."
 //   ATCLEARWIFI\r            -> "OK WiFi credentials cleared. Rebooting..."
@@ -74,6 +82,13 @@ constexpr int PROVISION_TIMEOUT_S = 120;
 // "no [STATE] line received in Ns" — the device is still alive, but no
 // heartbeat has been emitted yet.
 constexpr int PROVISION_STATUS_TIMEOUT_S = 8;
+
+// Auto-discovery wait budget (UDP broadcast discovery). The ESP32 floods
+// discovery beacons roughly every 500ms after reset, but quiet stretches can
+// gap up to ~30s. Waiting 12s covers several beacon cycles plus realistic
+// jitter without making the operator wait half a minute. Used by both the
+// --discover manual scan and the --connect auto / --status fallback hunt.
+constexpr int AUTO_DISCOVERY_TIMEOUT_S = 12;
 
 /**
  * Send a single AT command over the ESP32 USB serial console and wait for the

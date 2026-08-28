@@ -103,8 +103,8 @@ int runDiscovery() {
         return 1;
     }
 
-    // Poll for 30 seconds, showing results as they come
-    auto devices = discovery.poll(std::chrono::seconds(30));
+    // Poll for AUTO_DISCOVERY_TIMEOUT_S, showing results as they come
+    auto devices = discovery.poll(std::chrono::seconds(vehicle_sim::cli::AUTO_DISCOVERY_TIMEOUT_S));
     discovery.stop();
 
     if (devices.empty()) {
@@ -130,11 +130,25 @@ int runDiscovery() {
     return 0;
 }
 
-// Auto-discover an ESP32 and return its TCP connection string.
-// Returns empty string if no device found.
-std::string autoDiscoverESP32(std::chrono::seconds timeout = std::chrono::seconds(10)) {
-    using namespace vehicle_sim::discovery;
+// Auto-discover an ESP32 and return a connection string the caller can feed
+// straight into connect_target. Returns empty string if no device found.
+//
+// Resolution order (fast path first):
+//   1. USB serial — autoDetectSerialPort() globs /dev/cu.{usbserial,SLAB,wchusbserial}*.
+//      If a USB device is present we're done instantly (no broadcast needed).
+//      Returns "usb:<path>".
+//   2. UDP broadcast discovery — poll the network for discovery beacons up to
+//      AUTO_DISCOVERY_TIMEOUT_S. Returns "tcp:<ip>:<port>" of the first responder.
+//   3. Nothing found — return empty (caller surfaces a clean failure).
+std::string autoDiscoverESP32() {
+    // 1. USB-first: a connected device resolves over the serial console with no
+    //    network dependency and no wait.
+    if (const std::string usbPath = vehicle_sim::cli::autoDetectSerialPort(); !usbPath.empty()) {
+        return "usb:" + usbPath;
+    }
 
+    // 2. Fall back to UDP broadcast discovery.
+    using namespace vehicle_sim::discovery;
     UDPDiscovery discovery;
 
     // Note: Discovery packets are intentionally unsigned (per commit 8a0acde).
@@ -144,7 +158,7 @@ std::string autoDiscoverESP32(std::chrono::seconds timeout = std::chrono::second
         return {};
     }
 
-    auto devices = discovery.poll(timeout);
+    auto devices = discovery.poll(std::chrono::seconds(vehicle_sim::cli::AUTO_DISCOVERY_TIMEOUT_S));
     discovery.stop();
 
     if (devices.empty()) {
@@ -202,35 +216,64 @@ int main(int argc, char* argv[]) {
         return runDiscovery();
     }
 
-    // --status: print a [STATE] snapshot from the device's USB serial console.
-    // Short-circuits BEFORE the generic provisioning dispatch because
-    // status_requested also makes wifi.active()/isProvisioning() return true,
-    // and runProvisioning() returns failure ("No provisioning operation") when
-    // no real provisioning op is set — which is exactly the case for a pure
-    // --status --connect auto invocation. Doing the port resolution + runStatus
-    // here keeps --status a single-purpose read with its own clean error path
-    // (port resolution / open failures named explicitly, no AT-command noise).
+    // --status: print a [STATE] snapshot from the device. Short-circuits BEFORE
+    // the generic provisioning dispatch because status_requested also makes
+    // wifi.active()/isProvisioning() return true, and runProvisioning() returns
+    // failure ("No provisioning operation") when no real provisioning op is set
+    // — which is exactly the case for a pure --status invocation.
+    //
+    // Resolution order (mirrors autoDiscoverESP32 — USB-first, then network):
+    //   1. USB serial — if the user gave --connect usb:/path, open it; otherwise
+    //      autoDetectSerialPort() globs the standard /dev/cu.* prefixes. A
+    //      detected device resolves INSTANTLY (no broadcast, no wait). Open it
+    //      and read the next [STATE] heartbeat line.
+    //   2. No USB device — fall back to UDP broadcast discovery
+    //      (AUTO_DISCOVERY_TIMEOUT_S) to confirm the device is alive on the
+    //      network. [STATE] is a serial-console line, so it can't be read over
+    //      TCP; we report the discovered address as proof of life.
+    //   3. Nothing found — clean failure (no hanging on a wrong default port).
     if (opts.wifi.status_requested) {
-        const std::string resolved = cli::resolveSerialPort(opts.wifi.transport);
-        if (resolved.empty()) {
-            std::cerr << "[provision] Could not resolve provisioning transport '"
-                      << cli::forLog(opts.wifi.transport) << "'\n";
-            return 1;
+        // 1. USB-first.
+        std::string usbPath;
+        if (opts.wifi.transport.rfind("usb:", 0) == 0) {
+            usbPath = opts.wifi.transport.substr(4);
+        } else {
+            usbPath = vehicle_sim::cli::autoDetectSerialPort();
         }
-        auto port = cli::createSerialPort(resolved);
-        if (!port->open()) {
-            // Name the port that failed so the operator can see WHICH device
-            // path failed — mirrors runProvisioning()'s open-failure diagnostic.
-            std::cerr << "[provision] Failed to open serial port "
-                      << cli::forLog(resolved) << "\n";
-            return 1;
+        if (!usbPath.empty()) {
+            auto port = cli::createSerialPort(usbPath);
+            if (!port->open()) {
+                // Name the port that failed so the operator sees WHICH device
+                // path failed — mirrors runProvisioning()'s diagnostic.
+                std::cerr << "[provision] Failed to open serial port "
+                          << cli::forLog(usbPath) << "\n";
+                return 1;
+            }
+            const int rc = cli::runStatus(*port, cli::PROVISION_STATUS_TIMEOUT_S,
+                                          std::cout, std::cerr);
+            // runStatus already returns 1 on timeout / peer-closed with a stderr
+            // diagnostic; close the port before returning the rc.
+            port->close();
+            return rc;
         }
-        const int rc = cli::runStatus(*port, cli::PROVISION_STATUS_TIMEOUT_S,
-                                      std::cout, std::cerr);
-        // runStatus already returns 1 on timeout / peer-closed with a stderr
-        // diagnostic; we close the port before returning the rc.
-        port->close();
-        return rc;
+
+        // 2. No USB device — try UDP broadcast discovery as a fallback so the
+        //    operator gets a definite "device is / isn't on the network" answer
+        //    instead of silently timing out on a phantom serial port.
+        std::cout << "No USB serial device found; listening for ESP32 discovery "
+                     "beacons on UDP port " << discovery::DISCOVERY_PORT << "...\n";
+        auto discovered = autoDiscoverESP32();
+        if (!discovered.empty()) {
+            std::cout << "ESP32 discovered at " << discovered
+                      << " (no USB serial — [STATE] read requires a USB connection)\n";
+            return 0;
+        }
+
+        // 3. Clean failure.
+        std::cerr << "[provision] No ESP32 found on USB serial or the network. "
+                     "Connect the device over USB for [STATE] reads, or use "
+                     "--discover to scan the network manually.\n";
+        return 1;
     }
 
     // WiFi provisioning over USB serial (AT command set). Local, pre-association
@@ -251,7 +294,10 @@ int main(int argc, char* argv[]) {
             systemClock);
     }
 
-    // Handle --connect auto: discover ESP32 and connect
+    // Handle --connect auto: discover ESP32 and connect. autoDiscoverESP32()
+    // tries USB serial first (instant), then falls back to UDP broadcast
+    // discovery (AUTO_DISCOVERY_TIMEOUT_S). The result is either "usb:<path>"
+    // or "tcp:<ip>:<port>" — both handled by the transport dispatch below.
     if (opts.isAuto()) {
         std::cout << "Auto-discovering ESP32...\n";
         std::string target = autoDiscoverESP32();
@@ -261,7 +307,7 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "Found ESP32 at " << target << "\n";
         opts.telemetry.connect_target = target;
-        // Fall through to the TCP handling below
+        // Fall through to the transport handling below (usb: or tcp:).
     }
 
     if (opts.isFile()) {
