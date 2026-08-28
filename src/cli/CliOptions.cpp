@@ -7,6 +7,7 @@
 
 #include <CLI/CLI.hpp>
 #include <algorithm>
+#include <cassert>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -190,6 +191,33 @@ void computeHelpFocus(int argc, char* argv[], std::vector<std::string>& focus) {
     }
 }
 
+// Trim leading and trailing whitespace from `sv`. Returns empty string for
+// an all-whitespace input. Used to normalize CSV option-name segments.
+std::string trimmed(std::string_view sv) {
+    const auto a = sv.find_first_not_of(" \t");
+    if (a == std::string_view::npos) return {};
+    const auto b = sv.find_last_not_of(" \t");
+    return std::string(sv.substr(a, b - a + 1));
+}
+
+// Split a comma-separated token list into its trimmed segments. Empty or
+// all-whitespace segments are dropped (e.g. "a, , b" → ["a","b"]). Used to
+// split CLI11's ", "-joined option-name aliases into individually matchable
+// names.
+std::vector<std::string_view> splitCommaSeparated(std::string_view raw) {
+    std::vector<std::string_view> segs;
+    std::size_t start = 0;
+    while (start <= raw.size()) {
+        const std::size_t end = raw.find(',', start);
+        const std::size_t segLen =
+            (end == std::string::npos) ? raw.size() - start : end - start;
+        segs.push_back(raw.substr(start, segLen));
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return segs;
+}
+
 // Return a vector of the names accepted by `app`, both the canonical
 // long form ("--connect") and any short aliases ("-c"). Used to validate
 // the focus tokens alongside --examples / --help: a token that starts with
@@ -199,24 +227,11 @@ void computeHelpFocus(int argc, char* argv[], std::vector<std::string>& focus) {
 std::vector<std::string> registeredOptionNames(const CLI::App& app) {
     std::vector<std::string> names;
     for (const CLI::Option* opt : app.get_options()) {
-        const std::string n = opt->get_name();
         // `get_name()` may report several aliases separated by ','. Split
         // them so the lookup matches each individually.
-        std::size_t start = 0;
-        while (start <= n.size()) {
-            const std::size_t end = n.find(',', start);
-            const std::size_t segLen =
-                (end == std::string::npos) ? n.size() - start : end - start;
-            // Trim surrounding whitespace.
-            if (const std::string seg = n.substr(start, segLen); !seg.empty()) {
-                const auto a = seg.find_first_not_of(" \t");
-                const auto b = seg.find_last_not_of(" \t");
-                if (a != std::string::npos && b != std::string::npos) {
-                    names.push_back(seg.substr(a, b - a + 1));
-                }
-            }
-            if (end == std::string::npos) break;
-            start = end + 1;
+        for (const auto& seg : splitCommaSeparated(opt->get_name())) {
+            const std::string name = trimmed(seg);
+            if (!name.empty()) names.push_back(std::move(name));
         }
     }
     return names;
@@ -303,7 +318,14 @@ void captureEarlyExitTexts(CliOptions& opts, const CLI::App& app,
         // fall through to telemetry dispatch. The payload is the embedded
         // copy of assets/examples.md (single source of truth; the file is
         // the SoT and the build embeds it via ExamplesContent.cpp).
-        opts.mode.examples_text = kExamplesContent;
+        //
+        // examples_text is a multi-line layout sink (like help_text): it is
+        // composed of static `# section:` / `# topic:` markers and body lines.
+        // Route it through forLogKeepNewlines() to sever cfamily's taint at
+        // ingress (cpp:S5145) while preserving the newline/tab layout. On
+        // this static, LF-delimited content it is a NO-OP, so the examples
+        // layout is preserved exactly.
+        opts.mode.examples_text = forLogKeepNewlines(kExamplesContent);
         opts.mode.help_requested = true;
     }
     if (wantsHelp) {
@@ -439,15 +461,14 @@ CliOptions parseArgs(int argc, char* argv[]) {
 
     try {
         app.parse(static_cast<int>(clean.ptrs.size()), clean.ptrs.data());
-    } catch (const CLI::CallForHelp&) {
-        // --help / --examples short-circuit; fall through to the capture
-        // step below.
     } catch (const CLI::ParseError& e) {
-        // ExtrasError (unknown options) on the clean argv should be
-        // unreachable — the pre-filter caught every focus token that looked
-        // like a flag. If we get here it means a real CLI11 option is missing
-        // from the registered list, so surface it unconditionally. Any OTHER
-        // parse error (RequiredError, ArgumentMismatch, etc.) is swallowed
+        // CLI::CallForHelp is a ParseError subclass and is swallowed by design
+        // here: --help / --examples short-circuit, so we fall through to the
+        // capture step below. ExtrasError (unknown options) on the clean argv
+        // should be unreachable — the pre-filter caught every focus token that
+        // looked like a flag. If we get here it means a real CLI11 option is
+        // missing from the registered list, so surface it unconditionally. Any
+        // OTHER parse error (RequiredError, ArgumentMismatch, etc.) is swallowed
         // when --help/--examples was requested: the focus-filter scan below
         // still needs the focus tokens, and the orchestrator is going to
         // short-circuit on the captured text.
@@ -637,7 +658,10 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
     auto vehicles = service.registry().getRegisteredVehicles();
     for (const auto& id : vehicles) {
         const auto* cfg = service.registry().getConfig(id);
-        if (!cfg) continue;
+        // Invariant: every id returned by getRegisteredVehicles() is present in
+        // the registry's map, so getConfig() cannot return null for it. A null
+        // here would be a registry data-structure bug, not a runtime failure.
+        assert(cfg != nullptr && "registry yields an id getConfig() cannot find");
 
         out << "\n" << cfg->vehicleName << " (" << id << "):\n";
         for (const auto& [signalName, fieldName] : cfg->signalMappings) {
