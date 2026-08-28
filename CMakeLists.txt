@@ -125,6 +125,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/cli/ReplayRunContext.cpp
     src/cli/LiveRunContext.cpp
     src/cli/CsvReplayRunContext.cpp
+    src/cli/CsvReplayPath.cpp
     src/cli/InteractiveRunContext.cpp
     src/interactive/KeyboardInput.cpp
     src/interactive/CsvKeyActionTarget.cpp

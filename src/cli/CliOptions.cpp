@@ -1,4 +1,5 @@
 #include "vehicle-sim/cli/CliOptions.h"
+#include "vehicle-sim/cli/CsvReplayPath.h"
 #include "vehicle-sim/cli/ExamplesContent.h"
 #include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
@@ -8,7 +9,6 @@
 #include <CLI/CLI.hpp>
 #include <algorithm>
 #include <cassert>
-#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -427,17 +427,6 @@ static std::string validateVehicleLabel(const std::string& label) {
         }
     }
     return "";
-}
-
-// A decoded-telemetry CSV (for CSV replay mode) is distinguished from a raw
-// CAN capture by its header: the decoded schema leads with "timestamp_ms".
-// Raw CAN captures never do. Used to relax validation for bench replay.
-static bool isDecodedTelemetryCsv(const std::string& path) {
-    std::ifstream in(path);
-    if (!in.is_open()) return false;
-    std::string header;
-    if (!std::getline(in, header)) return false;
-    return header.find("timestamp_ms") != std::string::npos;
 }
 
 CliOptions parseArgs(int argc, char* argv[]) {

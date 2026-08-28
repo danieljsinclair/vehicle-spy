@@ -1,11 +1,11 @@
 #include <iostream>
-#include <fstream>
 #include <memory>
 #include <string_view>
 #include <csignal>
 #include <cstdio>
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/cli/CliOptions.h"
+#include "vehicle-sim/cli/CsvReplayPath.h"
 #include "vehicle-sim/cli/Orchestration.h"
 #include "vehicle-sim/cli/ProvisioningRunner.h"
 #include "vehicle-sim/cli/BLERunContext.h"
@@ -26,18 +26,6 @@
 namespace {
 
 constexpr int BLE_SCAN_TIMEOUT_S = 10;
-
-// A decoded-telemetry CSV (for CSV replay mode) is distinguished from a raw
-// CAN capture by its header: the decoded schema leads with "timestamp_ms".
-// Raw CAN captures never do. Used to route --connect file:<csv> to the right
-// replay path without a separate flag.
-bool isDecodedTelemetryCsv(const std::string& path) {
-    std::ifstream in(path);
-    if (!in.is_open()) return false;
-    std::string header;
-    if (!std::getline(in, header)) return false;
-    return header.find("timestamp_ms") != std::string::npos;
-}
 
 int runScan(vehicle_sim::BLEManager& bleManager) {
     using namespace vehicle_sim;
