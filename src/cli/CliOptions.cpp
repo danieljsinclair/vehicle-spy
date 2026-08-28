@@ -658,13 +658,20 @@ void renderExamples(std::ostream& out, const std::vector<ExampleSection>& sectio
         if (!firstSection) out << "\n";
         firstSection = false;
         if (!s.name.empty()) {
-            out << s.name << ":\n";
+            // `s.name` derives from examples_text (tainted at ingress); route
+            // it through forLogKeepNewlines() at the sink to sever cfamily's
+            // taint through the parseExamplesDocument() intermediaries (cpp:S5145)
+            // while keeping the heading layout intact.
+            out << forLogKeepNewlines(s.name) << ":\n";
         }
         bool firstBlock = true;
         for (const auto* b : kept) {
             if (!firstBlock) out << "\n";
             firstBlock = false;
-            for (const auto& ln : b->lines) out << ln << "\n";
+            for (const auto& ln : b->lines)
+                // Same taint rationale as the heading above: ln is sourced
+                // from examples_text; sanitize at the sink to sever taint.
+                out << forLogKeepNewlines(ln) << "\n";
         }
     }
     out << "\n";
