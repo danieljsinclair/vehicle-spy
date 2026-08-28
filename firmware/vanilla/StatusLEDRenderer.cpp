@@ -60,6 +60,24 @@ static bool isTrailingSeparator(const LEDStep& step, bool isLast) {
         && step.durationMs >= StatusLEDConstants::SEPARATOR_MS;
 }
 
+// True if the pattern carries a 2s SEPARATOR step anywhere. A separator is
+// either an explicit LEDState::SEPARATOR step, or an OFF step lasting >=
+// SEPARATOR_MS — but only in a MULTI-STEP pattern: single-state solid patterns
+// (CLIENT_CONNECTED, OFF) reuse SEPARATOR_MS as their cycle duration without
+// it being a meaningful separator gap, so they are excluded. Position-blind —
+// a separator anywhere in the pattern qualifies, not just a trailing one.
+static bool hasSeparatorAnywhere(const LEDStep* steps, size_t stepCount) {
+    if (stepCount <= 1) return false;
+    for (size_t i = 0; i < stepCount; ++i) {
+        if (steps[i].state == LEDState::SEPARATOR) return true;
+        if (steps[i].state == LEDState::OFF
+            && steps[i].durationMs >= StatusLEDConstants::SEPARATOR_MS) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // ── timingNote() helpers ───────────────────────────────────────────────────
 // timingNote() renders a pattern's step sequence as a compact human-readable
 // string (e.g. "PULSE 0.5s", "FLASH, OFF 0.9s", "DOT, DOT, DOT, FLASH, FLASH").
@@ -267,6 +285,13 @@ std::string StatusLEDRenderer::generateTable() {
     for (const auto& info : PATTERN_REGISTRY) {
         std::string visual = renderPattern(info.pattern);
         std::string note = timingNote(info.pattern);
+        // Annotate the comment when the pattern carries a 2s SEPARATOR anywhere
+        // (AP_MODE / error / fatal families). The trailing separator is omitted
+        // from the visual, so the label makes the gap's role self-documenting.
+        auto [steps, stepCount] = StatusLED::getPatternSteps(info.pattern);
+        if (hasSeparatorAnywhere(steps, stepCount)) {
+            note += ", 2s SEPARATOR";
+        }
         out << "  " << std::left << std::setw(static_cast<int>(nameWidth)) << info.name
             << "  " << std::left << std::setw(static_cast<int>(visualWidth)) << visual
             << "  # " << note << "\n";

@@ -208,6 +208,40 @@ TEST(StatusLEDRendererTest, GenerateTable_RendersSolidOnAndSeparatorTiming) {
     EXPECT_NE(table.find("# Solid OFF"), std::string::npos);
 }
 
+// A pattern that carries a 2s SEPARATOR step anywhere (an OFF step lasting >=
+// SEPARATOR_MS) appends ", 2s SEPARATOR" to its row's timing comment. The
+// annotation is position-blind: it does not matter whether the separator is the
+// trailing step or appears mid-pattern. AP_MODE and the error/fatal families
+// all end with {OFF, SEPARATOR_MS}; the plain WiFi/BOOT/OTA patterns do not.
+TEST(StatusLEDRendererTest, GenerateTable_AnnotatesSeparatorAnywhere) {
+    std::string table = StatusLEDRenderer::generateTable();
+
+    // Helper: extract the single row for a pattern name (the substring from the
+    // name to the next newline) and return whether it carries the annotation.
+    auto rowHasAnnotation = [&](const std::string& name) -> bool {
+        const size_t pos = table.find(name);
+        if (pos == std::string::npos) { ADD_FAILURE() << "missing row: " << name; return false; }
+        const size_t rowEnd = table.find('\n', pos);
+        if (rowEnd == std::string::npos) { ADD_FAILURE() << "row has no newline: " << name; return false; }
+        return table.substr(pos, rowEnd - pos).find("2s SEPARATOR") != std::string::npos;
+    };
+
+    // Patterns WITH a trailing 2s separator -> annotated.
+    EXPECT_TRUE(rowHasAnnotation("AP_MODE"));
+    EXPECT_TRUE(rowHasAnnotation("ERROR_AUTH_FAILURE"));
+    EXPECT_TRUE(rowHasAnnotation("ERROR_RECOVERABLE"));
+    EXPECT_TRUE(rowHasAnnotation("ERROR_NO_NTP_SERVICE"));
+    EXPECT_TRUE(rowHasAnnotation("FATAL_UNRECOVERABLE_SOS"));
+
+    // Patterns WITHOUT any separator step -> NOT annotated.
+    EXPECT_FALSE(rowHasAnnotation("BOOT"));
+    EXPECT_FALSE(rowHasAnnotation("WIFI_SEARCHING"));
+    EXPECT_FALSE(rowHasAnnotation("WIFI_CONNECTED"));
+    EXPECT_FALSE(rowHasAnnotation("CLIENT_CONNECTED"));
+    EXPECT_FALSE(rowHasAnnotation("OTA_IN_PROGRESS"));
+    EXPECT_FALSE(rowHasAnnotation("OFF"));
+}
+
 TEST(StatusLEDRendererTest, GenerateTable_GroupsPatternsAdjacently) {
     std::string table = StatusLEDRenderer::generateTable();
 
