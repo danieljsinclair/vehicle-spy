@@ -203,8 +203,11 @@ int runStatusFlow(const vehicle_sim::cli::CliOptions& opts) {
     //    instead of silently timing out on a phantom serial port.
     std::cout << "No USB serial device found; listening for ESP32 discovery "
                  "beacons on UDP port " << vehicle_sim::discovery::DISCOVERY_PORT << "...\n";
-    auto discovered = autoDiscoverESP32();
-    if (!discovered.empty()) {
+    // Narrow `discovered`'s scope with an if-init-statement (cpp:S6004) —
+    // the value is only consulted inside this branch, so don't leak it into
+    // the enclosing scope where the clean-failure path could read a stale
+    // result.
+    if (auto discovered = autoDiscoverESP32(); !discovered.empty()) {
         std::cout << "ESP32 discovered at " << discovered
                   << " (no USB serial — [STATE] read requires a USB connection)\n";
         return 0;
