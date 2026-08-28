@@ -207,12 +207,13 @@ std::vector<std::string> registeredOptionNames(const CLI::App& app) {
             const std::size_t end = n.find(',', start);
             const std::size_t segLen =
                 (end == std::string::npos) ? n.size() - start : end - start;
-            const std::string seg = n.substr(start, segLen);
             // Trim surrounding whitespace.
-            const auto a = seg.find_first_not_of(" \t");
-            const auto b = seg.find_last_not_of(" \t");
-            if (a != std::string::npos && b != std::string::npos) {
-                names.push_back(seg.substr(a, b - a + 1));
+            if (const std::string seg = n.substr(start, segLen); !seg.empty()) {
+                const auto a = seg.find_first_not_of(" \t");
+                const auto b = seg.find_last_not_of(" \t");
+                if (a != std::string::npos && b != std::string::npos) {
+                    names.push_back(seg.substr(a, b - a + 1));
+                }
             }
             if (end == std::string::npos) break;
             start = end + 1;
@@ -229,10 +230,8 @@ std::vector<std::string> registeredOptionNames(const CLI::App& app) {
 // invalidation hazard.
 bool isRegisteredOption(const CLI::App& app, std::string_view token) {
     const std::vector<std::string> names = registeredOptionNames(app);
-    for (const auto& n : names) {
-        if (n == token) return true;
-    }
-    return false;
+    return std::any_of(names.begin(), names.end(),
+                       [&](const std::string& n) { return n == token; });
 }
 
 // When --examples / --help was requested, build a "clean" argv that strips
@@ -271,8 +270,7 @@ CleanArgv buildCleanArgv(const CLI::App& app, int argc, char* argv[],
             out.ptrs.push_back(out.storage.back().data());
             continue;
         }
-        const std::string bare = stripLeadingDashes(tok);
-        if (bare.empty()) {
+        if (const std::string bare = stripLeadingDashes(tok); bare.empty()) {
             out.storage.emplace_back(tok);
             out.ptrs.push_back(out.storage.back().data());
             continue;
@@ -280,12 +278,11 @@ CleanArgv buildCleanArgv(const CLI::App& app, int argc, char* argv[],
         // A token that starts with "--" must be a registered option, OR an
         // unknown option that we should surface as an error. Bare names
         // (no leading dashes) are always treated as focus tokens.
-        if (tok.size() >= 2 && tok[0] == '-' && tok[1] == '-') {
-            if (!isRegisteredOption(app, tok)) {
-                unknown_error = std::string("Unknown option: ") +
-                                std::string(tok);
-                return out;
-            }
+        if (tok.size() >= 2 && tok[0] == '-' && tok[1] == '-'
+            && !isRegisteredOption(app, tok)) {
+            unknown_error = std::string("Unknown option: ") +
+                            std::string(tok);
+            return out;
         }
         // Drop the focus token from the clean argv; it lives in the
         // original argv and computeHelpFocus() will pick it up later.
@@ -445,18 +442,17 @@ CliOptions parseArgs(int argc, char* argv[]) {
     } catch (const CLI::CallForHelp&) {
         // --help / --examples short-circuit; fall through to the capture
         // step below.
-    } catch (const CLI::ExtrasError& e) {
-        // Unknown options on the clean argv should be unreachable (the
-        // pre-filter caught every focus token that looked like a flag).
-        // If we get here it means a real CLI11 option is missing from the
-        // registered list — surface the error rather than swallowing.
-        opts.error_message = e.what();
     } catch (const CLI::ParseError& e) {
-        // Any other parse error (RequiredError, ArgumentMismatch, etc.) is
-        // swallowed when --help/--examples was requested: the focus-filter
-        // scan below still needs the focus tokens, and the orchestrator is
-        // going to short-circuit on the captured text.
-        if (!shortCircuit) {
+        // ExtrasError (unknown options) on the clean argv should be
+        // unreachable — the pre-filter caught every focus token that looked
+        // like a flag. If we get here it means a real CLI11 option is missing
+        // from the registered list, so surface it unconditionally. Any OTHER
+        // parse error (RequiredError, ArgumentMismatch, etc.) is swallowed
+        // when --help/--examples was requested: the focus-filter scan below
+        // still needs the focus tokens, and the orchestrator is going to
+        // short-circuit on the captured text.
+        const bool unreachableExtras = dynamic_cast<const CLI::ExtrasError*>(&e) != nullptr;
+        if (unreachableExtras || !shortCircuit) {
             opts.error_message = e.what();
         }
     }
@@ -526,7 +522,7 @@ void printExamples(std::ostream& out, const std::string& examples_text,
     Block* current = nullptr;
     // Anchor: a "default" section so blocks preceding any `# section:` line
     // still render (defensive; the asset always opens with a section).
-    sections.push_back({});
+    sections.emplace_back();
     auto* currentSection = &sections.back();
 
     auto startsWith = [&](std::string_view s, std::string_view tag) {
@@ -561,8 +557,7 @@ void printExamples(std::ostream& out, const std::string& examples_text,
             current = nullptr;
         } else if (startsWith(tag, kTopicTag)) {
             Block b;
-            const std::string names =
-                std::string(tag.substr(kTopicTag.size()));
+            const std::string names(tag.substr(kTopicTag.size()));
             // Split on commas, trim each name.
             std::size_t start = 0;
             while (start <= names.size()) {
@@ -572,8 +567,8 @@ void printExamples(std::ostream& out, const std::string& examples_text,
                                                : end - start;
                 const std::string_view seg(names.data() + start, segLen);
                 const auto segLead = seg.find_first_not_of(" \t");
-                const auto segTrail = seg.find_last_not_of(" \t");
-                if (segLead != std::string_view::npos &&
+                if (const auto segTrail = seg.find_last_not_of(" \t");
+                    segLead != std::string_view::npos &&
                     segTrail != std::string_view::npos) {
                     b.topics.emplace_back(seg.substr(segLead,
                         segTrail - segLead + 1));
@@ -683,8 +678,7 @@ bool isProvisioningMode(const CliOptions& opts) {
 std::string validateProvisioningTransport(const CliOptions& opts) {
     if (!opts.isProvisioning()) return "";
     const std::string& t = opts.wifi.transport;
-    const bool valid = t.empty() || t == "auto" || t.rfind("usb:", 0) == 0;
-    if (valid) return "";
+    if (t.empty() || t == "auto" || t.rfind("usb:", 0) == 0) return "";
     std::ostringstream oss;
     oss << "Provisioning transport '" << forLog(t)
         << "' is not supported. Use --connect auto or "
@@ -727,8 +721,7 @@ std::string validateInteractiveVehicleLabel(const CliOptions& opts) {
 // vehicle for DBC translation, handled by validateVehicle.
 std::string validateDecodedCsvReplayLabel(const CliOptions& opts) {
     if (!opts.isFile()) return "";
-    std::string path = opts.telemetry.connect_target.substr(5);
-    if (!isDecodedTelemetryCsv(path)) return "";
+    if (!isDecodedTelemetryCsv(opts.telemetry.connect_target.substr(5))) return "";
     return validateVehicleLabel(opts.telemetry.vehicle_type);
 }
 
