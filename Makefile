@@ -1,5 +1,5 @@
 .PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
-	        install-deps ios-icons app-icons scrub update-dbc \
+	        install-deps ios-icons app-icons regen-appicon scrub update-dbc \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
 	        capture-tcp ota-keys flash-over-tcp flash-over-usb \
 			reboot reboot-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
@@ -105,7 +105,7 @@ footer:
 
 # -- Clean ---------------------------------------------------------------
 
-clean: clean-icons
+clean:
 	@FAILED=""; \
 	for dir in build-native build-ios build-cov build-sonar $(FIRMWARE_BUILD); do \
 		if ! rm -rf "$$dir" 2>/dev/null; then \
@@ -124,7 +124,6 @@ scrub: clean
 	rm -rf ~/Library/Developer/Xcode/DerivedData/*
 	rm -rf ~/Library/Developer/Xcode/Archives/*
 	rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport/*
-	rm -f vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/*.png
 	rm -f .firmware-ready
 	@echo "All cleaned. Run 'make' to rebuild."
 
@@ -300,8 +299,21 @@ ICON_FILES = \
 	$(ICON_CATALOG)/AppIcon.png \
 	$(ICON_CATALOG)/AppIcon-dark.png
 
-ios-icons: $(ICON_FILES)
-app-icons: $(ICON_FILES)
+# The icons are COMMITTED artifacts (un-ignored in .gitignore): a pristine
+# checkout already has them, so every iOS leg builds without ImageMagick.
+# The legs only verify presence; regeneration is the opt-in target below.
+ios-icons app-icons:
+	@if [ ! -f $(ICON_CATALOG)/AppIcon.png ] || [ ! -f $(ICON_CATALOG)/AppIcon-dark.png ]; then \
+		echo "${RED}Error: committed app icons missing from $(ICON_CATALOG).${NC}" >&2; \
+		echo "  Restore from git:  git checkout -- $(ICON_CATALOG)" >&2; \
+		echo "  Or regenerate (needs ImageMagick):  make regen-appicon" >&2; \
+		exit 1; \
+	fi
+
+# Opt-in regeneration — the ONLY path that invokes ImageMagick.
+regen-appicon:
+	@$(MAKE) clean-icons
+	@$(MAKE) $(ICON_FILES)
 
 clean-icons:
 	@rm -f $(ICON_CATALOG)/*.png
@@ -327,9 +339,6 @@ $(ICON_CATALOG)/AppIcon.png: $(ICON_SOURCE)
 
 $(ICON_CATALOG)/AppIcon-dark.png: $(ICON_SOURCE)
 	$(generate_icon_dark)
-
-# Rebuild icons when generation parameters in this Makefile change.
-$(ICON_FILES): Makefile
 
 # -- DBC ------------------------------------------------------------------
 #
@@ -1593,6 +1602,7 @@ help:
 	@echo "  run              - Deploy and launch on device (aliases: run-app, run-ios)"
 	@echo "  xcode            - Open in Xcode"
 	@echo "  install-deps     - Install Homebrew dependencies"
+	@echo "  regen-appicon    - Regenerate committed app icons (opt-in, needs ImageMagick)"
 	@echo "  update-dbc       - Update DBC files from opendbc"
 	@echo "  clean            - Clean build artifacts"
 	@echo "  scrub            - Full clean including toolchain sentinel"
