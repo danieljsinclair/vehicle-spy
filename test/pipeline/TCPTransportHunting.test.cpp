@@ -47,11 +47,28 @@ constexpr const char* kLoopbackIp = "127.0.0.1";
 constexpr const char* kUnreachableIp = "127.0.0.2";
 
 // Deterministic discovery listener that always reports ONE device at `address`.
+//
+// When `huntStartedProm` is set, poll() blocks the FIRST time until the
+// hunt-loop-live signal is received — i.e. until TCPTransport has fired its
+// onHuntStarted hook (TCPTransport.cpp:623, once at the retry-loop top, before
+// any reconnect attempt). This eliminates the flaky race where the discovery
+// thread could report its device before the main thread's retry loop is
+// polling, letting MAX_RETRIES exhaust before discovery wins. The promise is
+// one-shot: subsequent polls return immediately.
 class SameIpDiscoveryListener : public IDiscoveryListener {
 public:
-    explicit SameIpDiscoveryListener(std::string address) : address_(std::move(address)) {}
+    SameIpDiscoveryListener(std::string address,
+                            std::shared_ptr<std::promise<void>> huntStartedProm)
+        : address_(std::move(address)), huntStartedProm_(std::move(huntStartedProm)) {}
     bool start() override { return true; }
     std::vector<DiscoveredDevice> poll(std::chrono::milliseconds /*timeout*/) override {
+        // Wait for the hunt loop to be live before reporting the FIRST device,
+        // so the main thread's retry loop is guaranteed to be polling when we
+        // set discoveryFound. After the first report this is a no-op.
+        if (huntStartedProm_) {
+            huntStartedProm_->get_future().wait();
+            huntStartedProm_.reset();
+        }
         DiscoveredDevice d{};
         for (size_t i = 0; i < d.deviceId.size(); ++i) d.deviceId[i] = static_cast<uint8_t>(i);
         d.address = address_;
@@ -63,11 +80,18 @@ public:
     void stop() override {}
 private:
     std::string address_;
+    std::shared_ptr<std::promise<void>> huntStartedProm_;
 };
 
-DiscoveryListenerFactory sameIpDiscoveryFactory(std::string address) {
-    return [addr = std::move(address)]() {
-        return std::unique_ptr<IDiscoveryListener>(std::make_unique<SameIpDiscoveryListener>(addr));
+// `huntStartedProm` (optional) is captured into the listener so its first
+// poll() blocks until onHuntStarted fires — wiring the hunt-started signal
+// into discovery so the test is deterministic (zero sleep/polling).
+DiscoveryListenerFactory sameIpDiscoveryFactory(
+    std::string address,
+    std::shared_ptr<std::promise<void>> huntStartedProm = nullptr) {
+    return [addr = std::move(address), huntStartedProm]() {
+        return std::unique_ptr<IDiscoveryListener>(
+            std::make_unique<SameIpDiscoveryListener>(addr, huntStartedProm));
     };
 }
 
@@ -132,6 +156,14 @@ TEST(TCPTransportHuntingTest, OldIpReachable_ReconnectsAndReturnsTrue) {
 }
 
 // Spec 2: DISCOVERY FINDS A NEW IP -> SWITCH
+//
+// Determinism: the discovery listener blocks its FIRST poll() until the hunt
+// loop is live (onHuntStarted fires once at the retry-loop top). Without this,
+// the discovery thread can race ahead of the main retry loop and report before
+// the loop is polling — so under load MAX_RETRIES may exhaust before discovery
+// wins (the flaky failure this test exhibited in the full suite). Wiring the
+// signal makes discovery report only after the loop is guaranteed to observe
+// discoveryFound, eliminating the race.
 TEST(TCPTransportHuntingTest, DiscoveryFindsNewIp_SwitchesHostAndReturnsTrue) {
     test::FakeSocket sock;
     // Old IP (unreachable) connect fails; the discovered new IP (127.0.0.1)
@@ -140,10 +172,12 @@ TEST(TCPTransportHuntingTest, DiscoveryFindsNewIp_SwitchesHostAndReturnsTrue) {
     sock.enqueue(kLoopbackIp, test::handshakeConnect());
 
     auto stop = makeStop();
-    // Discovery deterministically reports a device at 127.0.0.1 (hermetic —
-    // no real UDP broadcast).
-    auto transport = makeTransport(sock, kUnreachableIp, 3333, stop,
-                                   HuntResilienceConfig{sameIpDiscoveryFactory(kLoopbackIp), {}});
+    // Signal the instant the hunt loop goes live (onHuntStarted fires once at
+    // the loop top) — the discovery listener awaits it before reporting.
+    auto huntStartedProm = std::make_shared<std::promise<void>>();
+    HuntResilienceConfig hunt{sameIpDiscoveryFactory(kLoopbackIp, huntStartedProm), {}};
+    hunt.onHuntStarted = [huntStartedProm]() { huntStartedProm->set_value(); };
+    auto transport = makeTransport(sock, kUnreachableIp, 3333, stop, std::move(hunt));
 
     bool result = transport->enterHuntingState();
 
