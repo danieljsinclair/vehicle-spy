@@ -768,6 +768,86 @@ TEST_F(CliOptionsTest, ProvisioningExemptsConnectRequirement_Probe) {
     EXPECT_TRUE(error.empty());
 }
 
+// --- Provisioning transport validation: usb/auto/tcp are interchangeable ----
+
+// A well-formed tcp: target validates for EVERY provisioning command. These
+// are the exact invocations the bug report used.
+TEST_F(CliValidationTest, ProvisioningTcpTransport_Valid_HostPort) {
+    Args args({"vehicle-sim", "--set-wifi-creds", "manht2", "s3cr3t",
+               "--connect", "tcp:192.168.68.91:3333"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_TRUE(validateOptions(opts, service_).empty());
+}
+
+TEST_F(CliValidationTest, ProvisioningTcpTransport_Valid_DefaultPort) {
+    Args args({"vehicle-sim", "--status", "--connect", "tcp:192.168.68.91"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_TRUE(validateOptions(opts, service_).empty());
+}
+
+TEST_F(CliValidationTest, ProvisioningTcpTransport_Valid_StatusAlias) {
+    Args args({"vehicle-sim", "--status", "--connect-tcp", "192.168.68.91:3333"});
+    auto opts = parseArgs(args.argc(), args.argv());
+    EXPECT_TRUE(validateOptions(opts, service_).empty());
+}
+
+// Malformed tcp: targets get a clear, tcp-specific validation error from the
+// ONE validation site (the canonical parser decides what is well-formed).
+TEST_F(CliValidationTest, ProvisioningTcpTransport_EmptyHost_Rejected) {
+    Args args({"vehicle-sim", "--clear-wifi-creds", "--connect", "tcp:"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    const auto error = validateOptions(opts, service_);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("Invalid TCP provisioning target"), std::string::npos);
+    EXPECT_NE(error.find("tcp:"), std::string::npos);
+}
+
+TEST_F(CliValidationTest, ProvisioningTcpTransport_ZeroPort_Rejected) {
+    Args args({"vehicle-sim", "--reboot", "--connect", "tcp:host:0"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    const auto error = validateOptions(opts, service_);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("Invalid TCP provisioning target"), std::string::npos);
+}
+
+TEST_F(CliValidationTest, ProvisioningTcpTransport_OutOfRangePort_Rejected) {
+    Args args({"vehicle-sim", "--reboot", "--connect", "tcp:host:99999"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    const auto error = validateOptions(opts, service_);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("Invalid TCP provisioning target"), std::string::npos);
+}
+
+// The usb:/auto forms are unchanged, and non-transport values are still
+// rejected — with guidance that now includes the tcp: form.
+TEST_F(CliValidationTest, ProvisioningUsbAndAuto_StillValid) {
+    {
+        Args args({"vehicle-sim", "--clear-wifi-creds", "--connect",
+                   "usb:/dev/cu.usbserial-110"});
+        auto opts = parseArgs(args.argc(), args.argv());
+        EXPECT_TRUE(validateOptions(opts, service_).empty());
+    }
+    {
+        Args args({"vehicle-sim", "--reboot", "--connect", "auto"});
+        auto opts = parseArgs(args.argc(), args.argv());
+        EXPECT_TRUE(validateOptions(opts, service_).empty());
+    }
+}
+
+TEST_F(CliValidationTest, ProvisioningNonTransportTarget_StillRejected) {
+    Args args({"vehicle-sim", "--clear-wifi-creds", "--connect", "demo"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    const auto error = validateOptions(opts, service_);
+    EXPECT_FALSE(error.empty());
+    EXPECT_NE(error.find("is not supported"), std::string::npos);
+    EXPECT_NE(error.find("tcp:<host>[:<port>]"), std::string::npos)
+        << "the guidance must now include the tcp: form";
+}
+
 // --port has been intentionally removed (the USB serial port is now a
 // build-time default; an explicit --port override was redundant and was the
 // source of more "which port did I pick again?" confusion than it solved).
@@ -998,6 +1078,35 @@ TEST_F(CliOptionsTest, ProvisioningFoldsConnectUsbAliasOntoWifiTransport) {
     EXPECT_TRUE(opts.error_message.empty());
     EXPECT_EQ(opts.wifi.transport, "usb:/dev/cu.usbserial-110");
     EXPECT_TRUE(opts.telemetry.connect_target.empty());
+}
+
+// Same fold for --connect-tcp: the alias MERELY composes the canonical
+// "tcp:<host>:<port>" string — it is not a transport branch of its own. The
+// exact invocation the bug report used must land on wifi.transport as a
+// well-formed tcp: target.
+TEST_F(CliOptionsTest, ProvisioningFoldsConnectTcpAliasOntoWifiTransport) {
+    Args args({"vehicle-sim", "--set-wifi-creds", "manht2", "s3cr3t",
+               "--connect-tcp", "192.168.68.91:3333"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.wifi.transport, "tcp:192.168.68.91:3333")
+        << "the alias must compose the same tcp: string --connect would";
+    EXPECT_TRUE(opts.telemetry.connect_target.empty())
+        << "the moved value must NOT also remain on telemetry.connect_target";
+    EXPECT_TRUE(opts.isProvisioning());
+}
+
+// The canonical --connect tcp:<host>[:<port>] form folds identically for
+// provisioning (default-port form included).
+TEST_F(CliOptionsTest, ProvisioningFoldsConnectTcpOntoWifiTransport) {
+    Args args({"vehicle-sim", "--status", "--connect", "tcp:192.168.68.91"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.wifi.transport, "tcp:192.168.68.91");
+    EXPECT_TRUE(opts.telemetry.connect_target.empty());
+    EXPECT_TRUE(opts.wifi.status_requested);
 }
 
 // When --status is requested WITHOUT --connect, the transport is left

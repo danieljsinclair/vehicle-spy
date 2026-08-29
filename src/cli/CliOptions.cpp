@@ -4,6 +4,7 @@
 #include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
+#include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "StatusLEDRenderer.h"
 
 #include <CLI/CLI.hpp>
@@ -58,8 +59,9 @@ void registerOptions(CLI::App& app, CliOptions& opts,
     app.add_option("-c,--connect", opts.telemetry.connect_target,
                    "Connect target (telemetry OR provisioning): 'demo', "
                    "'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', 'auto', "
-                   "or BLE adapter address. For provisioning, 'auto' and "
-                   "'usb:<path>' are the only meaningful values")
+                   "or BLE adapter address. For provisioning, 'auto', "
+                   "'usb:<path>', and 'tcp:<ip>[:<port>]' are the meaningful "
+                   "values")
         ->expected(1);
     app.add_option("--connect-usb", opts.telemetry.connect_usb,
                    "Shortcut for '--connect usb:<path>'. Streams live CAN frames "
@@ -71,7 +73,8 @@ void registerOptions(CLI::App& app, CliOptions& opts,
                  "via --connect (this flag asserts a BLE-style target is wanted)");
     app.add_option("--connect-tcp", opts.telemetry.connect_tcp,
                    "Shortcut for '--connect tcp:<ip>[:<port>]>'. Streams live CAN "
-                   "frames from an ESP32 CAN-bridge over WiFi (default port 3333)")
+                   "frames from an ESP32 CAN-bridge over WiFi, or provisions "
+                   "the device at the given host (default port 3333)")
         ->expected(1);
     app.add_flag("--connect-auto", opts.telemetry.connect_auto,
                  "Shortcut for '--connect auto'. Auto-discover an ESP32 on the "
@@ -116,29 +119,33 @@ void registerOptions(CLI::App& app, CliOptions& opts,
                  "gear/steering, b = brake, q = quit) and emit CSV rows on stdout "
                  "at --interval Hz. Use with --stdout-csv for a clean pipe.");
 
-    // WiFi provisioning over USB serial (AT command set). Local, pre-association
-    // — no AUTH. --set-wifi-creds takes exactly two positional values (SSID,
-    // PASS) after the flag; CLI11's expected(2) captures them into a vector.
-    //
-    // The transport for provisioning is the universal --connect (set above):
-    // --connect auto / --connect usb:/path picks the USB serial port. Without
-    // --connect, the provisioner auto-detects the first /dev/cu.* match.
+    // WiFi provisioning over the device's AT console (AT command set). Two
+    // interchangeable transports reach it: USB serial (local,
+    // pre-association — no AUTH) and the WiFi TCP console (the AUTH'd console
+    // the firmware serves once associated; the same AT commands). The
+    // transport is the universal --connect (set above) / --connect-tcp alias.
+    // Without --connect, the provisioner auto-detects the first /dev/cu.*
+    // match.
     app.add_option("--set-wifi-creds", setWifiArgs,
-                   "Provision WiFi credentials over USB serial (ATSETWIFI). "
-                   "Takes <SSID> <PASS>. Use --connect usb:/path or "
-                   "--connect auto to pick the device")
+                   "Provision WiFi credentials over the device console "
+                   "(ATSETWIFI). Takes <SSID> <PASS>. Use --connect "
+                   "usb:/path, --connect tcp:<ip>[:<port>], or --connect auto "
+                   "to pick the device")
         ->expected(2);
     app.add_flag("--clear-wifi-creds", opts.wifi.clear_wifi_creds,
-                 "Clear WiFi credentials over USB serial (ATCLEARWIFI). "
-                 "Use --connect usb:/path or --connect auto to pick the device");
+                 "Clear WiFi credentials over the device console "
+                 "(ATCLEARWIFI). Use --connect usb:/path, --connect "
+                 "tcp:<ip>[:<port>], or --connect auto to pick the device");
     app.add_flag("--reboot", opts.wifi.reboot_esp32,
-                 "Reboot the ESP32 over USB serial (ATREBOOT). "
-                 "Use --connect usb:/path or --connect auto to pick the device");
+                 "Reboot the ESP32 over the device console (ATREBOOT). "
+                 "Use --connect usb:/path, --connect tcp:<ip>[:<port>], or "
+                 "--connect auto to pick the device");
     app.add_flag("--status", opts.wifi.status_requested,
                  "Print a [STATE] snapshot from the device (uptime / wifi / "
                  "ssid / ip / client / disc / led / monitor) by reading its "
-                 "next heartbeat line from the USB serial console. "
-                 "Use --connect usb:/path or --connect auto to pick the device");
+                 "next heartbeat line from the USB serial or TCP console. "
+                 "Use --connect usb:/path, --connect tcp:<ip>[:<port>], or "
+                 "--connect auto to pick the device");
 
     // Footer for --help: just a one-line pointer to --examples. The
     // OPTIONS list itself is derived from the registrations above, so every
@@ -736,17 +743,35 @@ bool isProvisioningMode(const CliOptions& opts) {
     return opts.isProvisioning();
 }
 
-// Provisioning has its own transport vocabulary — the device's AT console is
-// only reachable over USB serial. Accepts empty (auto-detect), 'auto', or
-// 'usb:<path>'; anything else is rejected.
+// Provisioning has its own transport vocabulary. The device's AT console is
+// reachable over USB serial (pre-association) or over the WiFi TCP console
+// (the AUTH'd console the firmware serves once associated — the same AT
+// command set on both). Accepts empty (auto-detect), 'auto', 'usb:<path>',
+// and 'tcp:<host>[:<port>]'. The tcp: grammar is checked with the engine's
+// single canonical parser (parseTcpTarget) so the accepted forms match the
+// telemetry --connect byte-for-byte — there is no second parser here.
+// Anything else is rejected.
 std::string validateProvisioningTransport(const CliOptions& opts) {
     if (!opts.isProvisioning()) return "";
     const std::string& t = opts.wifi.transport;
     if (t.empty() || t == "auto" || t.rfind("usb:", 0) == 0) return "";
+    if (t.rfind("tcp:", 0) == 0) {
+        std::string host;
+        // Narrow `port`'s scope with an if-init-statement (cpp:S6004) — the
+        // parse result is only consulted in this condition.
+        if (int port = 0; vehicle_sim::pipeline::parseTcpTarget(t, host, port)) return "";
+        std::ostringstream oss;
+        oss << "Invalid TCP provisioning target '" << forLog(t)
+            << "'. Use --connect tcp:<host>[:<port>] with a non-empty host "
+               "and a port in [1, 65535] (e.g. tcp:192.168.68.91:3333; the "
+               "port defaults to 3333)";
+        return oss.str();
+    }
     std::ostringstream oss;
     oss << "Provisioning transport '" << forLog(t)
-        << "' is not supported. Use --connect auto or "
-           "--connect usb:<path> (e.g. usb:/dev/cu.usbserial-110)";
+        << "' is not supported. Use --connect auto, --connect usb:<path> "
+           "(e.g. usb:/dev/cu.usbserial-110), or --connect "
+           "tcp:<host>[:<port>] (e.g. tcp:192.168.68.91:3333)";
     return oss.str();
 }
 

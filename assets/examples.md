@@ -49,23 +49,29 @@
   vehicle-sim --connect-file capture.csv --vehicle tesla --stdout-csv | head -20
 
 # section: WIFI SETUP
-# Provisioning happens over the device's USB-serial AT console. The universal
-# `--connect` selects the transport: `auto` (auto-detect the first /dev/cu.*)
-# or `usb:/dev/cu.*` (explicit path). All four provisioning operations are
-# sugar over the same channel.
+# Provisioning happens over the device's AT console, reachable over two
+# interchangeable transports: USB serial (`usb:/dev/cu.*`, or `auto` to
+# auto-detect the first match) and the WiFi TCP console
+# (`tcp:<ip>[:<port>]`, default port 3333 — for a device already on the
+# network). The universal `--connect` selects the transport; all four
+# provisioning operations work over either.
 
 # topic: set-wifi-creds
   vehicle-sim --set-wifi-creds MyNet s3cr3tpass --connect auto
   vehicle-sim --set-wifi-creds MyNet s3cr3tpass --connect usb:/dev/cu.usbserial-110
+  vehicle-sim --set-wifi-creds MyNet s3cr3tpass --connect-tcp 192.168.68.91:3333
 
 # topic: clear-wifi-creds
   vehicle-sim --clear-wifi-creds --connect usb:/dev/cu.usbserial-110
+  vehicle-sim --clear-wifi-creds --connect tcp:192.168.68.91
 
 # topic: reboot
   vehicle-sim --reboot --connect auto
+  vehicle-sim --reboot --connect tcp:192.168.68.91:3333
 
 # topic: status
   vehicle-sim --status --connect auto
+  vehicle-sim --status --connect tcp:192.168.68.91:3333
 
 # section: LOGGING
 

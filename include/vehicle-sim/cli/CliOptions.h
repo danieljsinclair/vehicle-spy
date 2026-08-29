@@ -29,26 +29,33 @@ constexpr const char* DEFAULT_VEHICLE_TYPE = "generic";
 // auto-detect helper is the primary resolver; this is just a backstop.
 constexpr const char* ESP32_DEFAULT_USB_PORT = "/dev/cu.usbserial-210";
 
-// WiFi provisioning over the ESP32 USB serial console (AT command set).
-// Local, pre-association (no AUTH required): USB serial is the bootstrap
-// channel used before any WiFi/credential state exists on the device.
+// WiFi provisioning over the ESP32's AT console (AT command set). Two
+// transports reach it, and they are INTERCHANGEABLE: the firmware dispatches
+// the same command set on both (AtCommandDispatcher::handleCommand serves
+// handleSerialCommand and handleTcpCommand from one registry).
+//   * USB serial — local, pre-association (no AUTH required): the bootstrap
+//     channel used before any WiFi/credential state exists on the device.
+//   * TCP console — the AUTH'd console the firmware serves once the device
+//     is associated (port 3333). Useful for a headless device already on
+//     the network.
 //
 // The transport for provisioning is selected by the universal `--connect`
-// flag, which folds onto `transport` here. Valid values are the same as for
-// telemetry: "auto" (auto-detect the first /dev/cu.* that matches the
-// standard ESP32 prefixes), or "usb:<path>" (explicit path). Anything else
-// (tcp:, ble:, demo, file:) is rejected at validation time — the device's
-// AT console is only reachable over USB serial.
+// flag, which folds onto `transport` here (the --connect-{usb,tcp,auto}
+// aliases merely compose the same strings). Valid values: "auto"
+// (auto-detect the first /dev/cu.* that matches the standard ESP32
+// prefixes), "usb:<path>" (explicit path), or "tcp:<host>[:<port>]" (port
+// defaults to 3333). Anything else (ble:, demo, file:) is rejected at
+// validation time.
 struct WifiProvisioningOptions {
     std::string set_wifi_ssid;   // --set-wifi-creds <SSID> <PASS>
     std::string set_wifi_pass;
     bool clear_wifi_creds = false;  // --clear-wifi-creds
-    bool reboot_esp32 = false;      // --reboot (send ATREBOOT over USB)
+    bool reboot_esp32 = false;      // --reboot (send ATREBOOT over the console)
     bool status_requested = false;  // --status (print a [STATE] snapshot from the device)
-    std::string transport;          // "auto" or "usb:<path>" (set from --connect; empty = auto-detect)
+    std::string transport;          // "auto", "usb:<path>", or "tcp:<host>[:<port>]" (set from --connect; empty = auto-detect)
 
-    // True when a USB-serial provisioning operation was requested. Used by
-    // main.cpp to short-circuit to runProvisioning() before telemetry dispatch.
+    // True when a provisioning operation was requested. Used by main.cpp to
+    // short-circuit to runProvisioning() before telemetry dispatch.
     [[nodiscard]] bool active() const {
         return !set_wifi_ssid.empty() || clear_wifi_creds || reboot_esp32 ||
                status_requested;
@@ -152,6 +159,11 @@ void printLedHelp(std::ostream& out);
 //   "usb:<path>"    -> <path> verbatim
 //   anything else   -> "" (validation has rejected it; resolver is defensive)
 // Returns the resolved path, or empty if no candidate was found.
+//
+// This is the USB leg's helper only: the FULL transport resolution (usb: AND
+// tcp:, including the single canonical tcp: parse) lives in
+// createProvisioningPort() — ProvisioningRunner.h. Do not branch on the
+// transport scheme at call sites; go through that factory.
 std::string resolveSerialPort(const std::string& transport);
 
 // Validate CLI options against the registry

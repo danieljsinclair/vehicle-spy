@@ -463,8 +463,9 @@ TEST(ProvisioningRunnerTest, ResolveSerialPortUsbPrefixIsStripped) {
 // Defensive: validation has already rejected anything that isn't empty /
 // "auto" / "usb:...", but the resolver must still return "" (NOT crash,
 // NOT echo the unknown form back) so the caller's "could not resolve"
-// error fires. The tcp/ble/file/demo prefixes that the universal --connect
-// accepts for telemetry must be rejected here.
+// error fires. The tcp:/ble/file/demo forms never reach this USB-leg
+// helper: tcp: is routed (and parsed) by createProvisioningPort below, the
+// rest are rejected at validation.
 TEST(ProvisioningRunnerTest, ResolveSerialPortRejectsUnknownForms) {
     EXPECT_EQ(resolveSerialPort("tcp:192.168.4.1:3333"), "");
     EXPECT_EQ(resolveSerialPort("ble"), "");
@@ -473,6 +474,222 @@ TEST(ProvisioningRunnerTest, ResolveSerialPortRejectsUnknownForms) {
     EXPECT_EQ(resolveSerialPort("garbage"), "");
     EXPECT_EQ(resolveSerialPort("USB:uppercase-not-matched"), "")
         << "the prefix match is case-sensitive: 'USB:' is not 'usb:'";
+}
+
+// --- createProvisioningPort: the ONE transport-resolution layer -------------
+//
+// USB and TCP are INTERCHANGEABLE: every provisioning command (and --status)
+// resolves its port through this factory. The tests below pin the routing
+// (scheme -> port kind), the single tcp: parse (host + optional port,
+// default 3333), and the interchangeability of the dispatch over either.
+
+// Records the host/port the resolver handed the TCP console, then behaves as
+// an unreachable peer — WHAT was resolved is the assertion; the handshake is
+// covered by the FakeSocket tests.
+class PortRecordingSocket final : public vehicle_sim::pipeline::ISocket {
+public:
+    int connect(const std::string& host, int port,
+                const vehicle_sim::pipeline::StopToken*) override {
+        host_ = host;
+        port_ = port;
+        return -1;  // unreachable
+    }
+    ssize_t recv(char*, size_t) override { return -1; }
+    int selectReadable(int) override { return 0; }
+    void close() noexcept override {}
+    bool setRecvTimeout(int) override { return false; }
+    bool sendAll(std::string_view) override { return false; }
+    bool setNoDelay(bool) override { return false; }
+
+    const std::string& host() const { return host_; }
+    int port() const { return port_; }
+
+private:
+    std::string host_;
+    int port_ = 0;
+};
+
+// "tcp:<host>:<port>" routes to the TCP console port with the exact host and
+// port the target named — the port the firmware's TcpServerManager listens on.
+TEST(ProvisioningRunnerTest, CreateProvisioningPortParsesTcpHostAndPort) {
+    auto socket = std::make_shared<PortRecordingSocket>();
+    auto port = createProvisioningPort("tcp:192.168.68.91:4444", socket);
+    ASSERT_NE(port, nullptr);
+    (void)port->open();  // connect fails (recording socket); the resolution
+                         // under test already happened by then.
+    EXPECT_EQ(socket->host(), "192.168.68.91");
+    EXPECT_EQ(socket->port(), 4444);
+}
+
+// "tcp:<host>" (no port) defaults to the firmware console port 3333 — the
+// same default the telemetry --connect tcp: path applies.
+TEST(ProvisioningRunnerTest, CreateProvisioningPortDefaultsTcpPort) {
+    auto socket = std::make_shared<PortRecordingSocket>();
+    auto port = createProvisioningPort("tcp:192.168.68.91", socket);
+    ASSERT_NE(port, nullptr);
+    (void)port->open();
+    EXPECT_EQ(socket->host(), "192.168.68.91");
+    EXPECT_EQ(socket->port(), 3333);
+}
+
+// A tcp: target routes to the AUTH'd console port: the first wire bytes are
+// the AUTH frame the firmware expects, sent to the scripted host.
+TEST(ProvisioningRunnerTest, CreateProvisioningPortRoutesTcpToConsolePort) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    vehicle_sim::pipeline::test::FakeConnectScript script;
+    script.connectOk = true;
+    script.recvChunks = {"OK\r\n"};
+    fake->enqueue("192.168.68.91", std::move(script));
+
+    auto port = createProvisioningPort("tcp:192.168.68.91:3333", fake);
+    ASSERT_NE(port, nullptr);
+    ASSERT_TRUE(port->open());
+    EXPECT_EQ(fake->connectCount(), 1);
+    EXPECT_NE(fake->sentBlob().find("AUTH "), std::string::npos)
+        << "the factory must hand tcp: targets to the AUTH'ing console port";
+}
+
+// A usb: target routes to the serial port and never touches the network
+// seam: the socket records no connect.
+TEST(ProvisioningRunnerTest, CreateProvisioningPortRoutesUsbToSerialPort) {
+    auto socket = std::make_shared<PortRecordingSocket>();
+    auto port = createProvisioningPort("usb:/dev/cu.usbserial-NOTPRESENT", socket);
+    ASSERT_NE(port, nullptr);
+    EXPECT_FALSE(port->open()) << "no such device on the build host";
+    EXPECT_TRUE(socket->host().empty())
+        << "the usb: scheme must not consult the TCP socket seam";
+}
+
+// "auto" (and empty) normalize onto the usb: scheme — always resolvable
+// (auto-detect glob with the build-time default-port backstop).
+TEST(ProvisioningRunnerTest, CreateProvisioningPortAutoResolvesToUsb) {
+    auto socket = std::make_shared<PortRecordingSocket>();
+    EXPECT_NE(createProvisioningPort("auto", socket), nullptr);
+    EXPECT_NE(createProvisioningPort("", socket), nullptr);
+    EXPECT_TRUE(socket->host().empty())
+        << "auto is usb:-with-auto-detection; it must not touch the network";
+}
+
+// The forms validation rejects are unresolvable here too (defensive
+// backstop): malformed tcp: targets and unknown schemes yield nullptr, never
+// a port of the wrong kind.
+TEST(ProvisioningRunnerTest, CreateProvisioningPortRejectsUnresolvableTargets) {
+    auto socket = std::make_shared<PortRecordingSocket>();
+    EXPECT_EQ(createProvisioningPort("tcp:", socket), nullptr);
+    EXPECT_EQ(createProvisioningPort("tcp:host:0", socket), nullptr);
+    EXPECT_EQ(createProvisioningPort("tcp:host:99999", socket), nullptr);
+    EXPECT_EQ(createProvisioningPort("ble:AA:BB:CC:DD:EE:FF", socket), nullptr);
+    EXPECT_EQ(createProvisioningPort("demo", socket), nullptr);
+    EXPECT_EQ(createProvisioningPort("USB:upper", socket), nullptr);
+}
+
+// --- Interchangeability: the SAME command over usb: and tcp: targets --------
+
+// The reboot command over the TCP console target — the same dispatch as
+// DispatchReboot above, only the transport differs. The AT frame is the exact
+// bytes the serial path sends, and the progress line names the TCP console.
+TEST(ProvisioningRunnerTest, DispatchRebootOverTcpConsole) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    vehicle_sim::pipeline::test::FakeConnectScript script;
+    script.connectOk = true;
+    script.recvChunks = {"OK\r\n", "REBOOT\r\r>"};
+    fake->enqueue("192.168.68.91", std::move(script));
+
+    WifiProvisioningOptions opts = provisioningOpts(false, true, "", "");
+    opts.transport = "tcp:192.168.68.91:3333";
+
+    auto port = createProvisioningPort(opts.transport, fake);
+    ASSERT_NE(port, nullptr);
+    std::ostringstream out, err;
+    EXPECT_EQ(runProvisioning(opts, *port, out, err), 0);
+    EXPECT_NE(fake->sentBlob().find("ATREBOOT\r"), std::string::npos)
+        << "the AT frame over TCP must be byte-identical to the serial frame";
+    EXPECT_NE(out.str().find("over TCP console"), std::string::npos)
+        << "the progress line must name the console actually used";
+}
+
+// ATSETWIFI over the TCP console, with the firmware's [STATE] heartbeat
+// noise interleaved before the ack — stripStateLines() keeps the substring
+// matcher from being buried, exactly as over USB serial.
+TEST(ProvisioningRunnerTest, DispatchSetWifiOverTcpConsoleWithStateNoise) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    vehicle_sim::pipeline::test::FakeConnectScript script;
+    script.connectOk = true;
+    script.recvChunks = {
+        "OK\r\n",
+        "[STATE] uptime=7 wifi=STA ssid=manht2 ip=192.168.68.91\r\n",
+        "OK WiFi credentials stored. Rebooting to connect...\r\r>"};
+    fake->enqueue("192.168.68.91", std::move(script));
+
+    WifiProvisioningOptions opts =
+        provisioningOpts(false, false, "manht2", "p@ss word!");
+    opts.transport = "tcp:192.168.68.91";
+
+    auto port = createProvisioningPort(opts.transport, fake);
+    ASSERT_NE(port, nullptr);
+    std::ostringstream out, err;
+    EXPECT_EQ(runProvisioning(opts, *port, out, err), 0);
+    EXPECT_NE(fake->sentBlob().find("ATSETWIFImanht2,p@ss word!\r"),
+              std::string::npos)
+        << "the exact ATSETWIFI frame must reach the TCP console";
+}
+
+// runStatus over a factory-resolved TCP port: the [STATE] snapshot flow is
+// transport-agnostic too. The discovered-device path (runStatusFlow) feeds
+// the factory a "tcp:<ip>:<port>" target of exactly this shape.
+TEST(ProvisioningRunnerTest, RunStatusOverFactoryResolvedTcpPort) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    vehicle_sim::pipeline::test::FakeConnectScript script;
+    script.connectOk = true;
+    script.recvChunks = {"OK\r\n[STATE] uptime=42 wifi=STA ssid=Net ip=10.0.0.5\r\n"};
+    fake->enqueue("10.0.0.5", std::move(script));
+
+    auto port = createProvisioningPort("tcp:10.0.0.5:3333", fake);
+    ASSERT_NE(port, nullptr);
+    ASSERT_TRUE(port->open());
+
+    std::ostringstream out, err;
+    EXPECT_EQ(runStatus(*port, 1, out, err), 0);
+    EXPECT_EQ(out.str(), "[STATE] uptime=42 wifi=STA ssid=Net ip=10.0.0.5\n");
+    port->close();
+}
+
+// When the TCP console cannot be opened, the diagnostic names the host:port
+// (and the TCP-specific likely causes) — mirroring the USB test above, which
+// names the /dev path.
+TEST(ProvisioningRunnerTest, OpenFailureNamesTcpTarget) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    fake->enqueue("192.168.68.91",
+                  vehicle_sim::pipeline::test::failConnect());
+
+    WifiProvisioningOptions opts = provisioningOpts(false, true, "", "");
+    opts.transport = "tcp:192.168.68.91:3333";
+
+    auto port = createProvisioningPort(opts.transport, fake);
+    ASSERT_NE(port, nullptr);
+    std::ostringstream out, err;
+    EXPECT_EQ(runProvisioning(opts, *port, out, err), 1);
+    EXPECT_NE(err.str().find("TCP console 192.168.68.91:3333"), std::string::npos)
+        << "the open-failure diagnostic must name the TCP target that failed";
+    EXPECT_NE(err.str().find("AUTH"), std::string::npos)
+        << "the TCP failure hint must mention the AUTH/console causes";
+    EXPECT_TRUE(fake->sentBlob().empty())
+        << "a failed connect must send no AUTH frame";
+}
+
+// The open-failure diagnostic is scheme-routed through the same table as the
+// factory: usb names the /dev path, tcp names host:port.
+TEST(ProvisioningRunnerTest, DescribeProvisioningOpenFailureIsSchemeRouted) {
+    EXPECT_NE(describeProvisioningOpenFailure("usb:/dev/cu.usbserial-110")
+                  .find("USB serial /dev/cu.usbserial-110"),
+              std::string::npos);
+    EXPECT_NE(describeProvisioningOpenFailure("tcp:192.168.68.91:3333")
+                  .find("TCP console 192.168.68.91:3333"),
+              std::string::npos);
+    // The port default applies in the description too.
+    EXPECT_NE(describeProvisioningOpenFailure("tcp:192.168.68.91")
+                  .find("192.168.68.91:3333"),
+              std::string::npos);
 }
 
 // --- TcpConsolePort: AUTH handshake + [STATE] read over a scripted socket ---
