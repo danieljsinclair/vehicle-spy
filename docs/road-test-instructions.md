@@ -18,31 +18,38 @@ diagnostic harness (behind the rear centre console) breaking out to a standard 1
 
 ## REPOS AND PATHS (all verified to exist)
 
+Paths below use two shell variables, exported where first used:
+`$VSIM_ROOT` is **this repo** — the vehicle-sim checkout containing
+`docs/road-test-instructions.md` (set in PART 2); `$ESC_ROOT` is your
+engine-sim-cli checkout (set at the binary trap below).
+
 | What | Path |
 |---|---|
-| vehicle-sim (CAN → telemetry CSV) | `/Users/danielsinclair/vscode/escli.vehicle-sim` |
-| vehicle-sim binary | `/Users/danielsinclair/vscode/escli.vehicle-sim/build-native/vehicle-sim` |
-| ESP32 firmware sketch | `.../escli.vehicle-sim/firmware/can-bridge/can-bridge.ino` |
-| Portable firmware C++ (CanDriver, WiFiManager, CanBridge, TcpServerManager) | `.../escli.vehicle-sim/firmware/vanilla/` |
-| Hardware/wiring guide | `.../escli.vehicle-sim/docs/hardware-adapter-guide.md` |
-| Tesla CAN reference | `.../escli.vehicle-sim/docs/tesla-model3-can-reference.md` |
-| Tesla DBC | `.../escli.vehicle-sim/resources/dbc/Model3CAN.dbc` |
-| Recorded captures (fallback) | `.../escli.vehicle-sim/captures/` |
-| engine-sim-cli (CANONICAL checkout) | `/Users/danielsinclair/vscode/engine-sim-cli` |
-| engine-sim-cli binary | `/Users/danielsinclair/vscode/engine-sim-cli/build/engine-sim-cli` |
-| Engine presets | `/Users/danielsinclair/vscode/engine-sim-cli/engine-sim-bridge/preset/*.json` |
+| vehicle-sim (CAN → telemetry CSV) | `$VSIM_ROOT` (this repo) |
+| vehicle-sim binary | `$VSIM_ROOT/build-native/vehicle-sim` |
+| ESP32 firmware sketch | `$VSIM_ROOT/firmware/can-bridge/can-bridge.ino` |
+| Portable firmware C++ (CanDriver, WiFiManager, CanBridge, TcpServerManager) | `$VSIM_ROOT/firmware/vanilla/` |
+| Hardware/wiring guide | `$VSIM_ROOT/docs/hardware-adapter-guide.md` |
+| Tesla CAN reference | `$VSIM_ROOT/docs/tesla-model3-can-reference.md` |
+| Tesla DBC | `$VSIM_ROOT/resources/dbc/Model3CAN.dbc` |
+| Recorded captures (fallback) | `$VSIM_ROOT/captures/` |
+| engine-sim-cli (CANONICAL checkout) | `$ESC_ROOT` (see binary trap below) |
+| engine-sim-cli binary | `$ESC_ROOT/build/engine-sim-cli` |
+| Engine presets | `$ESC_ROOT/engine-sim-bridge/preset/*.json` |
 
-**Binary trap:** there are several engine-sim-cli checkouts. Only
-`/Users/danielsinclair/vscode/engine-sim-cli/build/engine-sim-cli` supports `--live-telemetry`.
+**Binary trap:** there are several engine-sim-cli checkouts. Only the canonical
+checkout's `build/engine-sim-cli` supports `--live-telemetry`.
 The one under `engine-sim-app/engine-sim-cli/build/` is older and rejects the flag with
-"The following argument was not expected: --live-telemetry". Verify before you start:
+"The following argument was not expected: --live-telemetry". Point `ESC_ROOT` at the
+canonical checkout and verify before you start:
 
 ```bash
-/Users/danielsinclair/vscode/engine-sim-cli/build/engine-sim-cli --help | grep live-telemetry
+export ESC_ROOT="$HOME/vscode/engine-sim-cli"   # your --live-telemetry-capable checkout
+"$ESC_ROOT/build/engine-sim-cli" --help | grep live-telemetry
 ```
 
 There is **no** pre-existing road-test document — this brief is the procedure. If you produce a
-better one, write it to `.../escli.vehicle-sim/docs/road-test-instructions.md`.
+better one, write it to `$VSIM_ROOT/docs/road-test-instructions.md`.
 
 ## PART 1 — WIRING
 
@@ -81,10 +88,12 @@ Other wiring gotchas:
 
 ## PART 2 — FLASH THE FIRMWARE
 
-Everything below runs from `/Users/danielsinclair/vscode/escli.vehicle-sim`.
+Everything below runs from this repo's root — the vehicle-sim checkout containing this
+document.
 
 ```bash
-cd /Users/danielsinclair/vscode/escli.vehicle-sim
+cd /path/to/this/vehicle-sim-checkout   # the repo this doc lives in
+export VSIM_ROOT="$PWD"
 make install-deps          # first time only: cmake, arduino-cli, imagemagick
 ```
 
@@ -146,7 +155,7 @@ drive the same flag for ELM327-mode clients. **Verify your firmware contains 290
 flash anything older you will get an authenticated connection with zero frames.
 
 ```bash
-git -C /Users/danielsinclair/vscode/escli.vehicle-sim log --oneline | grep -E "290dd35|600af31"
+git -C "$VSIM_ROOT" log --oneline | grep -E "290dd35|600af31"
 ```
 
 **7. Confirm the board is reachable and streaming:**
@@ -171,7 +180,7 @@ make reboot-over-tcp ESP32_HOST=<esp32-ip>
 Pre-flight, in the car, engine/car awake (Tesla CAN goes quiet when fully asleep):
 
 ```bash
-cd /Users/danielsinclair/vscode/escli.vehicle-sim
+cd "$VSIM_ROOT"
 make native                                  # ensure host binary matches your token
 ./build-native/vehicle-sim --discover        # finds the ESP32 via UDP 3335, prints tcp:<ip>:3333
 ./build-native/vehicle-sim --connect tcp:<esp32-ip> --vehicle tesla   # sanity: watch decoded rows
@@ -184,13 +193,13 @@ stdin and drives the virtual-ICE twin. `--stdout-csv` moves all progress output 
 stdout pipes cleanly.
 
 ```bash
-cd /Users/danielsinclair/vscode/engine-sim-cli
+cd "$ESC_ROOT"
 
-/Users/danielsinclair/vscode/escli.vehicle-sim/build-native/vehicle-sim \
+"$VSIM_ROOT/build-native/vehicle-sim" \
     --connect tcp:<esp32-ip>:3333 \
     --vehicle tesla \
     --stdout-csv \
-    --log /Users/danielsinclair/vscode/escli.vehicle-sim/captures/RoadTest_$(date +%Y-%m-%d-%H%M%S) \
+    --log "$VSIM_ROOT/captures/RoadTest_$(date +%Y-%m-%d-%H%M%S)" \
   2>/tmp/vehicle-sim.err \
   | ./build/engine-sim-cli \
       --live-telemetry \
@@ -248,10 +257,10 @@ recorded capture — same CSV schema, same twin, no hardware. Do this **first**,
 the software half before you touch the car.
 
 ```bash
-cd /Users/danielsinclair/vscode/engine-sim-cli
+cd "$ESC_ROOT"
 
-/Users/danielsinclair/vscode/escli.vehicle-sim/build-native/vehicle-sim \
-    --connect file:/Users/danielsinclair/vscode/escli.vehicle-sim/captures/StationHomeward_2026-06-17-213250.raw.txt \
+"$VSIM_ROOT/build-native/vehicle-sim" \
+    --connect "file:$VSIM_ROOT/captures/StationHomeward_2026-06-17-213250.raw.txt" \
     --vehicle tesla --stdout-csv 2>/dev/null \
   | ./build/engine-sim-cli --live-telemetry --threaded \
       --script engine-sim-bridge/preset/ferrari_f136.json \
@@ -321,8 +330,8 @@ the whole run parked at 0 mph and conclude, wrongly, that nothing works.
   `make monitor ESP32_PORT=/dev/cu.usbserial-XXXX`.
 
 **Gearbox-log empty or missing:**
-- Confirmed working on `--live-telemetry` in the canonical `/Users/danielsinclair/vscode/engine-sim-cli`
-  checkout (`attachGearboxLogger`, `CLIMain.cpp:115`). An empty file on another checkout means
+- Confirmed working on `--live-telemetry` in the canonical engine-sim-cli checkout
+  (`$ESC_ROOT`; `attachGearboxLogger`, `CLIMain.cpp:115`). An empty file on another checkout means
   you are on an older binary — there was a historic bug where `reconfigureProfile` wiped the
   logger. Rebuild from the canonical repo.
 - The file is written continuously; check it **after** the run ends cleanly (Ctrl-C or `--duration`).
@@ -347,6 +356,6 @@ the whole run parked at 0 mph and conclude, wrongly, that nothing works.
 4. A short written verdict: did it sound like an ICE? Where did the illusion break (gear hunting,
    over-rev, latency, audio dropouts)?
 5. If you learned something this brief got wrong, fix it and save the corrected version to
-   `/Users/danielsinclair/vscode/escli.vehicle-sim/docs/road-test-instructions.md`.
+   `$VSIM_ROOT/docs/road-test-instructions.md` (this repo).
 
 Be honest about what worked and what didn't. Gather evidence — don't speculate.
