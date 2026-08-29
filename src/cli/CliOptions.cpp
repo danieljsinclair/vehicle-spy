@@ -13,8 +13,11 @@
 
 #include <fstream>
 
-// Shared time parser from engine-sim-bridge (DRY).
-#include "common/TimeParser.h"
+// Timecode parser for --start-from. Own-tree header: the grammar mirrors
+// engine-sim-cli's parseReplayTimeToSeconds (the bridge submodule ships no
+// timecode parser of its own — c3ddc20's include pointed at an untracked
+// bridge working-copy file that existed in no commit anywhere).
+#include "vehicle-sim/cli/TimeParser.h"
 
 namespace vehicle_sim::cli {
 
@@ -354,11 +357,11 @@ REQUIREMENTS:
         }
     }
 
-    // Smart timecode parser (DRY with bridge) for --start-from. Applied only
+    // Smart timecode parser for --start-from. Applied only
     // when --connect file: (replay mode). The skip stacks with engine-sim-cli's
     // --start-from (both can apply) — expected convenient behavior.
     if (!startFromRaw.empty()) {
-        opts.telemetry.start_from_s = engine_sim_bridge::parseTimecodeToSeconds(startFromRaw);
+        opts.telemetry.start_from_s = parseTimecodeToSeconds(startFromRaw);
         if (opts.telemetry.start_from_s < 0.0) {
             opts.error_message = "Invalid --start-from time: " + startFromRaw +
                 " (expected seconds, mm:ss, or hh:mm:ss)";
