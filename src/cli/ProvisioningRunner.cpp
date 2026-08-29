@@ -160,15 +160,24 @@ public:
             socket_->close();
             return false;
         }
-        std::array<char, 64> resp{};
-        const ssize_t n = socket_->recv(resp.data(), resp.size() - 1);
-        if (n <= 0) {
-            socket_->close();
-            return false;
+        // Read the ack ONE byte at a time, stopping at the line terminator, so
+        // open() consumes ONLY the ack and leaves anything after it queued for
+        // the read loop. The heartbeat boundary is boot-aligned, not
+        // auth-aligned, so the tick after AUTH can fire a [STATE] line ~1ms
+        // after "OK" — and since open() is already blocked in recv(), the
+        // kernel coalesces the two into one burst. A single bulk read here
+        // would swallow that heartbeat and cost runStatus() a full 5s cadence.
+        // Byte-at-a-time is a one-time connect cost (the ack is 4 bytes).
+        std::string ack;
+        char c = 0;
+        while (ack.size() < AUTH_ACK_MAX_LEN && socket_->recv(&c, 1) == 1) {
+            ack.push_back(c);
+            if (c == '\r' || c == '\n') {
+                break;
+            }
         }
-        if (const std::string view(resp.data(), static_cast<std::size_t>(n));
-            view.find("OK") == std::string::npos) {
-            // Peer answered but did not grant auth ("ERROR unauthorized").
+        if (ack.find("OK") == std::string::npos) {
+            // Peer stayed silent or did not grant auth ("ERROR unauthorized").
             socket_->close();
             return false;
         }
@@ -228,6 +237,11 @@ private:
     // auth read timeout to 5000ms; staying under it keeps open() from racing
     // the server's drop.
     static constexpr int AUTH_RECV_TIMEOUT_MS = 4000;
+
+    // Ceiling on the auth ack read (bytes). The ack is "OK\r\n" and the
+    // rejection is "ERROR unauthorized\r\n"; anything longer is a peer we don't
+    // speak the same protocol as, so stop reading and let the "OK" check fail.
+    static constexpr std::size_t AUTH_ACK_MAX_LEN = 64;
 
     // Read-stage recv() bound (ms) — applied AFTER auth succeeds. Mirrors the
     // runStatus() deadline (PROVISION_STATUS_TIMEOUT_S) so a blocking recv()

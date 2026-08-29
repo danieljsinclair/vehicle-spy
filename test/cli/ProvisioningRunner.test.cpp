@@ -507,6 +507,30 @@ TEST(ProvisioningRunnerTest, TcpConsolePortAuthThenReadsStateLine) {
     port->close();
 }
 
+// LIVE-only framing: the auth reply and the first heartbeat can arrive in ONE
+// recv() burst. The firmware prints "OK" inside cycle(), and the next loop()
+// tick can fire the 5s heartbeat boundary ~1ms later — the CLI is already
+// blocked in recv(), so the kernel coalesces "OK\r\n" and "[STATE] ...\r\n"
+// into a single read. open() must consume ONLY the auth ack and leave the
+// heartbeat bytes for runStatus(); the scripted chunks above never exercise
+// this because they deliver the ack and the line as separate chunks.
+TEST(ProvisioningRunnerTest, TcpConsolePortKeepsStateLineCoalescedWithAuthAck) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    vehicle_sim::pipeline::test::FakeConnectScript script;
+    script.connectOk = true;
+    script.recvChunks = {"OK\r\n[STATE] uptime=42 wifi=STA ssid=Net ip=10.0.0.5\r\n"};
+    fake->enqueue("10.0.0.5", std::move(script));
+
+    auto port = createTcpConsolePort("10.0.0.5", 3333, fake);
+    ASSERT_TRUE(port->open()) << "open() must succeed when AUTH is answered OK";
+
+    std::ostringstream out, err;
+    const int rc = runStatus(*port, 1, out, err);
+    EXPECT_EQ(rc, 0) << "the heartbeat that arrived with the ack must survive open()";
+    EXPECT_EQ(out.str(), "[STATE] uptime=42 wifi=STA ssid=Net ip=10.0.0.5\n");
+    port->close();
+}
+
 // When the peer answers AUTH with a rejection (the firmware's "ERROR
 // unauthorized"), open() must fail — the device never adopts the client, so no
 // [STATE] stream follows. A port that failed open() must NOT be read.
