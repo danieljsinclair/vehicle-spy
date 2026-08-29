@@ -22,13 +22,15 @@ namespace WiFiState {
         WIFI_CONNECTING = 1,
         WIFI_CONNECTED = 2,
         WIFI_AP_MODE_DEFAULT = 3,   // AP because no SSID was ever configured
-        WIFI_AP_MODE_AUTH_FAIL = 4  // AP because connecting with credentials failed
+        WIFI_AP_MODE_AUTH_FAIL = 4, // AP because connecting with credentials failed (genuine auth/handshake rejection: 202/15/23)
+        WIFI_AP_MODE_NO_AP = 5      // AP because the configured SSID was not visible to the scan (reason 201 NO_AP_FOUND — creds were never attempted)
     };
 
-    // State-model knowledge: true for both AP states. FirmwareApp uses this
+    // State-model knowledge: true for all AP states. FirmwareApp uses this
     // instead of inline ordinal comparisons (OCP).
     inline bool isApModeState(State s) {
-        return s == State::WIFI_AP_MODE_DEFAULT || s == State::WIFI_AP_MODE_AUTH_FAIL;
+        return s == State::WIFI_AP_MODE_DEFAULT || s == State::WIFI_AP_MODE_AUTH_FAIL ||
+               s == State::WIFI_AP_MODE_NO_AP;
     }
 
     struct Context {
@@ -55,9 +57,10 @@ namespace WiFiState {
         int authFailStrategyIndex = 0; // index into the strategy list (0 = best/least-disruptive)
         int authFailStrategyLoop = 0;  // how many full passes through the strategy list we have made
         // AP-MODE RECOVERY: timestamp of the last attempt to re-associate from
-        // WIFI_AP_MODE_AUTH_FAIL. Set to 0 when entering the AP state so the
+        // a credential-backed AP fallback (WIFI_AP_MODE_AUTH_FAIL or
+        // WIFI_AP_MODE_NO_AP). Set to 0 when entering the AP state so the
         // first retry attempt happens promptly (one full interval later). Only
-        // consulted in WIFI_AP_MODE_AUTH_FAIL (not DEFAULT — there is nothing
+        // consulted in those states (not DEFAULT — there is nothing
         // to retry if no credentials are configured).
         uint32_t apModeStaRetryMs = 0;
     };
@@ -351,6 +354,14 @@ bool isAuthMechanismFailure(int reason);
 // isAuthMechanismFailure() — together they partition the disconnect-reason
 // space: auth failures exhaust a campaign; link-level drops retry forever.
 bool isLinkLevelDrop(int reason);
+// SCAN-MISS classification (AP-not-found vs wrong-creds): true when the
+// disconnect reason means the AP was not visible to the scan at all, so the
+// credentials were NEVER attempted (range/band/hidden-AP — NOT a bad
+// password). AP-fallback escalation for these reports the distinct
+// WIFI_AP_MODE_NO_AP state instead of WIFI_AP_MODE_AUTH_FAIL, so the [STATE]
+// line and the LED cannot mislead the operator into re-typing a correct
+// password.
+bool isApScanMiss(int reason);
 // RESILIENT AUTH: named strategy values (the index used to rotate through
 // progressively-harder reset/retry strategies when an auth failure is in
 // progress). The integer values are load-bearing: applyAuthStrategy() and

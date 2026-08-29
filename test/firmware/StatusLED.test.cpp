@@ -823,6 +823,33 @@ TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiApModeAuthFail_ReturnsErrorAut
               firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE);
 }
 
+TEST(StatusLEDTest, SelectLedPattern_NoClient_WifiApModeNoAp_ReturnsWifiSearching) {
+    // No client + AP because the configured SSID was NOT VISIBLE to the scan
+    // (reason=201 NO_AP_FOUND — credentials were never attempted) -> the
+    // EXISTING WIFI_SEARCHING pattern (device still looks for the network;
+    // 0.1s on / 0.9s off). This is NOT a credential error: showing
+    // ERROR_AUTH_FAILURE here actively misled the operator into re-typing a
+    // correct password. Existing pattern reused — no new choreography.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE_NO_AP);
+    bool clientConnected = false;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::WIFI_SEARCHING);
+    // And explicitly NOT any error pattern.
+    EXPECT_NE(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE);
+}
+
+TEST(StatusLEDTest, SelectLedPattern_ClientConnected_OverridesWifiApModeNoAp) {
+    // CLIENT_CONNECTED takes priority over the NO_AP fallback AP state too —
+    // a buddy talking to the soft-AP is still the thing worth showing.
+    int wifiState = static_cast<int>(WiFiState::State::WIFI_AP_MODE_NO_AP);
+    bool clientConnected = true;
+
+    EXPECT_EQ(firmware::StatusLED::selectLedPattern(wifiState, clientConnected),
+              firmware::StatusLED::Pattern::CLIENT_CONNECTED);
+}
+
 TEST(StatusLEDTest, SelectLedPattern_InvalidWifiState_ReturnsWifiSearching) {
     // Unknown/invalid wifi state defaults to searching (fail-safe behavior).
     int wifiState = 999;  // Out-of-range state
