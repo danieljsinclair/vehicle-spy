@@ -2,9 +2,11 @@
 
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/cli/ProvisioningRunner.h"
+#include "vehicle-sim/pipeline/FakeSocket.h"
 
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -471,4 +473,79 @@ TEST(ProvisioningRunnerTest, ResolveSerialPortRejectsUnknownForms) {
     EXPECT_EQ(resolveSerialPort("garbage"), "");
     EXPECT_EQ(resolveSerialPort("USB:uppercase-not-matched"), "")
         << "the prefix match is case-sensitive: 'USB:' is not 'usb:'";
+}
+
+// --- TcpConsolePort: AUTH handshake + [STATE] read over a scripted socket ---
+
+// The firmware's TcpServerManager reads the first line of every new connection
+// and rejects anything that isn't "AUTH <token>" with "ERROR unauthorized" +
+// a drop. open() must therefore send the AUTH frame and only succeed when the
+// peer answers "OK". Here the scripted peer answers "OK" and then streams a
+// [STATE] line — runStatus() captures it exactly as over USB serial.
+TEST(ProvisioningRunnerTest, TcpConsolePortAuthThenReadsStateLine) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    vehicle_sim::pipeline::test::FakeConnectScript script;
+    script.connectOk = true;
+    script.recvChunks = {"OK\r\n", "[STATE] uptime=42 wifi=STA ssid=Net ip=10.0.0.5\r\n"};
+    fake->enqueue("10.0.0.5", std::move(script));
+
+    auto port = createTcpConsolePort("10.0.0.5", 3333, fake);
+    ASSERT_TRUE(port->open()) << "open() must succeed when AUTH is answered OK";
+
+    // The AUTH frame the firmware expects: "AUTH <token>\r".
+    const std::string sent = fake->sentBlob();
+    EXPECT_NE(sent.find("AUTH "), std::string::npos)
+        << "open() must send the AUTH frame as the first wire bytes";
+    EXPECT_NE(sent.find("\r"), std::string::npos)
+        << "AUTH frame must be CR-terminated";
+
+    std::ostringstream out, err;
+    const int rc = runStatus(*port, 1, out, err);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(out.str(), "[STATE] uptime=42 wifi=STA ssid=Net ip=10.0.0.5\n");
+    EXPECT_TRUE(err.str().empty());
+    port->close();
+}
+
+// When the peer answers AUTH with a rejection (the firmware's "ERROR
+// unauthorized"), open() must fail — the device never adopts the client, so no
+// [STATE] stream follows. A port that failed open() must NOT be read.
+TEST(ProvisioningRunnerTest, TcpConsolePortAuthRejectedFailsOpen) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    fake->enqueue("10.0.0.5",
+                  vehicle_sim::pipeline::test::authRejectedConnect());
+
+    auto port = createTcpConsolePort("10.0.0.5", 3333, fake);
+    EXPECT_FALSE(port->open())
+        << "open() must fail when AUTH is rejected";
+}
+
+// When the TCP connection itself fails (host unreachable / refused), open()
+// must fail without sending anything — there's no peer to authenticate to.
+TEST(ProvisioningRunnerTest, TcpConsolePortConnectFailedFailsOpen) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    fake->enqueue("10.0.0.5",
+                  vehicle_sim::pipeline::test::failConnect());
+
+    auto port = createTcpConsolePort("10.0.0.5", 3333, fake);
+    EXPECT_FALSE(port->open())
+        << "open() must fail when connect() fails";
+    EXPECT_TRUE(fake->sentBlob().empty())
+        << "a failed connect must send no AUTH frame";
+}
+
+// A port that failed open() (never authenticated) must refuse reads — read()
+// returns -1 and selectReadable() returns -1, mirroring PosixSerialPort's
+// closed-fd contract so runStatus()'s pollOnce surfaces a clean Stop.
+TEST(ProvisioningRunnerTest, TcpConsolePortReadAfterFailedOpenIsRefused) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    fake->enqueue("10.0.0.5",
+                  vehicle_sim::pipeline::test::failConnect());
+
+    auto port = createTcpConsolePort("10.0.0.5", 3333, fake);
+    ASSERT_FALSE(port->open());
+
+    char buf[16];
+    EXPECT_EQ(port->read(buf, sizeof(buf)), -1);
+    EXPECT_EQ(port->selectReadable(1000), -1);
 }
