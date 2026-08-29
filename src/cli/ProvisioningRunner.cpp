@@ -172,6 +172,22 @@ public:
             socket_->close();
             return false;
         }
+        // AUTH succeeded. RESET the socket recv timeout for the read stage:
+        // the auth-stage bound (AUTH_RECV_TIMEOUT_MS) is too short for the
+        // [STATE] heartbeat stream — the firmware pushes a heartbeat every
+        // 5s and runStatus()'s deadline is PROVISION_STATUS_TIMEOUT_S (8s).
+        // Leaving the 4s auth timeout in place makes a spurious or partial
+        // selectReadable() stall recv() up to 4s past the point data was
+        // available, burning the read budget before a complete [STATE] line
+        // is assembled. Bound the read stage to the full status timeout so
+        // a blocking recv can span a heartbeat cycle without outliving the
+        // run loop. selectReadable()'s per-step timeout (SERIAL_POLL_INTERVAL_US)
+        // still gates the non-blocking poll; this only sets the ceiling for a
+        // recv() the kernel already flagged readable.
+        if (!socket_->setRecvTimeout(STATUS_RECV_TIMEOUT_MS)) {
+            socket_->close();
+            return false;
+        }
         authenticated_ = true;
         return true;
     }
@@ -212,6 +228,13 @@ private:
     // auth read timeout to 5000ms; staying under it keeps open() from racing
     // the server's drop.
     static constexpr int AUTH_RECV_TIMEOUT_MS = 4000;
+
+    // Read-stage recv() bound (ms) — applied AFTER auth succeeds. Mirrors the
+    // runStatus() deadline (PROVISION_STATUS_TIMEOUT_S) so a blocking recv()
+    // can span a full heartbeat cycle (5s) without outliving the read loop.
+    // Must be LONGER than AUTH_RECV_TIMEOUT_MS; otherwise the auth-stage
+    // bound would persist into the read stage and stall recv() mid-stream.
+    static constexpr int STATUS_RECV_TIMEOUT_MS = PROVISION_STATUS_TIMEOUT_S * 1000;
 
     std::string host_;
     int port_;
