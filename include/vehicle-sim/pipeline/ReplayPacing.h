@@ -37,13 +37,23 @@ public:
     }
 
     /**
+     * @param recordingBaselineTsMs Origin for the --start-from skip gate:
+     *        the recording's FIRST frame timestamp. Never moves during a
+     *        run, so the gate compares true relative time for the whole
+     *        stream (real captures are epoch-scale; the raw-vs-relative mix
+     *        this replaces never fired on them).
+     * @param pacingBaselineTsMs Origin for the pacing schedule: the first
+     *        KEPT frame once a skip window has passed (the scheduler
+     *        re-baselines there so the skipped window costs no wall time),
+     *        or the recording's first frame when no skip is active.
      * @return -1 => Skip (before --start-from, or a blank frame).
      *          0 => Surface now.
      *         >0 => Future: caller must wait this many ms.
      */
     [[nodiscard]] std::int64_t classifyFrame(
         const TwaiFrame& frame,
-        std::uint64_t baselineTsMs,
+        std::uint64_t recordingBaselineTsMs,
+        std::uint64_t pacingBaselineTsMs,
         std::uint64_t elapsedSinceStartMs) const noexcept;
 
 private:

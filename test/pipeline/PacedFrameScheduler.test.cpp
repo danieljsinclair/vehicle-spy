@@ -83,12 +83,17 @@ TEST(PacedFrameSchedulerTest, BlankFrameIsSkippedAndDoesNotAnchorBaseline) {
 }
 
 TEST(PacedFrameSchedulerTest, StartFromSkipsEarlyRowsIncludingTheFirst) {
+    // --start-from is RELATIVE to the recording's first frame (baseline=500):
+    // the window [500, 2500) is skipped. The prior absolute-timestamp compare
+    // (ts < 2000) only coincided with this on zero-based test captures and
+    // never fired at all on epoch-scale real captures.
     RecordingClock clock;
     PacedFrameScheduler scheduler(ReplayPacing{/*startFromS=*/2.0}, clock);
 
     EXPECT_EQ(scheduler.consider(frameAt(500)), PacedFrameScheduler::Action::Skip);
     EXPECT_EQ(scheduler.consider(frameAt(1500)), PacedFrameScheduler::Action::Skip);
-    EXPECT_EQ(scheduler.consider(frameAt(2000)), PacedFrameScheduler::Action::Emit);
+    EXPECT_EQ(scheduler.consider(frameAt(2000)), PacedFrameScheduler::Action::Skip);
+    EXPECT_EQ(scheduler.consider(frameAt(2500)), PacedFrameScheduler::Action::Emit);
 }
 
 TEST(PacedFrameSchedulerTest, OverdueFrameEmitsWithoutWaiting) {
@@ -101,4 +106,25 @@ TEST(PacedFrameSchedulerTest, OverdueFrameEmitsWithoutWaiting) {
 
     EXPECT_EQ(scheduler.consider(frameAt(2000)), PacedFrameScheduler::Action::Emit);
     EXPECT_EQ(clock.sleeps().size(), sleepsAfterCatchUp);
+}
+
+TEST(PacedFrameSchedulerTest, StartFromSkipsPrefixInstantlyAndPacesFromOffset) {
+    // Epoch-scale capture, startFrom=2.0s measured from the recording's first
+    // frame (kEpoch0): the prefix [kEpoch0, kEpoch0+2s) is discarded with ZERO
+    // wall waits, the first kept frame emits immediately (no sleep for the
+    // offset), and pacing then runs relative to that offset point. The final
+    // assertions pin the post-skip regression where the skip gate, re-measured
+    // from the re-baselined pacing origin, skipped EVERY later frame too.
+    constexpr std::uint64_t kEpoch0 = 1755000000000ull;
+    RecordingClock clock;
+    PacedFrameScheduler scheduler(ReplayPacing{/*startFromS=*/2.0}, clock);
+
+    EXPECT_EQ(scheduler.consider(frameAt(kEpoch0 + 500)), PacedFrameScheduler::Action::Skip);
+    EXPECT_EQ(scheduler.consider(frameAt(kEpoch0 + 2500)), PacedFrameScheduler::Action::Emit);
+    EXPECT_TRUE(clock.sleeps().empty())
+        << "the skipped window must not be slept out before the first kept frame";
+    EXPECT_EQ(scheduler.consider(frameAt(kEpoch0 + 3000)), PacedFrameScheduler::Action::Emit);
+
+    ASSERT_EQ(clock.sleeps().size(), 1u);
+    EXPECT_EQ(clock.sleeps().front().count(), 500);
 }

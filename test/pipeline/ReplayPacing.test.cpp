@@ -142,18 +142,36 @@ TEST(ReplayPacingTest, BlankFrameDetected) {
 
 TEST(ReplayPacingTest, ClassifySurfacesFirstRowImmediately) {
     ReplayPacing pacing;
-    EXPECT_EQ(pacing.classifyFrame(frameAt(1000), /*baselineTsMs=*/1000, /*elapsed=*/0), 0);
+    EXPECT_EQ(pacing.classifyFrame(frameAt(1000), /*recordingBaselineTsMs=*/1000,
+                           /*pacingBaselineTsMs=*/1000, /*elapsed=*/0), 0);
 }
 
 TEST(ReplayPacingTest, ClassifyFutureRowReturnsWaitMs) {
     ReplayPacing pacing;
-    EXPECT_EQ(pacing.classifyFrame(frameAt(1000), /*baselineTsMs=*/0, /*elapsed=*/0), 1000);
+    EXPECT_EQ(pacing.classifyFrame(frameAt(1000), /*recordingBaselineTsMs=*/0,
+                           /*pacingBaselineTsMs=*/0, /*elapsed=*/0), 1000);
 }
 
 TEST(ReplayPacingTest, ClassifyBeforeStartFromSkipped) {
     ReplayPacing pacing(/*startFromS=*/2.0);
-    EXPECT_EQ(pacing.classifyFrame(frameAt(1500), /*baselineTsMs=*/0, /*elapsed=*/0), -1);
-    EXPECT_NE(pacing.classifyFrame(frameAt(2500), /*baselineTsMs=*/0, /*elapsed=*/0), -1);
+    EXPECT_EQ(pacing.classifyFrame(frameAt(1500), /*recordingBaselineTsMs=*/0,
+                           /*pacingBaselineTsMs=*/0, /*elapsed=*/0), -1);
+    EXPECT_NE(pacing.classifyFrame(frameAt(2500), /*recordingBaselineTsMs=*/0,
+                           /*pacingBaselineTsMs=*/0, /*elapsed=*/0), -1);
+}
+
+TEST(ReplayPacingTest, ClassifySkipsByRelativeTimeOnEpochScaleCaptures) {
+    // Real captures carry epoch-scale timestamps; the skip must measure
+    // RELATIVE time from the recording's first frame, not compare the raw
+    // 13-digit value against a relative threshold (which never fires).
+    constexpr std::uint64_t kEpoch0 = 1755000000000ull;
+    ReplayPacing pacing(/*startFromS=*/20.0);
+    EXPECT_EQ(pacing.classifyFrame(frameAt(kEpoch0 + 15000), kEpoch0, kEpoch0, 0), -1);
+    // Past the gate at exactly the threshold: the scheduler re-baselines the
+    // PACING origin to this frame, so it surfaces immediately (dual-origin
+    // contract — skip gate from the recording start, schedule from the first
+    // kept frame).
+    EXPECT_EQ(pacing.classifyFrame(frameAt(kEpoch0 + 20000), kEpoch0, kEpoch0 + 20000, 0), 0);
 }
 
 TEST(ReplayPacingIntegrationTest, PacedReplaySpacesRowsByRecordedTimestamps) {

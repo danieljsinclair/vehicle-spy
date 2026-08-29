@@ -41,11 +41,17 @@ public:
      * Decide what to do with the next frame, WAITING inline if the frame is
      * scheduled in the future. Sequencing:
      *   1. Blank frames never anchor the baseline; they are always skipped.
-     *   2. The first non-blank frame anchors the baseline and surfaces
+     *   2. The first non-blank frame anchors the RECORDING baseline (the
+     *      --start-from gate's origin, fixed for the run) and surfaces
      *      immediately (scheduled offset = 0).
-     *   3. Later frames are classified against baseline and elapsed: a
-     *      negative classification (before --start-from) skips; a positive
-     *      one waits out the remaining time, then emits.
+     *   3. Later frames are classified against the two baselines and
+     *      elapsed: a negative classification (before --start-from) skips;
+     *      a positive one waits out the remaining time, then emits.
+     *   4. The FIRST frame to pass the --start-from gate re-baselines the
+     *      PACING origin to itself and emits immediately: the pre-window
+     *      frames were discarded with no wall wait, so sleeping out the
+     *      skip offset before the first kept frame would reintroduce, as
+     *      one dumb block, the exact wall time the skip just saved.
      */
     [[nodiscard]] Action consider(const TwaiFrame& frame);
 
@@ -56,7 +62,9 @@ private:
     util::IClock& clock_;
     util::IClock::time_point replayStart_;
     bool baselineSet_ = false;
-    std::uint64_t baselineTsMs_ = 0;
+    bool emittedAny_ = false;
+    std::uint64_t recordingBaselineTsMs_ = 0;
+    std::uint64_t pacingBaselineTsMs_ = 0;
 };
 
 } // namespace vehicle_sim::pipeline
