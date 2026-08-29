@@ -186,6 +186,15 @@ void TcpServerManager::cycle(uint32_t /*nowMs*/) {
     }
 }
 
+void TcpServerManager::writeLineToClient(const std::string& line) {
+    // Guard on the SAME connected() predicate cycle() uses (line 119): a client
+    // handle may be non-null (hasClient() true) yet already dropped, and
+    // writing to a dead socket stalls the loop. Only send when live.
+    if (current_ && current_->connected()) {
+        current_->println(line);
+    }
+}
+
 void TcpServerManager::start() {
     // No-op: listening-socket begin/end are hardware side effects owned by the
     // .ino (restartTcpServerIfNeeded). Reserved for future setup-time hooks.
