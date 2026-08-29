@@ -6,6 +6,7 @@
 #include "vehicle-sim/util/ExecutablePath.h"
 
 #include <fstream>
+#include <string_view>
 
 namespace vehicle_sim::domain {
 
@@ -31,7 +32,7 @@ public:
     bool loaded_{false};
     DBCTranslationService::DBCLoadFailure lastFailure_;
 
-    void resetFailure(const std::string& vehicleId) {
+    void resetFailure(std::string_view vehicleId) {
         lastFailure_ = DBCLoadFailure{};
         lastFailure_.vehicleId = vehicleId;
     }

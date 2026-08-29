@@ -95,8 +95,7 @@ std::vector<std::string> ExecutablePath::resourceCandidates(
     //    Handles nested build dirs (build-native/, build-native/test/), so both
     //    the released binary and the test binary find the resource shipped
     //    under the project root regardless of CWD.
-    const std::string exeDir = directory();
-    if (!exeDir.empty()) {
+    if (const std::string exeDir = directory(); !exeDir.empty()) {
         std::string dir = exeDir;
         int depth = 0;
         while (depth < kMaxParentDirDepth && !dir.empty()) {
