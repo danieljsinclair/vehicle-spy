@@ -155,8 +155,8 @@ public:
         // build-time macro (TCP_AUTH_TOKEN) that can't be concatenated with
         // adjacent literals in a static constexpr, so we compose the frame
         // once per open() (a one-time connect cost, not per-read).
-        const std::string authFrame = "AUTH " + std::string(AUTH_TOKEN) + "\r";
-        if (!socket_->sendAll(authFrame)) {
+        if (const std::string authFrame = "AUTH " + std::string(AUTH_TOKEN) + "\r";
+            !socket_->sendAll(authFrame)) {
             socket_->close();
             return false;
         }
@@ -166,8 +166,8 @@ public:
             socket_->close();
             return false;
         }
-        const std::string view(resp.data(), static_cast<std::size_t>(n));
-        if (view.find("OK") == std::string::npos) {
+        if (const std::string view(resp.data(), static_cast<std::size_t>(n));
+            view.find("OK") == std::string::npos) {
             // Peer answered but did not grant auth ("ERROR unauthorized").
             socket_->close();
             return false;
