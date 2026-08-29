@@ -59,10 +59,23 @@ all: header test firmware ios coverage-run coverage-ios coverage-firmware $(SONA
 # (cfamily cannot parse .mm; Apple's static analyzer owns leak/dead-store bug
 # classes on .mm/.m). sonar-scan re-scans vehicle-spy (the gate-affected
 # project) and fails the gate if new issues appear. Run this before committing.
+#
+# The result line's sonar count is read from the report the scan itself just
+# cached ($(SONAR_REPORT), the statuses=OPEN /api/issues/search response). It
+# is NEVER hardcoded: if the report is missing or unparseable the banner says
+# UNKNOWN instead of inventing a number. The other legs are named (their pass
+# status is enforced by the prerequisites above); only the sonar leg carries a
+# count because it is the one the merge decision rule reads.
 .PHONY: gate
 gate: test firmware-host-tests ios ios-test-gate ios-analyze firmware sonar-scan
 	@printf "$${GREEN}== COMMIT GATE PASSED ==$${NC}\n"
-	@printf "  test 1111 | firmware-host 219 | ios (-Werror) | ios-test-gate (XCTest) | ios-analyze (CLEAN) | firmware | sonar vehicle-spy 7 OPEN\n"
+	@if [ ! -s "$(SONAR_REPORT)" ]; then \
+		printf "  test | firmware-host | ios (-Werror) | ios-test-gate (XCTest) | ios-analyze (CLEAN) | firmware | sonar vehicle-spy UNKNOWN — no cached report at $(SONAR_REPORT)\n"; \
+	else \
+		sonar_open=$$(python3 -c "import json; print(json.load(open('$(SONAR_REPORT)'))['total'])" 2>/dev/null); \
+		if [ -z "$$sonar_open" ]; then sonar_open="UNKNOWN — unparseable report"; fi; \
+		printf "  test | firmware-host | ios (-Werror) | ios-test-gate (XCTest) | ios-analyze (CLEAN) | firmware | sonar vehicle-spy %s OPEN\n" "$$sonar_open"; \
+	fi
 
 # Shared macro to show build config (DRY)
 define show_wifi
