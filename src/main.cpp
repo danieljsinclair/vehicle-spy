@@ -208,8 +208,13 @@ int runStatusFlow(const vehicle_sim::cli::CliOptions& opts) {
     // the enclosing scope where the clean-failure path could read a stale
     // result.
     if (auto discovered = autoDiscoverESP32(); !discovered.empty()) {
-        std::cout << "ESP32 discovered at " << discovered
-                  << " (no USB serial — [STATE] read requires a USB connection)\n";
+        // No USB serial AND no TCP [STATE] capability on this firmware build,
+        // so we can't deliver an actual [STATE] snapshot here — the device IS
+        // alive (we reached it), but status is unavailable over this transport.
+        std::cout << "ESP32 reachable at " << discovered
+                  << " (no USB serial — [STATE] read requires USB on this "
+                     "firmware build; use --connect usb:/dev/... --status, "
+                     "or --discover to scan)\n";
         return 0;
     }
 
