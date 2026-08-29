@@ -106,7 +106,10 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_option("-i,--interval", opts.telemetry.update_interval_ms, "Update interval in milliseconds")
         ->expected(1)
         ->capture_default_str()
-        ->check(CLI::Range(0, 60000));
+        ->check(CLI::Range(0, 60000))
+        ->each([&opts](std::string) {
+            opts.telemetry.update_interval_explicit = true;
+        });
     // Canonical logging flag — base path. Phase 1 file replay writes only
     // <base>.csv; the raw stream is not duplicated (input file is source of
     // truth). Later phases write <base>.raw.txt for live transports.

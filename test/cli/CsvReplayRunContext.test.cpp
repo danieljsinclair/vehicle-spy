@@ -37,6 +37,21 @@ protected:
                                    time_point) const override { return false; }
 };
 
+// Clock that records every sleepFor duration instead of sleeping, so a test
+// can assert WHAT the replay loop asked to sleep, not just that it finished.
+class RecordingClock : public vehicle_sim::util::IClock {
+public:
+    [[nodiscard]] time_point now() const override { return time_point{}; }
+    void sleepFor(std::chrono::milliseconds d) override {
+        sleeps.push_back(d.count());
+    }
+    [[nodiscard]] bool waitForImpl(std::condition_variable&,
+                                   std::unique_lock<std::mutex>&,
+                                   const std::function<bool()>&,
+                                   time_point) const override { return false; }
+    std::vector<long long> sleeps;
+};
+
 vehicle_sim::telemetry::CsvTelemetryRow row(std::uint64_t ts, double throttle) {
     vehicle_sim::telemetry::CsvTelemetryRow r;
     r.timestamp_ms = ts;
@@ -111,4 +126,38 @@ TEST(CsvReplayRunContextTest, TimestampDrivenPacingDoesNotThrow) {
     EXPECT_EQ(rc, 0);
     // 3 data rows => header + 3 rows = 4 newline-terminated lines.
     EXPECT_EQ(vehicle_sim::test::splitLines(out.str()).size(), 4u);
+}
+
+// intervalMs=0 is the default replay pacing: sleep exactly the recorded
+// timestamp delta between consecutive rows — never a fixed interval. This is
+// the contract main.cpp relies on when the operator did not pass -i/--interval
+// (the 500ms live default must not slow replay to 2 rows/sec).
+TEST(CsvReplayRunContextTest, TimestampDrivenPacingSleepsRecordedDeltas) {
+    RecordingClock clock;
+    // Recorded deltas: 1000->1500 = 500ms, 1500->1500 = 0ms, 1500->1750 = 250ms.
+    std::vector<vehicle_sim::telemetry::CsvTelemetryRow> rows{
+        row(1000, 10.0), row(1500, 20.0), row(1500, 25.0), row(1750, 30.0)};
+    auto src = std::make_unique<MemSource>(rows);
+
+    std::ostringstream out;
+    vehicle_sim::cli::CsvReplayRunContext::run(
+        std::move(src), "tesla", /*intervalMs=*/0, out, clock, true);
+
+    // No sleep before the first row; then one sleep per recorded delta.
+    EXPECT_EQ(clock.sleeps, (std::vector<long long>{500, 0, 250}));
+}
+
+// intervalMs>0 is the explicit override: fixed sleeps regardless of the
+// recorded deltas.
+TEST(CsvReplayRunContextTest, ExplicitIntervalPacesFixedRegardlessOfTimestamps) {
+    RecordingClock clock;
+    std::vector<vehicle_sim::telemetry::CsvTelemetryRow> rows{
+        row(1000, 10.0), row(2000, 20.0), row(2010, 30.0)};
+    auto src = std::make_unique<MemSource>(rows);
+
+    std::ostringstream out;
+    vehicle_sim::cli::CsvReplayRunContext::run(
+        std::move(src), "tesla", /*intervalMs=*/250, out, clock, true);
+
+    EXPECT_EQ(clock.sleeps, (std::vector<long long>{250, 250}));
 }

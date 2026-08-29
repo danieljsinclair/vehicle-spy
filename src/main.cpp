@@ -268,9 +268,16 @@ int main(int argc, char* argv[]) {
         if (isDecodedTelemetryCsv(path)) {
             auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
             vehicle_sim::util::SystemClock systemClock;
+            // Replay paces off the recorded row timestamps (intervalMs=0) by
+            // default. The fixed-interval pacing is an explicit -i/--interval
+            // override only — the 500ms live default must not leak into replay
+            // (a 123k-row capture would otherwise replay over ~17 hours).
+            const int replayIntervalMs = opts.telemetry.update_interval_explicit
+                                             ? opts.telemetry.update_interval_ms
+                                             : 0;
             return cli::CsvReplayRunContext::run(
                 std::move(source), opts.telemetry.vehicle_type,
-                opts.telemetry.update_interval_ms, std::cout, systemClock,
+                replayIntervalMs, std::cout, systemClock,
                 opts.telemetry.stdout_csv);
         }
 
