@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "firmware/vanilla/AtCommandDispatcher.h"
+#include "firmware/vanilla/FirmwareVersion.h"  // FIRMWARE_BUILD_VERSION (ATI/ATHELO value)
 
 #include <array>
 #include <string>
@@ -186,14 +187,16 @@ TEST(AtCommandDispatchTest, AtheloReturnsDeviceId) {
     DispatcherHarness h;
     h.d.handleSerialCommand("ATHELO");
     EXPECT_EQ(h.serial.lastLine,
-        "ACK DEVICE=ESP32-CAN-Bridge FIRMWARE=0.2.0 DEVICEID="
+        "ACK DEVICE=ESP32-CAN-Bridge FIRMWARE=" FIRMWARE_BUILD_VERSION " DEVICEID="
         "DEADBEEF000102030405060708090A0B\r");
 }
 
 TEST(AtCommandDispatchTest, AtiReturnsDeviceInfo) {
     DispatcherHarness h;
     h.d.handleSerialCommand("ATI");
-    EXPECT_EQ(h.serial.lastLine, "ESP32 CAN Bridge v0.1");
+    // Build-identifying version (semver + git hash + date) from the single
+    // source of truth — never a stale hardcoded banner.
+    EXPECT_EQ(h.serial.lastLine, "ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION);
 }
 
 // The TCP prompt path must frame the reply as "<response>\r\r>" to the TCP
@@ -203,7 +206,7 @@ TEST(AtCommandDispatchTest, AtiReturnsDeviceInfo) {
 TEST(AtCommandDispatchTest, TcpPromptFramesResponseWithCrCrGtAndIsClientOnly) {
     DispatcherHarness h;
     h.d.handleTcpCommand("ATI");
-    EXPECT_EQ(h.tcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
+    EXPECT_EQ(h.tcp.lastPrinted, "ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION "\r\r>");
     EXPECT_EQ(h.serial.printlnCalls, 0);
 }
 
@@ -215,7 +218,7 @@ TEST(AtCommandDispatchTest, AtheloTcpPromptCarriesTerminatorForHostHandshake) {
     // "\r\r>" terminator, so the extra trailing "\r" is harmless (and matches what
     // the original device produced via client.printf("%s\r\r>", response)).
     EXPECT_EQ(h.tcp.lastPrinted,
-        "ACK DEVICE=ESP32-CAN-Bridge FIRMWARE=0.2.0 DEVICEID="
+        "ACK DEVICE=ESP32-CAN-Bridge FIRMWARE=" FIRMWARE_BUILD_VERSION " DEVICEID="
         "DEADBEEF000102030405060708090A0B\r\r\r>");
     EXPECT_EQ(h.serial.printlnCalls, 0);
 }
