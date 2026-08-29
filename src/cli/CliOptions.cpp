@@ -332,8 +332,7 @@ REQUIREMENTS:
     // telemetry dispatchers see "no telemetry requested".
     if (opts.wifi.active()) {
         // Capture BEFORE the move below empties connect_target.
-        std::string resolved = opts.telemetry.connect_target;
-        if (resolved.empty()) {
+        if (std::string resolved = opts.telemetry.connect_target; resolved.empty()) {
             // No --connect was supplied: fall through to the env/default
             // port resolution below.
             opts.wifi.transport = "";

@@ -18,7 +18,7 @@ TCPSignalSource::~TCPSignalSource() {
 }
 
 domain::VehicleSignal TCPSignalSource::latestSignal() const noexcept {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return latestSignal_.value_or(
         domain::VehicleSignal(domain::VehicleSignal::Params{.timestampUtcMs = 0}));
 }
@@ -65,7 +65,7 @@ void TCPSignalSource::runPipeline() {
         std::vector<std::uint8_t> bytes(frame->bytes.begin(), frame->bytes.end());
         auto signal = translationService_.processFrame(bytes, frame->timestampMs);
         if (signal) {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::scoped_lock lock(mutex_);
             latestSignal_ = signal;
         }
     }
