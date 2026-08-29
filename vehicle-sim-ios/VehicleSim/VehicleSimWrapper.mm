@@ -1,10 +1,9 @@
 #import "VehicleSimWrapper.h"
 #include "vehicle-sim/VehicleSim.h"
 #include "vehicle-sim/BLEManager.h"
-#include "vehicle-sim/pipeline/PipelineFactory.h"
-#include "vehicle-sim/pipeline/PipelineReplay.h"
-#include "vehicle-sim/pipeline/LiveTwaiSource.h"
 #include "vehicle-sim/pipeline/TCPTransport.h"
+#include "vehicle-sim/pipeline/TcpSignalSource.h"
+#include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "vehicle-sim/pipeline/StopToken.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
@@ -13,12 +12,9 @@
 #include "vehicle-sim/domain/ISignalSource.h"
 #include "vehicle-sim/domain/BLESignalSource.h"
 #include "vehicle-sim/domain/DemoSignalSource.h"
+#include "vehicle-sim/presentation/VehicleSignalFormatter.h"
 #include <memory>
-#include <atomic>
-#include <mutex>
-#include <optional>
-#include <thread>
-#include <chrono>
+#include <string>
 #include <vector>
 
 using namespace vehicle_sim;
@@ -30,121 +26,12 @@ using namespace vehicle_sim::pipeline;
 @implementation VehicleSimDevice
 @end
 
-// MARK: - TCPSignalSource
-
-/**
- * ISignalSource implementation that drives a TCPTransport through the
- * canonical IFrameSource seam (LiveTwaiSource) on a background thread. Each
- * decoded VehicleSignal is stored as the latest signal, which the
- * Objective-C++ wrapper polls from the main thread.
- *
- * Thread-safety: latestSignal() is called from the main thread (UI polling);
- * the pipeline writes from the background thread. A mutex protects the signal.
- *
- * Lifecycle: start() launches the pipeline thread; stop() requests the transport
- * to cease and joins the thread. The transport's stop flag is set so nextLine()
- * returns nullopt at its next select() timeout, cleanly ending the loop.
- */
-class TCPSignalSource final : public ISignalSource {
-public:
-    TCPSignalSource(std::unique_ptr<ITransport> transport,
-                    DBCTranslationService& translationService,
-                    std::shared_ptr<pipeline::StopToken> stop)
-        : transport_(std::move(transport))
-        , translationService_(translationService)
-        , stop_(std::move(stop))
-    {}
-
-    ~TCPSignalSource() override {
-        stop();
-    }
-
-    TCPSignalSource(const TCPSignalSource&) = delete;
-    TCPSignalSource& operator=(const TCPSignalSource&) = delete;
-
-    [[nodiscard]] VehicleSignal latestSignal() const noexcept override {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return latestSignal_.value_or(VehicleSignal(VehicleSignal::Params{.timestampUtcMs = 0}));
-    }
-
-    /// Returns true if the pipeline thread is still alive and reading from
-    /// the transport. When the transport exhausts (peer close, network drop),
-    /// the worker sets running_ = false and this returns false — allowing
-    /// the ViewModel to detect a silent TCP drop.
-    bool isRunning() const noexcept {
-        return running_.load();
-    }
-
-    void start() override {
-        if (running_.exchange(true)) {
-            return; // already running
-        }
-        stop_->reset();
-        if (!transport_->open()) {
-            running_ = false;
-            return;
-        }
-        worker_ = std::thread([this]() {
-            runPipeline();
-        });
-    }
-
-    void stop() override {
-        if (!running_.exchange(false)) {
-            return;
-        }
-        // Request the transport to return nullopt at its next select() timeout.
-        stop_->requestStop();
-        if (worker_.joinable()) {
-            worker_.join();
-        }
-    }
-
-private:
-    std::unique_ptr<ITransport> transport_;
-    DBCTranslationService& translationService_;
-    std::shared_ptr<pipeline::StopToken> stop_;
-    std::atomic<bool> running_{false};
-    std::thread worker_;
-    std::optional<VehicleSignal> latestSignal_;
-    mutable std::mutex mutex_;
-
-    // Capture callback for runReplay: we need to intercept decoded signals.
-    // Since runReplay doesn't support a signal callback, we drive the
-    // canonical seam manually in the worker thread: LiveTwaiSource wraps the
-    // transport (inline raw-CAN tokeniser + wall-clock stamping), we feed
-    // each TwaiFrame to the translator, same decode as the CLI live path.
-    void runPipeline() {
-        pipeline::LiveTwaiSource source(*transport_);
-        while (running_ && source.isOpen()) {
-            auto frame = source.nextFrame();
-            if (!frame) {
-                break;
-            }
-            std::vector<std::uint8_t> bytes(frame->bytes.begin(), frame->bytes.end());
-            auto signal = translationService_.processFrame(bytes, frame->timestampMs);
-            if (signal) {
-                std::lock_guard<std::mutex> lock(mutex_);
-                latestSignal_ = signal;
-            }
-        }
-        running_ = false;
-    }
-};
-
 // MARK: - VehicleSimWrapper Implementation
 
 @interface VehicleSimWrapper () {
     std::unique_ptr<BLEManager> _bleManager;
     std::unique_ptr<DBCTranslationService> _translationService;
     std::unique_ptr<ISignalSource> _signalSource;
-    std::unique_ptr<pipeline::ITransport> _liveTransport;
-    std::unique_ptr<pipeline::IAdapterNormaliser> _liveNormaliser;
-    std::unique_ptr<std::thread> _liveWorker;
-    bool _liveRunning;
-    bool _connectionActive;
-    std::optional<domain::VehicleSignal> _latestSignal;
-    std::chrono::steady_clock::time_point _latestSignalTime;
 
     // Vehicle protocol for current connection
     VehicleProtocol _protocol;
@@ -153,6 +40,11 @@ private:
     NSString *_connectedDeviceName;
     NSString *_connectedDeviceAddress;
 }
+
+// Shared vehicle-activation step (see the method's comment in the
+// implementation): looks up the config, derives the protocol, resolves the
+// bundled DBC, and loads it into the translation service.
+- (BOOL)activateVehicleType:(NSString *)vehicleType;
 
 @end
 
@@ -203,14 +95,8 @@ private:
 }
 
 - (void)stop {
-    _liveRunning = false;
-    if (_liveWorker && _liveWorker->joinable()) {
-        _liveWorker->join();
-        _liveWorker.reset();
-    }
-    _liveTransport.reset();
-    _liveNormaliser.reset();
-
+    // The signal source owns its pipeline thread and transport; stopping it
+    // joins the thread (TCPSignalSource::stop) / detaches the BLE callbacks.
     if (_signalSource) {
         _signalSource->stop();
         _signalSource.reset();
@@ -291,12 +177,8 @@ private:
 
     // Create BLE signal source
     // Note: BLESignalSource holds a reference to BLEManager (wrapper owns it)
+    // and installs its own data callback in start().
     _signalSource = std::make_unique<BLESignalSource>(_bleManager.get());
-
-    // Set up data callback for translation
-    _bleManager->onDataReceived([self](const std::vector<uint8_t>& data) {
-        // Translation will be handled by BLESignalSource
-    });
 
     // Start the signal source
     _signalSource->start();
@@ -310,89 +192,65 @@ private:
 // MARK: - TCP Connection
 
 /**
- * Parse a tcp:<host>:<port> or tcp:<host> address string.
- * Port defaults to 3333 (the ESP32 firmware default) when omitted.
- * Returns YES on success, NO if the format is invalid.
+ * Shared vehicle-activation step for connectTCP and switchVehicleType.
+ *
+ * Looks up the vehicle config, derives the protocol (CAN vs OBD2), resolves
+ * the DBC bundle file from the app bundle, and loads it into the translation
+ * service. This is the ONLY place the wrapper activates a vehicle, so the
+ * two entry points cannot drift apart. The protocol derivation and DBC
+ * loading themselves are vanilla domain logic (DBCTranslationService); what
+ * stays here is the NSBundle path lookup, which only exists on iOS.
  */
-- (BOOL)parseTcpTarget:(NSString *)address host:(std::string&)host port:(int&)port {
-    std::string target = [address UTF8String];
-    const std::string prefix = "tcp:";
-    if (target.substr(0, prefix.size()) != prefix) {
+- (BOOL)activateVehicleType:(NSString *)vehicleType {
+    std::string vt = [vehicleType UTF8String];
+    const auto* config = _translationService->registry().getConfig(vt);
+    if (!config) {
         return NO;
     }
 
-    std::string body = target.substr(prefix.size());
-    if (body.empty()) {
-        return NO;
-    }
+    // Determine protocol from config
+    _protocol = config->isCANProtocol ? VehicleProtocol::CAN : VehicleProtocol::OBD2;
 
-    // Split on the last ':' to separate host and port
-    auto lastColon = body.rfind(':');
-    if (lastColon != std::string::npos) {
-        std::string hostPart = body.substr(0, lastColon);
-        std::string portPart = body.substr(lastColon + 1);
+    bool loaded = false;
 
-        if (!portPart.empty() &&
-            std::all_of(portPart.begin(), portPart.end(),
-                        [](unsigned char c) { return std::isdigit(c); })) {
-            try {
-                int p = std::stoi(portPart);
-                if (p < 1 || p > 65535) return NO;
-                if (hostPart.empty()) return NO;
-                host = hostPart;
-                port = p;
-                return YES;
-            } catch (...) {
-                return NO;
-            }
+    if (config->isCANProtocol && !config->dbcBundleFileName.empty()) {
+        // Resolve DBC file path from the app bundle
+        NSString *nsFileName = [NSString stringWithUTF8String:config->dbcBundleFileName.c_str()];
+        NSString *bundlePath = [[NSBundle mainBundle] pathForResource:nsFileName ofType:nil];
+        if (bundlePath) {
+            std::string absPath = std::string([bundlePath UTF8String]);
+            loaded = _translationService->loadVehicleFromPath(vt, _protocol, absPath);
         }
+    } else {
+        // OBD2 or no DBC needed
+        loaded = _translationService->loadVehicleFromPath(vt, _protocol, "");
     }
 
-    // No usable port token: whole body is the host, default port
-    host = body;
-    port = 3333;
-    return YES;
+    return loaded ? YES : NO;
 }
 
 /**
  * Establish a TCP connection to an ESP32 CAN bridge.
  *
- * Parses the tcp:<host>[:<port>] address, loads the vehicle DBC, creates a
- * TCPTransport + LiveTwaiSource pipeline, and starts a TCPSignalSource
- * that feeds decoded VehicleSignal frames to the wrapper's polling interface.
+ * Parses the tcp:<host>[:<port>] address (the canonical vanilla parser in
+ * PipelineFactory — the same one the CLI uses), loads the vehicle DBC,
+ * creates a TCPTransport + LiveTwaiSource pipeline, and starts a
+ * TCPSignalSource that feeds decoded VehicleSignal frames to the wrapper's
+ * polling interface.
  */
 - (BOOL)connectTCP:(NSString *)address deviceName:(NSString *)deviceName vehicleType:(NSString *)vehicleType {
+    std::string target = [address UTF8String];
     std::string host;
     int port = 3333;
-    if (![self parseTcpTarget:address host:host port:port]) {
+    if (!parseTcpTarget(target, host, port)) {
         NSLog(@"[VehicleSimWrapper] Invalid TCP target: %@", address);
         return NO;
     }
 
     // Load vehicle DBC before starting the pipeline
     if (vehicleType && vehicleType.length > 0) {
-        std::string vt = [vehicleType UTF8String];
-        const auto* config = _translationService->registry().getConfig(vt);
-        if (!config) {
-            NSLog(@"[VehicleSimWrapper] Unknown vehicle type: %@", vehicleType);
-            return NO;
-        }
-        _protocol = config->isCANProtocol ? VehicleProtocol::CAN : VehicleProtocol::OBD2;
-
-        bool loaded = false;
-        if (config->isCANProtocol && !config->dbcBundleFileName.empty()) {
-            NSString *nsFileName = [NSString stringWithUTF8String:config->dbcBundleFileName.c_str()];
-            NSString *bundlePath = [[NSBundle mainBundle] pathForResource:nsFileName ofType:nil];
-            if (bundlePath) {
-                std::string absPath = std::string([bundlePath UTF8String]);
-                loaded = _translationService->loadVehicleFromPath(vt, _protocol, absPath);
-            }
-        } else {
-            loaded = _translationService->loadVehicleFromPath(vt, _protocol, "");
-        }
-
-        if (!loaded) {
-            NSLog(@"[VehicleSimWrapper] Failed to load vehicle DBC: %@", vehicleType);
+        if (![self activateVehicleType:vehicleType]) {
+            NSLog(@"[VehicleSimWrapper] Unknown or unloadable vehicle type: %@", vehicleType);
             return NO;
         }
     } else {
@@ -405,10 +263,10 @@ private:
     // and the signal source so stop() flips the flag the transport's hot loop
     // polls. Frame tokenisation happens in LiveTwaiSource (the canonical
     // seam) inside TCPSignalSource.
-    auto stop = std::make_shared<pipeline::StopToken>();
+    auto stop = std::make_shared<StopToken>();
     auto transport = std::make_unique<TCPTransport>(
-        pipeline::TransportEndpoint{host, static_cast<int>(port), "raw"},
-        std::make_shared<pipeline::StdOut>(), pipeline::TcpReadTiming{}, stop);
+        TransportEndpoint{host, static_cast<int>(port), "raw"},
+        std::make_shared<StdOut>(), TcpReadTiming{}, stop);
 
     // Open the transport to verify connectivity before starting the thread
     stop->reset();
@@ -453,30 +311,8 @@ private:
 }
 
 - (BOOL)switchVehicleType:(NSString *)vehicleType {
-    std::string vehicleTypeStr = [vehicleType UTF8String];
-
-    // Get the vehicle config
-    const auto* config = _translationService->registry().getConfig(vehicleTypeStr);
-    if (!config) {
+    if (![self activateVehicleType:vehicleType]) {
         return NO;
-    }
-
-    // Determine protocol from config
-    _protocol = config->isCANProtocol ? VehicleProtocol::CAN : VehicleProtocol::OBD2;
-
-    bool loaded = false;
-
-    if (config->isCANProtocol && !config->dbcBundleFileName.empty()) {
-        // Resolve DBC file path from the app bundle
-        NSString *nsFileName = [NSString stringWithUTF8String:config->dbcBundleFileName.c_str()];
-        NSString *bundlePath = [[NSBundle mainBundle] pathForResource:nsFileName ofType:nil];
-        if (bundlePath) {
-            std::string absPath = std::string([bundlePath UTF8String]);
-            loaded = _translationService->loadVehicleFromPath(vehicleTypeStr, _protocol, absPath);
-        }
-    } else {
-        // OBD2 or no DBC needed
-        loaded = _translationService->loadVehicleFromPath(vehicleTypeStr, _protocol, "");
     }
 
     // Reset detector when switching vehicles
@@ -484,7 +320,7 @@ private:
         _bleManager->vehicleDetector()->reset();
     }
 
-    return loaded ? YES : NO;
+    return YES;
 }
 
 // MARK: - Signal Values
@@ -552,23 +388,11 @@ private:
 // MARK: - State
 
 - (ConnectionState)connectionState {
-    if (!_signalSource) {
-        return ConnectionStateDisconnected;
-    }
-
-    // For TCP: check if the source is still running
-    // For BLE: check BLE connection status
-    if (_bleManager && _bleManager->isConnected()) {
-        return ConnectionStateConnected;
-    }
-
-    // TCP sources are considered connected if they have been started
-    // (the signal source exists and was started)
-    if (_signalSource) {
-        return ConnectionStateConnected;
-    }
-
-    return ConnectionStateConnecting;
+    // A signal source exists only after a successful connect (demo/BLE/TCP),
+    // and stop() clears it — so "source present" IS "connected". The
+    // per-transport liveness detail (silent TCP drops) is isConnectionAlive's
+    // job, below.
+    return _signalSource ? ConnectionStateConnected : ConnectionStateDisconnected;
 }
 
 - (BOOL)isConnectionAlive {
@@ -577,10 +401,10 @@ private:
         return YES;
     }
 
-    // TCP: downcast to TCPSignalSource (defined in this translation unit)
-    // and check its internal running_ flag. When the transport exhausts
-    // (peer close, network drop), the pipeline thread sets running_ = false,
-    // which this method surfaces so the ViewModel can detect a silent drop.
+    // TCP: downcast to TCPSignalSource (the vanilla pipeline class) and check
+    // its running flag. When the transport exhausts (peer close, network
+    // drop), the pipeline thread sets it false, which this method surfaces so
+    // the ViewModel can detect a silent drop.
     if (auto* tcpSource = dynamic_cast<TCPSignalSource*>(_signalSource.get())) {
         return tcpSource->isRunning() ? YES : NO;
     }
@@ -608,33 +432,11 @@ private:
 - (NSString *)detectionInfo {
     auto* detector = _bleManager ? _bleManager->vehicleDetector() : nullptr;
     if (!detector) return @"";
-    auto result = detector->getResult();
-    if (result.frameCount == 0) return @"";
-
-    NSMutableString* info = [NSMutableString string];
-    [info appendFormat:@"Frames: %d", result.frameCount];
-
-    if (!result.observedCanIds.empty()) {
-        [info appendString:@" | CAN IDs:"];
-        for (uint16_t id : result.observedCanIds) {
-            [info appendFormat:@" 0x%04X", id];
-        }
-    }
-
-    if (result.hasSuggestion()) {
-        const char* conf;
-        switch (result.confidence) {
-            case domain::DetectionConfidence::High: conf = "high"; break;
-            case domain::DetectionConfidence::Medium: conf = "medium"; break;
-            case domain::DetectionConfidence::Low: conf = "low"; break;
-            default: conf = "none"; break;
-        }
-        [info appendFormat:@" | %@ (%@)",
-            [NSString stringWithUTF8String:result.suggestedVehicleId.c_str()],
-            [NSString stringWithUTF8String:conf]];
-    }
-
-    return info;
+    // Summary formatting (frames / CAN IDs / suggestion+confidence) is the
+    // vanilla presentation::formatDetectionSummary — unit-tested in ctest.
+    const std::string summary =
+        presentation::formatDetectionSummary(detector->getResult());
+    return [NSString stringWithUTF8String:summary.c_str()];
 }
 
 - (BOOL)isReceivingData {

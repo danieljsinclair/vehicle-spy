@@ -6,6 +6,7 @@
 namespace vehicle_sim::domain {
 class VehicleSignal;
 struct VehicleConfig;
+struct VehicleDetectionResult;
 }
 
 namespace vehicle_sim::presentation {
@@ -25,5 +26,12 @@ void printTelemetryRow(std::ostream& out, const domain::VehicleSignal& signal, i
 
 // Write telemetry header directly to a stream.
 void printTelemetryHeader(std::ostream& out, const domain::VehicleConfig& config);
+
+// One-line summary of the passive vehicle detector's findings:
+//   "Frames: 12 | CAN IDs: 0x0118 0x0257 | tesla (high)"
+// CAN IDs are listed in ascending order (deterministic output; the detector
+// collects them in an unordered set). Returns "" when no frames were
+// observed yet — there is nothing to report.
+std::string formatDetectionSummary(const domain::VehicleDetectionResult& result);
 
 } // namespace vehicle_sim::presentation

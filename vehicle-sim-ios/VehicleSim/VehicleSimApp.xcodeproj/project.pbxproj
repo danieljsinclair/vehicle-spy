@@ -75,7 +75,9 @@
 		B1P00012 /* USBTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00012 /* USBTransport.cpp */; };
 		B1P00013 /* Elm327Normaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00013 /* Elm327Normaliser.cpp */; };
 		B1P00027 /* LiveTwaiSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00027 /* LiveTwaiSource.cpp */; };
-		B1P00028 /* LiveTwaiSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00028 /* LiveTwaiSource.h */; };		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };
+		B1P00028 /* LiveTwaiSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00028 /* LiveTwaiSource.h */; };
+		B1P00029 /* TcpSignalSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00029 /* TcpSignalSource.cpp */; };
+		B1P00030 /* TcpSignalSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00030 /* TcpSignalSource.h */; };		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };
 		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };
 		B1P00016 /* SystemClock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00016 /* SystemClock.cpp */; };
 		B1P00017 /* IClock.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00017 /* IClock.h */; };
@@ -188,6 +190,8 @@
 		B2P00012 /* USBTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = USBTransport.cpp; path = ../../src/pipeline/USBTransport.cpp; sourceTree = "<group>"; };
 		B2P00013 /* Elm327Normaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Normaliser.cpp; path = ../../src/pipeline/Elm327Normaliser.cpp; sourceTree = "<group>"; };
 		B2P00027 /* LiveTwaiSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = LiveTwaiSource.cpp; path = ../../src/pipeline/LiveTwaiSource.cpp; sourceTree = "<group>"; };
+		B2P00029 /* TcpSignalSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TcpSignalSource.cpp; path = ../../src/pipeline/TcpSignalSource.cpp; sourceTree = "<group>"; };
+		B2P00030 /* TcpSignalSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = TcpSignalSource.h; path = "../../include/vehicle-sim/pipeline/TcpSignalSource.h"; sourceTree = "<group>"; };
 		B2P00028 /* LiveTwaiSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = LiveTwaiSource.h; path = "../../include/vehicle-sim/pipeline/LiveTwaiSource.h"; sourceTree = "<group>"; };		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };
 		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
 		B2P00016 /* SystemClock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SystemClock.cpp; path = ../../src/util/SystemClock.cpp; sourceTree = "<group>"; };
@@ -345,6 +349,8 @@
 				B2P00012 /* USBTransport.cpp */,
 				B2P00013 /* Elm327Normaliser.cpp */,
 				B2P00027 /* LiveTwaiSource.cpp */,
+				B2P00029 /* TcpSignalSource.cpp */,
+				B2P00030 /* TcpSignalSource.h */,
 				B2P00028 /* LiveTwaiSource.h */,				B2P00014 /* TraceLogger.cpp */,
 				B2P00015 /* ITransportOutput.cpp */,
 				B2P00016 /* SystemClock.cpp */,
@@ -543,6 +549,8 @@
 				B1P00012 /* USBTransport.cpp in Sources */,
 				B1P00013 /* Elm327Normaliser.cpp in Sources */,
 				B1P00027 /* LiveTwaiSource.cpp in Sources */,
+				B1P00029 /* TcpSignalSource.cpp in Sources */,
+				B1P00030 /* TcpSignalSource.h in Sources */,
 				B1P00028 /* LiveTwaiSource.h in Sources */,				B1P00014 /* TraceLogger.cpp in Sources */,
 				B1P00015 /* ITransportOutput.cpp in Sources */,
 				B1A0001B /* Elm327Session.cpp in Sources */,
