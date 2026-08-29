@@ -53,6 +53,65 @@ static bool isDecodedTelemetryCsv(const std::string& path) {
     return header.find("timestamp_ms") != std::string::npos;
 }
 
+// Provisioning has its own transport vocabulary — the device's AT console is
+// only reachable over USB serial, so the transport must be empty
+// (auto-detect), 'auto', or 'usb:<path>'.
+static std::string provisioningTransportError(const std::string& transport) {
+    if (transport.empty() || transport == "auto" || transport.rfind("usb:", 0) == 0) {
+        return "";
+    }
+    std::ostringstream oss;
+    oss << "Provisioning transport '" << forLog(transport)
+        << "' is not supported. Use --connect auto or "
+           "--connect usb:<path> (e.g. usb:/dev/cu.usbserial-110)";
+    return oss.str();
+}
+
+// --adapter-protocol must be a known value: empty (default table), 'raw',
+// 'elm327', or 'default'.
+static std::string adapterProtocolError(const std::string& protocol) {
+    if (protocol.empty() || protocol == "raw" || protocol == "elm327" ||
+        protocol == "default") {
+        return "";
+    }
+    std::ostringstream oss;
+    oss << "Unknown --adapter-protocol '" << forLog(protocol)
+        << "'. Supported: raw, elm327";
+    return oss.str();
+}
+
+// CSV replay of a decoded-telemetry file is bench testing: --vehicle is only a
+// label stamped onto each emitted row, so it need not be a real registered
+// vehicle. Raw CAN replay (file:<raw>) still requires one for DBC translation.
+static bool isDecodedCsvReplay(const CliOptions& opts) {
+    if (!opts.isFile()) return false;
+    return isDecodedTelemetryCsv(opts.telemetry.connect_target.substr(5));
+}
+
+// Both vehicle-selection failures share the "Available: <ids>" suffix listing
+// the registry's known vehicles.
+static void appendAvailableVehicles(std::ostringstream& oss,
+                                    const domain::VehicleConfigRegistry& registry) {
+    for (const auto& v : registry.getRegisteredVehicles()) {
+        oss << v << " ";
+    }
+}
+
+// --vehicle (when not exempted above) must name a registered vehicle. The
+// empty case gets the "required" wording; a non-empty unknown id gets the
+// "unsupported" wording.
+static std::string vehicleSelectionError(const std::string& vehicleType,
+                                         const domain::VehicleConfigRegistry& registry) {
+    std::ostringstream oss;
+    if (vehicleType.empty()) {
+        oss << "--vehicle is required. Available: ";
+    } else {
+        oss << "Unsupported vehicle type '" << forLog(vehicleType) << "'. Available: ";
+    }
+    appendAvailableVehicles(oss, registry);
+    return oss.str();
+}
+
 CliOptions parseArgs(int argc, char* argv[]) {
     CliOptions opts;
 
@@ -367,25 +426,16 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
     out << "\n";
 }
 
+// Orchestrates the per-option-group validators below it. Each helper owns one
+// option family and returns the user-facing error ("" = OK), so this function
+// only encodes the ORDER of the checks, never their detail.
 std::string validateOptions(const CliOptions& opts, const domain::DBCTranslationService& service) {
     auto& registry = service.registry();
 
-    // Provisioning has its own transport vocabulary — the device's AT console
-    // is only reachable over USB serial, so we reject anything other than
-    // 'auto' / 'usb:<path>' / empty (auto-detect) here. Then the rest of the
-    // validation is short-circuited.
+    // Provisioning short-circuits everything else: only the provisioning
+    // transport vocabulary applies.
     if (opts.isProvisioning()) {
-        const std::string& t = opts.wifi.transport;
-        const bool valid = t.empty() || t == "auto" ||
-                           t.rfind("usb:", 0) == 0;
-        if (!valid) {
-            std::ostringstream oss;
-            oss << "Provisioning transport '" << forLog(t)
-                << "' is not supported. Use --connect auto or "
-                   "--connect usb:<path> (e.g. usb:/dev/cu.usbserial-110)";
-            return oss.str();
-        }
-        return "";
+        return provisioningTransportError(opts.wifi.transport);
     }
 
     // Skip validation for scan, list, help, discover, led-help (they have no
@@ -395,15 +445,8 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
         return "";
     }
 
-    // --adapter-protocol must be a known value.
-    if (!opts.logging.adapter_protocol.empty() &&
-        opts.logging.adapter_protocol != "raw" &&
-        opts.logging.adapter_protocol != "elm327" &&
-        opts.logging.adapter_protocol != "default") {
-        std::ostringstream oss;
-        oss << "Unknown --adapter-protocol '" << forLog(opts.logging.adapter_protocol)
-            << "'. Supported: raw, elm327";
-        return oss.str();
+    if (auto err = adapterProtocolError(opts.logging.adapter_protocol); !err.empty()) {
+        return err;
     }
 
     // --connect is required for telemetry (interactive mode supplies its own
@@ -412,60 +455,27 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
         return "--connect is required. Use --connect demo, --connect auto, or --connect <address>";
     }
 
-    // Interactive mode is self-contained: no vehicle registry lookup needed.
-    // The --vehicle label is free-form (stamped onto each emitted CSV row), so
-    // it must pass boundary validation before reaching the CSV DATA sink.
+    // Interactive mode is self-contained: no vehicle registry lookup, but the
+    // free-form --vehicle label is stamped onto each emitted CSV row, so it
+    // must pass boundary validation before reaching the CSV DATA sink.
     if (opts.telemetry.interactive_mode) {
-        if (auto err = validateVehicleLabel(opts.telemetry.vehicle_type); !err.empty()) {
-            return err;
-        }
-        return "";
+        return validateVehicleLabel(opts.telemetry.vehicle_type);
     }
 
-    // CSV replay of a decoded-telemetry file is bench testing: --vehicle is
-    // only a label stamped onto each emitted row, so it need not be a real
-    // registered vehicle. It is still free-form and flows unsubstituted into the
-    // CSV sink, so it must pass boundary validation. Raw CAN replay
-    // (file:<raw>) still requires a valid vehicle for DBC translation, handled
-    // below.
-    if (opts.isFile()) {
-        std::string path = opts.telemetry.connect_target.substr(5);
-        if (isDecodedTelemetryCsv(path)) {
-            if (auto err = validateVehicleLabel(opts.telemetry.vehicle_type); !err.empty()) {
-                return err;
-            }
-            return "";
-        }
+    // Decoded-CSV replay is label-only too (raw CAN replay falls through and
+    // needs a real vehicle below).
+    if (isDecodedCsvReplay(opts)) {
+        return validateVehicleLabel(opts.telemetry.vehicle_type);
     }
 
-    // --vehicle is required
-    if (opts.telemetry.vehicle_type.empty()) {
-        std::ostringstream oss;
-        oss << "--vehicle is required. Available: ";
-        auto vehicles = registry.getRegisteredVehicles();
-        for (const auto& v : vehicles) {
-            oss << v << " ";
-        }
-        return oss.str();
-    }
-
-    // "auto" is valid — resolved at runtime via UDP discovery
+    // "auto" is valid — resolved at runtime via UDP discovery (BLE only).
     if (opts.telemetry.vehicle_type == "auto") {
-        if (!opts.isBLE()) {
-            return "--vehicle auto requires a BLE connection. Use --connect <address> --vehicle auto";
-        }
-        return "";
+        if (opts.isBLE()) return "";
+        return "--vehicle auto requires a BLE connection. Use --connect <address> --vehicle auto";
     }
 
-    // Validate vehicle type against registry
-    if (!registry.hasConfig(opts.telemetry.vehicle_type)) {
-        std::ostringstream oss;
-        oss << "Unsupported vehicle type '" << forLog(opts.telemetry.vehicle_type) << "'. Available: ";
-        auto vehicles = registry.getRegisteredVehicles();
-        for (const auto& v : vehicles) {
-            oss << v << " ";
-        }
-        return oss.str();
+    if (opts.telemetry.vehicle_type.empty() || !registry.hasConfig(opts.telemetry.vehicle_type)) {
+        return vehicleSelectionError(opts.telemetry.vehicle_type, registry);
     }
 
     return "";
