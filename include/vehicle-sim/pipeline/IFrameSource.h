@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 
 namespace vehicle_sim::pipeline {
 
@@ -13,6 +14,13 @@ namespace vehicle_sim::pipeline {
  * is the capture's recorded wall-clock UTC millisecond (epoch ms); the decoder
  * forwards it on to the emitted VehicleSignal.
  *
+ * rawLine (optional, empty = absent) carries the VERBATIM transport line the
+ * frame was parsed from (the bytes exactly as delivered, before parsing). The
+ * replay loop mirrors it to RawLogSink so a live run captures its own raw
+ * stream. Sources with no text form (BinaryFileSource — the input file already
+ * IS the source of truth) leave it empty, which is why file replay writes only
+ * the decoded CSV.
+ *
  * This is the canonical pre-DBC frame shape for BOTH live and file replay
  * paths. The seam (IFrameSource) is what makes a future WiCan adapter a
  * drop-in: a WiCanSource implements open()/isOpen()/nextFrame() and the rest
@@ -21,6 +29,7 @@ namespace vehicle_sim::pipeline {
 struct TwaiFrame {
     std::uint64_t timestampMs = 0;
     std::array<std::uint8_t, 10> bytes{};
+    std::string rawLine;  // verbatim transport line; empty = not captured
 };
 
 /**

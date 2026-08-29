@@ -86,6 +86,7 @@ std::optional<TwaiFrame> LiveTwaiSource::nextFrame() noexcept {
             if (r.kind != NormaliserResultKind::Frame) continue;
             TwaiFrame f = std::move(r.frame);
             f.timestampMs = wallclockMs();
+            f.rawLine = std::move(*line);
             return f;
         }
 
@@ -100,6 +101,7 @@ std::optional<TwaiFrame> LiveTwaiSource::nextFrame() noexcept {
         f.bytes[0] = static_cast<std::uint8_t>(canId & 0xFF);
         f.bytes[1] = static_cast<std::uint8_t>((canId >> 8) & 0xFF);
         for (std::size_t k = 0; k < dlc; ++k) f.bytes[2 + k] = data[k];
+        f.rawLine = std::move(*line);
         return f;
     }
     return std::nullopt;

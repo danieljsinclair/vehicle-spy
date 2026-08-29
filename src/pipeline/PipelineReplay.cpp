@@ -1,6 +1,7 @@
 #include "vehicle-sim/pipeline/PipelineReplay.h"
 #include "vehicle-sim/pipeline/DecodedCsvSink.h"
 #include "vehicle-sim/pipeline/IFrameSource.h"
+#include "vehicle-sim/pipeline/RawLogSink.h"
 #include "vehicle-sim/pipeline/IProgressReporter.h"
 #include "vehicle-sim/pipeline/PacedFrameScheduler.h"
 #include "vehicle-sim/pipeline/ReplayPacing.h"
@@ -26,6 +27,19 @@ util::IClock& defaultReplayClock() noexcept {
 }
 
 namespace {
+
+// Mirror a fetched frame's verbatim transport line to the raw sink BEFORE any
+// pacing decision and BEFORE decode, so a live capture stays a faithful
+// replay source: a frame skipped for pacing or one whose CAN ID matches no
+// DBC signal is still recorded. Shared by both loops so the two cannot drift.
+// An empty rawLine (a source with no text form — e.g. BinaryFileSource, whose
+// input file already IS the source of truth) writes nothing, which is why
+// file replay produces only the decoded CSV.
+void recordRawLine(const TwaiFrame& f, const ReplayOutputs& outputs) {
+    if (outputs.raw && !f.rawLine.empty()) {
+        outputs.raw->writeLine(f.rawLine);
+    }
+}
 
 void dispatchFrame(
     const domain::DBCTranslationService& translationService,
@@ -56,6 +70,7 @@ ReplayStats runReplayUnpaced(
     ReplayStats stats;
     while (auto f = source.nextFrame()) {
         ++stats.linesRead;
+        recordRawLine(*f, outputs);
         dispatchFrame(translationService, *f, outputs, stats);
     }
     if (outputs.progress) outputs.progress->onComplete(stats);
@@ -73,6 +88,7 @@ ReplayStats runReplayPaced(
     PacedFrameScheduler scheduler(ReplayPacing(startFromS), clock);
     while (auto f = source.nextFrame()) {
         ++stats.linesRead;
+        recordRawLine(*f, outputs);
         if (scheduler.consider(*f) == PacedFrameScheduler::Action::Skip) {
             ++stats.skippedLines;
             continue;

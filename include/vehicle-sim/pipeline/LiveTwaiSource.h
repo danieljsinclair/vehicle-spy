@@ -13,7 +13,9 @@ class ITransport;
  * Wraps a live ITransport (TCP/USB/demo) as an IFrameSource. The transport
  * delivers text lines ("<CANID> <D0> ... <D7>"); this source tokenises them
  * into the 10-byte TWAI shape the decoder consumes and stamps wall-clock
- * time on each frame.
+ * time on each frame. Each frame ALSO carries the verbatim transport line
+ * (TwaiFrame::rawLine) so the replay loop can mirror it to RawLogSink — a
+ * live run thereby captures its own raw stream for later replay.
  *
  * For ELM327 transports the optional normaliser is supplied (e.g. an
  * Elm327Normaliser), which validates the 11-bit ID bound and skips adapter
