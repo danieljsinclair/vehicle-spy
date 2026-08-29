@@ -5,6 +5,7 @@
 #include "StatusLEDRenderer.h"
 
 #include <CLI/CLI.hpp>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -160,6 +161,15 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("--reboot", opts.wifi.reboot_esp32,
                  "Reboot the ESP32 over USB serial (ATREBOOT). "
                  "Use --connect usb:/path or --connect auto to pick the device");
+    // Direct serial-port override. --connect usb:<path> selects the transport
+    // but does not (yet) flow into the provisioning serial open — the port the
+    // provisioner opens is wifi.usb_port, and --port is the flag that sets it.
+    // The Makefile's set/clear-wifi-creds targets pass --port, so dropping
+    // this registration broke them outright (unknown option, parse error).
+    app.add_option("--port", opts.wifi.usb_port,
+                   "ESP32 USB serial port for provisioning (overrides "
+                   "ESP32_DEFAULT_USB_PORT / ESP32_PORT env)")
+        ->expected(1);
     app.add_flag("--status", opts.wifi.status_requested,
                  "Print a [STATE] snapshot from the device (uptime / wifi / "
                  "ssid / ip / client / disc / led / monitor) by reading its "
@@ -286,6 +296,18 @@ REQUIREMENTS:
         if (opts.telemetry.start_from_s < 0.0) {
             opts.error_message = "Invalid --start-from time: " + startFromRaw +
                 " (expected seconds, mm:ss, or hh:mm:ss)";
+        }
+    }
+
+    // `--port` overrides the hardcoded default, but the ESP32_PORT env var (the
+    // Makefile's contract) wins when neither --port nor the default are sensible.
+    // Only apply the env default when --port was left at its built-in default
+    // and the env var is set, so an explicit --port is always respected.
+    if (opts.wifi.usb_port == ESP32_DEFAULT_USB_PORT) {
+        if (const char* envPort = std::getenv("ESP32_PORT")) {
+            if (std::string{envPort}.empty() == false) {
+                opts.wifi.usb_port = envPort;
+            }
         }
     }
 

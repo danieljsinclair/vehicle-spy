@@ -22,6 +22,7 @@ std::string toLower(std::string s) {
 }
 
 bool isDemo(std::string_view target) noexcept { return target == "demo"; }
+bool isFile(std::string_view target) noexcept { return startsWith(target, "file:"); }
 bool isTcp(std::string_view target) noexcept { return startsWith(target, "tcp:"); }
 bool isUsb(std::string_view target) noexcept { return startsWith(target, "usb:"); }
 
@@ -63,7 +64,11 @@ std::string resolveAdapterProtocol(
         lowered == "raw" || lowered == "elm327") {
         return lowered;
     }
-    if (isDemo(connectTarget) || isTcp(connectTarget) || isUsb(connectTarget)) {
+    // Default table (documented in PipelineFactory.h + the --adapter-protocol
+    // help): file/demo/tcp/usb carry raw CAN lines → "raw"; everything else
+    // (BLE-style targets) speaks the ELM327 dialect.
+    if (isDemo(connectTarget) || isFile(connectTarget) || isTcp(connectTarget)
+        || isUsb(connectTarget)) {
         return "raw";
     }
     return "elm327";
