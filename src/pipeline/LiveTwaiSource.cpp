@@ -12,6 +12,44 @@ namespace vehicle_sim::pipeline {
 
 namespace {
 
+constexpr bool isSpaceOrTab(char c) noexcept {
+    return c == ' ' || c == '\t';
+}
+
+// Lex the next whitespace-delimited token, advancing pos past it. Returns an
+// empty view once the line is exhausted (tokens themselves are never empty).
+std::string_view nextToken(std::string_view line, std::size_t& pos) noexcept {
+    while (pos < line.size() && isSpaceOrTab(line[pos])) ++pos;
+    const std::size_t begin = pos;
+    while (pos < line.size() && !isSpaceOrTab(line[pos])) ++pos;
+    return line.substr(begin, pos - begin);
+}
+
+// The first token is the CAN-ID: at most 3 hex digits and within the 11-bit
+// range (0x7FF).
+bool parseCanIdToken(std::string_view tok, std::uint32_t& canIdOut) noexcept {
+    std::uint32_t v = 0;
+    if (auto r = std::from_chars(tok.data(), tok.data() + tok.size(), v, 16);
+        r.ec != std::errc{} || tok.size() > 3 || v > 0x7FFu) {
+        return false;
+    }
+    canIdOut = v;
+    return true;
+}
+
+// Every later token is one data byte: exactly 2 hex digits (0-255), at most 8
+// of them. Appends to dataOut/dlcOut on success.
+bool parseDataByteToken(std::string_view tok, std::array<std::uint8_t, 8>& dataOut,
+                        std::size_t& dlcOut) noexcept {
+    std::uint32_t v = 0;
+    if (auto r = std::from_chars(tok.data(), tok.data() + tok.size(), v, 16);
+        r.ec != std::errc{} || tok.size() != 2 || v > 0xFFu || dlcOut >= 8) {
+        return false;
+    }
+    dataOut[dlcOut++] = static_cast<std::uint8_t>(v);
+    return true;
+}
+
 // Tokenise on whitespace; first token = CAN-ID (up to 3 hex digits, 11-bit),
 // rest = data bytes (exactly 2 hex digits, 0-255).
 bool tokenizeTwaiLine(std::string_view line, std::uint32_t& canIdOut,
@@ -21,25 +59,13 @@ bool tokenizeTwaiLine(std::string_view line, std::uint32_t& canIdOut,
     canIdOut = 0;
     bool haveId = false;
     std::size_t i = 0;
-    while (i < line.size()) {
-        while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
-        if (i >= line.size()) break;
-        std::size_t begin = i;
-        while (i < line.size() && line[i] != ' ' && line[i] != '\t') ++i;
-        const auto tok = line.substr(begin, i - begin);
-        std::uint32_t v = 0;
-        if (auto r = std::from_chars(tok.data(), tok.data() + tok.size(), v, 16);
-            r.ec != std::errc{}) return false;
+    for (std::string_view tok = nextToken(line, i); !tok.empty();
+         tok = nextToken(line, i)) {
         if (!haveId) {
-            if (tok.size() > 3) return false;        // 11-bit CAN id is <= 3 hex digits
-            if (v > 0x7FFu) return false;              // 11-bit range
-            canIdOut = v;
+            if (!parseCanIdToken(tok, canIdOut)) return false;
             haveId = true;
-        } else {
-            if (tok.size() != 2) return false;        // data bytes are exactly 2 hex chars
-            if (v > 0xFFu) return false;
-            if (dlcOut >= 8) return false;
-            dataOut[dlcOut++] = static_cast<std::uint8_t>(v);
+        } else if (!parseDataByteToken(tok, dataOut, dlcOut)) {
+            return false;
         }
     }
     return haveId;
@@ -82,7 +108,7 @@ std::optional<TwaiFrame> LiveTwaiSource::nextFrame() noexcept {
             // normaliser (Skip / Malformed are silently ignored). The
             // normaliser sets its own timestampMs; we replace it with
             // wall-clock so the live path matches the rest of the pipeline.
-            const auto r = normaliser_->normalise(std::string(trimmed));
+            auto r = normaliser_->normalise(std::string(trimmed));
             if (r.kind != NormaliserResultKind::Frame) continue;
             TwaiFrame f = std::move(r.frame);
             f.timestampMs = wallclockMs();
