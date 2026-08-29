@@ -237,3 +237,102 @@ TEST_F(DBCTranslationServiceTest, LoadFromPath_EmptyDBCFile_ReturnsFalse) {
 
     EXPECT_FALSE(result);
 }
+
+// --- lastLoadFailure diagnostics tests ---
+
+TEST_F(DBCTranslationServiceTest, LoadNonexistentVehicle_RecordsUnknownVehicleStage) {
+    EXPECT_FALSE(service_->loadVehicle("nonexistent_vehicle", VehicleProtocol::CAN));
+
+    const auto& failure = service_->lastLoadFailure();
+    EXPECT_EQ(failure.stage, DBCTranslationService::DBCLoadFailure::Stage::UnknownVehicle);
+    EXPECT_EQ(failure.vehicleId, "nonexistent_vehicle");
+    EXPECT_STREQ(failure.stageLabel(), "unknown-vehicle");
+}
+
+TEST_F(DBCTranslationServiceTest, LoadCanVehicle_MissingDbc_RecordsOpenStageAndPathsTried) {
+    VehicleConfig config(
+        "no/such/ghost.dbc",
+        "no/such/ghost.dbc",
+        "Ghost CAN Vehicle",
+        std::unordered_map<std::string, std::string>{{"DI_torqueActual", "motorTorqueNm"}},
+        "",
+        true
+    );
+    service_->registry().registerVehicle("ghost_can", std::move(config));
+
+    EXPECT_FALSE(service_->loadVehicle("ghost_can", VehicleProtocol::CAN));
+
+    const auto& failure = service_->lastLoadFailure();
+    // "file missing" is distinguished from "parsed zero signals" ...
+    EXPECT_EQ(failure.stage, DBCTranslationService::DBCLoadFailure::Stage::Open);
+    EXPECT_STREQ(failure.stageLabel(), "open");
+    EXPECT_EQ(failure.vehicleId, "ghost_can");
+    EXPECT_EQ(failure.resourcePath, "no/such/ghost.dbc");
+    // ... and every concrete path resolution tried is reported.
+    ASSERT_FALSE(failure.candidatesTried.empty());
+    for (const auto& path : failure.candidatesTried) {
+        EXPECT_NE(path.find("no/such/ghost.dbc"), std::string::npos)
+            << "candidate missing the DBC path: " << path;
+    }
+}
+
+TEST_F(DBCTranslationServiceTest, LoadFromPath_EmptyDbc_RecordsZeroSignalsStage) {
+    VehicleConfig config(
+        "empty.dbc",
+        "empty.dbc",
+        "Empty DBC Vehicle",
+        std::unordered_map<std::string, std::string>{{"signal", "field"}},
+        "",
+        true
+    );
+    service_->registry().registerVehicle("empty_dbc", std::move(config));
+
+    // /dev/null opens fine but parses to zero signals — NOT an open failure.
+    EXPECT_FALSE(service_->loadVehicleFromPath("empty_dbc", VehicleProtocol::CAN, "/dev/null"));
+
+    const auto& failure = service_->lastLoadFailure();
+    EXPECT_EQ(failure.stage, DBCTranslationService::DBCLoadFailure::Stage::ZeroSignals);
+    EXPECT_STREQ(failure.stageLabel(), "zero-signals");
+    EXPECT_EQ(failure.vehicleId, "empty_dbc");
+    EXPECT_EQ(failure.resourcePath, "/dev/null");
+    EXPECT_FALSE(failure.candidatesTried.empty());
+}
+
+TEST_F(DBCTranslationServiceTest, LoadWithContent_ZeroSignals_RecordsZeroSignalsStage) {
+    VehicleConfig config(
+        "inline.dbc",
+        "inline.dbc",
+        "Inline Vehicle",
+        std::unordered_map<std::string, std::string>{{"signal", "field"}},
+        "",
+        true
+    );
+    service_->registry().registerVehicle("inline_can", std::move(config));
+
+    // Content with no BO_/SG_ definitions parses to zero signals.
+    EXPECT_FALSE(service_->loadVehicleWithContent("inline_can", VehicleProtocol::CAN, "VERSION \"\"\n"));
+
+    const auto& failure = service_->lastLoadFailure();
+    EXPECT_EQ(failure.stage, DBCTranslationService::DBCLoadFailure::Stage::ZeroSignals);
+    EXPECT_EQ(failure.vehicleId, "inline_can");
+}
+
+TEST_F(DBCTranslationServiceTest, SuccessfulLoad_ClearsRecordedFailure) {
+    // Fail once ...
+    EXPECT_FALSE(service_->loadVehicle("nonexistent_vehicle", VehicleProtocol::CAN));
+    ASSERT_NE(service_->lastLoadFailure().stage,
+              DBCTranslationService::DBCLoadFailure::Stage::None);
+
+    // ... then load successfully: the recorded failure must reset.
+    VehicleConfig config(
+        "",
+        "",
+        "OBD2 Vehicle",
+        std::unordered_map<std::string, std::string>{}
+    );
+    service_->registry().registerVehicle("obd2_vehicle", std::move(config));
+    EXPECT_TRUE(service_->loadVehicle("obd2_vehicle", VehicleProtocol::OBD2));
+
+    EXPECT_EQ(service_->lastLoadFailure().stage,
+              DBCTranslationService::DBCLoadFailure::Stage::None);
+}
