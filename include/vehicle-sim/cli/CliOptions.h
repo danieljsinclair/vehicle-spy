@@ -21,9 +21,9 @@ constexpr const char* DEFAULT_FORMAT = "plain";
 // Default vehicle type — standard OBD2 PIDs (SAE J1979).
 constexpr const char* DEFAULT_VEHICLE_TYPE = "generic";
 
-// Default ESP32 USB serial port for provisioning. Mirrors the Makefile's
-// ESP32_PORT auto-detection fallback (/dev/cu.usbserial* et al.); the
-// --port flag and the ESP32_PORT env var override this.
+// Last-resort default ESP32 USB serial port for provisioning, used only when
+// neither --connect usb:<path> nor the ESP32_PORT env var names a device.
+// Mirrors the Makefile's ESP32_PORT auto-detection pattern (/dev/cu.usbserial*).
 constexpr const char* ESP32_DEFAULT_USB_PORT = "/dev/cu.usbserial-210";
 
 // WiFi provisioning over the ESP32 USB serial console (AT command set).
@@ -34,7 +34,11 @@ struct WifiProvisioningOptions {
     std::string set_wifi_pass;
     bool clear_wifi_creds = false;  // --clear-wifi-creds
     bool reboot_esp32 = false;      // --reboot (send ATREBOOT over USB)
-    std::string usb_port = ESP32_DEFAULT_USB_PORT;  // --port <path>
+    // Device path the provisioner opens. Resolution order (parseArgs fills
+    // this in): an explicit --connect usb:<path> tail, then the ESP32_PORT
+    // env var (the Makefile's auto-detected device path), then
+    // ESP32_DEFAULT_USB_PORT.
+    std::string usb_port = ESP32_DEFAULT_USB_PORT;
     std::string transport;          // resolved transport (filled in by parseArgs)
     bool status_requested = false;  // --status: print ESP32 status
 

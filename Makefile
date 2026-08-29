@@ -1656,7 +1656,7 @@ set-wifi-creds: $(VEHICLE_SIM) ## Provision WiFi credentials (USB preferred, net
 	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
 		echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"; \
 		echo "SSID: $(ESP32_WIFI_SSID)"; \
-		./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --port "$(ESP32_PORT)"; \
+		./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --connect "usb:$(ESP32_PORT)"; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
 			exit 1; \
@@ -1688,7 +1688,7 @@ join-wifi-usb: firmware-port $(VEHICLE_SIM)
 		fi
 	@echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"
 	@echo "SSID: $(ESP32_WIFI_SSID)"
-	@./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --port "$(ESP32_PORT)"; \
+	@./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --connect "usb:$(ESP32_PORT)"; \
 	_rc=$$?; \
 	if [ $$_rc -ne 0 ]; then \
 		exit 1; \
@@ -1710,7 +1710,7 @@ clear-wifi-creds: $(VEHICLE_SIM) ## Clear WiFi credentials (USB preferred, netwo
 	@echo "${YELLOW}--- Clearing WiFi credentials ---${NC}"
 	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
 		echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"; \
-		./build-native/vehicle-sim --clear-wifi-creds --port "$(ESP32_PORT)"; \
+		./build-native/vehicle-sim --clear-wifi-creds --connect "usb:$(ESP32_PORT)"; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
 			exit 1; \
@@ -1732,7 +1732,7 @@ clear-wifi-creds: $(VEHICLE_SIM) ## Clear WiFi credentials (USB preferred, netwo
 .PHONY: clear-wifi-creds
 clear-wifi-creds-usb: firmware-port
 	@echo "${YELLOW}--- Clearing WiFi credentials over USB serial ---${NC}"
-	@./build-native/vehicle-sim --clear-wifi-creds --port "$(ESP32_PORT)"; \
+	@./build-native/vehicle-sim --clear-wifi-creds --connect "usb:$(ESP32_PORT)"; \
 	_rc=$$?; \
 	if [ $$_rc -ne 0 ]; then \
 		echo "${YELLOW}WARN: clear was not confirmed (no reply within 8s)${NC}" >&2; \

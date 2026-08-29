@@ -220,15 +220,6 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("--reboot", opts.wifi.reboot_esp32,
                  "Reboot the ESP32 over USB serial (ATREBOOT). "
                  "Use --connect usb:/path or --connect auto to pick the device");
-    // Direct serial-port override. --connect usb:<path> selects the transport
-    // but does not (yet) flow into the provisioning serial open — the port the
-    // provisioner opens is wifi.usb_port, and --port is the flag that sets it.
-    // The Makefile's set/clear-wifi-creds targets pass --port, so dropping
-    // this registration broke them outright (unknown option, parse error).
-    app.add_option("--port", opts.wifi.usb_port,
-                   "ESP32 USB serial port for provisioning (overrides "
-                   "ESP32_DEFAULT_USB_PORT / ESP32_PORT env)")
-        ->expected(1);
     app.add_flag("--status", opts.wifi.status_requested,
                  "Print a [STATE] snapshot from the device (uptime / wifi / "
                  "ssid / ip / client / disc / led / monitor) by reading its "
@@ -319,6 +310,17 @@ REQUIREMENTS:
         }
     }
 
+    // `--set-wifi-creds <SSID> <PASS>` captures two positional values into a
+    // vector; fold them onto the struct fields. expected(2) guarantees exactly
+    // two elements when parsing succeeds. This must happen BEFORE the
+    // provisioning-transport move below: wifi.active() reads set_wifi_ssid,
+    // so folding late would leave --set-wifi-creds runs looking like
+    // telemetry requests and --connect would never reach the provisioner.
+    if (setWifiArgs.size() == 2) {
+        opts.wifi.set_wifi_ssid = setWifiArgs[0];
+        opts.wifi.set_wifi_pass = setWifiArgs[1];
+    }
+
     // Universal transport: when a provisioning flag is set, --connect
     // selects the provisioning transport, NOT the telemetry transport.
     // main.cpp short-circuits to runProvisioning() so telemetry never runs.
@@ -329,22 +331,27 @@ REQUIREMENTS:
         // Capture BEFORE the move below empties connect_target.
         std::string resolved = opts.telemetry.connect_target;
         if (resolved.empty()) {
-            // No --connect was supplied: provisioner auto-detects the USB
-            // serial port. The empty transport is the signal; the
-            // resolver turns it into a concrete /dev/cu.* path at run time.
+            // No --connect was supplied: fall through to the env/default
+            // port resolution below.
             opts.wifi.transport = "";
         } else {
             opts.wifi.transport = std::move(resolved);
             opts.telemetry.connect_target = "";
         }
-    }
 
-    // `--set-wifi-creds <SSID> <PASS>` captures two positional values into a
-    // vector; fold them onto the struct fields. expected(2) guarantees exactly
-    // two elements when parsing succeeds.
-    if (setWifiArgs.size() == 2) {
-        opts.wifi.set_wifi_ssid = setWifiArgs[0];
-        opts.wifi.set_wifi_pass = setWifiArgs[1];
+        // The serial port the provisioner OPENS. An explicit --connect
+        // usb:<path> names the device exactly (the same form live telemetry
+        // uses — see buildPipelineSource). Without one, the ESP32_PORT env
+        // var is the Makefile's auto-detected device path; the built-in
+        // default is the last resort.
+        constexpr std::size_t kUsbPrefixLen = 4;  // "usb:"
+        if (opts.wifi.transport.size() > kUsbPrefixLen &&
+            opts.wifi.transport.rfind("usb:", 0) == 0) {
+            opts.wifi.usb_port = opts.wifi.transport.substr(kUsbPrefixLen);
+        } else if (const char* envPort = std::getenv("ESP32_PORT");
+                   envPort != nullptr && *envPort != '\0') {
+            opts.wifi.usb_port = envPort;
+        }
     }
 
     // Smart timecode parser (DRY with bridge) for --start-from. Applied only
@@ -355,18 +362,6 @@ REQUIREMENTS:
         if (opts.telemetry.start_from_s < 0.0) {
             opts.error_message = "Invalid --start-from time: " + startFromRaw +
                 " (expected seconds, mm:ss, or hh:mm:ss)";
-        }
-    }
-
-    // `--port` overrides the hardcoded default, but the ESP32_PORT env var (the
-    // Makefile's contract) wins when neither --port nor the default are sensible.
-    // Only apply the env default when --port was left at its built-in default
-    // and the env var is set, so an explicit --port is always respected.
-    if (opts.wifi.usb_port == ESP32_DEFAULT_USB_PORT) {
-        if (const char* envPort = std::getenv("ESP32_PORT")) {
-            if (std::string{envPort}.empty() == false) {
-                opts.wifi.usb_port = envPort;
-            }
         }
     }
 
