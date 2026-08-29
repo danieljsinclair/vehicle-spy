@@ -4,12 +4,17 @@
 #include "vehicle-sim/cli/ProvisioningRunner.h"
 #include "vehicle-sim/pipeline/FakeSocket.h"
 
+#include <unistd.h>
+
 #include <cstring>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 using namespace vehicle_sim::cli;
@@ -376,6 +381,34 @@ TEST(ProvisioningRunnerTest, RunStatusKeepsReadingUntilLineComplete) {
         << "a partial [STATE] chunk must keep reading until the terminator lands";
 }
 
+// REGRESSION (seen twice live): --status printed the [STATE] line TWICE — a
+// partial fragment ending at a chunk boundary ("...ip=192.16"), then the
+// clean full line. The per-chunk read echo is the only output that can
+// produce a newline-less fragment, so this test pins the full success-path
+// output to EXACTLY ONE line: the first matched [STATE], verbatim, with no
+// raw-chunk echo before or after it. The line below arrives split across two
+// chunks (marker-without-terminator, then the terminator-tail), with an
+// UNWANTED later heartbeat queued behind it — only the first line may print.
+TEST(ProvisioningRunnerTest, RunStatusChunkedDeliveryPrintsExactlyOneLine) {
+    FakeSerialPort port;
+    port.enqueueReply({
+        "[STATE] uptime=25010ms wifi=WIFI_CONNECTED ssid=manht2 ip=192.16",  // chunk boundary mid-IP
+        "8.68.91 heap=200000 monitor=idle\r\n",                              // terminator lands
+        "[STATE] uptime=60024ms wifi=WIFI_CONNECTED ssid=manht2 ip=192.168.68.91 heap=199999 monitor=idle\r\n"
+    });
+
+    std::ostringstream out, err;
+    const int rc = runStatus(port, 1, out, err);
+
+    ASSERT_EQ(rc, 0);
+    EXPECT_EQ(out.str(),
+              "[STATE] uptime=25010ms wifi=WIFI_CONNECTED ssid=manht2 ip=192.168.68.91 "
+              "heap=200000 monitor=idle\n")
+        << "exactly ONE [STATE] line — no partial-fragment echo may precede it "
+           "and no later heartbeat may follow it";
+    EXPECT_TRUE(err.str().empty());
+}
+
 // When the device never emits a [STATE] line and never closes, the deadline
 // elapses and we surface the generic TIMEOUT diagnostic. The bare message
 // (without the "(peer closed)" suffix) is what operators see when the device
@@ -400,6 +433,42 @@ TEST(ProvisioningRunnerTest, RunStatusDeadlineElapsedReportsTimeout) {
     EXPECT_NE(err.str().find("no [STATE] line received"), std::string::npos);
     // Deadline-elapsed path: NO peer-closed suffix.
     EXPECT_EQ(err.str().find("peer closed"), std::string::npos);
+}
+
+// The TIMEOUT diagnostic must carry the received-BYTE COUNT so "device sent
+// zero bytes" (dead transport / silent peer) is distinguishable from "device
+// sent bytes but no [STATE] framing" (wrong stream / protocol noise). This
+// variant scripts a totally silent device: 0 bytes.
+TEST(ProvisioningRunnerTest, RunStatusTimeoutReportsZeroBytesWhenDeviceSilent) {
+    FakeSerialPort port;
+    port.setSilentAfterQueue(true);  // no chunks at all: silent-but-connected
+
+    std::ostringstream out, err;
+    const int rc = runStatus(port, 1, out, err);
+
+    EXPECT_EQ(rc, 1);
+    EXPECT_NE(err.str().find("(0 bytes received)"), std::string::npos)
+        << "a silent device must be reported as 0 bytes received — the count "
+           "is what separates 'dead transport' from 'bytes but no framing'";
+    EXPECT_EQ(err.str().find("peer closed"), std::string::npos);
+}
+
+// Same diagnostic, N-byte variant: the device TALKED (protocol noise across
+// multiple chunks, no [STATE] marker anywhere) and the deadline still closed
+// the wait. The count must be the TOTAL accumulated across every chunk
+// (100 + 113 = 213), proving the counter tracks the whole reply buffer.
+TEST(ProvisioningRunnerTest, RunStatusTimeoutReportsByteCountWithoutStateFraming) {
+    FakeSerialPort port;
+    port.enqueueReply({std::string(100, 'x'), std::string(113, 'y')});
+    port.setSilentAfterQueue(true);
+
+    std::ostringstream out, err;
+    const int rc = runStatus(port, 1, out, err);
+
+    EXPECT_EQ(rc, 1);
+    EXPECT_NE(err.str().find("(213 bytes received)"), std::string::npos)
+        << "bytes-without-framing must report the accumulated byte total, "
+           "not 0";
 }
 
 // When the device closes the port before any [STATE] line arrives (most
@@ -443,12 +512,45 @@ TEST(ProvisioningRunnerTest, RunStatusStopsAtFirstTerminator) {
 // --- resolveSerialPort() ---------------------------------------------------
 
 // "auto" and empty are equivalent: the resolver should run auto-detect and
-// fall back to the build-time default when no glob matches. We don't have
-// a real /dev/cu.usbserial* on the build host, so the auto-detect leg
-// returns "" and the resolver returns the build-time default.
+// fall back to the build-time default when no glob matches.
+//
+// HERMETIC: the glob patterns are injected (the resolveSerialPort /
+// autoDetectSerialPort pattern-parameter seams) so the fallback leg does not
+// depend on what is physically plugged into the build host. The un-parameterised
+// form globs the REAL /dev/cu.* namespace, which made this test flip red the
+// moment an actual adapter enumerated (/dev/cu.usbserial-110 vs the hardcoded
+// -210 default). Patterns under a prefix no host's device nodes carry cannot
+// match anything, on any machine.
 TEST(ProvisioningRunnerTest, ResolveSerialPortAutoFallsBackToDefault) {
-    EXPECT_EQ(resolveSerialPort("auto"), ESP32_DEFAULT_USB_PORT);
-    EXPECT_EQ(resolveSerialPort(""), ESP32_DEFAULT_USB_PORT);
+    const std::vector<std::string> noDevice = {
+        "/dev/cu.vhsim-hermetic-none-usbserial*",
+        "/dev/cu.vhsim-hermetic-none-SLAB_USBtoUART",
+        "/dev/cu.vhsim-hermetic-none-wchusbserial*",
+    };
+    EXPECT_EQ(resolveSerialPort("auto", noDevice), ESP32_DEFAULT_USB_PORT);
+    EXPECT_EQ(resolveSerialPort("", noDevice), ESP32_DEFAULT_USB_PORT);
+}
+
+// The OTHER leg of the same contract, on the same seam: when a pattern DOES
+// match, the detected path wins over the build-time default. The "device" is
+// a plain file in a throwaway directory — glob() matches paths, not device
+// types — so both the detection and the override are scripted, not inherited
+// from the build host.
+TEST(ProvisioningRunnerTest, ResolveSerialPortAutoReturnsDetectedDevice) {
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() /
+        ("vhsim_provdetect_" + std::to_string(getpid()));
+    std::filesystem::create_directories(dir);
+    const std::string device = (dir / "cu.usbserial-UNITTEST").string();
+    { std::ofstream(device) << "node"; }
+    const std::vector<std::string> patterns = {dir.string() + "/cu.usbserial*"};
+
+    EXPECT_EQ(autoDetectSerialPort(patterns), device);
+    EXPECT_EQ(resolveSerialPort("auto", patterns), device)
+        << "a detected device must win over the build-time default port";
+
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
 }
 
 // "usb:<path>" must be the literal value the user supplied, with the
@@ -745,6 +847,40 @@ TEST(ProvisioningRunnerTest, TcpConsolePortKeepsStateLineCoalescedWithAuthAck) {
     const int rc = runStatus(*port, 1, out, err);
     EXPECT_EQ(rc, 0) << "the heartbeat that arrived with the ack must survive open()";
     EXPECT_EQ(out.str(), "[STATE] uptime=42 wifi=STA ssid=Net ip=10.0.0.5\n");
+    port->close();
+}
+
+// REGRESSION (seen twice live over the TCP console): --status printed the
+// [STATE] line TWICE — a partial fragment ending mid-IP at a chunk boundary
+// ("...ip=192.16"), then the clean full line. The live shape is exactly the
+// scripted one below: the AUTH ack coalesced with a PARTIAL heartbeat, the
+// terminator in a later chunk, and the NEXT heartbeat right behind it. The
+// full flow (open + read) over the FakeSocket seam must emit EXACTLY ONE
+// line — no raw-chunk echo, no second heartbeat.
+TEST(ProvisioningRunnerTest, TcpConsoleStatusChunkedDeliveryPrintsExactlyOneLine) {
+    auto fake = std::make_shared<vehicle_sim::pipeline::test::FakeSocket>();
+    vehicle_sim::pipeline::test::FakeConnectScript script;
+    script.connectOk = true;
+    script.recvChunks = {
+        "OK\r\n[STATE] uptime=25010ms wifi=WIFI_CONNECTED ssid=manht2 ip=192.16",  // ack + partial line (mid-IP cut)
+        "8.68.91 heap=200000 monitor=idle\r\n",                                    // terminator lands later
+        "[STATE] uptime=60024ms wifi=WIFI_CONNECTED ssid=manht2 ip=192.168.68.91 heap=199999 monitor=idle\r\n"
+    };
+    fake->enqueue("192.168.68.91", std::move(script));
+
+    auto port = createProvisioningPort("tcp:192.168.68.91:3333", fake);
+    ASSERT_NE(port, nullptr);
+    ASSERT_TRUE(port->open());
+
+    std::ostringstream out, err;
+    const int rc = runStatus(*port, 1, out, err);
+    EXPECT_EQ(rc, 0);
+    EXPECT_EQ(out.str(),
+              "[STATE] uptime=25010ms wifi=WIFI_CONNECTED ssid=manht2 ip=192.168.68.91 "
+              "heap=200000 monitor=idle\n")
+        << "exactly ONE [STATE] line: no partial-fragment echo before it, "
+           "no later heartbeat after it";
+    EXPECT_TRUE(err.str().empty());
     port->close();
 }
 
