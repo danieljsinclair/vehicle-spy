@@ -166,6 +166,14 @@ void printLedHelp(std::ostream& out);
 // transport scheme at call sites; go through that factory.
 std::string resolveSerialPort(const std::string& transport);
 
+// Same resolution with the auto-detect glob patterns injected — the seam the
+// unit suite uses to make the "auto" fallback leg hermetic against whatever
+// happens to be plugged into the build host (see ProvisioningRunner.h's
+// autoDetectSerialPort(patterns) overload). Production callers use the single
+// -argument form above.
+std::string resolveSerialPort(const std::string& transport,
+                              const std::vector<std::string>& globPatterns);
+
 // Validate CLI options against the registry
 // Returns error message if validation fails, empty string if valid
 std::string validateOptions(const CliOptions& opts, const domain::DBCTranslationService& service);

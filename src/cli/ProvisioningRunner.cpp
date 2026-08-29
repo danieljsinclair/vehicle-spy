@@ -503,13 +503,19 @@ constexpr std::array<const char*, 3> kUsbGlobPatterns = {
     "/dev/cu.wchusbserial*",
 };
 
-// Return the first path that matches any auto-detect glob pattern. The order
-// of patterns is the priority order; the first non-empty result wins. Returns
-// an empty string if no pattern matched (caller falls back to the default).
-std::string autoDetectSerialPort() {
-    for (const char* pattern : kUsbGlobPatterns) {
+// Return the first path that matches any of `patterns`. The order of patterns
+// is the priority order; the first non-empty result wins. Returns an empty
+// string if no pattern matched (caller falls back to the default).
+//
+// Pattern-parameterised so the unit suite can script "no device" and "device
+// present" deterministically: the real /dev/cu.* namespace depends on what is
+// physically plugged into the build host, so a test driving the no-arg
+// overload flips red the moment an adapter enumerates. Production callers use
+// autoDetectSerialPort() below, which supplies the standard prefixes.
+std::string autoDetectSerialPort(const std::vector<std::string>& patterns) {
+    for (const std::string& pattern : patterns) {
         glob_t globResult{};
-        if (::glob(pattern, GLOB_NOSORT, nullptr, &globResult) == 0 &&
+        if (::glob(pattern.c_str(), GLOB_NOSORT, nullptr, &globResult) == 0 &&
             globResult.gl_pathc > 0) {
             std::string first = globResult.gl_pathv[0];
             ::globfree(&globResult);
@@ -520,10 +526,17 @@ std::string autoDetectSerialPort() {
     return "";
 }
 
-std::string resolveSerialPort(const std::string& transport) {
+std::string autoDetectSerialPort() {
+    return autoDetectSerialPort(
+        std::vector<std::string>(kUsbGlobPatterns.begin(), kUsbGlobPatterns.end()));
+}
+
+std::string resolveSerialPort(const std::string& transport,
+                              const std::vector<std::string>& globPatterns) {
     // Empty or "auto" -> auto-detect, fall back to the build-time default.
     if (transport.empty() || transport == "auto") {
-        if (const std::string detected = autoDetectSerialPort(); !detected.empty()) {
+        if (const std::string detected = autoDetectSerialPort(globPatterns);
+            !detected.empty()) {
             return detected;
         }
         return ESP32_DEFAULT_USB_PORT;
@@ -535,6 +548,12 @@ std::string resolveSerialPort(const std::string& transport) {
         return transport.substr(4);
     }
     return "";
+}
+
+std::string resolveSerialPort(const std::string& transport) {
+    return resolveSerialPort(
+        transport,
+        std::vector<std::string>(kUsbGlobPatterns.begin(), kUsbGlobPatterns.end()));
 }
 
 // ===== The single provisioning transport resolver =============================
@@ -740,7 +759,13 @@ int runStatus(ISerialPort& port,
     const MatchFn match = makeStateLineMatcher();
     PollStep outcome = PollStep::KeepPolling;
     StopReason stopReason = StopReason::None;
-    NullStream sink;  // discard the per-byte echo — the [STATE] line is what we want
+    // INVARIANT: pollOnce()'s `log` (the per-chunk echo of raw received bytes)
+    // MUST see this discarding sink — NEVER a real stream. The echo is what
+    // makes runProvisioningCommand()'s AT debugging readable, but on the
+    // --status path the same bytes are the [STATE] line itself, so echoing a
+    // chunk would print a partial fragment ("...ip=192.16") ahead of the one
+    // clean line below. This is the ONLY output the success path emits.
+    NullStream sink;
     while (outcome == PollStep::KeepPolling &&
            std::chrono::steady_clock::now() < deadline) {
         outcome = pollOnce(port, match, reply, sink, stopReason);
@@ -751,19 +776,30 @@ int runStatus(ISerialPort& port,
         // are present, so this find is guaranteed to succeed.
         const std::size_t markerPos = reply.find(PROVISION_OK_STATUS);
         const std::size_t termPos = reply.find_first_of("\r\n", markerPos);
+        // EXACTLY ONE write: the first matched [STATE] line, joined across
+        // whatever chunk boundaries it arrived in (RunStatusChunked… tests
+        // pin this — no raw-chunk echo, no second heartbeat).
         out << reply.substr(markerPos, termPos - markerPos) << "\n";
         return 0;
     }
 
+    // The accumulated buffer IS the received-byte count — `reply` never drops
+    // bytes on the status path (stripStateLines() is only used by the AT
+    // substring matcher), so reply.size() is the total the device sent. It
+    // separates "device sent zero bytes" (dead transport / silent peer) from
+    // "device sent bytes but no [STATE] framing" (wrong stream, protocol
+    // noise) — two very different debugging paths that previously shared one
+    // identical TIMEOUT line.
+    const auto received = reply.size();
     // Distinguish "deadline elapsed" from "device disappeared mid-wait" so
     // the operator gets the right diagnostic — a peer-closed-without-data
     // means the device is most likely mid-reboot, not silent.
     if (stopReason == StopReason::PeerClosed) {
         err << "[provision] TIMEOUT: no [STATE] line received within "
-            << timeoutS << "s (peer closed)\n";
+            << timeoutS << "s (peer closed; " << received << " bytes received)\n";
     } else {
         err << "[provision] TIMEOUT: no [STATE] line received within "
-            << timeoutS << "s\n";
+            << timeoutS << "s (" << received << " bytes received)\n";
     }
     return 1;
 }
