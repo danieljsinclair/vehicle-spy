@@ -186,6 +186,14 @@ make native                                  # ensure host binary matches your t
 ./build-native/vehicle-sim --connect tcp:<esp32-ip> --vehicle tesla   # sanity: watch decoded rows
 ```
 
+**Vehicle wake-up before timing-sensitive tests.** After a cold connect the Tesla does not emit
+the brake-light message (`0x3E2`, `VCLEFT_brakeLightStatus`) for the first ~5-8 s (observed
+4.7-8.1 s across connects; +18 ms once the vehicle is already awake). `vehicle-sim` decodes 100%
+of frames from the first line, so this is vehicle-side bus wake-up, not tooling latency — a cold
+connect also shows the `dbc_signal_count` column ramping 1→6 as each mapped CAN ID first appears
+on the bus. Wake the vehicle (open a door / touch the screen) and allow ~10 s after connecting
+before judging start-response timing.
+
 ### THE LIVE PIPELINE (the headline command)
 
 `vehicle-sim` decodes CAN to CSV on stdout; `engine-sim-cli --live-telemetry` reads that CSV on
@@ -237,6 +245,15 @@ The engine-sim-cli status line should show RPM climbing off idle, `Running`, a g
 ```
 [ 3240 RPM] [S:0 I:1] ferrari_f136  Running [Gas: 0% B:0.0] [Gear:DA2] [ 26 mph] [UR: 0] [THREADED]
 ```
+
+### Stopping the engine — stop/start semantics, not ignition-off
+
+Engine stop on brake + PARK is gated by **drive-selected-since-start** — by design. Observed live
+2026-08-29: with the engine `Running`, brake + PARK held for 9.6 s while the gear had never left
+P → no stop (a correct refusal); in a replay whose capture contains a real D period, the twin
+fires `Stopping` within 13 ms of gear→P. Test recipe: brake → engine starts → select D (briefly
+is enough) → hold brake → shift to P → engine stops. v1 boundary: door-open / exit-vehicle stop
+is unwired (0x311 not captured, no door column in the CSV).
 
 ### Known twin defects — expect these, do not chase them as new bugs
 
