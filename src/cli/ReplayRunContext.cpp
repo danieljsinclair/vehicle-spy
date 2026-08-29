@@ -10,6 +10,7 @@
 #include "vehicle-sim/pipeline/PipelineReplay.h"
 #include "vehicle-sim/domain/VehicleSimExceptions.h"
 
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -54,6 +55,19 @@ int ReplayRunContext::run(
     narrative << "Replaying " << forLog(filePath) << "\n";
 
     pipeline::ConsoleProgressReporter progress(narrative);
+    // In-band skip hint for downstream machine consumers (engine-sim-cli
+    // --live-telemetry): when THIS replay drops a prefix (--start-from), one
+    // comment line before the CSV header declares how much of the recording
+    // was already skipped, so the consumer's display timecode can stay
+    // relative to the recording's TRUE start instead of restarting at
+    // [00:00]. Comment-prefixed: any standard CSV reader ignores it. Human
+    // consumers (no --stdout-csv) never see it. Must precede createStdoutSink
+    // — the sink writes the CSV header in its constructor.
+    if (stdoutCsv && startFromS >= 0.0) {
+        std::cout << "#vs-start-from " << std::fixed << std::setprecision(3)
+                  << startFromS << "\n";
+        std::cout.flush();
+    }
     auto stdoutSink = telemetry::createStdoutSink(stdoutCsv, std::cout,
                                                   translationService.getVehicleId());
     pipeline::CsvStdoutReporter csvReporter(*stdoutSink);

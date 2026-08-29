@@ -30,7 +30,12 @@ public:
      *                    the human-readable progress/summary to stderr, so the
      *                    stdout stream stays a clean pipeable CSV.
      * @param startFromS  Replay-only: skip rows whose recorded timestamp is
-     *                    before this many seconds. Negative means "no skip".
+     *                    before this many seconds (measured from the
+     *                    recording's first frame). Negative means "no skip".
+     *                    When skipping with stdoutCsv, a "#vs-start-from <s>"
+     *                    comment line is emitted before the CSV header so
+     *                    downstream consumers can keep their timecode
+     *                    relative to the recording's true start.
      *                    Paces the replay to the file's recorded timestamps.
      * @return 0 on success, 1 on failure (file missing, logger invalid, unknown vehicle)
      */
