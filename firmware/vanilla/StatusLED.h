@@ -102,6 +102,12 @@ public:
     //   WIFI_CONNECTED          -> WIFI_CONNECTED      (station mode, ready)
     //   WIFI_AP_MODE_DEFAULT    -> AP_MODE             (AP because nothing was configured)
     //   WIFI_AP_MODE_AUTH_FAIL  -> ERROR_AUTH_FAILURE  (AP because credentials failed)
+    //   WIFI_AP_MODE_NO_AP      -> WIFI_SEARCHING      (AP because the configured SSID was not
+    //                                                   visible to the scan — reason 201; the
+    //                                                   device keeps looking for it, and this
+    //                                                   is NOT a credential error, so no error
+    //                                                   pattern. Existing pattern reused per
+    //                                                   LED-semantics spec — no new choreography.)
     //   (any other)             -> WIFI_SEARCHING      (fail-safe default)
     //
     // wifiState is an int (WiFiState::State ordinal) to keep this method

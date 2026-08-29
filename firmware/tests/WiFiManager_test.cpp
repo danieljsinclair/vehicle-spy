@@ -182,19 +182,23 @@ TEST_F(WiFiManagerTest, StateName_ReturnsCorrectNames) {
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_CONNECTED), "WIFI_CONNECTED");
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE_DEFAULT), "WIFI_AP_MODE_DEFAULT");
     EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL), "WIFI_AP_MODE_AUTH_FAIL");
+    EXPECT_STREQ(WiFiManager::stateName(WiFiState::State::WIFI_AP_MODE_NO_AP), "WIFI_AP_MODE_NO_AP");
     EXPECT_STREQ(WiFiManager::stateName(static_cast<WiFiState::State>(99)), "UNKNOWN");
 }
 
-// ── AP-state model: DEFAULT (never configured) vs AUTH_FAIL (credentials failed) ──
+// ── AP-state model: DEFAULT (never configured) vs AUTH_FAIL (credentials failed)
+// vs NO_AP (configured SSID not visible to the scan — reason 201) ──────────────
 // Being an AP is a first-class state with a REASON. The split is the state model
-// itself; the LED maps it (AP_MODE / ERROR_AUTH_FAILURE) purely downstream.
+// itself; the LED maps it (AP_MODE / ERROR_AUTH_FAILURE / WIFI_SEARCHING) purely
+// downstream.
 
-TEST_F(WiFiManagerTest, IsApModeState_TrueOnlyForBothApStates) {
+TEST_F(WiFiManagerTest, IsApModeState_TrueOnlyForApStates) {
     EXPECT_FALSE(WiFiState::isApModeState(WiFiState::State::WIFI_DISCONNECTED));
     EXPECT_FALSE(WiFiState::isApModeState(WiFiState::State::WIFI_CONNECTING));
     EXPECT_FALSE(WiFiState::isApModeState(WiFiState::State::WIFI_CONNECTED));
     EXPECT_TRUE(WiFiState::isApModeState(WiFiState::State::WIFI_AP_MODE_DEFAULT));
     EXPECT_TRUE(WiFiState::isApModeState(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL));
+    EXPECT_TRUE(WiFiState::isApModeState(WiFiState::State::WIFI_AP_MODE_NO_AP));
 }
 
 TEST_F(WiFiManagerTest, HasStoredCredentials_ReturnsTrueWhenCredentialsExist) {
@@ -323,6 +327,57 @@ TEST_F(WiFiManagerTest, Connecting_ConnectFailedAndTimeout_FallsBackToApMode) {
 
     EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
     EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+}
+
+// ── AP-not-found vs wrong-creds: the two AP-fallback families must be
+// distinguishable in the reported state (live field issue: reason=201
+// (NO_AP_FOUND — the AP was never visible, creds never attempted) reported
+// WIFI_AP_MODE_AUTH_FAIL, and the operator concluded their (correct)
+// password was wrong). Scan-miss escalates to WIFI_AP_MODE_NO_AP; genuine
+// auth/handshake rejections keep WIFI_AP_MODE_AUTH_FAIL.
+
+TEST_F(WiFiManagerTest, IsApScanMiss_TrueOnlyForNoApFound) {
+    EXPECT_FALSE(isApScanMiss(0));
+    EXPECT_FALSE(isApScanMiss(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT));  // 15
+    EXPECT_FALSE(isApScanMiss(WIFI_REASON_802_1X_AUTH_FAILED));      // 23
+    EXPECT_FALSE(isApScanMiss(WIFI_REASON_AUTH_FAIL));               // 202
+    EXPECT_FALSE(isApScanMiss(WIFI_REASON_BEACON_TIMEOUT));          // 200
+    EXPECT_TRUE(isApScanMiss(WIFI_REASON_NO_AP_FOUND));              // 201
+}
+
+TEST_F(WiFiManagerTest, Connecting_NoApFoundAndTimeout_FallsBackToNoApState) {
+    // The live field path: the scan never sees the configured SSID, the radio
+    // delivers reason=201 (WL_NO_SSID_AVAIL), and the initial-connect budget
+    // expires. The AP fallback must report WIFI_AP_MODE_NO_AP (NOT
+    // AUTH_FAIL): the credentials were never attempted, so blaming them
+    // misleads the operator.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "real-ssid");
+    prefsMock.setValue("wifi", "pass_0", "real-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->init();
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // The radio drops with NO_AP_FOUND: the AP is not visible to the scan.
+    // (A link-level reason: no auth campaign is armed — see isLinkLevelDrop.)
+    wifiManager->onDisconnected(WIFI_REASON_NO_AP_FOUND);  // 201
+    ASSERT_FALSE(wifiManager->getContext().pendingAuthFail);
+
+    // The Arduino core surfaces the scan miss as WL_NO_SSID_AVAIL; the budget
+    // expires -> AP fallback.
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1000);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_NO_AP)
+        << "scan-miss (reason=201) must escalate to the distinct NO_AP state";
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+    EXPECT_EQ(wifiManager->getContext().escalatedToApReason, WIFI_REASON_NO_AP_FOUND)
+        << "wifi_ap_fallback event must keep reporting the true reason";
+    EXPECT_EQ(wifiMock.getApSsid(), std::string(WiFiConfig::AP_SSID))
+        << "the config AP must still come up (same fallback behaviour)";
 }
 
 TEST_F(WiFiManagerTest, Connecting_ConnectFailedBeforeTimeout_RetriesStoredCredentials) {
@@ -725,6 +780,34 @@ TEST_F(WiFiManagerTest, AuthFail_ThreeLoopsExhausted_EscalatesToApMode) {
     // And it records the true auth reason it escalated on.
     EXPECT_EQ(wifiManager->getContext().escalatedToApReason, 202)
         << "escalatedToApReason must record the auth reason that triggered the campaign";
+}
+
+TEST_F(WiFiManagerTest, HandshakeTimeoutExhausted_StillEscalatesToAuthFailState) {
+    // Genuine handshake failure (4WAY_HANDSHAKE_TIMEOUT, reason=15 — the
+    // wrong-password family) must keep escalating to WIFI_AP_MODE_AUTH_FAIL:
+    // the NO_AP split only reclassifies scan-misses (reason=201), never the
+    // genuine auth/handshake rejections.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    wifiManager->onDisconnected(WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);  // 15
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    const int totalAttempts =
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_COUNT) *
+        static_cast<int>(WiFiConfig::WIFI_AUTH_STRATEGY_LOOP_COUNT);
+    uint32_t now = 100;
+    for (int i = 0; i < totalAttempts; ++i) {
+        now = fireRetryTick(*wifiManager, wifiMock, now);
+    }
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL)
+        << "reason=15 (genuine handshake failure) must keep the AUTH_FAIL label";
+    EXPECT_EQ(wifiManager->getContext().escalatedToApReason,
+              WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT);
 }
 
 TEST_F(WiFiManagerTest, AuthFail_SuccessfulConnectResetsCampaign) {
@@ -1323,6 +1406,39 @@ TEST_F(WiFiManagerTest, ApModeAuthFail_AfterRetryInterval_AttemptsStaReassociati
            "(self-heal from AP-mode 'stuck' state)";
     EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_STA)
         << "WiFi mode must switch back to STA for the re-association attempt";
+}
+
+TEST_F(WiFiManagerTest, ApModeNoAp_AfterRetryInterval_AttemptsStaReassociation) {
+    // Self-heal parity with AUTH_FAIL: when the device has escalated to
+    // WIFI_AP_MODE_NO_AP (AP out of range/band/hidden), the periodic STA
+    // retry fires so the device reconnects when the AP becomes visible again.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
+    driveToConnected(*wifiManager, wifiMock);
+
+    wifiManager->onDisconnected(WIFI_REASON_NO_AP_FOUND);  // 201
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+    wifiManager->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1000);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_NO_AP);
+
+    // First tick in AP mode arms the retry timer; before the interval the
+    // AP must stay stable.
+    const uint32_t armMs = 1000000;
+    wifiManager->update(armMs);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_NO_AP);
+    ASSERT_EQ(wifiManager->getContext().apModeStaRetryMs, armMs);
+
+    // Tick past the retry interval — the handler fires the STA re-association.
+    wifiMock.setStatus(WiFiMock::Status::WL_IDLE_STATUS);
+    const uint32_t nextAttempt = armMs + WiFiConfig::WIFI_AP_MODE_STA_RETRY_INTERVAL_MS + 1;
+    wifiManager->update(nextAttempt);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "NO_AP fallback must self-heal: retry STA when the AP may be back in range";
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_STA);
 }
 
 TEST_F(WiFiManagerTest, ApModeAuthFail_StaRetrySucceeds_RecoversToConnected) {

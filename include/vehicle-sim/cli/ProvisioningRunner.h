@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace vehicle_sim::pipeline {
 class ISocket;
@@ -127,6 +128,13 @@ std::string describeProvisioningOpenFailure(const std::string& transport);
 // this directly when you need to distinguish "found USB" from "nothing".)
 std::string autoDetectSerialPort();
 
+// Same detection over caller-supplied glob patterns — the seam the unit suite
+// uses to script "no device" / "device present" deterministically. The real
+// /dev/cu.* namespace depends on what is physically plugged into the build
+// host, so a test driving the no-arg overload flips red the moment an adapter
+// enumerates. Production callers use the no-arg form above.
+std::string autoDetectSerialPort(const std::vector<std::string>& globPatterns);
+
 // Provisioning reply substrings the firmware emits over USB serial.
 //   ATSETWIFI<ssid>,<pass>\r -> "OK WiFi credentials stored. Rebooting to connect..."
 //   ATCLEARWIFI\r            -> "OK WiFi credentials cleared. Rebooting..."
@@ -151,8 +159,9 @@ constexpr int PROVISION_TIMEOUT_S = 120;
 
 // --status wait budget. The heartbeat is on a 5-second cadence, so waiting up
 // to 8s gives one full cycle plus jitter headroom. A timeout is reported as
-// "no [STATE] line received in Ns" — the device is still alive, but no
-// heartbeat has been emitted yet.
+// "no [STATE] line received in Ns (B bytes received)" — the byte count
+// separates a silent peer (0 bytes) from a device that talked without ever
+// framing a [STATE] line.
 constexpr int PROVISION_STATUS_TIMEOUT_S = 8;
 
 // Auto-discovery wait budget (UDP broadcast discovery). The ESP32 floods
