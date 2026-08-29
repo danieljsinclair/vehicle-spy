@@ -74,6 +74,51 @@ std::unique_ptr<ISerialPort> createTcpConsolePort(
     int port,
     std::shared_ptr<vehicle_sim::pipeline::ISocket> socket);
 
+/**
+ * THE single provisioning transport resolver: map a --connect transport onto
+ * the port that speaks it. Every provisioning command AND --status obtains
+ * its port here — there is no other transport dispatch at any call site.
+ *   "auto" / ""             -> PosixSerialPort on the auto-detected /dev/cu.*
+ *                              (ESP32_DEFAULT_USB_PORT backstop); "auto" is
+ *                              just usb:-with-auto-detection and flows through
+ *                              the SAME scheme entry.
+ *   "usb:<path>"            -> PosixSerialPort on <path> verbatim
+ *   "tcp:<host>[:<port>]"   -> TcpConsolePort on the AUTH'd console; port
+ *                              defaults to 3333 (the firmware console port)
+ *
+ * The tcp: form is parsed by the engine's single canonical parser
+ * (vehicle_sim::pipeline::parseTcpTarget) — the grammar is never duplicated.
+ * Scheme dispatch is a prefix->builder table (see the .cpp), so adding a
+ * transport later is one ISerialPort implementation plus one table entry; no
+ * call-site changes anywhere (OCP).
+ *
+ * Returns nullptr when the transport cannot be resolved (malformed tcp:
+ * target, empty usb: path, or an unknown scheme). Validation rejects those
+ * earlier with a user-facing error, so a nullptr here is a defensive
+ * backstop that surfaces as a "could not resolve" diagnostic.
+ */
+std::unique_ptr<ISerialPort> createProvisioningPort(const std::string& transport);
+
+/**
+ * Same resolution with the TCP console's ISocket injected, so the unit suite
+ * can script the AUTH handshake + replies with a FakeSocket — no real socket,
+ * no real device. The usb: forms ignore the socket. Production calls the
+ * overload above, which wires a real PosixSocket.
+ */
+std::unique_ptr<ISerialPort> createProvisioningPort(
+    const std::string& transport,
+    std::shared_ptr<vehicle_sim::pipeline::ISocket> socket);
+
+/**
+ * Operator-facing diagnostic when a resolved port fails to open(): names the
+ * console kind, its endpoint, and the scheme-appropriate likely cause — e.g.
+ * "USB serial /dev/cu.usbserial-110 (device detached or wrong path)" or
+ * "TCP console 192.168.68.91:3333 (connect or AUTH failed; ...)". Routed
+ * through the same scheme table as the factory, so a new transport brings
+ * its own diagnostic with it.
+ */
+std::string describeProvisioningOpenFailure(const std::string& transport);
+
 // Auto-detect the ESP32's USB serial port by globbing the standard macOS
 // prefixes (/dev/cu.usbserial*, /dev/cu.SLAB_USBtoUART, /dev/cu.wchusbserial*).
 // Returns the first match, or "" if none matched. Used by the USB-first leg of
@@ -149,7 +194,8 @@ constexpr int AUTO_DISCOVERY_TIMEOUT_S = 12;
  * Test seam: the overload taking an injected ISerialPort lets unit tests run
  * the full dispatch (flag -> AT command selection -> frame bytes) without a
  * real device. The (opts, out, err) form resolves opts.transport via the
- * universal connect selector (auto-detect or usb:<path>) and opens a real port.
+ * single transport resolver (auto / usb:<path> / tcp:<host>[:<port>] — see
+ * createProvisioningPort) and opens a real port.
  */
 [[nodiscard]] int runProvisioning(const WifiProvisioningOptions& opts,
                                   ISerialPort& port,

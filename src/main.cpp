@@ -157,56 +157,23 @@ std::string autoDiscoverESP32() {
     return devices.front().tcpConnectionString();
 }
 
-// --status: print a [STATE] snapshot from the device. Short-circuits BEFORE
-// the generic provisioning dispatch because status_requested also makes
-// wifi.active()/isProvisioning() return true, and runProvisioning() returns
-// failure ("No provisioning operation") when no real provisioning op is set
-// — which is exactly the case for a pure --status invocation.
-//
-// Resolution order (USB-first, then network):
-//   1. USB serial — if the user gave --connect usb:/path, open it; otherwise
-//      autoDetectSerialPort() globs the standard /dev/cu.* prefixes. A
-//      detected device resolves INSTANTLY (no broadcast, no wait). Open it
-//      and read the next [STATE] heartbeat line.
-//   2. No USB device — UDP broadcast discovery (AUTO_DISCOVERY_TIMEOUT_S)
-//      to learn the device's TCP address, then open a TCP console connection
-//      and read the next [STATE] heartbeat line. The firmware serves
-//      [STATE] heartbeats over TCP to an authenticated client (the device
-//      writes them to its adopted client via TcpServerManager), so the TCP
-//      console port authenticates ("AUTH <token>" → "OK") before reading —
-//      the same handshake the live TCP transport does. The heartbeat is on a
-//      5s cadence, so PROVISION_STATUS_TIMEOUT_S covers one cycle + jitter.
-//   3. Nothing found — clean failure (no hanging on a wrong default port).
-int runStatusFlow(const vehicle_sim::cli::CliOptions& opts) {
-    // 1. USB-first.
-    std::string usbPath;
-    if (opts.wifi.transport.rfind("usb:", 0) == 0) {
-        usbPath = opts.wifi.transport.substr(4);
-    } else {
-        usbPath = vehicle_sim::cli::autoDetectSerialPort();
+// Resolve the --status transport to a concrete TARGET STRING (not a port):
+// an explicit --connect usb:<path> / tcp:<host>[:<port>] target is used
+// verbatim; auto/empty runs the USB auto-detect glob first (instant — no
+// broadcast, no wait) and falls back to UDP broadcast discovery
+// (AUTO_DISCOVERY_TIMEOUT_S), whose result is a "tcp:<ip>:<port>" target.
+// The target — never a pre-built port — is handed to the single provisioning
+// port factory, so a discovered device re-enters the SAME flow an explicit
+// --connect tcp:... takes. Returns "" when nothing was found.
+std::string resolveStatusTarget(const vehicle_sim::cli::CliOptions& opts) {
+    const std::string& t = opts.wifi.transport;
+    if (!t.empty() && t != "auto") {
+        return t;  // explicit usb:/tcp: target — validation has shaped it
     }
-    if (!usbPath.empty()) {
-        auto port = vehicle_sim::cli::createSerialPort(usbPath);
-        if (!port->open()) {
-            // Name the port that failed so the operator sees WHICH device
-            // path failed — mirrors runProvisioning()'s diagnostic.
-            std::cerr << "[provision] Failed to open serial port "
-                      << vehicle_sim::cli::forLog(usbPath) << "\n";
-            return 1;
-        }
-        const int rc = vehicle_sim::cli::runStatus(*port, vehicle_sim::cli::PROVISION_STATUS_TIMEOUT_S,
-                                                   std::cout, std::cerr);
-        // runStatus already returns 1 on timeout / peer-closed with a stderr
-        // diagnostic; close the port before returning the rc.
-        port->close();
-        return rc;
+    if (const std::string detected = vehicle_sim::cli::autoDetectSerialPort();
+        !detected.empty()) {
+        return "usb:" + detected;
     }
-
-    // 2. No USB device — discover the device's TCP address, then read the
-    //    [STATE] heartbeat over a TCP console connection. We learn the
-    //    address via UDP broadcast discovery (the device floods beacons) and
-    //    parse host/port with the canonical TCP-target parser so the result
-    //    is byte-identical to what --connect tcp:<ip>:<port> would resolve.
     std::cout << "No USB serial device found; listening for ESP32 discovery "
                  "beacons on UDP port " << vehicle_sim::discovery::DISCOVERY_PORT << "...\n";
     // Narrow `discovered`'s scope with an if-init-statement (cpp:S6004) —
@@ -214,46 +181,61 @@ int runStatusFlow(const vehicle_sim::cli::CliOptions& opts) {
     // the enclosing scope where the clean-failure path could read a stale
     // result.
     if (auto discovered = autoDiscoverESP32(); !discovered.empty()) {
-        std::string host;
-        int port = 3333;  // firmware console/CAN TCP port; parseTcpTarget
-                          // applies this default when no port is in the target.
-        // discovered is "tcp:<ip>:<port>" — parse with the canonical parser.
-        // If parsing fails (defensive: discovery always emits a valid
-        // tcp: string), fall back to reporting the address as proof of life.
-        if (!vehicle_sim::pipeline::parseTcpTarget(discovered, host, port)) {
-            std::cout << "ESP32 reachable at " << discovered
-                      << " (could not parse TCP address — use "
-                         "--connect tcp:<ip>:<port> --status, or "
-                         "--discover to scan)\n";
-            return 0;
-        }
-
         std::cout << "ESP32 reachable at " << discovered
-                  << "; reading [STATE] over TCP console...\n";
-        auto consolePort = vehicle_sim::cli::createTcpConsolePort(host, port);
-        if (!consolePort->open()) {
-            // open() failed at connect or AUTH — the device is on the
-            // network (discovery saw it) but the console session didn't
-            // come up. Surface both facts so the operator can distinguish
-            // "device alive, console unreachable" from "no device".
-            std::cerr << "[provision] Failed to open TCP console to "
-                      << vehicle_sim::cli::forLog(host) << ":" << port
-                      << " (device discovered at " << discovered
-                      << " — AUTH/connect failed; the device may be mid-reboot "
-                         "or the auth token may differ)\n";
-            return 1;
-        }
-        const int rc = vehicle_sim::cli::runStatus(*consolePort, vehicle_sim::cli::PROVISION_STATUS_TIMEOUT_S,
-                                                   std::cout, std::cerr);
-        consolePort->close();
-        return rc;
+                  << "; reading [STATE] over the device console...\n";
+        return discovered;  // "tcp:<ip>:<port>"
+    }
+    return "";
+}
+
+// --status: print a [STATE] snapshot from the device. Short-circuits BEFORE
+// the generic provisioning dispatch because status_requested also makes
+// wifi.active()/isProvisioning() return true, and runProvisioning() returns
+// failure ("No provisioning operation") when no real provisioning op is set
+// — which is exactly the case for a pure --status invocation.
+//
+// ONE flow for every transport: resolve the target string, hand it to the
+// single provisioning port factory (createProvisioningPort — the scheme
+// dispatch lives there, not here), open, read the next [STATE] heartbeat
+// line. There is no "USB status" vs "TCP status" branch: USB and TCP are
+// interchangeable ISerialPorts, and the firmware serves [STATE] heartbeats
+// on both (the TCP console authenticates first — "AUTH <token>" → "OK",
+// the same handshake the live TCP transport does). The heartbeat is on a 5s
+// cadence, so PROVISION_STATUS_TIMEOUT_S covers one cycle + jitter.
+int runStatusFlow(const vehicle_sim::cli::CliOptions& opts) {
+    const std::string target = resolveStatusTarget(opts);
+    if (target.empty()) {
+        // Nothing found — clean failure (no hanging on a wrong default port).
+        std::cerr << "[provision] No ESP32 found on USB serial or the network. "
+                     "Connect the device over USB for [STATE] reads, or use "
+                     "--discover to scan the network manually.\n";
+        return 1;
     }
 
-    // 3. Clean failure.
-    std::cerr << "[provision] No ESP32 found on USB serial or the network. "
-                 "Connect the device over USB for [STATE] reads, or use "
-                 "--discover to scan the network manually.\n";
-    return 1;
+    auto port = vehicle_sim::cli::createProvisioningPort(target);
+    if (!port) {
+        // Unresolvable target (defensive: validation screens user input and
+        // discovery emits well-formed tcp: strings) — name what failed.
+        std::cerr << "[provision] Could not resolve provisioning transport '"
+                  << vehicle_sim::cli::forLog(target) << "'\n";
+        return 1;
+    }
+    if (!port->open()) {
+        // Name the console that failed (kind + endpoint + likely cause) so
+        // the operator sees WHICH device path/host failed — the scheme table
+        // owns the wording.
+        std::cerr << "[provision] Failed to open "
+                  << vehicle_sim::cli::forLog(
+                         vehicle_sim::cli::describeProvisioningOpenFailure(target))
+                  << "\n";
+        return 1;
+    }
+    const int rc = vehicle_sim::cli::runStatus(*port, vehicle_sim::cli::PROVISION_STATUS_TIMEOUT_S,
+                                               std::cout, std::cerr);
+    // runStatus already returns 1 on timeout / peer-closed with a stderr
+    // diagnostic; close the port before returning the rc.
+    port->close();
+    return rc;
 }
 
 // Handle --connect auto: discover ESP32 and assign to connect_target.

@@ -1,6 +1,7 @@
 #include "vehicle-sim/cli/ProvisioningRunner.h"
 #include "vehicle-sim/cli/LogSanitizer.h"
 #include "vehicle-sim/pipeline/ISocket.h"
+#include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "vehicle-sim/pipeline/PosixSocket.h"
 
 #include <fcntl.h>
@@ -13,6 +14,7 @@
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -534,6 +536,135 @@ std::string resolveSerialPort(const std::string& transport) {
     return "";
 }
 
+// ===== The single provisioning transport resolver =============================
+//
+// Every provisioning command AND --status obtains its port through
+// createProvisioningPort() below — there is no other transport dispatch at
+// any call site. Scheme dispatch is data, not a switch: a prefix->entry
+// table, so adding a transport later (ble:) is one ISerialPort implementation
+// plus one table entry; no call-site changes anywhere (OCP). "auto" is not a
+// scheme of its own: it normalizes onto usb:-with-auto-detection and flows
+// through the same entry.
+
+namespace {
+
+// Build the USB serial console port for a "usb:<path>" target (the path is
+// verbatim after the prefix). The socket seam is unused on this scheme.
+std::unique_ptr<ISerialPort> buildUsbPort(
+    const std::string& target,
+    const std::shared_ptr<vehicle_sim::pipeline::ISocket>& /*socket*/) {
+    const std::string path = target.substr(4);
+    if (path.empty()) return nullptr;
+    return createSerialPort(path);
+}
+
+// Build the AUTH'd TCP console port for a "tcp:<host>[:<port>]" target.
+// Host/port parsing is delegated to the engine's single canonical parser
+// (parseTcpTarget) — the tcp: grammar exists in exactly one place.
+std::unique_ptr<ISerialPort> buildTcpPort(
+    const std::string& target,
+    const std::shared_ptr<vehicle_sim::pipeline::ISocket>& socket) {
+    std::string host;
+    int port = 3333;  // firmware console/CAN TCP port; parseTcpTarget applies
+                      // this default when the target carries no explicit port.
+    if (!vehicle_sim::pipeline::parseTcpTarget(target, host, port)) {
+        return nullptr;
+    }
+    return createTcpConsolePort(host, port, socket);
+}
+
+// Operator-facing endpoint of a target: the /dev path, or "host:port". The
+// parse is the same canonical parser the builder uses.
+std::string usbEndpoint(const std::string& target) { return target.substr(4); }
+
+std::string tcpEndpoint(const std::string& target) {
+    std::string host;
+    int port = 3333;
+    if (!vehicle_sim::pipeline::parseTcpTarget(target, host, port)) {
+        return target;  // malformed; show what failed
+    }
+    return host + ":" + std::to_string(port);
+}
+
+// One transport scheme: everything the resolver needs to build AND name a
+// port of that kind. `openFailureHint` is part of the entry because the
+// likely cause of a failed open() is scheme-specific (a wrong /dev path vs a
+// rejected AUTH).
+struct PortScheme {
+    const char* prefix;  // scheme prefix in the --connect grammar
+    const char* label;   // console kind in operator-facing lines
+    std::unique_ptr<ISerialPort> (*build)(
+        const std::string& target,
+        const std::shared_ptr<vehicle_sim::pipeline::ISocket>& socket);
+    std::string (*endpoint)(const std::string& target);
+    const char* openFailureHint;
+};
+
+constexpr std::array<PortScheme, 2> kPortSchemes{{
+    {"usb:", "USB serial", buildUsbPort, usbEndpoint,
+     "device detached or wrong path"},
+    {"tcp:", "TCP console", buildTcpPort, tcpEndpoint,
+     "connect or AUTH failed; the device may be mid-reboot or the auth token "
+     "may differ"},
+}};
+
+// The entry whose prefix matches the target, or nullptr for an unknown
+// scheme.
+const PortScheme* matchScheme(const std::string& target) {
+    for (const auto& scheme : kPortSchemes) {
+        if (target.rfind(scheme.prefix, 0) == 0) return &scheme;
+    }
+    return nullptr;
+}
+
+// Normalize a transport onto scheme space. "auto" (and the empty default)
+// resolve through the USB auto-detect glob (with the build-time default-port
+// backstop) into an explicit "usb:<path>" target; everything else is already
+// a scheme target and passes through verbatim.
+std::string normalizeTransport(const std::string& transport) {
+    if (transport.empty() || transport == "auto") {
+        return "usb:" + resolveSerialPort(transport);
+    }
+    return transport;
+}
+
+// Console kind for the operator-facing progress lines ("USB serial" /
+// "TCP console") — routed through the scheme table, never a call-site branch
+// on the transport.
+std::string provisioningConsoleLabel(const std::string& transport) {
+    const PortScheme* scheme = matchScheme(normalizeTransport(transport));
+    return scheme != nullptr ? std::string(scheme->label) : "device console";
+}
+
+}  // namespace
+
+std::unique_ptr<ISerialPort> createProvisioningPort(
+    const std::string& transport,
+    std::shared_ptr<vehicle_sim::pipeline::ISocket> socket) {
+    const std::string target = normalizeTransport(transport);
+    const PortScheme* scheme = matchScheme(target);
+    return scheme != nullptr ? scheme->build(target, std::move(socket)) : nullptr;
+}
+
+std::unique_ptr<ISerialPort> createProvisioningPort(const std::string& transport) {
+    return createProvisioningPort(
+        transport, std::make_shared<vehicle_sim::pipeline::PosixSocket>());
+}
+
+std::string describeProvisioningOpenFailure(const std::string& transport) {
+    const std::string target = normalizeTransport(transport);
+    const PortScheme* scheme = matchScheme(target);
+    if (scheme == nullptr) {
+        // Unknown scheme (validation rejects these earlier): show what failed
+        // to resolve. The caller sanitizes at the sink.
+        return transport;
+    }
+    std::ostringstream oss;
+    oss << scheme->label << " " << scheme->endpoint(target) << " ("
+        << scheme->openFailureHint << ")";
+    return oss.str();
+}
+
 int runProvisioningCommand(ISerialPort& port,
                            const std::string& command,
                            const std::string& expect,
@@ -638,34 +769,30 @@ int runProvisioning(const WifiProvisioningOptions& opts,
                     std::ostream& out,
                     std::ostream& err) {
     if (!port.open()) {
-        // Name the port that failed. The caller resolves the transport
-        // (auto-detect or usb:<path>) before reaching this overload, so the
-        // port we tried is whatever the injected ISerialPort was opened on.
-        // The injected test port has no name; in production, the name comes
-        // from createSerialPort's argument. We extract it via ISerialPort's
-        // name accessor — but the seam doesn't expose that today. Log the
-        // transport string instead (sanitized) and the runtime default.
-        const std::string resolved = resolveSerialPort(opts.transport);
-        err << "[provision] Failed to open serial port " << forLog(resolved)
-            << "\n";
+        // Name the console that failed, with its scheme-appropriate likely
+        // cause. The scheme table owns the wording, so a new transport
+        // brings its own diagnostic with it.
+        err << "[provision] Failed to open "
+            << forLog(describeProvisioningOpenFailure(opts.transport)) << "\n";
         return 1;
     }
 
+    const std::string console = provisioningConsoleLabel(opts.transport);
     int rc = 1;
     if (opts.status_requested) {
         out << "[provision] Reading [STATE] snapshot from device\n";
         rc = runStatus(port, PROVISION_STATUS_TIMEOUT_S, out, err);
     } else if (opts.clear_wifi_creds) {
-        out << "[provision] Clearing WiFi credentials over USB serial\n";
+        out << "[provision] Clearing WiFi credentials over " << console << "\n";
         rc = runProvisioningCommand(port, "ATCLEARWIFI", PROVISION_OK_CLEARED,
                                     PROVISION_TIMEOUT_S, out);
     } else if (opts.reboot_esp32) {
-        out << "[provision] Rebooting ESP32 over USB serial\n";
+        out << "[provision] Rebooting ESP32 over " << console << "\n";
         rc = runProvisioningCommand(port, "ATREBOOT", PROVISION_OK_REBOOT,
                                     PROVISION_TIMEOUT_S, out);
     } else if (!opts.set_wifi_ssid.empty()) {
         out << "[provision] Setting WiFi credentials (SSID="
-            << forLog(opts.set_wifi_ssid) << ") over USB serial\n";
+            << forLog(opts.set_wifi_ssid) << ") over " << console << "\n";
         const std::string command =
             "ATSETWIFI" + opts.set_wifi_ssid + "," + opts.set_wifi_pass;
         rc = runProvisioningCommand(port, command, PROVISION_OK_STORED,
@@ -687,16 +814,17 @@ int runProvisioning(const WifiProvisioningOptions& opts,
     // descriptor, so every provisioning run leaked one fd (and the trailing
     // close() only reclaimed the second). One owner, one open, one close.
     //
-    // The universal --connect transport (auto / usb:<path>) is resolved into
-    // a concrete /dev/cu.* path here, BEFORE we open the port. The dispatcher
-    // takes the resolved port's ISerialPort, never the transport string.
-    const std::string resolved = resolveSerialPort(opts.transport);
-    if (resolved.empty()) {
+    // The universal --connect transport (auto / usb:<path> /
+    // tcp:<host>[:<port>]) is resolved into a concrete port here by the single
+    // provisioning transport resolver, BEFORE we open it — the SAME factory
+    // every provisioning command and --status goes through. The dispatcher
+    // takes the resolved ISerialPort, never the transport string.
+    auto port = createProvisioningPort(opts.transport);
+    if (!port) {
         err << "[provision] Could not resolve provisioning transport '"
             << forLog(opts.transport) << "'\n";
         return 1;
     }
-    auto port = createSerialPort(resolved);
     return runProvisioning(opts, *port, out, err);
 }
 
