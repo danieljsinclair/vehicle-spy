@@ -166,8 +166,9 @@ std::string autoDiscoverESP32() {
 // port factory, so a discovered device re-enters the SAME flow an explicit
 // --connect tcp:... takes. Returns "" when nothing was found.
 std::string resolveStatusTarget(const vehicle_sim::cli::CliOptions& opts) {
-    const std::string& t = opts.wifi.transport;
-    if (!t.empty() && t != "auto") {
+    // Narrow `t`'s scope with an if-init-statement (cpp:S6004) — it is only
+    // consulted to spot the explicit-target case.
+    if (const std::string& t = opts.wifi.transport; !t.empty() && t != "auto") {
         return t;  // explicit usb:/tcp: target — validation has shaped it
     }
     if (const std::string detected = vehicle_sim::cli::autoDetectSerialPort();

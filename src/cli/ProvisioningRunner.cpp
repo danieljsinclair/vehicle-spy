@@ -16,6 +16,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -551,9 +552,10 @@ namespace {
 // Build the USB serial console port for a "usb:<path>" target (the path is
 // verbatim after the prefix). The socket seam is unused on this scheme.
 std::unique_ptr<ISerialPort> buildUsbPort(
-    const std::string& target,
+    std::string_view target,
     const std::shared_ptr<vehicle_sim::pipeline::ISocket>& /*socket*/) {
-    const std::string path = target.substr(4);
+    // substr on a view yields a view; the serial-port factory owns a string.
+    const std::string path(target.substr(4));
     if (path.empty()) return nullptr;
     return createSerialPort(path);
 }
@@ -562,7 +564,7 @@ std::unique_ptr<ISerialPort> buildUsbPort(
 // Host/port parsing is delegated to the engine's single canonical parser
 // (parseTcpTarget) — the tcp: grammar exists in exactly one place.
 std::unique_ptr<ISerialPort> buildTcpPort(
-    const std::string& target,
+    std::string_view target,
     const std::shared_ptr<vehicle_sim::pipeline::ISocket>& socket) {
     std::string host;
     int port = 3333;  // firmware console/CAN TCP port; parseTcpTarget applies
@@ -575,13 +577,15 @@ std::unique_ptr<ISerialPort> buildTcpPort(
 
 // Operator-facing endpoint of a target: the /dev path, or "host:port". The
 // parse is the same canonical parser the builder uses.
-std::string usbEndpoint(const std::string& target) { return target.substr(4); }
+std::string usbEndpoint(std::string_view target) {
+    return std::string(target.substr(4));
+}
 
-std::string tcpEndpoint(const std::string& target) {
+std::string tcpEndpoint(std::string_view target) {
     std::string host;
     int port = 3333;
     if (!vehicle_sim::pipeline::parseTcpTarget(target, host, port)) {
-        return target;  // malformed; show what failed
+        return std::string(target);  // malformed; show what failed
     }
     return host + ":" + std::to_string(port);
 }
@@ -594,9 +598,9 @@ struct PortScheme {
     const char* prefix;  // scheme prefix in the --connect grammar
     const char* label;   // console kind in operator-facing lines
     std::unique_ptr<ISerialPort> (*build)(
-        const std::string& target,
+        std::string_view target,
         const std::shared_ptr<vehicle_sim::pipeline::ISocket>& socket);
-    std::string (*endpoint)(const std::string& target);
+    std::string (*endpoint)(std::string_view target);
     const char* openFailureHint;
 };
 

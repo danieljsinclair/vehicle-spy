@@ -757,8 +757,9 @@ std::string validateProvisioningTransport(const CliOptions& opts) {
     if (t.empty() || t == "auto" || t.rfind("usb:", 0) == 0) return "";
     if (t.rfind("tcp:", 0) == 0) {
         std::string host;
-        int port = 0;
-        if (vehicle_sim::pipeline::parseTcpTarget(t, host, port)) return "";
+        // Narrow `port`'s scope with an if-init-statement (cpp:S6004) — the
+        // parse result is only consulted in this condition.
+        if (int port = 0; vehicle_sim::pipeline::parseTcpTarget(t, host, port)) return "";
         std::ostringstream oss;
         oss << "Invalid TCP provisioning target '" << forLog(t)
             << "'. Use --connect tcp:<host>[:<port>] with a non-empty host "
