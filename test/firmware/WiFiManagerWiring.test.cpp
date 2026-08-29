@@ -413,7 +413,13 @@ TEST(WiFiManagerWiringTest, RetriesBeginWithStoredCredsAfterDisconnectInterval) 
 // Spec §6: with STORED_NVS creds, past the initial-connect cap
 // (WIFI_INITIAL_CONNECT_MAX_RETRIES * WIFI_CONNECT_RETRY_INTERVAL_MS = 300000ms)
 // and no connection, fall back to AP mode (stop retrying STA).
-TEST(WiFiManagerWiringTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
+TEST(WiFiManagerWiringTest, InitialConnectTimeoutStoredNvsStaysConnectingWhenNoAuthReason) {
+    // RESILIENT AUTH / LINK-LEVEL DROP: initial-connect timeout with stored NVS
+    // creds only falls back to AP mode when the last-known failure is an
+    // AUTH-MECHANISM failure. With no auth failure recorded (lastDisconnectReason
+    // == 0, e.g. a mesh AP rebooting) the device must KEEP RETRYING STA — the
+    // mesh will be back in 2–30 minutes. Escalating to AP mode here is the bug
+    // the auth-fallback fix corrected.
     WiringHarness h;
     h.build();
     h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
@@ -425,8 +431,8 @@ TEST(WiFiManagerWiringTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     h.wifi.statusVal = WL_IDLE_STATUS;  // never connects
     h.app->update(cap + 1);
 
-    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL));
-    EXPECT_GE(h.wifi.softApCalls, 1);
+    EXPECT_EQ(h.app->getWiFiState(), static_cast<int>(WiFiState::State::WIFI_CONNECTING));
+    EXPECT_EQ(h.wifi.softApCalls, 0);
 }
 
 // ── Stage 4: auth-failure disconnect goes straight to AP ─────────────────────

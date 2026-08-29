@@ -1,0 +1,17 @@
+// GENERATED FILE — DO NOT EDIT.
+// Source of truth: assets/examples.md (next to the top-level CMakeLists.txt).
+// This file is regenerated at every CMake configure step via
+// `file(READ)` + `configure_file(@ONLY)`. Edit the markdown; the .cpp follows.
+
+#include "vehicle-sim/cli/ExamplesContent.h"
+
+namespace vehicle_sim::cli {
+
+// The full `--examples` payload. The renderer in CliOptions.cpp parses the
+// `# section:` / `# topic:` markers and renders them under headings; comment
+// lines and unknown markers are stripped.
+const std::string kExamplesContent = R"VSE_EXAMPLES(
+@VEHICLE_SIM_EXAMPLES_BODY@
+)VSE_EXAMPLES";
+
+}  // namespace vehicle_sim::cli

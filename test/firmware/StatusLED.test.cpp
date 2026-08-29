@@ -210,7 +210,7 @@ TEST(StatusLEDTest, ClientConnectedPattern_SolidOn) {
     led.update(0);
 
     // Should be ON
-    EXPECT_TRUE(mock.getCurrentState()) << "Should be solid ON";
+    EXPECT_TRUE(mock.getCurrentState()) << "Should be Solid ON";
 
     // Should stay ON regardless of time passing
     mock.advanceTime(1000, led);
@@ -243,17 +243,17 @@ TEST(StatusLEDTest, ApModePattern_LongTinyTinySeparator) {
     // LONG_FLASH (800ms) ON
     EXPECT_TRUE(mock.getCurrentState()) << "Should start with LONG_FLASH ON";
 
-    // After 800ms, TINY_GAP (100ms) OFF
+    // After 800ms, SHORT_GAP (200ms) OFF — gap between LONG and first TINY
     mock.advanceTime(800, led);
-    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in TINY_GAP";
+    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in SHORT_GAP";
 
-    // After 100ms, TINY_FLASH (100ms) ON
-    mock.advanceTime(100, led);
+    // After 200ms, TINY_FLASH (100ms) ON
+    mock.advanceTime(200, led);
     EXPECT_TRUE(mock.getCurrentState()) << "Should be ON for first TINY_FLASH";
 
     // After 100ms, TINY_GAP (100ms) OFF
     mock.advanceTime(100, led);
-    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in second TINY_GAP";
+    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in TINY_GAP";
 
     // After 100ms, TINY_FLASH (100ms) ON
     mock.advanceTime(100, led);
@@ -325,6 +325,36 @@ TEST(StatusLEDTest, AuthFailurePattern_Error3PulsePlus2TinyPlusSeparator) {
     EXPECT_FALSE(mock.getCurrentState()) << "Third SHORT_GAP OFF";
     mock.advanceTime(200, led);
 
+    // 3×TINY_PULSE
+    for (int i = 0; i < 3; i++) {
+        EXPECT_TRUE(mock.getCurrentState()) << "TINY_FLASH " << (i+1) << " ON";
+        mock.advanceTime(100, led);
+        EXPECT_FALSE(mock.getCurrentState()) << "TINY_GAP " << (i+1) << " OFF";
+        mock.advanceTime(100, led);
+    }
+
+    // SEPARATOR (2000ms) OFF
+    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in SEPARATOR";
+}
+
+// ── TEST: ERROR_RECOVERABLE Pattern (ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR) ───────
+
+TEST(StatusLEDTest, ErrorRecoverablePattern_Error3PulsePlus2TinyPlusSeparator) {
+    MockStatusLEDOutput mock;
+    firmware::StatusLED led(&mock);
+
+    led.init();
+    mock.currentTime = 0;
+
+    led.setPattern(firmware::StatusLED::Pattern::ERROR_RECOVERABLE);
+    led.update(0);
+
+    // Skip through ERROR_3_PULSE (6 steps, 1200ms total)
+    for (int i = 0; i < 3; i++) {
+        mock.advanceTime(200, led);  // SHORT_FLASH ON
+        mock.advanceTime(200, led);  // SHORT_GAP OFF
+    }
+
     // 2×TINY_PULSE
     // First TINY_FLASH (100ms) ON
     EXPECT_TRUE(mock.getCurrentState()) << "First TINY_FLASH ON";
@@ -341,36 +371,6 @@ TEST(StatusLEDTest, AuthFailurePattern_Error3PulsePlus2TinyPlusSeparator) {
     // Second TINY_GAP (100ms) OFF
     EXPECT_FALSE(mock.getCurrentState()) << "Second TINY_GAP OFF";
     mock.advanceTime(100, led);
-
-    // SEPARATOR (2000ms) OFF
-    EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in SEPARATOR";
-}
-
-// ── TEST: ERROR_RECOVERABLE Pattern (ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR) ───────
-
-TEST(StatusLEDTest, ErrorRecoverablePattern_Error3PulsePlus3TinyPlusSeparator) {
-    MockStatusLEDOutput mock;
-    firmware::StatusLED led(&mock);
-
-    led.init();
-    mock.currentTime = 0;
-
-    led.setPattern(firmware::StatusLED::Pattern::ERROR_RECOVERABLE);
-    led.update(0);
-
-    // Skip through ERROR_3_PULSE (6 steps, 1200ms total)
-    for (int i = 0; i < 3; i++) {
-        mock.advanceTime(200, led);  // SHORT_FLASH ON
-        mock.advanceTime(200, led);  // SHORT_GAP OFF
-    }
-
-    // 3×TINY_PULSE
-    for (int i = 0; i < 3; i++) {
-        EXPECT_TRUE(mock.getCurrentState()) << "TINY_FLASH " << (i+1) << " ON";
-        mock.advanceTime(100, led);
-        EXPECT_FALSE(mock.getCurrentState()) << "TINY_GAP " << (i+1) << " OFF";
-        mock.advanceTime(100, led);
-    }
 
     // SEPARATOR (2000ms) OFF
     EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in SEPARATOR";
@@ -404,7 +404,7 @@ TEST(StatusLEDTest, ErrorNoNtpServicePattern_Error3PulsePlus1TinyPlusSeparator) 
     EXPECT_FALSE(mock.getCurrentState()) << "Should be OFF in SEPARATOR";
 }
 
-// ── TEST: FATAL_UNRECOVERABLE SOS Pattern (3 short, 3 long, 3 short, SEPARATOR) ────
+// ── TEST: FATAL_UNRECOVERABLE_SOS SOS Pattern (3 short, 3 long, 3 short, SEPARATOR) ────
 
 TEST(StatusLEDTest, FatalUnrecoverablePattern_SOS) {
     MockStatusLEDOutput mock;
@@ -413,7 +413,7 @@ TEST(StatusLEDTest, FatalUnrecoverablePattern_SOS) {
     led.init();
     mock.currentTime = 0;
 
-    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
     led.update(0);
 
     // 3 short (SHORT_FLASH 200ms ON, SHORT_GAP 200ms OFF)
@@ -461,7 +461,7 @@ TEST(StatusLEDTest, OffPattern_SolidOff) {
     led.update(0);
 
     // Should be OFF
-    EXPECT_FALSE(mock.getCurrentState()) << "Should be solid OFF";
+    EXPECT_FALSE(mock.getCurrentState()) << "Should be Solid OFF";
 
     // Should stay OFF regardless of time passing
     mock.advanceTime(1000, led);
@@ -492,7 +492,7 @@ TEST(StatusLEDTest, AllErrorPatternsStartWithError3Pulse) {
         firmware::StatusLED::Pattern::ERROR_AUTH_FAILURE,
         firmware::StatusLED::Pattern::ERROR_RECOVERABLE,
         firmware::StatusLED::Pattern::ERROR_NO_NTP_SERVICE,
-        firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE
+        firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS
     };
 
     for (auto pattern : errorPatterns) {
@@ -526,22 +526,22 @@ TEST(StatusLEDTest, AllErrorPatternsStartWithError3Pulse) {
 
 TEST(StatusLEDTest, ErrorPatternsDistinguishableByLength) {
     // Error patterns should be distinguishable by their total length after ERROR_3_PULSE
-    // ERROR_AUTH_FAILURE: 6 + 4 + 1 = 11 steps
-    // ERROR_RECOVERABLE: 6 + 6 + 1 = 13 steps
+    // ERROR_AUTH_FAILURE: 6 + 6 + 1 = 13 steps
+    // ERROR_RECOVERABLE: 6 + 4 + 1 = 11 steps
     // ERROR_NO_NTP_SERVICE: 6 + 2 + 1 = 9 steps
-    // FATAL_UNRECOVERABLE: 6 + 6 + 6 + 1 = 19 steps
+    // FATAL_UNRECOVERABLE_SOS: 6 + 6 + 6 + 1 = 19 steps
 
     using namespace firmware;
 
     auto [authSteps, authCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_AUTH_FAILURE);
     auto [recovSteps, recovCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_RECOVERABLE);
     auto [ntpSteps, ntpCount] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
-    auto [fatalSteps, fatalCount] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    auto [fatalSteps, fatalCount] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
 
-    EXPECT_EQ(authCount, 11) << "ERROR_AUTH_FAILURE should have 11 steps";
-    EXPECT_EQ(recovCount, 13) << "ERROR_RECOVERABLE should have 13 steps";
+    EXPECT_EQ(authCount, 13) << "ERROR_AUTH_FAILURE should have 13 steps";
+    EXPECT_EQ(recovCount, 11) << "ERROR_RECOVERABLE should have 11 steps";
     EXPECT_EQ(ntpCount, 9) << "ERROR_NO_NTP_SERVICE should have 9 steps";
-    EXPECT_EQ(fatalCount, 19) << "FATAL_UNRECOVERABLE should have 19 steps";
+    EXPECT_EQ(fatalCount, 19) << "FATAL_UNRECOVERABLE_SOS should have 19 steps";
 
     // All should be different
     std::vector<size_t> counts = {authCount, recovCount, ntpCount, fatalCount};
@@ -631,8 +631,8 @@ TEST(StatusLEDTest, PatternSwitching_ImmediateInterruption) {
     led.init();
     mock.currentTime = 0;
 
-    // Start with a pattern that has long steps (FATAL_UNRECOVERABLE SOS pattern)
-    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    // Start with a pattern that has long steps (FATAL_UNRECOVERABLE_SOS SOS pattern)
+    led.setPattern(firmware::StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
     led.update(0);
 
     // Advance partway through the first step (but not complete it)

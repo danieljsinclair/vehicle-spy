@@ -17,11 +17,16 @@ struct DiscoveryConfig {
     static constexpr uint32_t TCP_PORT = 3333;
     static constexpr uint16_t OTA_HTTP_PORT = 80;
 
-    // Backoff schedule (0-2min rapid, 2-5min 10s, 5-10min 30s, >10min 60s hard cap)
+    // Backoff schedule (0-2min rapid, 2-5min 10s, 5-10min 30s, >10min 10s).
+    // The >10min tier is capped at 10s (not 60s) so the device NEVER broadcasts
+    // slower than the CLI's AUTO_DISCOVERY_TIMEOUT_S (12s) auto-discover window —
+    // otherwise a long-uptime device could go >12s between beacons and the CLI
+    // hunt would miss it. Cap ≤ AUTO_DISCOVERY_TIMEOUT_S guarantees ≥1 broadcast
+    // lands inside the wait window.
     static constexpr uint32_t DISCOVERY_INTERVAL_FAST_MS = 500;
     static constexpr uint32_t DISCOVERY_INTERVAL_2_5_MIN_MS = 10000;
     static constexpr uint32_t DISCOVERY_INTERVAL_5_10_MIN_MS = 30000;
-    static constexpr uint32_t DISCOVERY_INTERVAL_SLOW_MS = 60000;
+    static constexpr uint32_t DISCOVERY_INTERVAL_SLOW_MS = 10000;
 
     static constexpr uint32_t DISCOVERY_AGE_2_MIN_MS = 120000;
     static constexpr uint32_t DISCOVERY_AGE_5_MIN_MS = 300000;

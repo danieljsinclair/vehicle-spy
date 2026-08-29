@@ -9,7 +9,7 @@
 #include <array>
 #include <memory>
 #include <iostream>
-#include <iostream>
+#include <optional>
 
 namespace esp32_firmware {
 
@@ -54,6 +54,12 @@ namespace WiFiState {
         bool pendingAuthFail = false;  // an auth-mechanism failure is in progress; rotate strategies instead of bailing
         int authFailStrategyIndex = 0; // index into the strategy list (0 = best/least-disruptive)
         int authFailStrategyLoop = 0;  // how many full passes through the strategy list we have made
+        // AP-MODE RECOVERY: timestamp of the last attempt to re-associate from
+        // WIFI_AP_MODE_AUTH_FAIL. Set to 0 when entering the AP state so the
+        // first retry attempt happens promptly (one full interval later). Only
+        // consulted in WIFI_AP_MODE_AUTH_FAIL (not DEFAULT — there is nothing
+        // to retry if no credentials are configured).
+        uint32_t apModeStaRetryMs = 0;
     };
 }
 
@@ -165,6 +171,12 @@ struct WiFiConfig {
     static constexpr uint32_t WIFI_CONNECT_FIRST_RETRIES_COUNT = 5;
     static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
     static constexpr uint32_t WIFI_INITIAL_CONNECT_MAX_RETRIES = 60;  // 5 minutes at 5s interval
+    // AP-MODE RECOVERY: once the device has escalated to WIFI_AP_MODE_AUTH_FAIL
+    // (real auth rejection, campaign exhausted), periodically try STA again so
+    // the device self-heals when the operator fixes the password or the AP
+    // reboots with the same credentials. Does NOT apply to WIFI_AP_MODE_DEFAULT
+    // (no creds configured — there is nothing to retry).
+    static constexpr uint32_t WIFI_AP_MODE_STA_RETRY_INTERVAL_MS = 300000;  // 5 min
     // RESILIENT AUTH (firmware bug fix): an auth-failure reason (AUTH_FAIL 202,
     // 4WAY_HANDSHAKE_TIMEOUT 15, 802_1X_AUTH_FAILED 23) is NOT proof of a wrong
     // password. The same code can be triggered by a wrong AUTH MECHANISM (e.g. a
@@ -198,8 +210,19 @@ struct WiFiConfig {
     static constexpr uint32_t LONG_OUTAGE_MS = 30000;  // safety: restart TCP server after this disconnect duration even if IP is unchanged
 };
 
+// Forward declaration: full definition later in this header (after
+// WiFiManager). WiFiManager holds it by unique_ptr, which only needs the
+// complete type at the destructor instantiation point (the .cpp).
+class AuthCampaign;
+
 // WiFiManager - orchestrates WiFi state machine and credentials
 class WiFiManager {
+    // AuthCampaign is a private collaborator — it needs to read/write the
+    // shared connect-loop fields on the Context (pendingAuthFail, strategy
+    // counters, retry/attempt counters, IP-tracking fields, escalation
+    // reason). Friendship scopes that access without widening the public API.
+    friend class AuthCampaign;
+
 public:
     // Callback for NTP initialization
     using NtpInitCallback = std::function<void()>;
@@ -288,12 +311,24 @@ private:
     IWiFiStateHandler* getStateHandler(WiFiState::State state);
 
     // Drive the resilient-auth strategy rotation while a campaign is active
-    // (pendingAuthFail == true). Rotates through progressively-harder reset/retry
-    // STRATEGIES and loops the list WIFI_AUTH_STRATEGY_LOOP_COUNT times; once
-    // EXHAUSTED it escalates to AP mode. Returns a transition; when its nextState
-    // equals the current state AND neither flag is set, the caller falls through
-    // to the normal CONNECTING handler (retry loop stays alive underneath).
+    // (pendingAuthFail == true). Delegates to the AuthCampaign member, which
+    // owns the strategy index/loop counters and applies the rotating
+    // reset/retry strategies. Returns a transition; when its nextState equals
+    // the current state AND neither flag is set, the caller falls through to
+    // the normal CONNECTING handler (retry loop stays alive underneath).
     StateTransition runAuthCampaign(uint32_t now);
+
+    // Discovery-backoff reset (resilient-reconnect req-2). Exposed so
+    // AuthCampaign can fire it on a successful mid-campaign connect without
+    // making AuthCampaign a friend of every WiFiManager state.
+    void fireDiscoveryResetCallback();
+
+    // Read-only view of the connect-loop counter, for AuthCampaign's tick().
+    uint32_t reconnectAttempts() const { return ctx_.reconnectAttempts; }
+
+    // AuthCampaign member — owns the resilient-auth strategy rotation while a
+    // campaign is in progress. See AuthCampaign for the SRP rationale.
+    std::unique_ptr<AuthCampaign> authCampaign_;
 };
 
 // Testable pure functions - standalone in namespace for testability
@@ -308,6 +343,24 @@ bool shouldRestartTcpServerForReconnect(const std::string& newIp, const std::str
 // True for the reason codes that indicate an auth-mechanism failure we MUST
 // exhaust strategies for before giving up (NOT treated as wrong-password).
 bool isAuthMechanismFailure(int reason);
+// LINK-LEVEL / RECOVERABLE drops (testable without hardware):
+// True for reason codes that mean "the AP is unreachable, keep retrying" —
+// e.g. a mesh AP rebooting delivers reason 0/200/201 in rapid succession. These
+// MUST NOT trigger AP-mode escalation; the mesh will be back in 2-30 minutes and
+// the device will re-associate naturally. The complementary classification to
+// isAuthMechanismFailure() — together they partition the disconnect-reason
+// space: auth failures exhaust a campaign; link-level drops retry forever.
+bool isLinkLevelDrop(int reason);
+// RESILIENT AUTH: named strategy values (the index used to rotate through
+// progressively-harder reset/retry strategies when an auth failure is in
+// progress). The integer values are load-bearing: applyAuthStrategy() and
+// WiFiConfig::WIFI_AUTH_STRATEGY_COUNT both index by ordinal. Keep the
+// enumerators contiguous starting at 0 and stable.
+enum class AuthStrategy : int {
+    BestReassociate = 0,  // plain WiFi.begin() re-association (least disruptive)
+    ResetStaMode = 1,     // disconnect() + STA mode reset, then begin()
+    FullRadioCycle = 2    // full radio OFF/STA cycle + begin() (most disruptive)
+};
 // Apply the reset/retry strategy at `index` to the IWiFi abstraction using the
 // resolved credentials. Index is clamped to [0, WIFI_AUTH_STRATEGY_COUNT).
 void applyAuthStrategy(IWiFi& wifi, CredentialSource source,
@@ -316,5 +369,57 @@ void applyAuthStrategy(IWiFi& wifi, CredentialSource source,
 // Given the current strategy index/loop and the configured counts, return true
 // when ALL connection opportunities are exhausted (escalate to AP mode).
 bool isAuthCampaignExhausted(int strategyIndex, int loopIndex);
+
+// AuthCampaign — owns the resilient-auth rotation logic for the duration of an
+// auth-failure campaign. SRP extraction: the campaign's strategy index/loop
+// counters, "apply current strategy + advance rotation" step, and exhaustion
+// check are a distinct responsibility from the WiFi state machine itself.
+//
+// The campaign fully owns the retry loop while active: it applies the rotating
+// strategy, detects a genuine connect (to reset + transition), and escalates
+// to AP when exhausted. The normal CONNECTING handler must NOT also issue
+// begin() during the campaign, so WiFiManager::update() short-circuits to
+// AuthCampaign::tick() while pendingAuthFail is set.
+//
+// Cross-cutting state (shared with the normal connect loop) stays in
+// WiFiManager::Context: pendingAuthFail flag, lastRetryMs, reconnectAttempts,
+// disconnectStartMs, lastConnectedIp, escalatedToApReason, lastDisconnectReason.
+// AuthCampaign reads/writes these directly through WiFiManager so the public
+// observable behaviour is identical to the pre-extraction monolithic
+// runAuthCampaign().
+class AuthCampaign {
+public:
+    AuthCampaign(IWiFi& wifi, IPreferences& prefs, ISerial& serial,
+                 WiFiManager& owner, const char* bakedSsid, const char* bakedPass);
+
+    // One retry tick. Returns a transition; when nextState equals the current
+    // state AND neither flag is set, the caller falls through to the normal
+    // CONNECTING handler (retry loop stays alive underneath).
+    StateTransition tick(uint32_t now);
+
+private:
+    // Handle the "already connected mid-campaign" case: reset the rotation
+    // and transition to CONNECTED (tcpRestart + NTP init, same as the normal
+    // handler). Returns nullopt when not yet connected.
+    std::optional<StateTransition> checkCampaignSuccess(uint32_t now);
+
+    // Apply the current strategy to the radio + trace.
+    void applyCurrentStrategy(uint32_t now);
+
+    // Advance the strategy index (wrap within the list) and the loop counter
+    // (advance on full-wrap). Updates lastRetryMs + reconnectAttempts.
+    void advanceRotation(uint32_t now);
+
+    // Returns a transition to WIFI_AP_MODE_AUTH_FAIL when the campaign has
+    // exhausted every strategy/loop combination, std::nullopt otherwise.
+    std::optional<StateTransition> checkExhaustion();
+
+    IWiFi& wifi_;
+    IPreferences& prefs_;
+    ISerial& serial_;
+    WiFiManager& owner_;
+    const char* bakedSsid_;
+    const char* bakedPass_;
+};
 
 } // namespace esp32_firmware

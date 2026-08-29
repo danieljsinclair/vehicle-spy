@@ -433,7 +433,7 @@ $(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_SRCS)
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
-	arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++14"
+	arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++17"
 	$(ESPTOOL) \
 		--chip esp32 \
 		$(ESPTOOL_MERGE_CMD) --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin --target-offset 0x0 \
@@ -1643,7 +1643,7 @@ set-wifi-creds: $(VEHICLE_SIM) ## Provision WiFi credentials (USB preferred, net
 	@if [ -n "$(ESP32_PORT)" ] && [ -e "$(ESP32_PORT)" ]; then \
 		echo "${YELLOW}--- Configuring WiFi credentials over USB serial ---${NC}"; \
 		echo "SSID: $(ESP32_WIFI_SSID)"; \
-		./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --port "$(ESP32_PORT)"; \
+		./build-native/vehicle-sim --set-wifi-creds "$(ESP32_WIFI_SSID)" "$(ESP32_WIFI_PASS)" --connect "usb:$(ESP32_PORT)"; \
 		_rc=$$?; \
 		if [ $$_rc -ne 0 ]; then \
 			exit 1; \

@@ -10,8 +10,8 @@ namespace vehicle_sim::pipeline {
  * Writes the decoded signal stream to "<base>.csv" — the derived, decoded
  * view of a capture. The schema is the existing 11-column telemetry layout
  * (timestamp + 10 signal columns); the underlying TraceLogger is reused so
- * output stays byte-identical to the legacy --log-csv path. Phase 3 may
- * expand the schema to 12 columns.
+ * output stays byte-identical to the historical --log-csv path. Phase 3
+ * may expand the schema to 12 columns.
  *
  * Raw capture is the source of truth; this CSV is derived from it.
  *

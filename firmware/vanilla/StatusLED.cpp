@@ -41,10 +41,11 @@ static constexpr LEDStep PATTERN_CLIENT_CONNECTED[] = {
     {LEDState::ON, StatusLEDConstants::SEPARATOR_MS}  // 2s - cycles but stays ON forever
 };
 
-// AP_MODE: LONG_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR OFF
+// AP_MODE: LONG_FLASH ON, SHORT_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR OFF
+// 0.8s ON, 0.2s OFF, 0.1s ON, 0.1s OFF, 0.1s ON, then 2.0s separator (implied cycle reset)
 static constexpr LEDStep PATTERN_AP_MODE[] = {
     {LEDState::ON,  StatusLEDConstants::LONG_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
@@ -57,26 +58,8 @@ static constexpr LEDStep PATTERN_OTA_IN_PROGRESS[] = {
     {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS}
 };
 
-// ERROR_AUTH_FAILURE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
+// ERROR_AUTH_FAILURE: ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR (3 dots, 3 flashes)
 static constexpr LEDStep PATTERN_AUTH_FAILURE[] = {
-    // ERROR_3_PULSE (6 steps)
-    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
-    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
-    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
-    // 2×TINY_PULSE (4 steps)
-    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
-    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
-    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
-    // SEPARATOR
-    {LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
-};
-
-// ERROR_RECOVERABLE: ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR
-static constexpr LEDStep PATTERN_ERROR_RECOVERABLE[] = {
     // ERROR_3_PULSE (6 steps)
     {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
@@ -87,6 +70,24 @@ static constexpr LEDStep PATTERN_ERROR_RECOVERABLE[] = {
     // 3×TINY_PULSE (6 steps)
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
+    // SEPARATOR
+    {LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
+};
+
+// ERROR_RECOVERABLE: ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR (3 dots, 2 flashes)
+static constexpr LEDStep PATTERN_ERROR_RECOVERABLE[] = {
+    // ERROR_3_PULSE (6 steps)
+    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
+    {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
+    {LEDState::OFF, StatusLEDConstants::SHORT_GAP_MS},
+    // 2×TINY_PULSE (4 steps)
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
     {LEDState::OFF, StatusLEDConstants::TINY_GAP_MS},
     {LEDState::ON,  StatusLEDConstants::TINY_FLASH_MS},
@@ -111,7 +112,7 @@ static constexpr LEDStep PATTERN_ERROR_NO_NTP_SERVICE[] = {
     {LEDState::OFF, StatusLEDConstants::SEPARATOR_MS}
 };
 
-// FATAL_UNRECOVERABLE: SOS - 3 short, 3 long, 3 short, SEPARATOR
+// FATAL_UNRECOVERABLE_SOS: SOS - 3 short, 3 long, 3 short, SEPARATOR
 static constexpr LEDStep PATTERN_FATAL_UNRECOVERABLE[] = {
     // 3 short (6 steps)
     {LEDState::ON,  StatusLEDConstants::SHORT_FLASH_MS},
@@ -167,7 +168,7 @@ std::pair<const LEDStep*, size_t> StatusLED::getPatternSteps(Pattern pattern) {
             return {PATTERN_ERROR_RECOVERABLE, sizeof(PATTERN_ERROR_RECOVERABLE) / sizeof(LEDStep)};
         case Pattern::ERROR_NO_NTP_SERVICE:
             return {PATTERN_ERROR_NO_NTP_SERVICE, sizeof(PATTERN_ERROR_NO_NTP_SERVICE) / sizeof(LEDStep)};
-        case Pattern::FATAL_UNRECOVERABLE:
+        case Pattern::FATAL_UNRECOVERABLE_SOS:
             return {PATTERN_FATAL_UNRECOVERABLE, sizeof(PATTERN_FATAL_UNRECOVERABLE) / sizeof(LEDStep)};
         case Pattern::OFF:
         default:
@@ -209,7 +210,7 @@ const char* StatusLED::getPatternName(Pattern pattern) {
         case Pattern::ERROR_AUTH_FAILURE:   return "ERROR_AUTH_FAILURE";
         case Pattern::ERROR_RECOVERABLE:    return "ERROR_RECOVERABLE";
         case Pattern::ERROR_NO_NTP_SERVICE: return "ERROR_NO_NTP_SERVICE";
-        case Pattern::FATAL_UNRECOVERABLE:  return "FATAL_UNRECOVERABLE";
+        case Pattern::FATAL_UNRECOVERABLE_SOS:  return "FATAL_UNRECOVERABLE_SOS";
         default: return "UNKNOWN_PATTERN";
     }
 }

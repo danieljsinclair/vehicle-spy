@@ -142,7 +142,12 @@ namespace Constants {
     static constexpr int32_t NTP_RETRY_INTERVAL_MS = 15000;
     static constexpr uint32_t NTP_SYNC_RETRY_MAX = 3;
 
-    // Discovery backoff schedule (milliseconds)
+    // Discovery backoff schedule (milliseconds). NOTE: these Constants are legacy
+    // (pre-vanilla-extraction); the authoritative schedule lives in
+    // firmware/vanilla/DiscoveryManager.h (DiscoveryConfig) and is what
+    // FirmwareApp/DiscoveryManager::discoveryIntervalMs actually uses. The
+    // >10min tier is capped at 10s so beacons never outpace the CLI's 12s
+    // AUTO_DISCOVERY_TIMEOUT_S hunt window. Kept here only for reference.
     static constexpr uint32_t DISCOVERY_INTERVAL_FAST_MS = 500;
     static constexpr uint32_t DISCOVERY_INTERVAL_1_5_MIN_MS = 3000;
     static constexpr uint32_t DISCOVERY_INTERVAL_5_10_MIN_MS = 6000;
