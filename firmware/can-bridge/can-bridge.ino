@@ -163,7 +163,12 @@ namespace Constants {
     static constexpr uint32_t DISCOVERY_AGE_30_MIN_MS = 1800000;
 
     // Firmware info
-    static constexpr const char* FIRMWARE_VERSION = "0.2.0";
+    // The firmware version lives in firmware/vanilla/FirmwareVersion.h (single
+    // source of truth): the semver there is composed at build time with the
+    // git hash + build date (scripts/gen_firmware_build_info.sh ->
+    // FirmwareBuildInfo.h) and served by the ATI banner and the [STATE] fw=
+    // field. The FIRMWARE_VERSION constant that used to sit here was
+    // referenced nowhere (dead) and was removed.
     static constexpr const char* DEVICE_NAME = "ESP32-CAN-Bridge";
 
     // Factory reset pin hook (future implementation)

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 #include "vanilla/AtCommandDispatcher.h"
+#include "vanilla/FirmwareVersion.h"  // FIRMWARE_BUILD_VERSION (ATI/ATHELO value)
 #include "mocks/ArduinoMock.h"
 
 using namespace esp32_firmware;
@@ -375,7 +376,10 @@ TEST_F(AtCommandDispatcherTest, HandleWhitespaceOnlyCommand) {
 
 TEST_F(AtCommandDispatcherTest, HandleTcpCommand_Ati_PrintsToTcpClient) {
     // ATI must reach the TCP client framed as "<banner>\r\r>", never serial.
-    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("ESP32 CAN Bridge v0.1\r\r>")));
+    // The banner carries the build-identifying version (semver + git hash +
+    // date) composed from the single source of truth, so it can never go
+    // stale the way the old hardcoded "v0.1" did.
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION "\r\r>")));
     EXPECT_CALL(tcpClientMock, flush());
     EXPECT_CALL(serialMock, println(::testing::_)).Times(0);  // not serial
 
@@ -393,7 +397,7 @@ TEST_F(AtCommandDispatcherTest, HandleTcpCommand_Unknown_PrintsQuestionToTcp) {
 
 TEST_F(AtCommandDispatcherTest, HandleTcpCommand_Ati_UnknownDoesNotCrossToSerial) {
     // Belt-and-suspenders: a TCP ATI must NOT also appear on the serial line.
-    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("ESP32 CAN Bridge v0.1\r\r>")));
+    EXPECT_CALL(tcpClientMock, print(::testing::StrEq("ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION "\r\r>")));
     EXPECT_CALL(tcpClientMock, flush());
     EXPECT_CALL(serialMock, println(::testing::_)).Times(0);
 
@@ -574,9 +578,10 @@ TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtPc_DeactivatesMonitor) {
 
 TEST_F(AtCommandDispatcherTest, HandleTcpCommand_AtHeLo_ReturnsHeloResponse) {
     // ATHELO echoes the device discovery banner including the device ID hex.
+    // FIRMWARE= carries the build-identifying version (single source of truth).
     EXPECT_CALL(tcpClientMock, print(::testing::AllOf(
         ::testing::HasSubstr("ACK DEVICE=ESP32-CAN-Bridge"),
-        ::testing::HasSubstr("FIRMWARE=0.2.0"),
+        ::testing::HasSubstr("FIRMWARE=" FIRMWARE_BUILD_VERSION),
         ::testing::HasSubstr("DEVICEID=")
     )));
     EXPECT_CALL(tcpClientMock, flush());

@@ -7,6 +7,7 @@
 
 #include "FirmwareApp_test_fixture.h"
 #include "vanilla/StatusLED.h"     // firmware::StatusLED::Pattern
+#include "vanilla/FirmwareVersion.h"  // FIRMWARE_BUILD_VERSION (ATI banner value)
 
 using namespace esp32_firmware;
 using namespace esp32_firmware::firmwareapp_test;
@@ -308,7 +309,7 @@ TEST_F(FirmwareAppTest, AtCommand_TcpCommand_RoutesToDispatcherWithCrCrGt) {
     firmwareApp->setAtCommandAdapters(tcp, serial, esp, wifi, token, credClear, monitor, testDeviceId);
 
     firmwareApp->handleTcpAtCommand("ATI");
-    EXPECT_EQ(tcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
+    EXPECT_EQ(tcp.lastPrinted, "ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION "\r\r>");
     EXPECT_EQ(serial.lastLine, "");  // no serial echo on TCP path
 }
 
