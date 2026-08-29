@@ -12,7 +12,7 @@ namespace vehicle_sim::pipeline {
 /**
  * Synthetic LIVE transport: emits a plausible driving loop as raw adapter
  * text lines (the same "<ID> <D0> ... <D7>" form a real raw CAN adapter
- * streams). The lines flow through RawFrameNormaliser → DBCTranslationService
+ * streams). The lines flow through LiveTwaiSource → DBCTranslationService
  * → sinks exactly like a live TCP/USB source, so demo is exercised through
  * the canonical seam rather than synthesising VehicleSignals directly.
  *

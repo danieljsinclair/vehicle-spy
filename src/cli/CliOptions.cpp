@@ -5,12 +5,19 @@
 #include "StatusLEDRenderer.h"
 
 #include <CLI/CLI.hpp>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include <fstream>
+
+// Timecode parser for --start-from. Own-tree header: the grammar mirrors
+// engine-sim-cli's parseReplayTimeToSeconds (the bridge submodule ships no
+// timecode parser of its own — c3ddc20's include pointed at an untracked
+// bridge working-copy file that existed in no commit anywhere).
+#include "vehicle-sim/cli/TimeParser.h"
 
 namespace vehicle_sim::cli {
 
@@ -49,20 +56,107 @@ static bool isDecodedTelemetryCsv(const std::string& path) {
     return header.find("timestamp_ms") != std::string::npos;
 }
 
+// Provisioning has its own transport vocabulary — the device's AT console is
+// only reachable over USB serial, so the transport must be empty
+// (auto-detect), 'auto', or 'usb:<path>'.
+static std::string provisioningTransportError(const std::string& transport) {
+    if (transport.empty() || transport == "auto" || transport.rfind("usb:", 0) == 0) {
+        return "";
+    }
+    std::ostringstream oss;
+    oss << "Provisioning transport '" << forLog(transport)
+        << "' is not supported. Use --connect auto or "
+           "--connect usb:<path> (e.g. usb:/dev/cu.usbserial-110)";
+    return oss.str();
+}
+
+// --adapter-protocol must be a known value: empty (default table), 'raw',
+// 'elm327', or 'default'.
+static std::string adapterProtocolError(const std::string& protocol) {
+    if (protocol.empty() || protocol == "raw" || protocol == "elm327" ||
+        protocol == "default") {
+        return "";
+    }
+    std::ostringstream oss;
+    oss << "Unknown --adapter-protocol '" << forLog(protocol)
+        << "'. Supported: raw, elm327";
+    return oss.str();
+}
+
+// CSV replay of a decoded-telemetry file is bench testing: --vehicle is only a
+// label stamped onto each emitted row, so it need not be a real registered
+// vehicle. Raw CAN replay (file:<raw>) still requires one for DBC translation.
+static bool isDecodedCsvReplay(const CliOptions& opts) {
+    if (!opts.isFile()) return false;
+    return isDecodedTelemetryCsv(opts.telemetry.connect_target.substr(5));
+}
+
+// Both vehicle-selection failures share the "Available: <ids>" suffix listing
+// the registry's known vehicles.
+static void appendAvailableVehicles(std::ostringstream& oss,
+                                    const domain::VehicleConfigRegistry& registry) {
+    for (const auto& v : registry.getRegisteredVehicles()) {
+        oss << v << " ";
+    }
+}
+
+// --vehicle (when not exempted above) must name a registered vehicle. The
+// empty case gets the "required" wording; a non-empty unknown id gets the
+// "unsupported" wording.
+static std::string vehicleSelectionError(const std::string& vehicleType,
+                                         const domain::VehicleConfigRegistry& registry) {
+    std::ostringstream oss;
+    if (vehicleType.empty()) {
+        oss << "--vehicle is required. Available: ";
+    } else {
+        oss << "Unsupported vehicle type '" << forLog(vehicleType) << "'. Available: ";
+    }
+    appendAvailableVehicles(oss, registry);
+    return oss.str();
+}
+
 CliOptions parseArgs(int argc, char* argv[]) {
     CliOptions opts;
 
     CLI::App app{"Vehicle OBD2 Telemetry Display", "vehicle-sim"};
+    app.allow_extras(false);
 
     app.add_flag("-s,--scan", opts.mode.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.mode.list_signals, "List supported signals for each vehicle");
     app.add_flag("--discover", opts.mode.discover_mode, "Discover ESP32 devices on the network via UDP broadcast");
-    app.add_flag("--led-diag", opts.mode.led_diag, "Show StatusLED pattern reference guide");
+    app.add_flag("--led-help", opts.mode.led_help, "Show StatusLED pattern reference guide");
 
+    // --connect is the universal transport selector. It applies to BOTH
+    // telemetry (--connect demo / --connect tcp:... / --connect auto) AND
+    // provisioning (--connect auto / --connect usb:/dev/cu...). parseArgs()
+    // routes the value to the correct consumer based on which flags are set
+    // (see the post-parse folding below).
+    //
+    // --connect-{usb,ble,tcp,auto} are sugar that fill in the transport
+    // prefix the user would otherwise have to type as 'usb:'. The remaining
+    // --connect forms (demo / file:<path> / BLE address) keep --connect.
     app.add_option("-c,--connect", opts.telemetry.connect_target,
-                   "Connect target: 'demo', 'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', "
-                   "'auto' (auto-discover ESP32), or BLE adapter address")
+                   "Connect target (telemetry OR provisioning): 'demo', "
+                   "'file:<path>', 'tcp:<ip>:<port>', 'usb:<path>', 'auto', "
+                   "or BLE adapter address. For provisioning, 'auto' and "
+                   "'usb:<path>' are the only meaningful values")
         ->expected(1);
+    app.add_option("--connect-usb", opts.telemetry.connect_usb,
+                   "Shortcut for '--connect usb:<path>'. Streams live CAN frames "
+                   "from an ESP32 CAN-bridge over USB serial (or provisions "
+                   "the device at the given USB serial port)")
+        ->expected(1);
+    app.add_flag("--connect-ble", opts.telemetry.connect_ble,
+                 "Shortcut for '--connect <BLE address>'. The address is supplied "
+                 "via --connect (this flag asserts a BLE-style target is wanted)");
+    app.add_option("--connect-tcp", opts.telemetry.connect_tcp,
+                   "Shortcut for '--connect tcp:<ip>[:<port>]>'. Streams live CAN "
+                   "frames from an ESP32 CAN-bridge over WiFi (default port 3333)")
+        ->expected(1);
+    app.add_flag("--connect-auto", opts.telemetry.connect_auto,
+                 "Shortcut for '--connect auto'. Auto-discover an ESP32 on the "
+                 "UDP discovery port (telemetry) or auto-detect the USB serial "
+                 "port (provisioning)");
     app.add_option("--connect-file", opts.telemetry.connect_file,
                    "Synonym for '--connect file:<path>'. Equivalent to "
                    "--connect file:PATH; PATH is used verbatim (relative to CWD)")
@@ -98,9 +192,10 @@ CliOptions parseArgs(int argc, char* argv[]) {
     app.add_flag("--stdout-csv", opts.telemetry.stdout_csv,
                  "Emit decoded CSV rows to stdout (same schema as <base>.csv); "
                  "progress output moves to stderr so stdout stays pipeable");
-    app.add_option("--start-from", opts.telemetry.start_from_s,
+    std::string startFromRaw;
+    app.add_option("--start-from", startFromRaw,
                    "Replay-only: skip rows whose recorded timestamp is before "
-                   "this many seconds (mirrors engine-sim-cli --start-from)")
+                   "this time (seconds, mm:ss, or hh:mm:ss; mirrors engine-sim-cli --start-from)")
         ->expected(1)
         ->capture_default_str();
     app.add_flag("-k,--interactive", opts.telemetry.interactive_mode,
@@ -112,19 +207,27 @@ CliOptions parseArgs(int argc, char* argv[]) {
     // WiFi provisioning over USB serial (AT command set). Local, pre-association
     // — no AUTH. --set-wifi-creds takes exactly two positional values (SSID,
     // PASS) after the flag; CLI11's expected(2) captures them into a vector.
+    //
+    // The transport for provisioning is the universal --connect (set above):
+    // --connect auto / --connect usb:/path picks the USB serial port. Without
+    // --connect, the provisioner auto-detects the first /dev/cu.* match.
     std::vector<std::string> setWifiArgs;
     app.add_option("--set-wifi-creds", setWifiArgs,
                    "Provision WiFi credentials over USB serial (ATSETWIFI). "
-                   "Takes <SSID> <PASS>")
+                   "Takes <SSID> <PASS>. Use --connect usb:/path or "
+                   "--connect auto to pick the device")
         ->expected(2);
     app.add_flag("--clear-wifi-creds", opts.wifi.clear_wifi_creds,
-                 "Clear WiFi credentials over USB serial (ATCLEARWIFI)");
+                 "Clear WiFi credentials over USB serial (ATCLEARWIFI). "
+                 "Use --connect usb:/path or --connect auto to pick the device");
     app.add_flag("--reboot", opts.wifi.reboot_esp32,
-                 "Reboot the ESP32 over USB serial (ATREBOOT)");
-    app.add_option("--port", opts.wifi.usb_port,
-                   "ESP32 USB serial port for provisioning (overrides "
-                   "ESP32_DEFAULT_USB_PORT / ESP32_PORT env)")
-        ->expected(1);
+                 "Reboot the ESP32 over USB serial (ATREBOOT). "
+                 "Use --connect usb:/path or --connect auto to pick the device");
+    app.add_flag("--status", opts.wifi.status_requested,
+                 "Print a [STATE] snapshot from the device (uptime / wifi / "
+                 "ssid / ip / client / disc / led / monitor) by reading its "
+                 "next heartbeat line from the USB serial console. "
+                 "Use --connect usb:/path or --connect auto to pick the device");
 
     // Static, non-option help text (EXAMPLES / NOTES / REQUIREMENTS). Lifted
     // verbatim from the old hand-rendered printHelp so it is appended after
@@ -147,9 +250,11 @@ CliOptions parseArgs(int argc, char* argv[]) {
   vehicle-sim --connect <addr> --vehicle auto
   vehicle-sim --scan
   vehicle-sim --list
-  vehicle-sim --set-wifi-creds MyNet s3cr3tpass --port /dev/cu.usbserial-110
-  vehicle-sim --clear-wifi-creds --port /dev/cu.usbserial-110
-  vehicle-sim --reboot --port /dev/cu.usbserial-110
+  vehicle-sim --set-wifi-creds MyNet s3cr3tpass --connect auto
+  vehicle-sim --set-wifi-creds MyNet s3cr3tpass --connect usb:/dev/cu.usbserial-110
+  vehicle-sim --clear-wifi-creds --connect usb:/dev/cu.usbserial-110
+  vehicle-sim --reboot --connect auto
+  vehicle-sim --status --connect auto
 
 NOTES:
   --connect and --vehicle are required for telemetry
@@ -159,6 +264,9 @@ NOTES:
     (port defaults to 3333 when omitted; e.g. tcp:192.168.4.1)
   usb:<path> streams live CAN frames from an ESP32 CAN-bridge over USB serial
     (for example /dev/cu.usbserial-110 at 115200 8N1)
+  --connect auto / --connect usb:<path> is the universal transport selector:
+    for telemetry it picks a CAN source; for provisioning it picks the USB
+    serial port. Without --connect, provisioning auto-detects the device.
   tesla and audi_mlb_evo use CAN monitor mode (DBC decoding)
   generic uses standard OBD2 PID polling
   CAN monitor mode is read-only (ATCSM1: no ACK bits on bus)
@@ -179,30 +287,83 @@ REQUIREMENTS:
         opts.error_message = e.what();
     }
 
-    // `--connect-file PATH` is a synonym for `--connect file:PATH`. Fold it into
-    // connect_target so every downstream consumer (isFile(), main.cpp) sees a
-    // single source of truth. If both are given, --connect wins.
-    if (!opts.telemetry.connect_file.empty() && opts.telemetry.connect_target.empty()) {
-        opts.telemetry.connect_target = "file:" + opts.telemetry.connect_file;
+    // --connect-{usb,ble,tcp,auto} and --connect-file are sugar that fills in
+    // the transport prefix the user would otherwise have to type as e.g. 'usb:'.
+    // Fold them onto connect_target so every downstream consumer (isUsb(),
+    // main.cpp) sees a single source of truth. --connect wins if both are
+    // given (CLI11 would have rejected duplicates, but a user could still
+    // supply the shorthand AFTER --connect by editing the struct post-parse).
+    if (opts.telemetry.connect_target.empty()) {
+        if (!opts.telemetry.connect_usb.empty()) {
+            opts.telemetry.connect_target = "usb:" + opts.telemetry.connect_usb;
+        } else if (opts.telemetry.connect_auto) {
+            opts.telemetry.connect_target = "auto";
+        } else if (!opts.telemetry.connect_tcp.empty()) {
+            // tcp:<ip>[:<port>] — fill the prefix; the user-supplied tail
+            // already has the colon, so just prepend 'tcp:'.
+            opts.telemetry.connect_target = "tcp:" + opts.telemetry.connect_tcp;
+        } else if (!opts.telemetry.connect_file.empty()) {
+            // file:<path> — file is the long form of the alias.
+            opts.telemetry.connect_target = "file:" + opts.telemetry.connect_file;
+        } else if (opts.telemetry.connect_ble) {
+            // No-op: --connect-ble is a marker; the actual BLE address still
+            // arrives via --connect. If only the marker is set, the user
+            // forgot to supply an address, which the normal connect-required
+            // validator catches.
+        }
     }
 
     // `--set-wifi-creds <SSID> <PASS>` captures two positional values into a
     // vector; fold them onto the struct fields. expected(2) guarantees exactly
-    // two elements when parsing succeeds.
+    // two elements when parsing succeeds. This must happen BEFORE the
+    // provisioning-transport move below: wifi.active() reads set_wifi_ssid,
+    // so folding late would leave --set-wifi-creds runs looking like
+    // telemetry requests and --connect would never reach the provisioner.
     if (setWifiArgs.size() == 2) {
         opts.wifi.set_wifi_ssid = setWifiArgs[0];
         opts.wifi.set_wifi_pass = setWifiArgs[1];
     }
 
-    // `--port` overrides the hardcoded default, but the ESP32_PORT env var (the
-    // Makefile's contract) wins when neither --port nor the default are sensible.
-    // Only apply the env default when --port was left at its built-in default
-    // and the env var is set, so an explicit --port is always respected.
-    if (opts.wifi.usb_port == ESP32_DEFAULT_USB_PORT) {
-        if (const char* envPort = std::getenv("ESP32_PORT")) {
-            if (std::string{envPort}.empty() == false) {
-                opts.wifi.usb_port = envPort;
-            }
+    // Universal transport: when a provisioning flag is set, --connect
+    // selects the provisioning transport, NOT the telemetry transport.
+    // main.cpp short-circuits to runProvisioning() so telemetry never runs.
+    // We move the value off telemetry.connect_target and onto
+    // wifi.transport, leaving telemetry empty so any downstream
+    // telemetry dispatchers see "no telemetry requested".
+    if (opts.wifi.active()) {
+        // Capture BEFORE the move below empties connect_target.
+        if (std::string resolved = opts.telemetry.connect_target; resolved.empty()) {
+            // No --connect was supplied: fall through to the env/default
+            // port resolution below.
+            opts.wifi.transport = "";
+        } else {
+            opts.wifi.transport = std::move(resolved);
+            opts.telemetry.connect_target = "";
+        }
+
+        // The serial port the provisioner OPENS. An explicit --connect
+        // usb:<path> names the device exactly (the same form live telemetry
+        // uses — see buildPipelineSource). Without one, the ESP32_PORT env
+        // var is the Makefile's auto-detected device path; the built-in
+        // default is the last resort.
+        constexpr std::size_t kUsbPrefixLen = 4;  // "usb:"
+        if (opts.wifi.transport.size() > kUsbPrefixLen &&
+            opts.wifi.transport.rfind("usb:", 0) == 0) {
+            opts.wifi.usb_port = opts.wifi.transport.substr(kUsbPrefixLen);
+        } else if (const char* envPort = std::getenv("ESP32_PORT");
+                   envPort != nullptr && *envPort != '\0') {
+            opts.wifi.usb_port = envPort;
+        }
+    }
+
+    // Smart timecode parser for --start-from. Applied only
+    // when --connect file: (replay mode). The skip stacks with engine-sim-cli's
+    // --start-from (both can apply) — expected convenient behavior.
+    if (!startFromRaw.empty()) {
+        opts.telemetry.start_from_s = parseTimecodeToSeconds(startFromRaw);
+        if (opts.telemetry.start_from_s < 0.0) {
+            opts.error_message = "Invalid --start-from time: " + startFromRaw +
+                " (expected seconds, mm:ss, or hh:mm:ss)";
         }
     }
 
@@ -216,9 +377,9 @@ void printHelp(std::ostream& out, const domain::DBCTranslationService& service,
     // The USAGE line, OPTIONS list, and footer are derived from the CLI11
     // registrations via help_text (captured in parseArgs on CallForHelp). This
     // guarantees every registered flag — including --set-wifi-creds /
-    // --clear-wifi-creds / --reboot / --port — is shown in --help by
-    // construction; adding an option in parseArgs can never silently drop it
-    // from help again.
+    // --clear-wifi-creds / --reboot / --status / --connect / --connect-{usb,ble,tcp,auto} —
+    // is shown in --help by construction; adding an option in parseArgs can
+    // never silently drop it from help again.
     //
     // help_text is composed entirely from static option DESCRIPTIONS (string
     // literals registered at compile time in parseArgs) plus the static app name
@@ -262,25 +423,27 @@ void printSupportedSignals(std::ostream& out, const domain::DBCTranslationServic
     out << "\n";
 }
 
+// Orchestrates the per-option-group validators below it. Each helper owns one
+// option family and returns the user-facing error ("" = OK), so this function
+// only encodes the ORDER of the checks, never their detail.
 std::string validateOptions(const CliOptions& opts, const domain::DBCTranslationService& service) {
     auto& registry = service.registry();
 
-    // Skip validation for scan, list, help, discover, led-diag, and provisioning.
-    // Provisioning talks over USB serial (no telemetry / vehicle / connect target).
+    // Provisioning short-circuits everything else: only the provisioning
+    // transport vocabulary applies.
+    if (opts.isProvisioning()) {
+        return provisioningTransportError(opts.wifi.transport);
+    }
+
+    // Skip validation for scan, list, help, discover, led-help (they have no
+    // telemetry/connect requirements of their own).
     if (opts.mode.scan_mode || opts.mode.list_signals || opts.mode.help_requested ||
-        opts.mode.discover_mode || opts.mode.led_diag || opts.isProvisioning()) {
+        opts.mode.discover_mode || opts.mode.led_help) {
         return "";
     }
 
-    // --adapter-protocol must be a known value.
-    if (!opts.logging.adapter_protocol.empty() &&
-        opts.logging.adapter_protocol != "raw" &&
-        opts.logging.adapter_protocol != "elm327" &&
-        opts.logging.adapter_protocol != "default") {
-        std::ostringstream oss;
-        oss << "Unknown --adapter-protocol '" << forLog(opts.logging.adapter_protocol)
-            << "'. Supported: raw, elm327";
-        return oss.str();
+    if (auto err = adapterProtocolError(opts.logging.adapter_protocol); !err.empty()) {
+        return err;
     }
 
     // --connect is required for telemetry (interactive mode supplies its own
@@ -289,60 +452,27 @@ std::string validateOptions(const CliOptions& opts, const domain::DBCTranslation
         return "--connect is required. Use --connect demo, --connect auto, or --connect <address>";
     }
 
-    // Interactive mode is self-contained: no vehicle registry lookup needed.
-    // The --vehicle label is free-form (stamped onto each emitted CSV row), so
-    // it must pass boundary validation before reaching the CSV DATA sink.
+    // Interactive mode is self-contained: no vehicle registry lookup, but the
+    // free-form --vehicle label is stamped onto each emitted CSV row, so it
+    // must pass boundary validation before reaching the CSV DATA sink.
     if (opts.telemetry.interactive_mode) {
-        if (auto err = validateVehicleLabel(opts.telemetry.vehicle_type); !err.empty()) {
-            return err;
-        }
-        return "";
+        return validateVehicleLabel(opts.telemetry.vehicle_type);
     }
 
-    // CSV replay of a decoded-telemetry file is bench testing: --vehicle is
-    // only a label stamped onto each emitted row, so it need not be a real
-    // registered vehicle. It is still free-form and flows unsubstituted into the
-    // CSV sink, so it must pass boundary validation. Raw CAN replay
-    // (file:<raw>) still requires a valid vehicle for DBC translation, handled
-    // below.
-    if (opts.isFile()) {
-        std::string path = opts.telemetry.connect_target.substr(5);
-        if (isDecodedTelemetryCsv(path)) {
-            if (auto err = validateVehicleLabel(opts.telemetry.vehicle_type); !err.empty()) {
-                return err;
-            }
-            return "";
-        }
+    // Decoded-CSV replay is label-only too (raw CAN replay falls through and
+    // needs a real vehicle below).
+    if (isDecodedCsvReplay(opts)) {
+        return validateVehicleLabel(opts.telemetry.vehicle_type);
     }
 
-    // --vehicle is required
-    if (opts.telemetry.vehicle_type.empty()) {
-        std::ostringstream oss;
-        oss << "--vehicle is required. Available: ";
-        auto vehicles = registry.getRegisteredVehicles();
-        for (const auto& v : vehicles) {
-            oss << v << " ";
-        }
-        return oss.str();
-    }
-
-    // "auto" is valid — resolved at runtime via UDP discovery
+    // "auto" is valid — resolved at runtime via UDP discovery (BLE only).
     if (opts.telemetry.vehicle_type == "auto") {
-        if (!opts.isBLE()) {
-            return "--vehicle auto requires a BLE connection. Use --connect <address> --vehicle auto";
-        }
-        return "";
+        if (opts.isBLE()) return "";
+        return "--vehicle auto requires a BLE connection. Use --connect <address> --vehicle auto";
     }
 
-    // Validate vehicle type against registry
-    if (!registry.hasConfig(opts.telemetry.vehicle_type)) {
-        std::ostringstream oss;
-        oss << "Unsupported vehicle type '" << forLog(opts.telemetry.vehicle_type) << "'. Available: ";
-        auto vehicles = registry.getRegisteredVehicles();
-        for (const auto& v : vehicles) {
-            oss << v << " ";
-        }
-        return oss.str();
+    if (opts.telemetry.vehicle_type.empty() || !registry.hasConfig(opts.telemetry.vehicle_type)) {
+        return vehicleSelectionError(opts.telemetry.vehicle_type, registry);
     }
 
     return "";

@@ -1,9 +1,9 @@
 // ReplayRunContext.test.cpp - Entry-point coverage for the offline replay
 // orchestration context. ReplayRunContext::run is a thin static orchestrator
-// (FileTransport + CaptureNormaliser + DecodedCsvSink + runReplay) over the
-// already-tested pipeline pieces; these tests drive the WHOLE run() path off
-// 0% via real (hermetic) temp files + a real DBCTranslationService — no mocks
-// of production code, no fragile assertions on exact strings.
+// (BinaryFileSource + DecodedCsvSink + runReplay) over the already-tested
+// pipeline pieces; these tests drive the WHOLE run() path off 0% via real
+// (hermetic) temp files + a real DBCTranslationService — no mocks of
+// production code, no fragile assertions on exact strings.
 
 #include <gtest/gtest.h>
 #include "vehicle-sim/cli/ReplayRunContext.h"
@@ -65,9 +65,9 @@ int TempDir::counter_ = 0;
 
 // A well-formed legacy CSV capture the tesla DBC can decode.
 const char* kDecodableCapture =
-    "timestamp_ms,can_id,dlc,data_hex\n"
-    "1000,118,8,3C00180004A001FF\n"
-    "2000,118,8,3C00180004A001FF\n";
+    "timestamp_ms,raw_line\n"
+    "1000,118 3C 00 18 00 04 A0 01 FF\n"
+    "2000,118 3C 00 18 00 04 A0 01 FF\n";
 
 } // namespace
 

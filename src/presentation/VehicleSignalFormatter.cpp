@@ -1,11 +1,15 @@
 #include "vehicle-sim/presentation/VehicleSignalFormatter.h"
 #include "vehicle-sim/domain/VehicleSignal.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
+#include "vehicle-sim/domain/VehicleDetector.h"
 #include "vehicle-sim/domain/Gear.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace vehicle_sim::presentation {
 
@@ -51,6 +55,50 @@ void printTelemetryHeader(std::ostream& out, const domain::VehicleConfig& config
     out << "\n" << std::string(TERMINAL_SEPARATOR_WIDTH, '=') << "\n";
     out << config.vehicleName << " Real-Time Telemetry\n";
     out << std::string(TERMINAL_SEPARATOR_WIDTH, '=') << "\n\n";
+}
+
+namespace {
+
+// Confidence wording for the detection summary. Mirrors DetectionConfidence.
+const char* confidenceLabel(domain::DetectionConfidence confidence) noexcept {
+    switch (confidence) {
+        case domain::DetectionConfidence::High: return "high";
+        case domain::DetectionConfidence::Medium: return "medium";
+        case domain::DetectionConfidence::Low: return "low";
+        case domain::DetectionConfidence::None: return "none";
+    }
+    return "none";
+}
+
+} // namespace
+
+std::string formatDetectionSummary(const domain::VehicleDetectionResult& result) {
+    if (result.frameCount == 0) {
+        return "";
+    }
+
+    std::ostringstream out;
+    out << "Frames: " << result.frameCount;
+
+    if (!result.observedCanIds.empty()) {
+        // The detector collects IDs in an unordered set; sort for a
+        // deterministic summary line.
+        std::vector<std::uint16_t> ids(result.observedCanIds.begin(),
+                                       result.observedCanIds.end());
+        std::sort(ids.begin(), ids.end());
+        out << " | CAN IDs:";
+        for (const std::uint16_t id : ids) {
+            out << " 0x" << std::hex << std::uppercase << std::setw(4)
+                << std::setfill('0') << id << std::dec;
+        }
+    }
+
+    if (result.hasSuggestion()) {
+        out << " | " << result.suggestedVehicleId
+            << " (" << confidenceLabel(result.confidence) << ")";
+    }
+
+    return out.str();
 }
 
 } // namespace vehicle_sim::presentation

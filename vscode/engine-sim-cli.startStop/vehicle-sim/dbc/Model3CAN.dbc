@@ -1,0 +1,87 @@
+VERSION ""
+
+NS_ :
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+
+BS_:
+
+BU_: 
+
+// ============================================================================
+// AGGREGATE DBC — GENERATED FILE. Do not edit by hand.
+// Regenerate with: make aggregate-dbc
+//
+// Source: external/model3dbc (joshwardell/model3dbc)
+//   pinned commit : c56c113c353d09b1a5dd57677461f02fe8b7c6ca
+//   upstream file : external/model3dbc/Model3CAN.dbc (159 msgs, 2752 sigs)
+//   allowlist     : dbc/allowlist.toml (contract hash 6b062cd66bf4)
+//   alias map     : dbc/aliases.toml   (contract hash baa6efaabf07)
+// Policy: keep only allowlisted signals; rename upstream->consumer
+//         via aliases.toml; HARD-ERROR on missing/drifting source.
+// The 0x3E2 VCLEFT_brakeLightStatus message is provided upstream by
+// joshwardell (no separate manual overlay needed).
+// ============================================================================
+
+BO_ 264 ID108DIR_torque: 8 VehicleBus
+ SG_ DI_torqueActual : 27|13@1- (2,0) [-7500|7500] "Nm" VehicleBus
+
+BO_ 280 ID118DriveSystemStatus: 8 VehicleBus
+ SG_ DI_accelPedalPos : 32|8@1+ (0.4,0) [0|100] "%" VehicleBus
+ SG_ DI_gear : 21|3@1+ (1,0) [0|7] "" VehicleBus
+
+BO_ 297 ID129SteeringAngle: 8 VehicleBus
+ SG_ SCCM_steeringAngle : 16|14@1+ (0.1,-819.2) [-819.2|819.1] "Deg" VehicleBus
+
+BO_ 341 ID155WheelAngles: 8 ChassisBus
+ SG_ ESP_wheelPulseCountReR : 24|8@1+ (1.40625,0) [0|358.594] "deg" ChassisBus
+ SG_ ESP_wheelPulseCountReL : 16|8@1+ (1.40625,0) [0|358.594] "deg" ChassisBus
+ SG_ ESP_wheelPulseCountFrR : 8|8@1+ (1.40625,0) [0|358.594] "deg" ChassisBus
+ SG_ ESP_wheelPulseCountFrL : 0|8@1+ (1.40625,0) [0|358.594] "deg" ChassisBus
+
+BO_ 373 ID175WheelSpeed: 8 ChassisBus
+ SG_ ESP_wheelSpeedReR : 39|13@1+ (0.04,0) [0|327.64] "KPH" ChassisBus
+ SG_ ESP_wheelSpeedReL : 26|13@1+ (0.04,0) [0|327.64] "KPH" ChassisBus
+ SG_ ESP_wheelSpeedFrR : 13|13@1+ (0.04,0) [0|327.64] "KPH" ChassisBus
+ SG_ ESP_wheelSpeedFrL : 0|13@1+ (0.04,0) [0|327.64] "KPH" ChassisBus
+
+BO_ 599 ID257DIspeed: 8 VehicleBus
+ SG_ DI_vehicleSpeed : 12|12@1+ (0.08,-40) [-40|285] "kph" VehicleBus
+
+BO_ 994 ID3E2VCLEFT_lightStatus: 7 VehicleBus
+ SG_ VCLEFT_brakeLightStatus : 0|2@1+ (1,0) [0|3] "" VehicleBus
+
+VAL_ 994 VCLEFT_brakeLightStatus 2 "LIGHT_FAULT" 0 "LIGHT_OFF" 1 "LIGHT_ON" 3 "LIGHT_SNA" ;
+VAL_ 373 ESP_wheelSpeedReR 8191 "SNA" ;
+VAL_ 373 ESP_wheelSpeedReL 8191 "SNA" ;
+VAL_ 373 ESP_wheelSpeedFrR 8191 "SNA" ;
+VAL_ 373 ESP_wheelSpeedFrL 8191 "SNA" ;
+VAL_ 280 DI_accelPedalPos 255 "SNA" ;
+VAL_ 280 DI_gear 4 "DI_GEAR_D" 0 "DI_GEAR_INVALID" 3 "DI_GEAR_N" 1 "DI_GEAR_P" 2 "DI_GEAR_R" 7 "DI_GEAR_SNA" ;
+VAL_ 599 DI_vehicleSpeed 4095 "SNA" ;
+VAL_ 264 DI_torqueActual 4096 "SNA" ;
+

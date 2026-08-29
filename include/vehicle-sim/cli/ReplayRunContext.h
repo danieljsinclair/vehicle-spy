@@ -8,10 +8,10 @@ namespace vehicle_sim::cli {
 /**
  * Offline replay context — decouples development from live hardware.
  *
- * Phase 1 routes file replay through the new Transport → Normaliser →
- * Decoder → Sink pipeline (FileTransport → RawFrameNormaliser →
- * DBCTranslationService → DecodedCsvSink). The input file IS the raw source
- * of truth, so replay writes ONLY <base>.csv — never <base>.raw.txt.
+ * Routes file replay through the IFrameSource-driven pipeline
+ * (BinaryFileSource → DBCTranslationService → DecodedCsvSink). The input
+ * file IS the raw source of truth, so replay writes ONLY <base>.csv — never
+ * <base>.raw.txt.
  *
  * Mirrors BLERunContext's static-run style but reads from a file instead of
  * a BLE adapter. Deliberately a separate context (SRP): it shares nothing

@@ -2,8 +2,7 @@
 #include "vehicle-sim/pipeline/ConsoleProgressReporter.h"
 #include "vehicle-sim/pipeline/PipelineReplay.h"
 #include "vehicle-sim/pipeline/IProgressReporter.h"
-#include "vehicle-sim/pipeline/FileTransport.h"
-#include "vehicle-sim/pipeline/CaptureNormaliser.h"
+#include "vehicle-sim/pipeline/BinaryFileSource.h"
 #include "vehicle-sim/pipeline/DecodedCsvSink.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
@@ -81,9 +80,9 @@ struct ReplayHarness {
         service.loadVehicle("tesla", VehicleProtocol::CAN);
         // Two real-shaped Tesla CAN frames (legacy CSV form).
         capture = dir.writeCapture("cap.csv",
-            "timestamp_ms,can_id,dlc,data_hex\n"
-            "1000,118,8,3C00180004A001FF\n"
-            "2000,118,8,3C00180004A001FF\n"
+            "timestamp_ms,raw_line\n"
+            "1000,118 3C 00 18 00 04 A0 01 FF\n"
+            "2000,118 3C 00 18 00 04 A0 01 FF\n"
         );
     }
     [[nodiscard]] std::string base(const std::string& name) const {
@@ -100,14 +99,13 @@ struct ReplayHarness {
 
 TEST(PipelineReplayProgressTest, ReporterReceivesOneFrameCallPerDecodedFrameAndOneComplete) {
     ReplayHarness h;
-    FileTransport transport(h.capture);
-    ASSERT_TRUE(transport.open());
-    CaptureNormaliser normaliser;
+    BinaryFileSource source(h.capture);
+    ASSERT_TRUE(source.open());
     DecodedCsvSink sink(h.base("out"));
     ASSERT_TRUE(sink.isValid());
 
     RecordingReporter reporter;
-    auto stats = runReplay(transport, normaliser, h.service,
+    auto stats = runReplay(source, h.service,
                            ReplayOutputs{.decoded = &sink, .progress = &reporter});
 
     // At least the two frames decoded produced two onFrame calls; onComplete exactly once.
@@ -119,15 +117,13 @@ TEST(PipelineReplayProgressTest, ReporterReceivesOneFrameCallPerDecodedFrameAndO
 }
 
 TEST(PipelineReplayProgressTest, NullReporterRunsSilentlyWithoutCrashing) {
-    // Default argument / nullptr must be tolerated (Phase 1 silence contract).
     ReplayHarness h;
-    FileTransport transport(h.capture);
-    ASSERT_TRUE(transport.open());
-    CaptureNormaliser normaliser;
+    BinaryFileSource source(h.capture);
+    ASSERT_TRUE(source.open());
     DecodedCsvSink sink(h.base("out2"));
     ASSERT_TRUE(sink.isValid());
 
-    auto stats = runReplay(transport, normaliser, h.service, ReplayOutputs{.decoded = &sink});
+    auto stats = runReplay(source, h.service, ReplayOutputs{.decoded = &sink});
     EXPECT_GE(stats.framesDecoded, 1u);
 }
 

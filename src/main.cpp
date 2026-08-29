@@ -264,7 +264,7 @@ int main(int argc, char* argv[]) {
         // Decoded-telemetry CSV (CSV replay mode) routes to CsvReplayRunContext,
         // which replays the recorded rows as if they were live CAN — feeding the
         // same --stdout-csv schema used for latency testing. Raw CAN captures
-        // keep the existing DBC-translation replay path.
+        // (text or binary TWAI) keep the DBC-translation replay path.
         if (isDecodedTelemetryCsv(path)) {
             auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
             vehicle_sim::util::SystemClock systemClock;
@@ -274,9 +274,10 @@ int main(int argc, char* argv[]) {
                 opts.telemetry.stdout_csv);
         }
 
-        // Raw CAN replay through the canonical seam: FileTransport →
-        // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
-        // file is the raw source of truth, so we write ONLY <base>.csv.
+        // Raw CAN replay through the canonical seam: BinaryFileSource →
+        // DBCTranslationService → DecodedCsvSink. The input file is the raw
+        // source of truth, so we write ONLY <base>.csv. BinaryFileSource
+        // transparently decodes both ASCII and binary TWAI frames.
         std::string logBase = resolveLogBase(opts);
         return cli::ReplayRunContext::run(path, opts.telemetry.vehicle_type,
                                           logBase, translationService,
@@ -286,10 +287,9 @@ int main(int argc, char* argv[]) {
 
     if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
         // Live transports (demo/tcp/usb) through the canonical seam:
-        // (Demo|TCP|USB)Transport → Normaliser → DBCTranslationService →
+        // (Demo|TCP|USB)Transport → LiveTwaiSource → DBCTranslationService →
         // RawLogSink + DecodedCsvSink. The resolved --log base drives BOTH
-        // sinks for live (the raw stream is the source of truth). The adapter
-        // protocol default table + explicit override resolve here.
+        // sinks for live (the raw stream is the source of truth).
         std::string logBase = resolveLogBase(opts);
         std::string protocol = vehicle_sim::pipeline::resolveAdapterProtocol(
             opts.telemetry.connect_target, opts.logging.adapter_protocol);
