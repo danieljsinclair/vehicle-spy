@@ -3,10 +3,9 @@
 #include "vehicle-sim/BLEManager.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "vehicle-sim/pipeline/PipelineReplay.h"
-#include "vehicle-sim/pipeline/RawFrameNormaliser.h"
+#include "vehicle-sim/pipeline/LiveTwaiSource.h"
 #include "vehicle-sim/pipeline/TCPTransport.h"
 #include "vehicle-sim/pipeline/StopToken.h"
-#include "vehicle-sim/domain/CaptureLog.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
@@ -20,6 +19,7 @@
 #include <optional>
 #include <thread>
 #include <chrono>
+#include <vector>
 
 using namespace vehicle_sim;
 using namespace vehicle_sim::domain;
@@ -33,25 +33,24 @@ using namespace vehicle_sim::pipeline;
 // MARK: - TCPSignalSource
 
 /**
- * ISignalSource implementation that drives a TCPTransport + RawFrameNormaliser
- * pipeline on a background thread. Each decoded VehicleSignal is stored as the
- * latest signal, which the Objective-C++ wrapper polls from the main thread.
+ * ISignalSource implementation that drives a TCPTransport through the
+ * canonical IFrameSource seam (LiveTwaiSource) on a background thread. Each
+ * decoded VehicleSignal is stored as the latest signal, which the
+ * Objective-C++ wrapper polls from the main thread.
  *
  * Thread-safety: latestSignal() is called from the main thread (UI polling);
  * the pipeline writes from the background thread. A mutex protects the signal.
  *
  * Lifecycle: start() launches the pipeline thread; stop() requests the transport
  * to cease and joins the thread. The transport's stop flag is set so nextLine()
- * returns nullopt at its next select() timeout, cleanly ending runReplay().
+ * returns nullopt at its next select() timeout, cleanly ending the loop.
  */
 class TCPSignalSource final : public ISignalSource {
 public:
     TCPSignalSource(std::unique_ptr<ITransport> transport,
-                    std::unique_ptr<IAdapterNormaliser> normaliser,
                     DBCTranslationService& translationService,
                     std::shared_ptr<pipeline::StopToken> stop)
         : transport_(std::move(transport))
-        , normaliser_(std::move(normaliser))
         , translationService_(translationService)
         , stop_(std::move(stop))
     {}
@@ -103,7 +102,6 @@ public:
 
 private:
     std::unique_ptr<ITransport> transport_;
-    std::unique_ptr<IAdapterNormaliser> normaliser_;
     DBCTranslationService& translationService_;
     std::shared_ptr<pipeline::StopToken> stop_;
     std::atomic<bool> running_{false};
@@ -112,25 +110,22 @@ private:
     mutable std::mutex mutex_;
 
     // Capture callback for runReplay: we need to intercept decoded signals.
-    // Since runReplay doesn't support a signal callback, we use a different
-    // approach: drive the pipeline manually in the worker thread.
+    // Since runReplay doesn't support a signal callback, we drive the
+    // canonical seam manually in the worker thread: LiveTwaiSource wraps the
+    // transport (inline raw-CAN tokeniser + wall-clock stamping), we feed
+    // each TwaiFrame to the translator, same decode as the CLI live path.
     void runPipeline() {
-        while (running_ && transport_->isOpen()) {
-            auto line = transport_->nextLine();
-            if (!line) {
+        pipeline::LiveTwaiSource source(*transport_);
+        while (running_ && source.isOpen()) {
+            auto frame = source.nextFrame();
+            if (!frame) {
                 break;
             }
-            auto result = normaliser_->normalise(*line);
-            if (result.kind == NormaliserResultKind::Frame) {
-                auto bytes = toTwaiFrame(result.frame);
-                std::optional<std::uint64_t> ts = result.hasTimestamp
-                    ? std::optional<std::uint64_t>(result.frame.timestampMs)
-                    : std::nullopt;
-                auto signal = translationService_.processFrame(bytes, ts);
-                if (signal) {
-                    std::lock_guard<std::mutex> lock(mutex_);
-                    latestSignal_ = signal;
-                }
+            std::vector<std::uint8_t> bytes(frame->bytes.begin(), frame->bytes.end());
+            auto signal = translationService_.processFrame(bytes, frame->timestampMs);
+            if (signal) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                latestSignal_ = signal;
             }
         }
         running_ = false;
@@ -363,7 +358,7 @@ private:
  * Establish a TCP connection to an ESP32 CAN bridge.
  *
  * Parses the tcp:<host>[:<port>] address, loads the vehicle DBC, creates a
- * TCPTransport + RawFrameNormaliser pipeline, and starts a TCPSignalSource
+ * TCPTransport + LiveTwaiSource pipeline, and starts a TCPSignalSource
  * that feeds decoded VehicleSignal frames to the wrapper's polling interface.
  */
 - (BOOL)connectTCP:(NSString *)address deviceName:(NSString *)deviceName vehicleType:(NSString *)vehicleType {
@@ -406,14 +401,14 @@ private:
         _protocol = VehicleProtocol::OBD2;
     }
 
-    // Create TCP transport and raw frame normaliser. The StopToken is shared
-    // between the transport and the signal source so stop() flips the flag the
-    // transport's hot loop polls.
+    // Create the TCP transport. The StopToken is shared between the transport
+    // and the signal source so stop() flips the flag the transport's hot loop
+    // polls. Frame tokenisation happens in LiveTwaiSource (the canonical
+    // seam) inside TCPSignalSource.
     auto stop = std::make_shared<pipeline::StopToken>();
     auto transport = std::make_unique<TCPTransport>(
         pipeline::TransportEndpoint{host, static_cast<int>(port), "raw"},
         std::make_shared<pipeline::StdOut>(), pipeline::TcpReadTiming{}, stop);
-    auto normaliser = std::make_unique<RawFrameNormaliser>();
 
     // Open the transport to verify connectivity before starting the thread
     stop->reset();
@@ -422,9 +417,9 @@ private:
         return NO;
     }
 
-    // Create the TCP signal source (takes ownership of transport + normaliser)
+    // Create the TCP signal source (takes ownership of the transport)
     auto tcpSource = std::make_unique<TCPSignalSource>(
-        std::move(transport), std::move(normaliser), *_translationService, stop);
+        std::move(transport), *_translationService, stop);
 
     _signalSource = std::move(tcpSource);
     _signalSource->start();

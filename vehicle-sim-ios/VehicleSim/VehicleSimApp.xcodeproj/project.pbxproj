@@ -64,21 +64,18 @@
 		B1D00002 /* vw_mlb.dbc in Resources */ = {isa = PBXBuildFile; fileRef = B2D00002 /* vw_mlb.dbc */; };
 		B1P00001 /* TCPTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00001 /* TCPTransport.cpp */; };
 		B1P00026 /* TcpReader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00026 /* TcpReader.cpp */; };
-		B1P00002 /* RawFrameNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00002 /* RawFrameNormaliser.cpp */; };
 		B1P00003 /* PipelineReplay.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00003 /* PipelineReplay.cpp */; };
 		B1P00024 /* PacedFrameScheduler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00024 /* PacedFrameScheduler.cpp */; };
 		B1P00025 /* ReplayPacing.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00025 /* ReplayPacing.cpp */; };
 		B1P00004 /* PipelineFactory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00004 /* PipelineFactory.cpp */; };
-		B1P00005 /* CaptureNormaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00005 /* CaptureNormaliser.cpp */; };
 		B1P00006 /* DecodedCsvSink.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00006 /* DecodedCsvSink.cpp */; };
 		B1P00007 /* RawLogSink.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00007 /* RawLogSink.cpp */; };
 		B1P00008 /* ConsoleProgressReporter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00008 /* ConsoleProgressReporter.cpp */; };
 		B1P00009 /* DemoTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00009 /* DemoTransport.cpp */; };
-		B1P00010 /* FileTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00010 /* FileTransport.cpp */; };
-		B1P00011 /* CaptureLog.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00011 /* CaptureLog.cpp */; };
 		B1P00012 /* USBTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00012 /* USBTransport.cpp */; };
 		B1P00013 /* Elm327Normaliser.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00013 /* Elm327Normaliser.cpp */; };
-		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };
+		B1P00027 /* LiveTwaiSource.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00027 /* LiveTwaiSource.cpp */; };
+		B1P00028 /* LiveTwaiSource.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00028 /* LiveTwaiSource.h */; };		B1P00014 /* TraceLogger.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00014 /* TraceLogger.cpp */; };
 		B1P00015 /* ITransportOutput.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00015 /* ITransportOutput.cpp */; };
 		B1P00016 /* SystemClock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = B2P00016 /* SystemClock.cpp */; };
 		B1P00017 /* IClock.h in Sources */ = {isa = PBXBuildFile; fileRef = B2P00017 /* IClock.h */; };
@@ -180,21 +177,18 @@
 		B2D00002 /* vw_mlb.dbc */ = {isa = PBXFileReference; lastKnownFileType = text; name = vw_mlb.dbc; path = ../../resources/dbc/vw_mlb.dbc; sourceTree = "<group>"; };
 		B2P00001 /* TCPTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TCPTransport.cpp; path = ../../src/pipeline/TCPTransport.cpp; sourceTree = "<group>"; };
 		B2P00026 /* TcpReader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TcpReader.cpp; path = ../../src/pipeline/TcpReader.cpp; sourceTree = "<group>"; };
-		B2P00002 /* RawFrameNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawFrameNormaliser.cpp; path = ../../src/pipeline/RawFrameNormaliser.cpp; sourceTree = "<group>"; };
 		B2P00003 /* PipelineReplay.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineReplay.cpp; path = ../../src/pipeline/PipelineReplay.cpp; sourceTree = "<group>"; };
 		B2P00024 /* PacedFrameScheduler.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PacedFrameScheduler.cpp; path = ../../src/pipeline/PacedFrameScheduler.cpp; sourceTree = "<group>"; };
 		B2P00025 /* ReplayPacing.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ReplayPacing.cpp; path = ../../src/pipeline/ReplayPacing.cpp; sourceTree = "<group>"; };
 		B2P00004 /* PipelineFactory.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PipelineFactory.cpp; path = ../../src/pipeline/PipelineFactory.cpp; sourceTree = "<group>"; };
-		B2P00005 /* CaptureNormaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CaptureNormaliser.cpp; path = ../../src/pipeline/CaptureNormaliser.cpp; sourceTree = "<group>"; };
 		B2P00006 /* DecodedCsvSink.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DecodedCsvSink.cpp; path = ../../src/pipeline/DecodedCsvSink.cpp; sourceTree = "<group>"; };
 		B2P00007 /* RawLogSink.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = RawLogSink.cpp; path = ../../src/pipeline/RawLogSink.cpp; sourceTree = "<group>"; };
 		B2P00008 /* ConsoleProgressReporter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ConsoleProgressReporter.cpp; path = ../../src/pipeline/ConsoleProgressReporter.cpp; sourceTree = "<group>"; };
 		B2P00009 /* DemoTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = DemoTransport.cpp; path = ../../src/pipeline/DemoTransport.cpp; sourceTree = "<group>"; };
-		B2P00010 /* FileTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = FileTransport.cpp; path = ../../src/pipeline/FileTransport.cpp; sourceTree = "<group>"; };
-		B2P00011 /* CaptureLog.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = CaptureLog.cpp; path = ../../src/domain/CaptureLog.cpp; sourceTree = "<group>"; };
 		B2P00012 /* USBTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = USBTransport.cpp; path = ../../src/pipeline/USBTransport.cpp; sourceTree = "<group>"; };
 		B2P00013 /* Elm327Normaliser.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = Elm327Normaliser.cpp; path = ../../src/pipeline/Elm327Normaliser.cpp; sourceTree = "<group>"; };
-		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };
+		B2P00027 /* LiveTwaiSource.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = LiveTwaiSource.cpp; path = ../../src/pipeline/LiveTwaiSource.cpp; sourceTree = "<group>"; };
+		B2P00028 /* LiveTwaiSource.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = LiveTwaiSource.h; path = "../../include/vehicle-sim/pipeline/LiveTwaiSource.h"; sourceTree = "<group>"; };		B2P00014 /* TraceLogger.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = TraceLogger.cpp; path = ../../src/telemetry/TraceLogger.cpp; sourceTree = "<group>"; };
 		B2P00015 /* ITransportOutput.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = ITransportOutput.cpp; path = ../../src/pipeline/ITransportOutput.cpp; sourceTree = "<group>"; };
 		B2P00016 /* SystemClock.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SystemClock.cpp; path = ../../src/util/SystemClock.cpp; sourceTree = "<group>"; };
 		B2P00017 /* IClock.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IClock.h; path = "../../include/vehicle-sim/util/IClock.h"; sourceTree = "<group>"; };
@@ -340,21 +334,18 @@
 				B2P00001 /* TCPTransport.cpp */,
 				B2P00026 /* TcpReader.cpp */,
 				B2P00021 /* PosixSocket.cpp */,
-				B2P00002 /* RawFrameNormaliser.cpp */,
 				B2P00003 /* PipelineReplay.cpp */,
 				B2P00024 /* PacedFrameScheduler.cpp */,
 				B2P00025 /* ReplayPacing.cpp */,
 				B2P00004 /* PipelineFactory.cpp */,
-				B2P00005 /* CaptureNormaliser.cpp */,
 				B2P00006 /* DecodedCsvSink.cpp */,
 				B2P00007 /* RawLogSink.cpp */,
 				B2P00008 /* ConsoleProgressReporter.cpp */,
 				B2P00009 /* DemoTransport.cpp */,
-				B2P00010 /* FileTransport.cpp */,
-				B2P00011 /* CaptureLog.cpp */,
 				B2P00012 /* USBTransport.cpp */,
 				B2P00013 /* Elm327Normaliser.cpp */,
-				B2P00014 /* TraceLogger.cpp */,
+				B2P00027 /* LiveTwaiSource.cpp */,
+				B2P00028 /* LiveTwaiSource.h */,				B2P00014 /* TraceLogger.cpp */,
 				B2P00015 /* ITransportOutput.cpp */,
 				B2P00016 /* SystemClock.cpp */,
 				B2P00017 /* IClock.h */,
@@ -541,21 +532,18 @@
 				B1P00001 /* TCPTransport.cpp in Sources */,
 				B1P00026 /* TcpReader.cpp in Sources */,
 				B1P00021 /* PosixSocket.cpp in Sources */,
-				B1P00002 /* RawFrameNormaliser.cpp in Sources */,
 				B1P00003 /* PipelineReplay.cpp in Sources */,
 				B1P00024 /* PacedFrameScheduler.cpp in Sources */,
 				B1P00025 /* ReplayPacing.cpp in Sources */,
 				B1P00004 /* PipelineFactory.cpp in Sources */,
-				B1P00005 /* CaptureNormaliser.cpp in Sources */,
 				B1P00006 /* DecodedCsvSink.cpp in Sources */,
 				B1P00007 /* RawLogSink.cpp in Sources */,
 				B1P00008 /* ConsoleProgressReporter.cpp in Sources */,
 				B1P00009 /* DemoTransport.cpp in Sources */,
-				B1P00010 /* FileTransport.cpp in Sources */,
-				B1P00011 /* CaptureLog.cpp in Sources */,
 				B1P00012 /* USBTransport.cpp in Sources */,
 				B1P00013 /* Elm327Normaliser.cpp in Sources */,
-				B1P00014 /* TraceLogger.cpp in Sources */,
+				B1P00027 /* LiveTwaiSource.cpp in Sources */,
+				B1P00028 /* LiveTwaiSource.h in Sources */,				B1P00014 /* TraceLogger.cpp in Sources */,
 				B1P00015 /* ITransportOutput.cpp in Sources */,
 				B1A0001B /* Elm327Session.cpp in Sources */,
 				B1A0001C /* Elm327Session.h in Sources */,
