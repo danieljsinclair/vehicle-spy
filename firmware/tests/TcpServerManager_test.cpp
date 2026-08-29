@@ -539,5 +539,51 @@ TEST_F(TcpServerManagerTest, Stop_WithAdoptedClient_StopsAndReleasesClient) {
     manager_.stop();
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// §11 writeLineToClient — serve a formatted line (e.g. the [STATE] heartbeat)
+//     to the adopted client. The .ino calls this after every heartbeat tick so
+//     the CLI's --status works over TCP without a USB serial connection.
+// ════════════════════════════════════════════════════════════════════════════
+
+// CONTRACT: with a live adopted client, the line is forwarded verbatim.
+TEST_F(TcpServerManagerTest, WriteLineToClient_WithLiveClient_ForwardsLine) {
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+    manager_.cycle(/*nowMs=*/1000);
+
+    // Client is live → the line is forwarded via println().
+    EXPECT_CALL(client, connected()).WillRepeatedly(Return(true));
+    EXPECT_CALL(client, println(std::string("[STATE] uptime=5000ms wifi=WIFI_CONNECTED\r\n")));
+    manager_.writeLineToClient("[STATE] uptime=5000ms wifi=WIFI_CONNECTED\r\n");
+}
+
+// CONTRACT: with NO adopted client, writeLineToClient is a silent no-op (no
+// crash, no interaction with the server or host). No EXPECT_CALL on
+// server_.accept() — writeLineToClient() never calls accept(); a stray
+// expectation here (copy-pasted from a cycle() test) would never be satisfied.
+TEST_F(TcpServerManagerTest, WriteLineToClient_NoClient_IsNoOp) {
+    manager_.writeLineToClient("[STATE] uptime=5000ms wifi=WIFI_CONNECTED\r\n");
+}
+
+// CONTRACT: with an adopted client that has since dropped, writeLineToClient is
+// a no-op (guards on connected(), not just handle non-null — a dead socket must
+// not be written to, which would stall the loop).
+TEST_F(TcpServerManagerTest, WriteLineToClient_DroppedClient_IsNoOp) {
+    MockTcpServerClient& client = queueConnectedClient();
+    EXPECT_CALL(client, setTimeout(_)).Times(AnyNumber());
+    EXPECT_CALL(client, readLine(_)).WillOnce(Return(kValidAuthLine));
+    EXPECT_CALL(client, println(std::string("OK")));
+    EXPECT_CALL(server_, accept()).WillOnce(acceptQueued());
+    manager_.cycle(/*nowMs=*/1000);
+
+    // Client handle still non-null (hasClient() true) but connected()==false.
+    EXPECT_CALL(client, connected()).WillRepeatedly(Return(false));
+    EXPECT_CALL(client, println(_)).Times(0);
+    manager_.writeLineToClient("[STATE] uptime=5000ms wifi=WIFI_CONNECTED\r\n");
+}
+
 }  // namespace
 }  // namespace esp32_firmware

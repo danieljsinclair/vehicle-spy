@@ -83,6 +83,13 @@ public:
     // WiFiClient reports disconnected while the manager still holds a client.
     bool hasClient() const { return current_ != nullptr; }
 
+    // Write a pre-formatted line to the adopted client (if one is connected).
+    // No-op when no client is adopted or the client has dropped. Used by the
+    // .ino to serve the periodic [STATE] heartbeat over TCP so the CLI's
+    // --status works without a USB serial connection. The line is sent verbatim
+    // (the caller owns formatting); a TCP newline is appended by println().
+    void writeLineToClient(const std::string& line);
+
     // ── Lifecycle hooks ──────────────────────────────────────────────────────
     // start()/stop() are reserved for setup/shutdown + IP-change bring-down.
     // Currently no-op: the listening socket's begin/end are hardware side

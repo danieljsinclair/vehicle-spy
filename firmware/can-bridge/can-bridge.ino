@@ -712,7 +712,12 @@ void loop() {
                        firmwareApp.wifiManager().resolveTargetSsid(),
                        (firmwareApp.wifi().getMode() == 2) ? firmwareApp.wifi().softAPIP() : firmwareApp.wifi().localIP(),
                        firmwareApp.wifiManager().getAuthCampaignDetail())) {
+        // USB serial: always emit, independent of any TCP client.
         Serial.print(heartbeat.snapshot().c_str());
+        // WiFi TCP: also serve the [STATE] heartbeat to a connected client so
+        // the CLI's --status works over TCP without a USB serial connection.
+        // writeLineToClient() guards on an adopted, live client — no-op otherwise.
+        tcpManager().writeLineToClient(heartbeat.snapshot());
     }
 
     // ── TCP accept/auth/dispatch (Stage 6) BEFORE the FirmwareApp LED update ──────

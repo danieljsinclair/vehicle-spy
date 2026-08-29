@@ -6,6 +6,10 @@
 #include <string>
 #include <string_view>
 
+namespace vehicle_sim::pipeline {
+class ISocket;
+}
+
 namespace vehicle_sim::cli {
 
 // Serial transport seam for USB provisioning.
@@ -46,6 +50,29 @@ public:
 
 /** Build the production serial port for `port` (a /dev/cu.* path). */
 std::unique_ptr<ISerialPort> createSerialPort(const std::string& port);
+
+/**
+ * Build the production TCP console port for host:port. The firmware serves
+ * [STATE] heartbeats over TCP to an authenticated client, so open() performs
+ * the same AUTH handshake the live TCP transport does (send "AUTH <token>",
+ * expect "OK") before the read loop can see heartbeats. After auth the
+ * cadence is device-driven — no command is sent. Used by the TCP leg of
+ * --status / --connect auto so a device with no USB serial can still deliver
+ * a [STATE] snapshot. Returns a port whose read()/selectReadable() drain
+ * whatever the firmware pushes.
+ */
+std::unique_ptr<ISerialPort> createTcpConsolePort(const std::string& host, int port);
+
+/**
+ * Build a TCP console port with an injected ISocket (for unit tests). The
+ * socket seam lets the suite script the AUTH response + [STATE] bytes with a
+ * FakeSocket — no real socket, no real connect/recv, no real ESP32. Production
+ * calls the host/port overload above, which wires a real PosixSocket.
+ */
+std::unique_ptr<ISerialPort> createTcpConsolePort(
+    const std::string& host,
+    int port,
+    std::shared_ptr<vehicle_sim::pipeline::ISocket> socket);
 
 // Auto-detect the ESP32's USB serial port by globbing the standard macOS
 // prefixes (/dev/cu.usbserial*, /dev/cu.SLAB_USBtoUART, /dev/cu.wchusbserial*).

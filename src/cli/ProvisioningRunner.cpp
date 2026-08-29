@@ -1,5 +1,7 @@
 #include "vehicle-sim/cli/ProvisioningRunner.h"
 #include "vehicle-sim/cli/LogSanitizer.h"
+#include "vehicle-sim/pipeline/ISocket.h"
+#include "vehicle-sim/pipeline/PosixSocket.h"
 
 #include <fcntl.h>
 #include <functional>
@@ -98,6 +100,146 @@ public:
 private:
     std::string port_;
     int fd_ = -1;
+};
+
+// TCP console port: an ISerialPort over a TCP socket to the ESP32's console.
+//
+// The firmware serves [STATE] heartbeats over TCP (can-bridge.ino writes them
+// to the adopted client via TcpServerManager::writeLineToClient), but ONLY to a
+// client that has authenticated: TcpServerManager::cycle reads the first line
+// of every new connection and rejects anything that isn't "AUTH <token>" with
+// "ERROR unauthorized" + a drop. So open() does the same AUTH handshake the
+// live TCP transport does (TCPTransport::connectAndAuth) — send
+// "AUTH vehicle-sim-2026\r", expect "OK" — before the read loop can see
+// heartbeats. After auth the cadence is device-driven (no command needed), so
+// read()/selectReadable() just drain whatever the firmware pushes.
+//
+// Why a distinct class rather than reusing TCPTransport: TCPTransport is a
+// full ITransport (reconnect hunting, HELO, ELM327 init, deviceId) that never
+// exposes the ISerialPort seam runStatus() needs. The console path wants only
+// "connect, auth, read lines until [STATE]" — a thin wrapper that reuses the
+// battle-tested ISocket/PosixSocket (the SAME socket seam the transport uses)
+// so the connect/auth behavior is identical byte-for-byte.
+class TcpConsolePort final : public ISerialPort {
+public:
+    // host is an IPv4 literal or hostname; port is the console TCP port
+    // (firmware default 3333). `socket` is injected so tests can supply a
+    // scripted FakeSocket; production passes a PosixSocket.
+    TcpConsolePort(std::string host,
+                   int port,
+                   std::shared_ptr<vehicle_sim::pipeline::ISocket> socket)
+        : host_(std::move(host)), port_(port), socket_(std::move(socket)) {}
+
+    // Connect + AUTH handshake. Mirrors TCPTransport::connectAndAuth up to the
+    // "OK" — we stop there (no ELM327 init, no HELO) because the console path
+    // only wants the heartbeat stream, not the CAN stream contract.
+    bool open() override {
+        if (socket_->connect(host_, port_, /*stop=*/nullptr) < 0) {
+            return false;
+        }
+        // Bound the auth-stage recv() so a silent peer can't hang open() past
+        // the firmware's 5s auth window.
+        if (!socket_->setRecvTimeout(AUTH_RECV_TIMEOUT_MS)) {
+            socket_->close();
+            return false;
+        }
+        // Disable Nagle so the single AUTH frame is flushed immediately rather
+        // than held for the delayed-ACK window. Mirrors the transport's
+        // setNoDelay(true) on connect.
+        if (!socket_->setNoDelay(true)) {
+            socket_->close();
+            return false;
+        }
+        // The auth frame the firmware expects (TcpServerManager::isValidAuthToken):
+        // first line = "AUTH " + token. Built at runtime — the token is a
+        // build-time macro (TCP_AUTH_TOKEN) that can't be concatenated with
+        // adjacent literals in a static constexpr, so we compose the frame
+        // once per open() (a one-time connect cost, not per-read).
+        if (const std::string authFrame = "AUTH " + std::string(AUTH_TOKEN) + "\r";
+            !socket_->sendAll(authFrame)) {
+            socket_->close();
+            return false;
+        }
+        std::array<char, 64> resp{};
+        const ssize_t n = socket_->recv(resp.data(), resp.size() - 1);
+        if (n <= 0) {
+            socket_->close();
+            return false;
+        }
+        if (const std::string view(resp.data(), static_cast<std::size_t>(n));
+            view.find("OK") == std::string::npos) {
+            // Peer answered but did not grant auth ("ERROR unauthorized").
+            socket_->close();
+            return false;
+        }
+        // AUTH succeeded. RESET the socket recv timeout for the read stage:
+        // the auth-stage bound (AUTH_RECV_TIMEOUT_MS) is too short for the
+        // [STATE] heartbeat stream — the firmware pushes a heartbeat every
+        // 5s and runStatus()'s deadline is PROVISION_STATUS_TIMEOUT_S (8s).
+        // Leaving the 4s auth timeout in place makes a spurious or partial
+        // selectReadable() stall recv() up to 4s past the point data was
+        // available, burning the read budget before a complete [STATE] line
+        // is assembled. Bound the read stage to the full status timeout so
+        // a blocking recv can span a heartbeat cycle without outliving the
+        // run loop. selectReadable()'s per-step timeout (SERIAL_POLL_INTERVAL_US)
+        // still gates the non-blocking poll; this only sets the ceiling for a
+        // recv() the kernel already flagged readable.
+        if (!socket_->setRecvTimeout(STATUS_RECV_TIMEOUT_MS)) {
+            socket_->close();
+            return false;
+        }
+        authenticated_ = true;
+        return true;
+    }
+
+    bool writeAll(std::string_view data) override {
+        if (!authenticated_) return false;
+        return socket_->sendAll(data);
+    }
+
+    int selectReadable(int timeoutUs) override {
+        if (!authenticated_) return -1;
+        return socket_->selectReadable(timeoutUs);
+    }
+
+    ssize_t read(char* buf, size_t len) override {
+        if (!authenticated_) return -1;
+        return socket_->recv(buf, len);
+    }
+
+    void close() noexcept override {
+        socket_->close();
+        authenticated_ = false;
+    }
+
+private:
+    // The auth token the firmware expects (TcpServerManager::isValidAuthToken):
+    // first line = "AUTH " + token. TCP_AUTH_TOKEN is defined by the build
+    // (CMakeLists / Makefile) and matches the firmware's TCP_AUTH_TOKEN; the
+    // literal here is the fallback when built without the define.
+    static constexpr const char* AUTH_TOKEN =
+#ifndef TCP_AUTH_TOKEN
+        "vehicle-sim-2026";
+#else
+        TCP_AUTH_TOKEN;
+#endif
+
+    // Auth-stage recv() bound (ms). The firmware's TcpServerManager sets the
+    // auth read timeout to 5000ms; staying under it keeps open() from racing
+    // the server's drop.
+    static constexpr int AUTH_RECV_TIMEOUT_MS = 4000;
+
+    // Read-stage recv() bound (ms) — applied AFTER auth succeeds. Mirrors the
+    // runStatus() deadline (PROVISION_STATUS_TIMEOUT_S) so a blocking recv()
+    // can span a full heartbeat cycle (5s) without outliving the read loop.
+    // Must be LONGER than AUTH_RECV_TIMEOUT_MS; otherwise the auth-stage
+    // bound would persist into the read stage and stall recv() mid-stream.
+    static constexpr int STATUS_RECV_TIMEOUT_MS = PROVISION_STATUS_TIMEOUT_S * 1000;
+
+    std::string host_;
+    int port_;
+    std::shared_ptr<vehicle_sim::pipeline::ISocket> socket_;
+    bool authenticated_ = false;
 };
 
 // How long a single poll step waits for readable bytes before re-checking the
@@ -315,6 +457,22 @@ std::string stripStateLines(const std::string& reply) {
 
 std::unique_ptr<ISerialPort> createSerialPort(const std::string& port) {
     return std::make_unique<PosixSerialPort>(port);
+}
+
+// Build the production TCP console port for host:port. The caller supplies the
+// resolved host/port (from parseTcpTarget); the port defaults to the firmware
+// console port (3333) when the target carried no explicit port. Tests inject a
+// FakeSocket via the unit-test overload below.
+std::unique_ptr<ISerialPort> createTcpConsolePort(const std::string& host, int port) {
+    return std::make_unique<TcpConsolePort>(
+        host, port, std::make_shared<vehicle_sim::pipeline::PosixSocket>());
+}
+
+std::unique_ptr<ISerialPort> createTcpConsolePort(
+    const std::string& host,
+    int port,
+    std::shared_ptr<vehicle_sim::pipeline::ISocket> socket) {
+    return std::make_unique<TcpConsolePort>(host, port, std::move(socket));
 }
 
 // Auto-detect glob patterns, in priority order. The device enumerates under
