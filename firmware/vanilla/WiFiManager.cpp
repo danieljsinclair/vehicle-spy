@@ -129,7 +129,11 @@ private:
 
     // (b) Hard fail: WL_CONNECT_FAILED / WL_NO_SSID_AVAIL → escalate to AP
     // when the initial-connect budget for stored creds has expired, otherwise
-    // re-begin on the retry cadence.
+    // re-begin on the retry cadence. The escalated STATE names the failure
+    // family: a scan-miss (reason 201 — the AP was never visible, creds never
+    // attempted) reports WIFI_AP_MODE_NO_AP; every other reason (genuine
+    // auth/handshake rejection, or an unknown reason) keeps the
+    // WIFI_AP_MODE_AUTH_FAIL label.
     StateTransition handleConnectFailed(uint32_t now, WiFiState::Context& ctx, uint32_t connectDuration) {
         CredentialSource source = determineCredentialSource(prefs_, bakedSsid_, bakedPass_);
 
@@ -139,7 +143,11 @@ private:
             // Credentials existed and could not connect — error state, so the
             // wifi_ap_fallback event keeps reporting a reason.
             ctx.escalatedToApReason = ctx.lastDisconnectReason;
-            return StateTransition(WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
+            const WiFiState::State fallback =
+                isApScanMiss(ctx.lastDisconnectReason)
+                    ? WiFiState::State::WIFI_AP_MODE_NO_AP
+                    : WiFiState::State::WIFI_AP_MODE_AUTH_FAIL;
+            return StateTransition(fallback);
         }
 
         if (shouldRetryWiFi(WiFiState::State::WIFI_CONNECTING, now, ctx.lastRetryMs, ctx.reconnectAttempts)) {
@@ -266,8 +274,11 @@ struct ConnectedApStateHandler : public IWiFiStateHandler {
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
         // WIFI_AP_MODE_DEFAULT (no credentials ever configured) has nothing to
-        // retry — keep the AP stable. Only WIFI_AP_MODE_AUTH_FAIL self-heals.
-        if (ctx.state != WiFiState::State::WIFI_AP_MODE_AUTH_FAIL) {
+        // retry — keep the AP stable. The credential-backed AP fallbacks
+        // self-heal: WIFI_AP_MODE_AUTH_FAIL when the operator fixes the
+        // password, WIFI_AP_MODE_NO_AP when the AP comes back into
+        // range/band.
+        if (ctx.state == WiFiState::State::WIFI_AP_MODE_DEFAULT) {
             return StateTransition(ctx.state);
         }
         return attemptApModeStaRecovery(wifi_, prefs_, bakedSsid_, bakedPass_, now, ctx);
@@ -360,6 +371,15 @@ bool isLinkLevelDrop(int reason) {
            reason == WIFI_REASON_BEACON_TIMEOUT ||
            reason == WIFI_REASON_NO_AP_FOUND ||
            reason == WIFI_REASON_HANDSHAKE_TIMEOUT;
+}
+
+bool isApScanMiss(int reason) {
+    // SCAN-MISS family: the scan completed without seeing the configured SSID,
+    // so the credentials were never attempted. This is the range/band/hidden-AP
+    // diagnosis — fundamentally different from a wrong password, which is why
+    // AP-fallback escalation reports it under the distinct WIFI_AP_MODE_NO_AP
+    // state (and a non-error LED pattern) instead of AUTH_FAIL.
+    return reason == WIFI_REASON_NO_AP_FOUND;
 }
 
 bool isAuthCampaignExhausted(int /*strategyIndex*/, int loopIndex) {
@@ -713,6 +733,7 @@ const char* WiFiManager::stateName(WiFiState::State state) {
         case WiFiState::State::WIFI_CONNECTED: return "WIFI_CONNECTED";
         case WiFiState::State::WIFI_AP_MODE_DEFAULT: return "WIFI_AP_MODE_DEFAULT";
         case WiFiState::State::WIFI_AP_MODE_AUTH_FAIL: return "WIFI_AP_MODE_AUTH_FAIL";
+        case WiFiState::State::WIFI_AP_MODE_NO_AP: return "WIFI_AP_MODE_NO_AP";
         default: return "UNKNOWN";
     }
 }
@@ -881,6 +902,7 @@ IWiFiStateHandler* WiFiManager::getStateHandler(WiFiState::State state) {
         case WiFiState::State::WIFI_CONNECTED: return connectedStaHandler_.get();
         case WiFiState::State::WIFI_AP_MODE_DEFAULT: return connectedApHandler_.get();
         case WiFiState::State::WIFI_AP_MODE_AUTH_FAIL: return connectedApHandler_.get();
+        case WiFiState::State::WIFI_AP_MODE_NO_AP: return connectedApHandler_.get();
         default: return disconnectedHandler_.get();
     }
 }

@@ -66,6 +66,7 @@ TEST(LoopHeartbeatTest, MapsAllWiFiStates) {
         {2, "WIFI_CONNECTED"},
         {3, "WIFI_AP_MODE_DEFAULT"},
         {4, "WIFI_AP_MODE_AUTH_FAIL"},
+        {5, "WIFI_AP_MODE_NO_AP"},
     };
     for (size_t i = 0; i < std::size(cases); ++i) {
         // Advance past the interval each iteration so lastTickMs_ keeps up.
