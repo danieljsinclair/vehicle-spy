@@ -230,6 +230,9 @@ Notes on each part, all verified:
   `subaru_ej25.json`, `2jz.json`, `11_merlin_v12.json`.
 - `--play` for real audio. Swap for `--silent` (full pipeline at zero volume) when benching
   headlessly. `--duration <s>` bounds a non-interactive run; `--interactive` runs open-ended.
+  Either way the CLI now exits on its own when the drive ends: stdin EOF (vehicle-sim closing
+  the pipe) terminates the whole CLI immediately (2026-08-30) — no leftover engine process
+  after a road test.
 - Add `--gearbox-log /tmp/gearbox.csv` to record shift decisions — **confirmed working on the
   live-telemetry path** on the canonical checkout (columns: frame, dt, speedKmh, throttleRaw,
   throttleSmoothed, vehicleSpeedFeedbackKmh, engineRpmFeedback, currentGear, targetGear,
