@@ -2,7 +2,21 @@
 #include "vehicle-sim/cli/CliOptions.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
+#include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "test/cli/Args.h"
+
+#include <sys/types.h>
+#include <unistd.h>
+#ifdef __APPLE__
+#include <util.h>
+#else
+#include <pty.h>
+#endif
+
+#include <cstdlib>
+#include <memory>
+#include <string>
+#include <vector>
 
 using namespace vehicle_sim::cli;
 using namespace vehicle_sim::domain;
@@ -872,6 +886,112 @@ TEST_F(CliOptionsTest, PortFlagIsRemoved) {
     EXPECT_FALSE(opts.error_message.empty())
         << "--port should now be rejected as an unknown option";
     EXPECT_NE(opts.error_message.find("--port"), std::string::npos);
+}
+
+TEST_F(CliOptionsTest, SetWifiCreds_ConnectUsb_FlowsIntoSerialPort) {
+    Args args({"vehicle-sim", "--set-wifi-creds", "MyNet", "s3cr3t",
+               "--connect", "usb:/dev/cu.usbserial-777"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_TRUE(opts.isProvisioning());
+    EXPECT_EQ(opts.wifi.transport, "usb:/dev/cu.usbserial-777");
+    EXPECT_TRUE(opts.telemetry.connect_target.empty())
+        << "a provisioning --connect must be consumed by the provisioner, "
+           "not left as a telemetry target";
+}
+
+TEST_F(CliOptionsTest, ClearWifiCreds_ConnectUsb_FlowsIntoSerialPort) {
+    Args args({"vehicle-sim", "--clear-wifi-creds", "--connect", "usb:/dev/cu.SLAB_USBtoUART"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_TRUE(opts.error_message.empty());
+    EXPECT_EQ(opts.wifi.transport, "usb:/dev/cu.SLAB_USBtoUART");
+    EXPECT_TRUE(opts.telemetry.connect_target.empty());
+}
+
+// NOTE (merged from the startStop track): the parse-time ESP32_PORT env-var
+// fallback and the WifiProvisioningOptions::usb_port field it populated were
+// superseded by the origin/master resolver design — the Makefile now always
+// passes --connect "usb:$(ESP32_PORT)" explicitly, and a missing --connect
+// triggers the provisioner's run-time /dev/cu.* auto-detect
+// (resolveSerialPort, ProvisioningRunner). The env-behaviour tests that
+// asserted the old parse-time fold were removed with it; the no-connect
+// auto-detect contract is covered by
+// ProvisioningWithoutConnectLeavesTransportEmpty below.
+
+// ============================================================
+// --connect usb:<path> — the live USB path, end to end through the REAL
+// option-parsing. A pseudo-terminal stands in for the /dev/cu.* device:
+// parseArgs must yield a usb: target, and buildPipelineSource (the same
+// factory LiveRunContext uses) must turn it into a transport that actually
+// OPENS the serial device and streams lines from it. This is the regression
+// net for "usb: has worked for ages" — it pins the whole chain in ctest.
+// ============================================================
+
+namespace {
+
+class PtyPair {
+public:
+    PtyPair() {
+        if (::openpty(&masterFd_, &slaveFd_, slaveName_, nullptr, nullptr) != 0) {
+            slaveFd_ = -1;
+            masterFd_ = -1;
+        }
+    }
+    ~PtyPair() {
+        if (slaveFd_ >= 0) ::close(slaveFd_);
+        if (masterFd_ >= 0) ::close(masterFd_);
+    }
+    PtyPair(const PtyPair&) = delete;
+    PtyPair& operator=(const PtyPair&) = delete;
+    [[nodiscard]] bool valid() const {
+        return masterFd_ >= 0 && slaveFd_ >= 0 && slaveName_[0] != '\0';
+    }
+    [[nodiscard]] const char* devicePath() const { return slaveName_; }
+    [[nodiscard]] int masterFd() const { return masterFd_; }
+
+private:
+    int masterFd_ = -1;
+    int slaveFd_ = -1;
+    char slaveName_[128]{};
+};
+
+} // namespace
+
+TEST_F(CliOptionsTest, ConnectUsb_OpensSerialTransportViaRealOptionParsing) {
+    PtyPair pty;
+    ASSERT_TRUE(pty.valid());
+
+    const std::string target = std::string("usb:") + pty.devicePath();
+    Args args({"vehicle-sim", "--connect", target, "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    // The real parsing path: no error, a usb: target, validation clean.
+    ASSERT_TRUE(opts.error_message.empty());
+    EXPECT_TRUE(opts.isUsb());
+    EXPECT_EQ(opts.telemetry.connect_target, target);
+
+    DBCTranslationService service;
+    DefaultVehicleConfigs::registerAll(service.registry());
+    EXPECT_TRUE(validateOptions(opts, service).empty());
+
+    // The same factory call LiveRunContext::run makes.
+    auto stop = std::make_shared<vehicle_sim::pipeline::StopToken>();
+    auto source = vehicle_sim::pipeline::buildPipelineSource(
+        opts.telemetry.connect_target, "raw", stop);
+    ASSERT_TRUE(source.transport);
+
+    // The transport must OPEN the PTY device and stream its lines.
+    ASSERT_TRUE(source.transport->open());
+    ASSERT_TRUE(source.transport->isOpen());
+
+    const std::string frame = "1D5 29 00 00 00 00 00 A0 9F\r";
+    ASSERT_EQ(::write(pty.masterFd(), frame.data(), frame.size()),
+              static_cast<ssize_t>(frame.size()));
+    auto line = source.transport->nextLine();
+    ASSERT_TRUE(line.has_value());
+    EXPECT_EQ(*line, "1D5 29 00 00 00 00 00 A0 9F");
 }
 
 // The two free-form vehicle-label paths (interactive mode, decoded-CSV replay)

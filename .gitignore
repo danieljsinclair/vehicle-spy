@@ -106,8 +106,12 @@ image/build/
 xcuserdata/
 *.xcuserdatad/
 
-# Xcode asset catalog generated icons (keep Contents.json)
+# Xcode asset catalog icons: the two AppIcon renders are COMMITTED artifacts
+# (pristine checkouts must build the iOS leg without ImageMagick; regenerate
+# opt-in via 'make regen-appicon'). Any other stray render stays ignored.
 vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/*.png
+!vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+!vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/AppIcon-dark.png
 
 # Transient, backup, temporary, and log files
 tmp/

@@ -20,26 +20,22 @@ bool isTokenSeparator(unsigned char c) noexcept {
     return c == ' ' || c == '\t' || c == ',' || c == '\r' || c == '\n';
 }
 
-// One allowed ASCII char in a CAN-frame line: a printable byte that is a
-// hex digit, a token separator, or the '0x' prefix characters. Anything
-// else (control bytes, NUL, high-bit, letters beyond x/X, underscores,
-// punctuation) fails so that status text like "TWAI started" or headers
-// like "raw_line" fall through to the binary path (where they fail cleanly)
-// instead of being mis-tokenised as CAN frames.
-bool isAllowedAsciiLineChar(unsigned char c) noexcept {
-    if (c < 0x20 || c > 0x7E) return false;
-    return isHexDigit(c) || c == ' ' || c == '\t' || c == ',' || c == '\r' || c == '\n'
-           || c == 'x' || c == 'X';
-}
-
 // True iff every char in the payload is a printable ASCII char that could
 // appear in a CAN-frame line: hex digit, space, tab, comma, or one of a
 // few harmless punctuation marks. Anything with a control byte, a NUL, or
 // a high-bit character falls through to the binary path.
 bool looksLikeAsciiLine(std::string_view payload) noexcept {
-    if (payload.empty()) return false;
-    return std::all_of(payload.begin(), payload.end(),
-                       [](char c) { return isAllowedAsciiLineChar(static_cast<unsigned char>(c)); });
+    // Allow hex digits, token separators, and the '0x' prefix characters.
+    // Reject anything else (letters beyond x/X, underscores, punctuation)
+    // so that status text like "TWAI started" or headers like "raw_line"
+    // fall through to the binary path (where they fail cleanly) instead
+    // of being mis-tokenised as CAN frames.
+    return !payload.empty()
+        && std::all_of(payload.begin(), payload.end(), [](unsigned char c) {
+               return c >= 0x20 && c <= 0x7E
+                   && (isHexDigit(c) || c == ' ' || c == '\t' || c == ',' || c == '\r'
+                       || c == '\n' || c == 'x' || c == 'X');
+           });
 }
 
 std::optional<std::uint32_t> parseHexU32(std::string_view s) noexcept {
@@ -48,34 +44,53 @@ std::optional<std::uint32_t> parseHexU32(std::string_view s) noexcept {
     return v;
 }
 
-// Advance `i` past separators and return the next token (empty when the
-// remainder is all separators). The single mutation point for the scan
-// index, so the tokenise loop stays flat (cpp:S3776).
-std::string_view nextToken(std::string_view s, std::size_t& i) noexcept {
-    while (i < s.size() && isTokenSeparator(static_cast<unsigned char>(s[i]))) ++i;
-    const std::size_t begin = i;
-    while (i < s.size() && !isTokenSeparator(static_cast<unsigned char>(s[i]))) ++i;
-    return s.substr(begin, i - begin);
+// Lex the next token (delimited by any separator), advancing pos past it.
+// Returns an empty view once the payload is exhausted (tokens themselves are
+// never empty).
+std::string_view nextToken(std::string_view payload, std::size_t& pos) noexcept {
+    while (pos < payload.size()
+           && isTokenSeparator(static_cast<unsigned char>(payload[pos]))) {
+        ++pos;
+    }
+    const std::size_t begin = pos;
+    while (pos < payload.size()
+           && !isTokenSeparator(static_cast<unsigned char>(payload[pos]))) {
+        ++pos;
+    }
+    return payload.substr(begin, pos - begin);
 }
 
-// First token of a frame line = 11-bit CAN id: at most 3 hex digits and
-// within the 11-bit range.
-bool parseCanIdToken(std::string_view tok, std::uint32_t v,
-                     std::uint32_t& canIdOut) noexcept {
-    if (tok.size() > 3) return false;  // 11-bit CAN id is <= 3 hex digits
-    if (v > 0x7FFu) return false;      // 11-bit range
-    canIdOut = v;
-    return true;
+// The first token is the CAN-ID: at most 3 hex digits and within the 11-bit
+// range (0x7FF).
+bool parseCanIdToken(std::string_view tok, std::uint32_t& canIdOut) noexcept {
+    if (auto v = parseHexU32(tok);
+        v.has_value() && tok.size() <= 3 && *v <= 0x7FFu) {
+        canIdOut = *v;
+        return true;
+    }
+    return false;
 }
 
-// A data-byte token: exactly 2 hex chars, <= 0xFF, at most 8 bytes.
-bool appendDataByteToken(std::string_view tok, std::uint32_t v,
-                         std::vector<std::uint8_t>& data) noexcept {
-    if (tok.size() != 2) return false;  // data bytes are exactly 2 hex chars
-    if (v > 0xFFu) return false;
-    if (data.size() >= 8) return false;
-    data.push_back(static_cast<std::uint8_t>(v));
-    return true;
+// Every later token is one data byte: exactly 2 hex digits (0-255).
+bool parseDataByteToken(std::string_view tok, std::uint8_t& byteOut) noexcept {
+    if (auto v = parseHexU32(tok);
+        v.has_value() && tok.size() == 2 && *v <= 0xFFu) {
+        byteOut = static_cast<std::uint8_t>(*v);
+        return true;
+    }
+    return false;
+}
+
+// Pack the decoded id + data bytes into the fixed 10-byte TWAI shape
+// [canId_lo, canId_hi, d0..d7].
+TwaiFrame makeTwaiFrame(std::uint64_t tsMs, std::uint32_t canId,
+                        const std::vector<std::uint8_t>& data) noexcept {
+    TwaiFrame f;
+    f.timestampMs = tsMs;
+    f.bytes[0] = static_cast<std::uint8_t>(canId & 0xFF);
+    f.bytes[1] = static_cast<std::uint8_t>((canId >> 8) & 0xFF);
+    for (std::size_t k = 0; k < data.size(); ++k) f.bytes[2 + k] = data[k];
+    return f;
 }
 
 } // namespace
@@ -125,23 +140,18 @@ std::optional<TwaiFrame> BinaryFileSource::parseAscii(
     std::size_t i = 0;
     for (std::string_view tok = nextToken(payload, i); !tok.empty();
          tok = nextToken(payload, i)) {
-        const auto v = parseHexU32(tok);
-        if (!v.has_value()) return std::nullopt;
         if (!haveId) {
-            if (!parseCanIdToken(tok, *v, canId)) return std::nullopt;
+            if (!parseCanIdToken(tok, canId)) return std::nullopt;
             haveId = true;
-        } else if (!appendDataByteToken(tok, *v, data)) {
-            return std::nullopt;
+            continue;
         }
+        std::uint8_t byte = 0;
+        if (data.size() >= 8 || !parseDataByteToken(tok, byte)) return std::nullopt;
+        data.push_back(byte);
     }
     if (!haveId) return std::nullopt;
 
-    TwaiFrame f;
-    f.timestampMs = tsMs;
-    f.bytes[0] = static_cast<std::uint8_t>(canId & 0xFF);
-    f.bytes[1] = static_cast<std::uint8_t>((canId >> 8) & 0xFF);
-    for (std::size_t k = 0; k < data.size(); ++k) f.bytes[2 + k] = data[k];
-    return f;
+    return makeTwaiFrame(tsMs, canId, data);
 }
 
 std::optional<TwaiFrame> BinaryFileSource::parseBinary(

@@ -16,8 +16,11 @@
 #include <string_view>
 #include <vector>
 
-// Shared time parser from engine-sim-bridge (DRY).
-#include "common/TimeParser.h"
+// Timecode parser for --start-from. Own-tree header: the grammar mirrors
+// engine-sim-cli's parseReplayTimeToSeconds (the bridge submodule ships no
+// timecode parser of its own — c3ddc20's include pointed at an untracked
+// bridge working-copy file that existed in no commit anywhere).
+#include "vehicle-sim/cli/TimeParser.h"
 
 namespace vehicle_sim::cli {
 
@@ -417,6 +420,18 @@ void foldProvisioningTransport(CliOptions& opts) {
     }
 }
 
+// Smart timecode parser for --start-from (startStop track). Applied only
+// when --connect file: (replay mode). The skip stacks with engine-sim-cli's
+// --start-from (both can apply) — expected convenient behavior.
+void foldStartFrom(CliOptions& opts, const std::string& startFromRaw) {
+    if (startFromRaw.empty()) return;
+    opts.telemetry.start_from_s = parseTimecodeToSeconds(startFromRaw);
+    if (opts.telemetry.start_from_s < 0.0) {
+        opts.error_message = "Invalid --start-from time: " + startFromRaw +
+            " (expected seconds, mm:ss, or hh:mm:ss)";
+    }
+}
+
 }  // namespace
 
 // Format a --vehicle validation error message. `reason` is the specific
@@ -512,18 +527,7 @@ CliOptions parseArgs(int argc, char* argv[]) {
     foldConnectAliases(opts);
     foldSetWifiCreds(opts, setWifiArgs);
     foldProvisioningTransport(opts);
-
-    // Smart timecode parser (DRY with bridge) for --start-from. Applied only
-    // when --start-from was supplied; replay-only semantics are enforced
-    // downstream. The skip stacks with engine-sim-cli's --start-from (both
-    // can apply) — expected convenient behavior.
-    if (!startFromRaw.empty()) {
-        opts.telemetry.start_from_s = engine_sim_bridge::parseTimecodeToSeconds(startFromRaw);
-        if (opts.telemetry.start_from_s < 0.0) {
-            opts.error_message = "Invalid --start-from time: " + startFromRaw +
-                " (expected seconds, mm:ss, or hh:mm:ss)";
-        }
-    }
+    foldStartFrom(opts, startFromRaw);
 
     return opts;
 }

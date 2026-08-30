@@ -12,32 +12,40 @@ namespace vehicle_sim::pipeline {
 
 namespace {
 
-// Advance `i` past spaces/tabs and return the next whitespace-delimited
-// token (empty when the remainder is all separators). The single mutation
-// point for the scan index, so the tokenise loop stays flat (cpp:S3776).
-std::string_view nextSpaceToken(std::string_view s, std::size_t& i) noexcept {
-    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
-    const std::size_t begin = i;
-    while (i < s.size() && s[i] != ' ' && s[i] != '\t') ++i;
-    return s.substr(begin, i - begin);
+constexpr bool isSpaceOrTab(char c) noexcept {
+    return c == ' ' || c == '\t';
 }
 
-// First token = the 11-bit CAN id: at most 3 hex digits and in range.
-bool parseCanIdToken(std::string_view tok, std::uint32_t v,
-                     std::uint32_t& canIdOut) noexcept {
-    if (tok.size() > 3) return false;  // 11-bit CAN id is <= 3 hex digits
-    if (v > 0x7FFu) return false;      // 11-bit range
+// Lex the next whitespace-delimited token, advancing pos past it. Returns an
+// empty view once the line is exhausted (tokens themselves are never empty).
+std::string_view nextToken(std::string_view line, std::size_t& pos) noexcept {
+    while (pos < line.size() && isSpaceOrTab(line[pos])) ++pos;
+    const std::size_t begin = pos;
+    while (pos < line.size() && !isSpaceOrTab(line[pos])) ++pos;
+    return line.substr(begin, pos - begin);
+}
+
+// The first token is the CAN-ID: at most 3 hex digits and within the 11-bit
+// range (0x7FF).
+bool parseCanIdToken(std::string_view tok, std::uint32_t& canIdOut) noexcept {
+    std::uint32_t v = 0;
+    if (auto r = std::from_chars(tok.data(), tok.data() + tok.size(), v, 16);
+        r.ec != std::errc{} || tok.size() > 3 || v > 0x7FFu) {
+        return false;
+    }
     canIdOut = v;
     return true;
 }
 
-// A data-byte token: exactly 2 hex digits, <= 0xFF, at most 8 bytes.
-bool appendDataByteToken(std::string_view tok, std::uint32_t v,
-                         std::array<std::uint8_t, 8>& dataOut,
-                         std::size_t& dlcOut) noexcept {
-    if (tok.size() != 2) return false;  // data bytes are exactly 2 hex chars
-    if (v > 0xFFu) return false;
-    if (dlcOut >= 8) return false;
+// Every later token is one data byte: exactly 2 hex digits (0-255), at most 8
+// of them. Appends to dataOut/dlcOut on success.
+bool parseDataByteToken(std::string_view tok, std::array<std::uint8_t, 8>& dataOut,
+                        std::size_t& dlcOut) noexcept {
+    std::uint32_t v = 0;
+    if (auto r = std::from_chars(tok.data(), tok.data() + tok.size(), v, 16);
+        r.ec != std::errc{} || tok.size() != 2 || v > 0xFFu || dlcOut >= 8) {
+        return false;
+    }
     dataOut[dlcOut++] = static_cast<std::uint8_t>(v);
     return true;
 }
@@ -51,15 +59,12 @@ bool tokenizeTwaiLine(std::string_view line, std::uint32_t& canIdOut,
     canIdOut = 0;
     bool haveId = false;
     std::size_t i = 0;
-    for (std::string_view tok = nextSpaceToken(line, i); !tok.empty();
-         tok = nextSpaceToken(line, i)) {
-        std::uint32_t v = 0;
-        if (auto r = std::from_chars(tok.data(), tok.data() + tok.size(), v, 16);
-            r.ec != std::errc{}) return false;
+    for (std::string_view tok = nextToken(line, i); !tok.empty();
+         tok = nextToken(line, i)) {
         if (!haveId) {
-            if (!parseCanIdToken(tok, v, canIdOut)) return false;
+            if (!parseCanIdToken(tok, canIdOut)) return false;
             haveId = true;
-        } else if (!appendDataByteToken(tok, v, dataOut, dlcOut)) {
+        } else if (!parseDataByteToken(tok, dataOut, dlcOut)) {
             return false;
         }
     }
@@ -107,6 +112,7 @@ std::optional<TwaiFrame> LiveTwaiSource::nextFrame() noexcept {
             if (r.kind != NormaliserResultKind::Frame) continue;
             TwaiFrame f = std::move(r.frame);
             f.timestampMs = wallclockMs();
+            f.rawLine = std::move(*line);
             return f;
         }
 
@@ -121,6 +127,7 @@ std::optional<TwaiFrame> LiveTwaiSource::nextFrame() noexcept {
         f.bytes[0] = static_cast<std::uint8_t>(canId & 0xFF);
         f.bytes[1] = static_cast<std::uint8_t>((canId >> 8) & 0xFF);
         for (std::size_t k = 0; k < dlc; ++k) f.bytes[2 + k] = data[k];
+        f.rawLine = std::move(*line);
         return f;
     }
     return std::nullopt;

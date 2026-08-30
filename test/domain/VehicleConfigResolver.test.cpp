@@ -3,6 +3,7 @@
 #include "vehicle-sim/domain/DBCTranslationService.h"
 #include "vehicle-sim/domain/VehicleConfig.h"
 #include "vehicle-sim/domain/DefaultVehicleConfigs.h"
+#include "vehicle-sim/domain/VehicleSimExceptions.h"
 #include <memory>
 #include <algorithm>
 
@@ -57,6 +58,46 @@ TEST_F(VehicleConfigResolverTest, ResolveInvalidVehicle_ErrorMessageIncludesAvai
             << "Error should include tesla";
         EXPECT_TRUE(msg.find("audi_mlb_evo") != std::string::npos)
             << "Error should include audi_mlb_evo";
+    }
+}
+
+TEST_F(VehicleConfigResolverTest, ResolveCanVehicleWithMissingDbc_ThrowsSelfDiagnosingDBCLoadException) {
+    // Registered CAN vehicle whose DBC exists nowhere: the failure must be
+    // self-diagnosing (vehicle, stage, concrete paths tried), not a bare name.
+    VehicleConfig config(
+        "no/such/ghost.dbc",
+        "no/such/ghost.dbc",
+        "Ghost CAN Vehicle",
+        std::unordered_map<std::string, std::string>{{"DI_torqueActual", "motorTorqueNm"}},
+        "",
+        true
+    );
+    service_->registry().registerVehicle("ghost_can", std::move(config));
+
+    try {
+        (void)resolver_->resolve("ghost_can");
+        FAIL() << "Should have thrown DBCLoadException";
+    } catch (const DBCLoadException& e) {
+        EXPECT_EQ(e.vehicleType(), "ghost_can");
+
+        const std::string msg = e.what();
+        // Vehicle name is named.
+        EXPECT_NE(msg.find("ghost_can"), std::string::npos)
+            << "Error should name the vehicle";
+        // The failed stage is named (file missing => open, not zero-signals).
+        EXPECT_EQ(e.stage(), "open");
+        EXPECT_NE(msg.find("Failed stage: open"), std::string::npos)
+            << "Error should name the failed stage";
+        // The concrete DBC paths tried are listed.
+        EXPECT_NE(msg.find("Paths tried:"), std::string::npos)
+            << "Error should list the paths tried";
+        ASSERT_FALSE(e.pathsTried().empty());
+        for (const auto& path : e.pathsTried()) {
+            EXPECT_NE(msg.find(path), std::string::npos)
+                << "Error message should contain tried path: " << path;
+            EXPECT_NE(path.find("no/such/ghost.dbc"), std::string::npos)
+                << "Tried path should embed the DBC resource: " << path;
+        }
     }
 }
 

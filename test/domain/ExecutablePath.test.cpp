@@ -7,8 +7,10 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 #include <sys/syslimits.h>
+#include <algorithm>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "vehicle-sim/util/ExecutablePath.h"
 #include "vehicle-sim/domain/DBCTranslationService.h"
@@ -82,6 +84,60 @@ TEST_F(ExecutablePathTest, LoadTeslaFromForeignCwd_Succeeds) {
         << "Tesla DBC must load from /tmp via exe-relative resolution";
     EXPECT_EQ(service.getVehicleId(), "tesla");
     EXPECT_TRUE(service.isLoaded());
+}
+
+// The candidate list resolveResource() walks must be reported so load-failure
+// diagnostics can show every concrete path tried. Order: exe dir first, then
+// ancestors, with the CWD fallback present (deduped when CWD is itself an
+// exe ancestor, e.g. running the tests from the repo root).
+TEST_F(ExecutablePathTest, ResourceCandidates_ExeDirFirst_CwdPresent) {
+    const std::string rel = "resources/dbc/Model3CAN.dbc";
+    const std::vector<std::string> candidates = ExecutablePath::resourceCandidates(rel);
+
+    ASSERT_GE(candidates.size(), 2u) << "expected exe-dir and cwd candidates";
+
+    // First candidate is anchored at the executable's directory.
+    EXPECT_EQ(candidates.front(), ExecutablePath::directory() + "/" + rel)
+        << "first candidate must be <exeDir>/<resource>";
+
+    // The CWD fallback candidate is in the list.
+    char cwd[PATH_MAX];
+    ASSERT_NE(getcwd(cwd, sizeof(cwd)), nullptr);
+    const std::string cwdCandidate = std::string(cwd) + "/" + rel;
+    EXPECT_NE(std::find(candidates.begin(), candidates.end(), cwdCandidate), candidates.end())
+        << "CWD fallback candidate must be reported";
+
+    // Every candidate embeds the requested resource path.
+    for (const auto& candidate : candidates) {
+        EXPECT_NE(candidate.find(rel), std::string::npos)
+            << "candidate missing the resource path: " << candidate;
+    }
+}
+
+// A candidate that exists is exactly what resolveResource() returns, and the
+// real repo DBC is among the candidates for the test binary (exe-ancestor walk).
+TEST_F(ExecutablePathTest, ResourceCandidates_ContainsExistingResourceResolveReturns) {
+    const std::string rel = "resources/dbc/Model3CAN.dbc";
+    const std::vector<std::string> candidates = ExecutablePath::resourceCandidates(rel);
+
+    const std::string resolved = ExecutablePath::resolveResource(rel);
+    ASSERT_TRUE(std::filesystem::exists(resolved));
+    EXPECT_NE(std::find(candidates.begin(), candidates.end(), resolved), candidates.end())
+        << "resolveResource() result must be one of the reported candidates";
+}
+
+// A resource that exists nowhere still yields a non-empty candidate list (the
+// walk itself must not depend on the file existing) — this is what a
+// DBCLoadException "paths tried" section is built from.
+TEST_F(ExecutablePathTest, ResourceCandidates_MissingResourceStillListsCandidates) {
+    const std::string rel = "no/such/resource.dbc";
+    const std::vector<std::string> candidates = ExecutablePath::resourceCandidates(rel);
+
+    EXPECT_FALSE(candidates.empty());
+    for (const auto& candidate : candidates) {
+        EXPECT_FALSE(std::filesystem::exists(candidate))
+            << "expected no candidate to exist: " << candidate;
+    }
 }
 
 } // namespace

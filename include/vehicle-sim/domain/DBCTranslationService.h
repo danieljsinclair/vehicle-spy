@@ -19,6 +19,29 @@ enum class VehicleProtocol {
 
 class DBCTranslationService {
 public:
+    /**
+     * Self-diagnosing detail of the most recent failed loadVehicle* call.
+     * Reset to Stage::None at the start of every load attempt, so after any
+     * successful load it reports "no failure".
+     */
+    struct DBCLoadFailure {
+        enum class Stage {
+            None,           ///< no failure recorded (or load succeeded)
+            UnknownVehicle, ///< vehicle id not present in the registry
+            Open,           ///< resolved DBC path exists nowhere / could not be opened
+            ZeroSignals     ///< DBC opened and parsed but produced 0 signals
+        };
+
+        Stage stage{Stage::None};
+        std::string vehicleId;                    ///< vehicle whose load failed
+        std::string resourcePath;                 ///< DBC path as declared/passed (often PWD-relative)
+        std::string resolvedPath;                 ///< concrete path handed to the parser
+        std::vector<std::string> candidatesTried; ///< every candidate path resolveResource checked
+
+        /// Short lowercase label for error messages ("open", "zero-signals", ...).
+        [[nodiscard]] const char* stageLabel() const noexcept;
+    };
+
     DBCTranslationService();
     ~DBCTranslationService();
 
@@ -41,6 +64,13 @@ public:
     [[nodiscard]] VehicleProtocol getProtocol() const noexcept;
     [[nodiscard]] std::string getVehicleId() const noexcept;
     [[nodiscard]] bool isLoaded() const noexcept;
+
+    /**
+     * Detail of the most recent failed loadVehicle* call (stage, vehicle id,
+     * paths tried). Lets callers (e.g. VehicleConfigResolver building a
+     * DBCLoadException) report WHY a load failed instead of a bare "false".
+     */
+    [[nodiscard]] const DBCLoadFailure& lastLoadFailure() const noexcept;
 
     VehicleConfigRegistry& registry();
     const VehicleConfigRegistry& registry() const;

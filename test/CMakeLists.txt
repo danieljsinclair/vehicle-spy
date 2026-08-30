@@ -34,11 +34,13 @@ add_executable(vehicle-sim-tests
     presentation/VehicleSignalFormatter.test.cpp
     cli/CliOptions.test.cpp
     cli/LogSanitizer.test.cpp
+    cli/TimeParser.test.cpp
     cli/ProvisioningRunner.test.cpp
     cli/TelemetryRunner.test.cpp
     cli/TelemetryRunnerStdoutCsv.test.cpp
     cli/Orchestration.test.cpp
     cli/ReplayRunContext.test.cpp
+    cli/LiveRunContext.test.cpp
     interactive/BridgeKeyboardIntegration.test.cpp
     cli/CsvReplayRunContext.test.cpp
     cli/InteractiveRunContext.test.cpp
@@ -76,6 +78,7 @@ add_executable(vehicle-sim-tests
     pipeline/TCPTransportHuntingCancel.test.cpp
     pipeline/TCPTransportHuntingGap.test.cpp
     pipeline/USBTransport.test.cpp
+    pipeline/TcpSignalSource.test.cpp
     pipeline/ITransportOutput.test.cpp
     pipeline/OTAHttpTransport.test.cpp
     pipeline/PipelineFactory.test.cpp

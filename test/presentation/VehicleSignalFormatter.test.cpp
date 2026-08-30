@@ -108,3 +108,67 @@ TEST_F(VehicleSignalFormatterTest, FormatHeaderWritesToStream) {
 
     EXPECT_NE(out.str().find("Audi"), std::string::npos);
 }
+
+// ============================================================
+// formatDetectionSummary — the detection HUD line the iOS wrapper renders
+// (detectionInfo). Moved out of VehicleSimWrapper.mm; pinned here because
+// ctest could not reach it inside the .mm.
+// ============================================================
+
+#include "vehicle-sim/domain/VehicleDetector.h"
+#include <unordered_set>
+
+TEST_F(VehicleSignalFormatterTest, DetectionSummary_EmptyWhenNoFrames) {
+    VehicleDetectionResult result;  // frameCount == 0
+    EXPECT_EQ(formatDetectionSummary(result), "");
+}
+
+TEST_F(VehicleSignalFormatterTest, DetectionSummary_FramesOnlyWhenNoIdsNoSuggestion) {
+    VehicleDetectionResult result;
+    result.frameCount = 12;
+    EXPECT_EQ(formatDetectionSummary(result), "Frames: 12");
+}
+
+TEST_F(VehicleSignalFormatterTest, DetectionSummary_ListsCanIdsAscendingDeterministic) {
+    // The detector collects IDs in an unordered set; the summary must still
+    // be deterministic (sorted ascending), not hash-order.
+    VehicleDetectionResult result;
+    result.frameCount = 3;
+    result.observedCanIds = {0x0257, 0x0118, 0x0108};
+    EXPECT_EQ(formatDetectionSummary(result),
+              "Frames: 3 | CAN IDs: 0x0108 0x0118 0x0257");
+}
+
+TEST_F(VehicleSignalFormatterTest, DetectionSummary_ZeroPadsFourHexDigits) {
+    VehicleDetectionResult result;
+    result.frameCount = 1;
+    result.observedCanIds = {0x1D5};
+    EXPECT_EQ(formatDetectionSummary(result), "Frames: 1 | CAN IDs: 0x01D5");
+}
+
+TEST_F(VehicleSignalFormatterTest, DetectionSummary_AppendsSuggestionAndConfidence) {
+    VehicleDetectionResult result;
+    result.frameCount = 40;
+    result.observedCanIds = {0x0118};
+    result.suggestedVehicleId = "tesla";
+    result.confidence = DetectionConfidence::High;
+    EXPECT_EQ(formatDetectionSummary(result),
+              "Frames: 40 | CAN IDs: 0x0118 | tesla (high)");
+}
+
+TEST_F(VehicleSignalFormatterTest, DetectionSummary_ConfidenceWordings) {
+    VehicleDetectionResult result;
+    result.frameCount = 5;
+    result.suggestedVehicleId = "audi_mlb_evo";
+    result.confidence = DetectionConfidence::Medium;
+    EXPECT_NE(formatDetectionSummary(result).find("audi_mlb_evo (medium)"),
+              std::string::npos);
+
+    result.confidence = DetectionConfidence::Low;
+    EXPECT_NE(formatDetectionSummary(result).find("audi_mlb_evo (low)"),
+              std::string::npos);
+
+    result.confidence = DetectionConfidence::None;
+    EXPECT_NE(formatDetectionSummary(result).find("audi_mlb_evo (none)"),
+              std::string::npos);
+}

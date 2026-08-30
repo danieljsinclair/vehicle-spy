@@ -266,7 +266,7 @@ int runFileReplay(const vehicle_sim::cli::CliOptions& opts,
     // Decoded-telemetry CSV (CSV replay mode) routes to CsvReplayRunContext,
     // which replays the recorded rows as if they were live CAN — feeding the
     // same --stdout-csv schema used for latency testing. Raw CAN captures
-    // keep the existing DBC-translation replay path.
+    // (text or binary TWAI) keep the DBC-translation replay path.
     if (isDecodedTelemetryCsv(path)) {
         auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
         vehicle_sim::util::SystemClock systemClock;
@@ -300,7 +300,7 @@ int runTransport(const vehicle_sim::cli::CliOptions& opts,
     using namespace vehicle_sim::cli;
     if (opts.isTcp() || opts.isDemo() || opts.isUsb()) {
         // Live transports (demo/tcp/usb) through the canonical seam:
-        // (Demo|TCP|USB)Transport → Normaliser → DBCTranslationService →
+        // (Demo|TCP|USB)Transport → LiveTwaiSource → DBCTranslationService →
         // RawLogSink + DecodedCsvSink. The resolved --log base drives BOTH
         // sinks for live (the raw stream is the source of truth). The adapter
         // protocol default table + explicit override resolve here.

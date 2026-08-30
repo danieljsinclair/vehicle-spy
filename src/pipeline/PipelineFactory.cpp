@@ -64,8 +64,11 @@ std::string resolveAdapterProtocol(
         lowered == "raw" || lowered == "elm327") {
         return lowered;
     }
-    if (isFile(connectTarget) || isDemo(connectTarget) ||
-        isTcp(connectTarget) || isUsb(connectTarget)) {
+    // Default table (documented in PipelineFactory.h + the --adapter-protocol
+    // help): file/demo/tcp/usb carry raw CAN lines → "raw"; everything else
+    // (BLE-style targets) speaks the ELM327 dialect.
+    if (isDemo(connectTarget) || isFile(connectTarget) || isTcp(connectTarget)
+        || isUsb(connectTarget)) {
         return "raw";
     }
     return "elm327";
