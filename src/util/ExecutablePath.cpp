@@ -1,7 +1,9 @@
 #include "vehicle-sim/util/ExecutablePath.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
@@ -15,6 +17,10 @@
 namespace vehicle_sim::util {
 
 namespace {
+
+// How many directories resolveResource()/resourceCandidates() walk up from the
+// executable's directory while looking for a resource.
+constexpr int kMaxParentDirDepth = 8;
 
 // Parent directory of `path` (no trailing slash), or "" at the filesystem root.
 std::string parentDir(const std::string& path) {
@@ -75,25 +81,25 @@ std::string ExecutablePath::directory() noexcept {
 #endif
 }
 
-std::string ExecutablePath::resolveResource(
+std::vector<std::string> ExecutablePath::resourceCandidates(
     const std::string& relativeResourcePath) noexcept
 {
-    const std::string exeDir = directory();
+    std::vector<std::string> candidates;
+    const auto pushUnique = [&candidates](std::string candidate) {
+        if (std::find(candidates.begin(), candidates.end(), candidate) == candidates.end()) {
+            candidates.push_back(std::move(candidate));
+        }
+    };
 
     // 1. Walk up from the executable directory: <dir>/<relativeResourcePath>.
     //    Handles nested build dirs (build-native/, build-native/test/), so both
     //    the released binary and the test binary find the resource shipped
     //    under the project root regardless of CWD.
-    if (!exeDir.empty()) {
-        static constexpr int kMaxParentDirDepth = 8;
+    if (const std::string exeDir = directory(); !exeDir.empty()) {
         std::string dir = exeDir;
         int depth = 0;
         while (depth < kMaxParentDirDepth && !dir.empty()) {
-            const std::string candidate = joinPath(dir, relativeResourcePath);
-            if (std::error_code ec; std::filesystem::exists(candidate, ec)) {
-                return candidate;
-            }
-            // If we got an error checking existence, continue to next directory
+            pushUnique(joinPath(dir, relativeResourcePath));
             dir = parentDir(dir);
             ++depth;
         }
@@ -104,20 +110,32 @@ std::string ExecutablePath::resolveResource(
         std::error_code ec;
         const std::filesystem::path cwd = std::filesystem::current_path(ec);
         if (!ec) {
-            const std::string candidate = joinPath(cwd.string(), relativeResourcePath);
-            std::error_code ec2;
-            if (std::filesystem::exists(candidate, ec2)) {
-                return candidate;
-            }
+            pushUnique(joinPath(cwd.string(), relativeResourcePath));
         }
     }
 
-    // Nothing found: return the install-relative best-effort path so the caller
-    // produces a clear "not found" error rather than an empty path.
-    if (!exeDir.empty()) {
-        return joinPath(exeDir, relativeResourcePath);
+    return candidates;
+}
+
+std::string ExecutablePath::resolveResource(
+    const std::string& relativeResourcePath) noexcept
+{
+    const std::vector<std::string> candidates =
+        resourceCandidates(relativeResourcePath);
+
+    for (const std::string& candidate : candidates) {
+        if (std::error_code ec; std::filesystem::exists(candidate, ec)) {
+            return candidate;
+        }
+        // If we got an error checking existence, continue to next candidate.
     }
-    return relativeResourcePath;
+
+    // Nothing found: return the first (install-relative) best-effort path so
+    // the caller produces a clear "not found" error rather than an empty path.
+    if (candidates.empty()) {
+        return relativeResourcePath;
+    }
+    return candidates.front();
 }
 
 } // namespace vehicle_sim::util
