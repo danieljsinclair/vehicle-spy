@@ -1,9 +1,9 @@
 // CsvReplayRunContext.cpp - CSV replay emission loop
 
 #include "vehicle-sim/cli/CsvReplayRunContext.h"
+#include "vehicle-sim/cli/CsvReplayPacer.h"
 #include "vehicle-sim/telemetry/CsvRowFormatter.h"
 
-#include <chrono>
 #include <iostream>
 #include <string_view>
 
@@ -33,28 +33,21 @@ int CsvReplayRunContext::run(
         std::cerr << "Replaying " << source->name() << "\n";
     }
 
-    std::uint64_t prevTs = 0;
+    // Pacing: an absolute schedule anchored at the first emitted row (the
+    // raw-CAN seam's PacedFrameScheduler idiom — see CsvReplayPacer). The
+    // first row anchors and never waits; each later row owes only its
+    // remaining distance to its own deadline, so per-row emission overhead
+    // is absorbed by the next wait instead of compounding behind it.
+    CsvReplayPacer pacer(intervalMs, clock);
+
     bool first = true;
     std::uint64_t emitted = 0;
 
     while (source->hasNext()) {
         auto row = source->next();
 
-        // Pace BEFORE emitting each row after the first (never before the
-        // first, so replay starts immediately).
-        if (!first) {
-            if (intervalMs > 0) {
-                clock.sleepFor(std::chrono::milliseconds(intervalMs));
-            } else {
-                // Timestamp-driven: sleep the delta between this row's
-                // timestamp_ms and the previous row's. Clamp negative deltas
-                // (out-of-order CSV) to zero so replay never sleeps backwards.
-                const auto delta = row.timestamp_ms > prevTs
-                                       ? (row.timestamp_ms - prevTs)
-                                       : 0;
-                clock.sleepFor(std::chrono::milliseconds(delta));
-            }
-        }
+        // Pace BEFORE emitting: waits until this row's deadline is due.
+        pacer.paceRow(row.timestamp_ms);
 
         // Allow a vehicle_id override (e.g. --vehicle tesla) to win when the
         // row's own id is blank, so a CSV without a vehicle_id column still
@@ -94,7 +87,6 @@ int CsvReplayRunContext::run(
         out << csvRowLine(params);
         out.flush();
         first = false;
-        prevTs = row.timestamp_ms;
         ++emitted;
     }
 
