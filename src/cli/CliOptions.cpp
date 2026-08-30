@@ -16,6 +16,9 @@
 #include <string_view>
 #include <vector>
 
+// Shared time parser from engine-sim-bridge (DRY).
+#include "common/TimeParser.h"
+
 namespace vehicle_sim::cli {
 
 // ===== parseArgs: SRP helpers ===============================================
@@ -38,7 +41,8 @@ bool argvContains(int argc, char* argv[], std::string_view key) {
 // registrations, so every option below is automatically present in --help by
 // construction.
 void registerOptions(CLI::App& app, CliOptions& opts,
-                     std::vector<std::string>& setWifiArgs) {
+                     std::vector<std::string>& setWifiArgs,
+                     std::string& startFromRaw) {
     app.add_flag("-s,--scan", opts.mode.scan_mode, "Scan for BLE OBD2 adapters");
     app.add_flag("-l,--list", opts.mode.list_signals, "List supported signals for each vehicle");
     app.add_flag("--discover", opts.mode.discover_mode, "Discover ESP32 devices on the network via UDP broadcast");
@@ -92,7 +96,10 @@ void registerOptions(CLI::App& app, CliOptions& opts,
     app.add_option("-i,--interval", opts.telemetry.update_interval_ms, "Update interval in milliseconds")
         ->expected(1)
         ->capture_default_str()
-        ->check(CLI::Range(0, 60000));
+        ->check(CLI::Range(0, 60000))
+        ->each([&opts](const std::string&) {
+            opts.telemetry.update_interval_explicit = true;
+        });
     // Canonical logging flag — base path. Phase 1 file replay writes only
     // <base>.csv; the raw stream is not duplicated (input file is source of
     // truth). Later phases write <base>.raw.txt for live transports.
@@ -108,9 +115,9 @@ void registerOptions(CLI::App& app, CliOptions& opts,
     app.add_flag("--stdout-csv", opts.telemetry.stdout_csv,
                  "Emit decoded CSV rows to stdout (same schema as <base>.csv); "
                  "progress output moves to stderr so stdout stays pipeable");
-    app.add_option("--start-from", opts.telemetry.start_from_s,
+    app.add_option("--start-from", startFromRaw,
                    "Replay-only: skip rows whose recorded timestamp is before "
-                   "this many seconds (mirrors engine-sim-cli --start-from)")
+                   "this time (seconds, mm:ss, or hh:mm:ss; mirrors engine-sim-cli --start-from)")
         ->expected(1)
         ->capture_default_str();
     app.add_flag("-k,--interactive", opts.telemetry.interactive_mode,
@@ -447,7 +454,8 @@ CliOptions parseArgs(int argc, char* argv[]) {
 
     CLI::App app{"Vehicle OBD2 Telemetry Display", "vehicle-sim"};
     std::vector<std::string> setWifiArgs;
-    registerOptions(app, opts, setWifiArgs);
+    std::string startFromRaw;
+    registerOptions(app, opts, setWifiArgs, startFromRaw);
 
     // Pre-scan argv for the early-exit flags. A `--help --connect` line
     // would otherwise hit a RequiredError on --connect (no value) before
@@ -504,6 +512,18 @@ CliOptions parseArgs(int argc, char* argv[]) {
     foldConnectAliases(opts);
     foldSetWifiCreds(opts, setWifiArgs);
     foldProvisioningTransport(opts);
+
+    // Smart timecode parser (DRY with bridge) for --start-from. Applied only
+    // when --start-from was supplied; replay-only semantics are enforced
+    // downstream. The skip stacks with engine-sim-cli's --start-from (both
+    // can apply) — expected convenient behavior.
+    if (!startFromRaw.empty()) {
+        opts.telemetry.start_from_s = engine_sim_bridge::parseTimecodeToSeconds(startFromRaw);
+        if (opts.telemetry.start_from_s < 0.0) {
+            opts.error_message = "Invalid --start-from time: " + startFromRaw +
+                " (expected seconds, mm:ss, or hh:mm:ss)";
+        }
+    }
 
     return opts;
 }

@@ -1,7 +1,7 @@
 #pragma once
 
+#include "vehicle-sim/pipeline/IFrameSource.h"
 #include "vehicle-sim/pipeline/ReplayPacing.h"
-#include "vehicle-sim/domain/CaptureLog.h"
 #include "vehicle-sim/util/IClock.h"
 
 #include <cstdint>
@@ -14,41 +14,23 @@ namespace vehicle_sim::pipeline {
  * SRP split (this class is the ORCHESTRATION half):
  *   - ReplayPacing is the POLICY: a pure, stateless classifier that answers
  *     "given a baseline and an elapsed time, is this frame skipped / due now /
- *     due later?". It is injected, not inherited, and stays untouched.
+ *     due later?".
  *   - PacedFrameScheduler is the ORCHESTRATION: it owns the run-scoped state
- *     the policy deliberately does not (the replay start instant, whether a
- *     baseline has been anchored yet, and what that baseline is), reads the
- *     clock, and performs the wait.
- *
- * Keeping the policy injected preserves Open/Closed: a different pacing rule
- * is a different ReplayPacing, with no change here. Re-bundling the policy
- * into this class (or back into the replay loop) would recreate the SRP
- * violation this split exists to remove.
+ *     (replay-start instant, whether a baseline has been anchored, and what
+ *     that baseline is), reads the clock, and performs the wait.
  *
  * The scheduler holds a NON-const IClock& because performing the wait mutates
- * the clock (sleepFor advances a FakeClock's virtual time). That is what lets
- * the replay loop drop the const_cast it previously needed.
+ * the clock (sleepFor advances a FakeClock's virtual time).
  *
- * Not thread-safe and not reusable across runs: one instance per replay run,
- * driven by a single loop.
+ * Not thread-safe, not reusable across runs: one instance per replay run.
  */
 class PacedFrameScheduler {
 public:
-    /** What the replay loop should do with a frame. */
     enum class Action {
-        /** Emit the frame now (any required wait has already been performed). */
         Emit,
-        /** Drop the frame: blank, or recorded before --start-from. */
         Skip,
     };
 
-    /**
-     * @param pacing Pacing policy (blank detection + skip/due classification).
-     *               Copied by value: it is a small value-semantic policy and
-     *               the scheduler must not outlive-alias a caller's temporary.
-     * @param clock  Clock used to measure elapsed time and to perform waits.
-     *               Must outlive this scheduler.
-     */
     PacedFrameScheduler(ReplayPacing pacing, util::IClock& clock) noexcept
         : pacing_(pacing), clock_(clock), replayStart_(clock.now()) {}
 
@@ -57,30 +39,32 @@ public:
 
     /**
      * Decide what to do with the next frame, WAITING inline if the frame is
-     * scheduled in the future so that on return the caller may act at once.
-     *
-     * Sequencing (unchanged from the loop this replaces):
-     *   1. A blank frame never anchors the baseline and is always skipped.
-     *   2. The first non-blank frame anchors the baseline and surfaces
-     *      immediately (its scheduled offset is zero).
-     *   3. Later frames are classified against the baseline and elapsed time:
-     *      a negative classification (before --start-from) skips; a positive
-     *      one waits out the remaining time, then emits.
-     *
-     * @param frame the normalised frame under consideration.
-     * @return Emit to surface the frame, Skip to drop it.
+     * scheduled in the future. Sequencing:
+     *   1. Blank frames never anchor the baseline; they are always skipped.
+     *   2. The first non-blank frame anchors the RECORDING baseline (the
+     *      --start-from gate's origin, fixed for the run) and surfaces
+     *      immediately (scheduled offset = 0).
+     *   3. Later frames are classified against the two baselines and
+     *      elapsed: a negative classification (before --start-from) skips;
+     *      a positive one waits out the remaining time, then emits.
+     *   4. The FIRST frame to pass the --start-from gate re-baselines the
+     *      PACING origin to itself and emits immediately: the pre-window
+     *      frames were discarded with no wall wait, so sleeping out the
+     *      skip offset before the first kept frame would reintroduce, as
+     *      one dumb block, the exact wall time the skip just saved.
      */
-    [[nodiscard]] Action consider(const domain::RawFrame& frame);
+    [[nodiscard]] Action consider(const TwaiFrame& frame);
 
 private:
-    /** Wall-clock ms since the replay started, floored at zero. */
     [[nodiscard]] std::uint64_t elapsedMs() const;
 
     ReplayPacing pacing_;
     util::IClock& clock_;
     util::IClock::time_point replayStart_;
     bool baselineSet_ = false;
-    std::uint64_t baselineTsMs_ = 0;
+    bool emittedAny_ = false;
+    std::uint64_t recordingBaselineTsMs_ = 0;
+    std::uint64_t pacingBaselineTsMs_ = 0;
 };
 
 } // namespace vehicle_sim::pipeline

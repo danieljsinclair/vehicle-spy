@@ -91,13 +91,11 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/domain/SimulationSignalSource.cpp
     src/domain/IDBCContentProvider.cpp
     src/domain/VehicleConfigResolver.cpp
-    src/domain/CaptureLog.cpp
     src/util/ExecutablePath.cpp
     src/domain/SignalSourceFactory.cpp
-    src/pipeline/FileTransport.cpp
-    src/pipeline/RawFrameNormaliser.cpp
+    src/pipeline/BinaryFileSource.cpp
+    src/pipeline/LiveTwaiSource.cpp
     src/pipeline/Elm327Normaliser.cpp
-    src/pipeline/CaptureNormaliser.cpp
     src/pipeline/DemoTransport.cpp
     src/pipeline/TCPTransport.cpp
     src/pipeline/TcpReader.cpp

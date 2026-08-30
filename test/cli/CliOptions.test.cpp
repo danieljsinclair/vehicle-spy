@@ -454,6 +454,7 @@ TEST_F(CliOptionsTest, IntervalOverride) {
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.telemetry.update_interval_ms, 250);
+    EXPECT_TRUE(opts.telemetry.update_interval_explicit);
 }
 
 TEST_F(CliOptionsTest, IntervalShortFlag) {
@@ -461,6 +462,17 @@ TEST_F(CliOptionsTest, IntervalShortFlag) {
     auto opts = parseArgs(args.argc(), args.argv());
 
     EXPECT_EQ(opts.telemetry.update_interval_ms, 100);
+    EXPECT_TRUE(opts.telemetry.update_interval_explicit);
+}
+
+// CSV replay paces off the recorded row timestamps by default; the 500ms
+// live-emission default (DEFAULT_UPDATE_INTERVAL_MS) must NOT leak into
+// replay pacing (a 123k-row capture would replay over ~17 hours).
+TEST_F(CliOptionsTest, IntervalExplicitDefaultsToFalse) {
+    Args args({"vehicle-sim", "--connect", "demo", "--vehicle", "tesla"});
+    auto opts = parseArgs(args.argc(), args.argv());
+
+    EXPECT_FALSE(opts.telemetry.update_interval_explicit);
 }
 
 TEST_F(CliOptionsTest, IntervalWithoutValueReturnsError) {

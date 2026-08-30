@@ -20,7 +20,6 @@ add_executable(vehicle-sim-tests
     domain/VehicleDetector.test.cpp
     domain/DBCSignalTranslator.test.cpp
     domain/DBCTranslationService.test.cpp
-    domain/CaptureLog.test.cpp
     domain/DefaultVehicleConfigs.test.cpp
     domain/DemoSignalProvider.test.cpp
     domain/SignalSourceFactory.test.cpp
@@ -60,9 +59,8 @@ add_executable(vehicle-sim-tests
     telemetry/CsvRowFormatter.test.cpp
     io/FileCsvTelemetrySource.test.cpp
     io/InteractiveCsvTelemetrySource.test.cpp
-    pipeline/RawFrameNormaliser.test.cpp
+    pipeline/BinaryFileSource.test.cpp
     pipeline/Elm327Normaliser.test.cpp
-    pipeline/CaptureNormaliser.test.cpp
     pipeline/DemoTransport.test.cpp
     pipeline/TCPTransport.test.cpp
     pipeline/TCPTransportDiagnostics.test.cpp
@@ -81,11 +79,11 @@ add_executable(vehicle-sim-tests
     pipeline/ITransportOutput.test.cpp
     pipeline/OTAHttpTransport.test.cpp
     pipeline/PipelineFactory.test.cpp
-    pipeline/FileTransport.test.cpp
     pipeline/Sinks.test.cpp
     pipeline/PipelineReplay.test.cpp
     pipeline/ReplayPacing.test.cpp
     pipeline/PacedFrameScheduler.test.cpp
+    pipeline/LiveTwaiSource.test.cpp
     pipeline/ConsoleProgressReporter.test.cpp
     pipeline/CsvStdoutReporters.test.cpp
     discovery/DiscoveryPacket.test.cpp

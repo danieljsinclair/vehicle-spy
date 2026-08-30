@@ -83,6 +83,7 @@ struct TelemetryOptions {
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
+    bool update_interval_explicit = false;  // True only when -i/--interval was passed. The 500ms live default must not leak into replay pacing: CSV replay paces off the recorded row timestamps unless an interval is explicitly set.
     double start_from_s = -1.0;  // Replay-only: skip rows whose recorded timestamp is before this many seconds. Negative/unset means "no skip". Mirrors engine-sim-cli's setStartFromS. Applied only to file (replay) replay, not live feeds.
     bool interactive_mode = false;  // Keyboard-driven CSV emission (bench testing)
     bool stdout_csv = false;  // Emit decoded CSV rows to stdout (same schema as <base>.csv). When set, human-readable progress/banners move to stderr so stdout stays a clean, pipeable CSV stream.

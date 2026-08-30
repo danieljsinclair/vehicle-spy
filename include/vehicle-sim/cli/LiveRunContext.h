@@ -11,11 +11,10 @@ namespace vehicle_sim::cli {
  * RawLogSink + DecodedCsvSink + ConsoleProgressReporter).
  *
  * This is the live counterpart to ReplayRunContext. Both drive the SAME
- * runReplay() loop; the only differences are which transport/normaliser the
- * factory builds and which sinks are wired:
- *   - ReplayRunContext (file): CaptureNormaliser, decoded sink ONLY (the input
+ * runReplay() loop; the only differences are which IFrameSource is wired:
+ *   - ReplayRunContext (file): BinaryFileSource, decoded sink ONLY (the input
  *     file is the raw source of truth — no <base>.raw.txt).
- *   - LiveRunContext (demo/tcp): RawFrameNormaliser, BOTH sinks — the live
+ *   - LiveRunContext (demo/tcp): LiveTwaiSource, BOTH sinks — the live
  *     stream has no pre-existing raw file, so <base>.raw.txt captures the
  *     verbatim transport lines (source of truth) and <base>.csv the decode.
  *

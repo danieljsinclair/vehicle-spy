@@ -1,9 +1,9 @@
 // ReplayRunContext.test.cpp - Entry-point coverage for the offline replay
 // orchestration context. ReplayRunContext::run is a thin static orchestrator
-// (FileTransport + CaptureNormaliser + DecodedCsvSink + runReplay) over the
-// already-tested pipeline pieces; these tests drive the WHOLE run() path off
-// 0% via real (hermetic) temp files + a real DBCTranslationService — no mocks
-// of production code, no fragile assertions on exact strings.
+// (BinaryFileSource + DecodedCsvSink + runReplay) over the already-tested
+// pipeline pieces; these tests drive the WHOLE run() path off 0% via real
+// (hermetic) temp files + a real DBCTranslationService — no mocks of
+// production code, no fragile assertions on exact strings.
 
 #include <gtest/gtest.h>
 #include "vehicle-sim/cli/ReplayRunContext.h"
@@ -65,9 +65,9 @@ int TempDir::counter_ = 0;
 
 // A well-formed legacy CSV capture the tesla DBC can decode.
 const char* kDecodableCapture =
-    "timestamp_ms,can_id,dlc,data_hex\n"
-    "1000,118,8,3C00180004A001FF\n"
-    "2000,118,8,3C00180004A001FF\n";
+    "timestamp_ms,raw_line\n"
+    "1000,118 3C 00 18 00 04 A0 01 FF\n"
+    "2000,118 3C 00 18 00 04 A0 01 FF\n";
 
 } // namespace
 
@@ -145,4 +145,82 @@ TEST_F(ReplayRunContextTest, Run_UnknownVehicle_PropagatesRuntimeError) {
     EXPECT_THROW(
         ReplayRunContext::run(capture, "nonexistent_vehicle", dir.base("x"), *service_),
         std::runtime_error);
+}
+
+// ----------------------------------------------------------------------------
+// #vs-start-from hint: when stdout-csv replay skips a prefix, ONE comment line
+// before the CSV header declares the skip so machine consumers (engine-sim-cli
+// --live-telemetry) can keep their display timecode relative to the recording's
+// TRUE start instead of restarting at [00:00].
+// ----------------------------------------------------------------------------
+
+// RAII std::cout capture — the hint and the CSV rows share the stdout stream.
+class CoutCapture {
+public:
+    CoutCapture() : old_(std::cout.rdbuf(out_.rdbuf())) {}
+    ~CoutCapture() { std::cout.rdbuf(old_); }
+    CoutCapture(const CoutCapture&) = delete;
+    CoutCapture& operator=(const CoutCapture&) = delete;
+    [[nodiscard]] std::string take() const { return out_.str(); }
+private:
+    std::ostringstream out_;
+    std::streambuf* old_;
+};
+
+// A capture whose first KEPT row is at rel 0.6s (startFrom=0.5): the first
+// kept frame emits immediately (no wall sleep for the skipped prefix), so the
+// run is fast even under the paced replay clock.
+const char* kSkipCapture =
+    "timestamp_ms,raw_line\n"
+    "0,118 3C 00 18 00 04 A0 01 FF\n"
+    "600,118 3C 00 18 00 04 A0 01 FF\n";
+
+TEST_F(ReplayRunContextTest, Run_StdoutCsvStartFrom_EmitsHintBeforeHeader) {
+    TempDir dir;
+    std::string capture = dir.writeCapture("cap_hint.csv", kSkipCapture);
+
+    CoutCapture captureOut;
+    const int rc = ReplayRunContext::run(capture, "tesla", /*logBase=*/"", *service_,
+                                         /*stdoutCsv=*/true, /*startFromS=*/0.5);
+    ASSERT_EQ(rc, 0);
+    std::string out = captureOut.take();
+
+    // First line: the hint. Second line: the CSV header (never the reverse).
+    const auto firstNl = out.find('\n');
+    ASSERT_NE(firstNl, std::string::npos);
+    EXPECT_EQ(out.substr(0, firstNl), "#vs-start-from 0.500");
+    const auto secondNl = out.find('\n', firstNl + 1);
+    ASSERT_NE(secondNl, std::string::npos);
+    EXPECT_EQ(out.substr(firstNl + 1, secondNl - firstNl - 1).substr(0, 12),
+              "timestamp_ms")
+        << "the CSV header must follow the hint line";
+}
+
+TEST_F(ReplayRunContextTest, Run_StdoutCsvNoSkip_EmitsNoHint) {
+    TempDir dir;
+    std::string capture = dir.writeCapture("cap_nohint.csv",
+                                           "timestamp_ms,raw_line\n"
+                                           "0,118 3C 00 18 00 04 A0 01 FF\n");
+
+    CoutCapture captureOut;
+    const int rc = ReplayRunContext::run(capture, "tesla", /*logBase=*/"", *service_,
+                                         /*stdoutCsv=*/true, /*startFromS=*/-1.0);
+    ASSERT_EQ(rc, 0);
+    std::string out = captureOut.take();
+
+    EXPECT_EQ(out.find("#vs-start-from"), std::string::npos)
+        << "no skip -> no hint line";
+    EXPECT_EQ(out.substr(0, 12), "timestamp_ms") << "stream starts at the header";
+}
+
+TEST_F(ReplayRunContextTest, Run_NoStdoutCsv_EmitsNoHintOnStdout) {
+    TempDir dir;
+    std::string capture = dir.writeCapture("cap_nocsv.csv", kSkipCapture);
+
+    CoutCapture captureOut;
+    const int rc = ReplayRunContext::run(capture, "tesla", /*logBase=*/"", *service_,
+                                         /*stdoutCsv=*/false, /*startFromS=*/2.0);
+    ASSERT_EQ(rc, 0);
+    // stdout is the human narrative here; the protocol line must not appear.
+    EXPECT_EQ(captureOut.take().find("#vs-start-from"), std::string::npos);
 }

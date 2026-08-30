@@ -270,15 +270,23 @@ int runFileReplay(const vehicle_sim::cli::CliOptions& opts,
     if (isDecodedTelemetryCsv(path)) {
         auto source = std::make_unique<vehicle_sim::io::FileCsvTelemetrySource>(path);
         vehicle_sim::util::SystemClock systemClock;
+        // Replay paces off the recorded row timestamps (intervalMs=0) by
+        // default. The fixed-interval pacing is an explicit -i/--interval
+        // override only — the 500ms live default must not leak into replay
+        // (a 123k-row capture would otherwise replay over ~17 hours).
+        const int replayIntervalMs = opts.telemetry.update_interval_explicit
+                                         ? opts.telemetry.update_interval_ms
+                                         : 0;
         return CsvReplayRunContext::run(
             std::move(source), opts.telemetry.vehicle_type,
-            opts.telemetry.update_interval_ms, std::cout, systemClock,
+            replayIntervalMs, std::cout, systemClock,
             opts.telemetry.stdout_csv);
     }
 
-    // Raw CAN replay through the canonical seam: FileTransport →
-    // CaptureNormaliser → DBCTranslationService → DecodedCsvSink. The input
-    // file is the raw source of truth, so we write ONLY <base>.csv.
+    // Raw CAN replay through the canonical seam: BinaryFileSource →
+    // DBCTranslationService → DecodedCsvSink. The input file is the raw
+    // source of truth, so we write ONLY <base>.csv. BinaryFileSource
+    // transparently decodes both ASCII and binary TWAI frames.
     std::string logBase = opts.logging.log_base;
     return ReplayRunContext::run(path, opts.telemetry.vehicle_type,
                                   logBase, translationService,

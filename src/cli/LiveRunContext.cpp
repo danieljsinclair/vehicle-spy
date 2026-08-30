@@ -6,6 +6,8 @@
 #include "vehicle-sim/pipeline/CsvStdoutReporter.h"
 #include "vehicle-sim/telemetry/CsvStdoutSink.h"
 #include "vehicle-sim/pipeline/DecodedCsvSink.h"
+#include "vehicle-sim/pipeline/Elm327Normaliser.h"
+#include "vehicle-sim/pipeline/LiveTwaiSource.h"
 #include "vehicle-sim/pipeline/PipelineFactory.h"
 #include "vehicle-sim/pipeline/PipelineReplay.h"
 #include "vehicle-sim/pipeline/RawLogSink.h"
@@ -22,8 +24,7 @@ namespace vehicle_sim::cli {
 namespace {
 
 // Publish the live StopToken to the broker and install the async-signal-safe
-// handler (one atomic load + one atomic store — no cout/endl). The handler flips
-// the token the transports poll; cleared on scope exit via the guard below.
+// handler. Cleared on scope exit via the RAII guard.
 struct LiveStopScope {
     pipeline::StopToken& token;
     explicit LiveStopScope(pipeline::StopToken& t) noexcept : token(t) {
@@ -33,8 +34,6 @@ struct LiveStopScope {
         std::signal(SIGTERM, vehicle_sim_onStopSignal);
     }
     ~LiveStopScope() { pipeline::signal_stop_broker::brokerClear(); }
-    // RAII scope guard: non-copyable, non-movable — copying would dangle the
-    // StopToken& reference and double-clear the broker on destruction.
     LiveStopScope(const LiveStopScope&) = delete;
     LiveStopScope& operator=(const LiveStopScope&) = delete;
     LiveStopScope(LiveStopScope&&) = delete;
@@ -51,24 +50,17 @@ int LiveRunContext::run(
     domain::DBCTranslationService& translationService,
     bool stdoutCsv) {
 
-    // With --stdout-csv, stdout belongs to the CSV stream alone; every
-    // human-readable line moves to stderr so the pipe stays parseable.
     std::ostream& narrative = stdoutCsv ? std::cerr : std::cout;
 
-    // One cooperative stop signal shared by this run-context and every live
-    // transport it builds. The signal handler flips it via the broker; the
-    // transports' hot loops poll it and return nullopt promptly on Ctrl+C.
     auto stop = std::make_shared<pipeline::StopToken>();
     LiveStopScope stopScope(*stop);
 
     auto source = pipeline::buildPipelineSource(connectTarget, adapterProtocol, stop);
-    if (!source.transport || !source.normaliser) {
+    if (!source.transport) {
         std::cerr << "Unsupported live connect target: " << forLog(connectTarget) << "\n";
         return 1;
     }
 
-    // resolveVehicleContext loads the vehicle's DBC as a side effect (must
-    // happen before processFrame, otherwise it returns nullopt for every frame).
     (void)resolveVehicleContext(vehicleType, translationService);
 
     if (!source.transport->open()) {
@@ -76,10 +68,13 @@ int LiveRunContext::run(
         return 1;
     }
 
-    // LIVE wiring: BOTH sinks. The raw sink captures the verbatim transport
-    // stream (the source of truth — a live source has no pre-existing raw
-    // file), and the decoded sink writes the derived CSV. Constructed only when
-    // a base was requested.
+    // ELM327 mode routes each line through the ELM327 normaliser; raw mode
+    // uses the inline tokeniser in LiveTwaiSource.
+    pipeline::Elm327Normaliser elmNormaliser;
+    pipeline::IAdapterNormaliser* normaliser =
+        (adapterProtocol == "elm327") ? &elmNormaliser : nullptr;
+    pipeline::LiveTwaiSource twaiSource(*source.transport, normaliser);
+
     std::unique_ptr<pipeline::RawLogSink> rawSink;
     std::unique_ptr<pipeline::DecodedCsvSink> decodedSink;
     if (!logBase.empty()) {
@@ -103,22 +98,13 @@ int LiveRunContext::run(
     narrative << "Streaming " << forLog(connectTarget) << " (" << forLog(vehicleType) << ")\n";
     narrative << "Press Ctrl+C to stop\n\n";
 
-    // The SAME runReplay loop serves file replay and live — uniform across
-    // transports (Open/Closed). For live TCP the loop ends when the stop flag
-    // makes nextLine() return nullopt; for bounded demo it ends at EOF.
     pipeline::ConsoleProgressReporter progress(narrative, translationService.getVehicleId());
-
-    // --stdout-csv adds a SECOND observer on the same seam rather than
-    // replacing the console one: the composite fans each decoded frame to both
-    // (Open/Closed — runReplay is unchanged).
     auto stdoutSink = telemetry::createStdoutSink(stdoutCsv, std::cout,
                                                   translationService.getVehicleId());
     pipeline::CsvStdoutReporter csvReporter(*stdoutSink);
     pipeline::CompositeProgressReporter reporters;
     reporters.add(&progress);
-    if (stdoutCsv) {
-        reporters.add(&csvReporter);
-    }
+    if (stdoutCsv) reporters.add(&csvReporter);
 
     const pipeline::ReplayOutputs outputs{
         .decoded = decodedSink.get(),
@@ -126,8 +112,7 @@ int LiveRunContext::run(
         .progress = &reporters,
     };
 
-    auto stats = pipeline::runReplay(*source.transport, *source.normaliser,
-                                     translationService, outputs);
+    auto stats = pipeline::runReplay(twaiSource, translationService, outputs);
 
     narrative << "\n  lines=" << stats.linesRead
               << " frames decoded=" << stats.framesDecoded

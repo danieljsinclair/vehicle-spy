@@ -1,41 +1,42 @@
-// ReplayPacing.cpp - WET mirror of engine-sim-cli's LiveTelemetryProvider
-// pacing/skip logic, adapted for the raw-CAN replay path. See ReplayPacing.h
-// for the rationale and the documented deviations from the source it mirrors.
-
 #include "vehicle-sim/pipeline/ReplayPacing.h"
 
 namespace vehicle_sim::pipeline {
 
 std::int64_t ReplayPacing::classifyFrame(
-    const domain::RawFrame& frame,
-    std::uint64_t baselineTsMs,
+    const TwaiFrame& frame,
+    std::uint64_t recordingBaselineTsMs,
+    std::uint64_t pacingBaselineTsMs,
     std::uint64_t elapsedSinceStartMs) const noexcept {
 
-    // --start-from analogue (mirrors engine-sim-cli: skip rows whose recorded
-    // timestamp is before the requested start). Threshold is in recording-ms;
-    // -1.0 means unset and skips nothing.
     if (startFromS_ >= 0.0) {
-        const auto thresholdMs =
-            static_cast<std::uint64_t>(startFromS_ * 1000.0);
-        if (frame.timestampMs < thresholdMs) {
+        // Skip gate: RELATIVE to the recording's first frame, and persistent
+        // for the whole run (pre-window content that arrives late — an
+        // out-of-order row — is still pre-window content). Real captures
+        // carry epoch-scale timestamps (13-digit ms since 1970); comparing
+        // the RAW timestamp against a relative threshold never skipped
+        // anything on them (the skip only fired on synthetic captures
+        // starting at 0). Wrap-around on out-of-order frames underflows to a
+        // huge value, which falls through to the schedule math below and is
+        // classified overdue — the same treatment pre-baseline frames get.
+        const auto relMs = frame.timestampMs - recordingBaselineTsMs;
+        const auto thresholdMs = static_cast<std::uint64_t>(startFromS_ * 1000.0);
+        if (relMs < thresholdMs) {
             return -1;  // Skip
         }
     }
 
-    // Scheduled offset of this row relative to the first row's timestamp. The
-    // first row anchors baselineTsMs so its scheduled offset is 0.
+    // Pacing schedule: measured from the PACING origin — the first kept
+    // frame when a skip window is active (the scheduler re-baselines at the
+    // offset point so the window costs no wall time), otherwise the
+    // recording's first frame.
     const std::int64_t scheduledMs =
         static_cast<std::int64_t>(frame.timestampMs) -
-        static_cast<std::int64_t>(baselineTsMs);
-
-    // How far the replay clock is behind this row's scheduled time.
+        static_cast<std::int64_t>(pacingBaselineTsMs);
     const std::int64_t behindMs =
         scheduledMs - static_cast<std::int64_t>(elapsedSinceStartMs);
 
-    if (behindMs <= 0) {
-        return 0;  // Surface now (scheduled time already reached).
-    }
-    return behindMs;  // Future: caller sleeps this many ms.
+    if (behindMs <= 0) return 0;  // Surface now
+    return behindMs;  // Future: caller sleeps
 }
 
 } // namespace vehicle_sim::pipeline

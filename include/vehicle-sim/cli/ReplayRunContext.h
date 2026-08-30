@@ -8,10 +8,10 @@ namespace vehicle_sim::cli {
 /**
  * Offline replay context — decouples development from live hardware.
  *
- * Phase 1 routes file replay through the new Transport → Normaliser →
- * Decoder → Sink pipeline (FileTransport → RawFrameNormaliser →
- * DBCTranslationService → DecodedCsvSink). The input file IS the raw source
- * of truth, so replay writes ONLY <base>.csv — never <base>.raw.txt.
+ * Routes file replay through the IFrameSource-driven pipeline
+ * (BinaryFileSource → DBCTranslationService → DecodedCsvSink). The input
+ * file IS the raw source of truth, so replay writes ONLY <base>.csv — never
+ * <base>.raw.txt.
  *
  * Mirrors BLERunContext's static-run style but reads from a file instead of
  * a BLE adapter. Deliberately a separate context (SRP): it shares nothing
@@ -30,7 +30,12 @@ public:
      *                    the human-readable progress/summary to stderr, so the
      *                    stdout stream stays a clean pipeable CSV.
      * @param startFromS  Replay-only: skip rows whose recorded timestamp is
-     *                    before this many seconds. Negative means "no skip".
+     *                    before this many seconds (measured from the
+     *                    recording's first frame). Negative means "no skip".
+     *                    When skipping with stdoutCsv, a "#vs-start-from <s>"
+     *                    comment line is emitted before the CSV header so
+     *                    downstream consumers can keep their timecode
+     *                    relative to the recording's true start.
      *                    Paces the replay to the file's recorded timestamps.
      * @return 0 on success, 1 on failure (file missing, logger invalid, unknown vehicle)
      */
