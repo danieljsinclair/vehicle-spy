@@ -143,3 +143,6 @@ build-verify/test/Makefile
 sonar-cfamily-reproducer.tar.xz
 firmware/Makefile
 firmware/esp32-firmware-tests
+
+# Generated firmware build-identity header (git hash + date), rebuilt every firmware build
+firmware/vanilla/FirmwareBuildInfo.h

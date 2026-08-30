@@ -44,6 +44,21 @@ endif()
 # We do NOT integrate with external physics engines
 # Our ONLY job: Read Tesla CAN bus -> Normalize -> Display on iPhone
 
+# Single source of truth for the `--examples` output: the markdown under
+# `assets/examples.md` is read into a CMake variable, then configured into a
+# generated translation unit. The binary embeds the curated examples without
+# shipping a separate resource file. Editing the markdown is enough — the
+# build re-derives the .cpp. Topic/section markers (`# topic:`, `# section:`)
+# are documented in the file header.
+set(VEHICLE_SIM_EXAMPLES_MD ${CMAKE_CURRENT_SOURCE_DIR}/assets/examples.md)
+file(READ ${VEHICLE_SIM_EXAMPLES_MD} VEHICLE_SIM_EXAMPLES_BODY)
+set(VEHICLE_SIM_EXAMPLES_CPP ${CMAKE_CURRENT_BINARY_DIR}/generated/ExamplesContent.cpp)
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/assets/ExamplesContent.cpp.in
+    ${VEHICLE_SIM_EXAMPLES_CPP}
+    @ONLY
+)
+
 # Define core library sources
 set(VEHICLE_SIM_LIB_SOURCES
     src/VehicleSim.cpp
@@ -99,6 +114,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/pipeline/PacedFrameScheduler.cpp
     src/pipeline/SignalStopBroker.cpp
     src/cli/CliOptions.cpp
+    ${VEHICLE_SIM_EXAMPLES_CPP}
     src/cli/ProvisioningRunner.cpp
     src/cli/LogSanitizer.cpp
     src/cli/Orchestration.cpp
@@ -108,6 +124,7 @@ set(VEHICLE_SIM_LIB_SOURCES
     src/cli/ReplayRunContext.cpp
     src/cli/LiveRunContext.cpp
     src/cli/CsvReplayRunContext.cpp
+    src/cli/CsvReplayPath.cpp
     src/cli/InteractiveRunContext.cpp
     src/interactive/KeyboardInput.cpp
     src/interactive/CsvKeyActionTarget.cpp

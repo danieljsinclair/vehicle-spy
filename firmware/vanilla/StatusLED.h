@@ -55,10 +55,10 @@ public:
         CLIENT_CONNECTED,     // SOLID ON (no cycling)
         AP_MODE,              // LONG_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR
         OTA_IN_PROGRESS,      // SHORT_FLASH ON, SHORT_GAP OFF (0.2s on/off rapid)
-        ERROR_AUTH_FAILURE,         // ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
-        ERROR_RECOVERABLE,    // ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR
+        ERROR_AUTH_FAILURE,         // ERROR_3_PULSE + 3×TINY_PULSE + SEPARATOR
+        ERROR_RECOVERABLE,    // ERROR_3_PULSE + 2×TINY_PULSE + SEPARATOR
         ERROR_NO_NTP_SERVICE, // ERROR_3_PULSE + 1×TINY_PULSE + SEPARATOR
-        FATAL_UNRECOVERABLE   // SOS: 3×SHORT, 3×LONG, 3×SHORT, SEPARATOR (morse SOS)
+        FATAL_UNRECOVERABLE_SOS   // SOS: 3×SHORT, 3×LONG, 3×SHORT, SEPARATOR (morse SOS)
     };
 
     // Constructor with dependency injection for testability
@@ -102,6 +102,12 @@ public:
     //   WIFI_CONNECTED          -> WIFI_CONNECTED      (station mode, ready)
     //   WIFI_AP_MODE_DEFAULT    -> AP_MODE             (AP because nothing was configured)
     //   WIFI_AP_MODE_AUTH_FAIL  -> ERROR_AUTH_FAILURE  (AP because credentials failed)
+    //   WIFI_AP_MODE_NO_AP      -> WIFI_SEARCHING      (AP because the configured SSID was not
+    //                                                   visible to the scan — reason 201; the
+    //                                                   device keeps looking for it, and this
+    //                                                   is NOT a credential error, so no error
+    //                                                   pattern. Existing pattern reused per
+    //                                                   LED-semantics spec — no new choreography.)
     //   (any other)             -> WIFI_SEARCHING      (fail-safe default)
     //
     // wifiState is an int (WiFiState::State ordinal) to keep this method

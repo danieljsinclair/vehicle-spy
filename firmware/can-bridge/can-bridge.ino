@@ -142,7 +142,12 @@ namespace Constants {
     static constexpr int32_t NTP_RETRY_INTERVAL_MS = 15000;
     static constexpr uint32_t NTP_SYNC_RETRY_MAX = 3;
 
-    // Discovery backoff schedule (milliseconds)
+    // Discovery backoff schedule (milliseconds). NOTE: these Constants are legacy
+    // (pre-vanilla-extraction); the authoritative schedule lives in
+    // firmware/vanilla/DiscoveryManager.h (DiscoveryConfig) and is what
+    // FirmwareApp/DiscoveryManager::discoveryIntervalMs actually uses. The
+    // >10min tier is capped at 10s so beacons never outpace the CLI's 12s
+    // AUTO_DISCOVERY_TIMEOUT_S hunt window. Kept here only for reference.
     static constexpr uint32_t DISCOVERY_INTERVAL_FAST_MS = 500;
     static constexpr uint32_t DISCOVERY_INTERVAL_1_5_MIN_MS = 3000;
     static constexpr uint32_t DISCOVERY_INTERVAL_5_10_MIN_MS = 6000;
@@ -158,7 +163,12 @@ namespace Constants {
     static constexpr uint32_t DISCOVERY_AGE_30_MIN_MS = 1800000;
 
     // Firmware info
-    static constexpr const char* FIRMWARE_VERSION = "0.2.0";
+    // The firmware version lives in firmware/vanilla/FirmwareVersion.h (single
+    // source of truth): the semver there is composed at build time with the
+    // git hash + build date (scripts/gen_firmware_build_info.sh ->
+    // FirmwareBuildInfo.h) and served by the ATI banner and the [STATE] fw=
+    // field. The FIRMWARE_VERSION constant that used to sit here was
+    // referenced nowhere (dead) and was removed.
     static constexpr const char* DEVICE_NAME = "ESP32-CAN-Bridge";
 
     // Factory reset pin hook (future implementation)
@@ -707,7 +717,12 @@ void loop() {
                        firmwareApp.wifiManager().resolveTargetSsid(),
                        (firmwareApp.wifi().getMode() == 2) ? firmwareApp.wifi().softAPIP() : firmwareApp.wifi().localIP(),
                        firmwareApp.wifiManager().getAuthCampaignDetail())) {
+        // USB serial: always emit, independent of any TCP client.
         Serial.print(heartbeat.snapshot().c_str());
+        // WiFi TCP: also serve the [STATE] heartbeat to a connected client so
+        // the CLI's --status works over TCP without a USB serial connection.
+        // writeLineToClient() guards on an adopted, live client — no-op otherwise.
+        tcpManager().writeLineToClient(heartbeat.snapshot());
     }
 
     // ── TCP accept/auth/dispatch (Stage 6) BEFORE the FirmwareApp LED update ──────

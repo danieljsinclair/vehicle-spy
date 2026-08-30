@@ -451,11 +451,21 @@ FIRMWARE_SRCS := $(wildcard $(FIRMWARE_DIR)/*.ino) \
                  $(wildcard $(FIRMWARE_DIR)/*.h) \
                  $(wildcard $(FIRMWARE_DIR)/HardwareStatusLEDOutput.cpp)
 
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: $(FIRMWARE_SRCS)
+# Regenerate firmware/vanilla/FirmwareBuildInfo.h (semver + git hash + dirty
+# flag + UTC date) BEFORE the cross-compile. PHONY prerequisite => the
+# generator runs on EVERY firmware build: a new commit (new hash) or a dirtied
+# tree changes the reported version even when no source file did. The script
+# only rewrites the header when its content changed, so an unchanged value
+# does not retrigger compiles.
+.PHONY: gen-firmware-build-info
+gen-firmware-build-info:
+	@bash scripts/gen_firmware_build_info.sh
+
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: gen-firmware-build-info $(FIRMWARE_SRCS)
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
-	arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++14"
+	arduino-cli compile --fqbn $(FQBN) --library firmware/vanilla $(FIRMWARE_DIR) --output-dir $(FIRMWARE_BUILD) --build-property "compiler.cpp.extra_flags=$(FIRMWARE_CFLAGS) $(FIRMWARE_EXTRA_CFLAGS) -std=gnu++17"
 	$(ESPTOOL) \
 		--chip esp32 \
 		$(ESPTOOL_MERGE_CMD) --output $(FIRMWARE_BUILD)/can-bridge.ino.merged.bin --target-offset 0x0 \

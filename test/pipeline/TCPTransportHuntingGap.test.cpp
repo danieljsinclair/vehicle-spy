@@ -90,12 +90,32 @@ private:
 
 // Configurable discovery listener: always reports ONE device with a given
 // 16-byte deviceId + address. Hermetic — no real UDP.
+//
+// Deterministic thread handshake: when `discoveryLiveProm` is set, the FIRST
+// poll() fires it the instant the discovery thread is PAST runDiscovery's
+// loop guard (i.e. it is inside poll(), so the guard can no longer
+// short-circuit on shouldStopDiscovery). The test wires hunt.onHuntStarted
+// (main thread, fired once before any retry/backoff attempt) to WAIT on that
+// signal, making the discovery thread's readiness a guaranteed precondition
+// of the main hunt loop's progress. Without it, FakeClock's instant backoff
+// lets the main loop exhaust ALL retries in microseconds while the discovery
+// std::thread has not been scheduled yet — runDiscovery's guard then sees
+// shouldStopDiscovery already set, exits without a single poll, and
+// finalizeHunt reports "neither old IP nor discovery succeeded" (the
+// load-clustered flake in G1/G2b/G3/G6G7(c,d)/G11). One-shot: later polls
+// return immediately.
 class FixedDiscoveryListener : public IDiscoveryListener {
 public:
-    FixedDiscoveryListener(std::array<uint8_t, 16> deviceId, std::string address)
-        : deviceId_(deviceId), address_(std::move(address)) {}
+    FixedDiscoveryListener(std::array<uint8_t, 16> deviceId, std::string address,
+                           std::shared_ptr<std::promise<void>> discoveryLiveProm = nullptr)
+        : deviceId_(deviceId), address_(std::move(address))
+        , discoveryLiveProm_(std::move(discoveryLiveProm)) {}
     bool start() override { return true; }
     std::vector<DiscoveredDevice> poll(std::chrono::milliseconds /*timeout*/) override {
+        if (discoveryLiveProm_) {
+            discoveryLiveProm_->set_value();
+            discoveryLiveProm_.reset();
+        }
         DiscoveredDevice d{};
         d.deviceId = deviceId_;
         d.address = address_;
@@ -108,13 +128,15 @@ public:
 private:
     std::array<uint8_t, 16> deviceId_;
     std::string address_;
+    std::shared_ptr<std::promise<void>> discoveryLiveProm_;
 };
 
 DiscoveryListenerFactory fixedDiscoveryFactory(std::array<uint8_t, 16> deviceId,
-                                              std::string address) {
-    return [id = deviceId, addr = std::move(address)]() {
+                                              std::string address,
+                                              std::shared_ptr<std::promise<void>> discoveryLiveProm = nullptr) {
+    return [id = deviceId, addr = std::move(address), discoveryLiveProm]() {
         return std::unique_ptr<IDiscoveryListener>(
-            std::make_unique<FixedDiscoveryListener>(id, addr));
+            std::make_unique<FixedDiscoveryListener>(id, addr, discoveryLiveProm));
     };
 }
 
@@ -136,12 +158,28 @@ DiscoveryListenerFactory noOpDiscoveryFactory() {
 // FakeClock + the given discovery factory. `huntStartedProm` (optional) is
 // shared with the test so it can await hunt-start on the onHuntStarted signal
 // (zero sleep); onHuntStarted is added to `hunt` when provided.
+// `discoveryLiveProm` (optional) is the discovery-live rendezvous: it must be
+// the SAME promise captured by the injected discovery factory, and onHuntStarted
+// waits on it before signalling `huntStartedProm` (or returning, when no
+// hunt-started promise is given) — so the main hunt loop cannot progress until
+// the discovery thread is past runDiscovery's loop guard.
 std::unique_ptr<TCPTransport> makeTransport(
     test::FakeSocket& sock, const std::string& host, int port,
     std::shared_ptr<StopToken> stop, std::shared_ptr<ITransportOutput> out,
     HuntResilienceConfig hunt = HuntResilienceConfig{},
-    std::shared_ptr<std::promise<void>> huntStartedProm = nullptr) {
-    if (huntStartedProm) {
+    std::shared_ptr<std::promise<void>> huntStartedProm = nullptr,
+    std::shared_ptr<std::promise<void>> discoveryLiveProm = nullptr) {
+    if (discoveryLiveProm) {
+        // Wait for the discovery thread to be live first (it fires the promise
+        // from inside its FIRST poll()), then forward hunt-started to the test.
+        std::shared_future<void> discoveryLiveFut = discoveryLiveProm->get_future().share();
+        hunt.onHuntStarted = [discoveryLiveFut, huntStartedProm]() {
+            discoveryLiveFut.wait();
+            if (huntStartedProm) {
+                huntStartedProm->set_value();
+            }
+        };
+    } else if (huntStartedProm) {
         hunt.onHuntStarted = [huntStartedProm]() { huntStartedProm->set_value(); };
     }
     auto clock = std::make_shared<util::FakeClock>();
@@ -210,8 +248,12 @@ TEST(TCPTransportHuntingGapTest, G1_EmptyDeviceIdHex_AcceptsFirstDeviceAtNewIp) 
     sock.enqueue(kLoopbackIp, test::handshakeConnect());   // discovered new IP (127.0.0.1) succeeds
 
     auto stop = makeStop();
+    // Discovery-live rendezvous: see FixedDiscoveryListener — the hunt loop
+    // cannot progress until the discovery thread is inside its first poll().
+    auto discoveryLiveProm = std::make_shared<std::promise<void>>();
     auto transport = makeTransport(sock, kUnreachableIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp), {}});
+                                   HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp, discoveryLiveProm), {}},
+                                   nullptr, discoveryLiveProm);
 
     bool result = transport->enterHuntingState();
 
@@ -261,8 +303,11 @@ TEST(TCPTransportHuntingGapTest, G2_DeviceIdSet_ExactMatchWins_NonMatchIgnored) 
         sock.enqueue(kLoopbackIp, test::handshakeConnect());   // discovered-IP (127.0.0.1) connect
 
         auto stop = makeStop();
+        // Discovery-live rendezvous (see FixedDiscoveryListener).
+        auto discoveryLiveProm = std::make_shared<std::promise<void>>();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                       HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp), {}});
+                                       HuntResilienceConfig{fixedDiscoveryFactory(heloDeviceIdBytes(), kLoopbackIp, discoveryLiveProm), {}},
+                                       nullptr, discoveryLiveProm);
         openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
         bool result = transport->enterHuntingState();
@@ -283,8 +328,11 @@ TEST(TCPTransportHuntingGapTest, G3_DeviceIdSet_EightCharPrefixMatchWins) {
     sock.enqueue(kLoopbackIp, test::handshakeConnect());   // discovered-IP (127.0.0.1) connect
 
     auto stop = makeStop();
+    // Discovery-live rendezvous (see FixedDiscoveryListener).
+    auto discoveryLiveProm = std::make_shared<std::promise<void>>();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp), {}});
+                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp, discoveryLiveProm), {}},
+                                   nullptr, discoveryLiveProm);
     openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
     bool result = transport->enterHuntingState();
@@ -403,8 +451,11 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
         sock.enqueue(kLoopbackIp, test::handshakeConnect());   // discovered-IP (127.0.0.1) connect
 
         auto stop = makeStop();
+        // Discovery-live rendezvous (see FixedDiscoveryListener).
+        auto discoveryLiveProm = std::make_shared<std::promise<void>>();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, capDisc,
-                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp), {}});
+                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kLoopbackIp, discoveryLiveProm), {}},
+                                       nullptr, discoveryLiveProm);
         openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
         bool result = transport->enterHuntingState();
@@ -429,9 +480,14 @@ TEST(TCPTransportHuntingGapTest, G6G7_BackoffScheduleAndOutcomeMessages) {
         auto stop = makeStop();
         auto huntStartedProm = std::make_shared<std::promise<void>>();
         std::future<void> huntStartedFut = huntStartedProm->get_future();
+        // Discovery-live rendezvous (see FixedDiscoveryListener): onHuntStarted
+        // waits until the discovery thread is inside its first poll(), THEN
+        // fires huntStarted — so the outcome below is always the discovery-win
+        // branch, never the "discovery never polled" give-up.
+        auto discoveryLiveProm = std::make_shared<std::promise<void>>();
         auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, capFail,
-                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2), {}},
-                                       huntStartedProm);
+                                       HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2, discoveryLiveProm), {}},
+                                       huntStartedProm, discoveryLiveProm);
         openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
         std::future<bool> fut = std::async(std::launch::async, [&]() {
@@ -498,9 +554,14 @@ TEST(TCPTransportHuntingGapTest, G11_DiscoveryWinButNewIpConnectFails_HostSwitch
     auto stop = makeStop();
     auto huntStartedProm = std::make_shared<std::promise<void>>();
     std::future<void> huntStartedFut = huntStartedProm->get_future();
+    // Discovery-live rendezvous (see FixedDiscoveryListener): the hunt loop
+    // cannot progress until the discovery thread is inside its first poll(),
+    // so discoveryFound is guaranteed set by the post-loop join and host_
+    // always switches to the discovered IP.
+    auto discoveryLiveProm = std::make_shared<std::promise<void>>();
     auto transport = makeTransport(sock, kLoopbackIp, 3333, stop, silentOutput(),
-                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2), {}},
-                                   huntStartedProm);
+                                   HuntResilienceConfig{fixedDiscoveryFactory(prefixMatchDeviceIdBytes(), kUnreachableIp2, discoveryLiveProm), {}},
+                                   huntStartedProm, discoveryLiveProm);
     openForDeviceIdThenReassignHost(*transport, sock, kUnreachableIp);
 
     std::future<bool> fut = std::async(std::launch::async, [&]() {

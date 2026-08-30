@@ -222,13 +222,16 @@ TEST(DiscoveryUpdateTest, BroadcastRespectsInterval) {
     EXPECT_EQ(udp.endPacketCalls, 2);
 }
 
-TEST(DiscoveryUpdateTest, NoBroadcastWhileClientConnected) {
+TEST(DiscoveryUpdateTest, BroadcastContinuesWhileClientConnected) {
     FakeUdp udp; FakeWiFiDiscovery wifi; FakeTime time; FakeSigner signer;
     wifi.mode = 1;
+    time.m = 10000;  // resetBackoff seeds connectTimeMs here
     DiscoveryManager dm(udp, wifi, time, kDeviceId, signer);
-    dm.init();
+    dm.init();  // lastBroadcastMs = 0
+    // With a connected client and time well past the interval, the device STILL
+    // broadcasts — discoverability must not be suppressed by client state.
     dm.update(10000, true);  // haveClient = true
-    EXPECT_EQ(udp.endPacketCalls, 0);
+    EXPECT_EQ(udp.endPacketCalls, 1);
 }
 
 TEST(DiscoveryUpdateTest, ForceBroadcastInvokesUdpPipeline) {

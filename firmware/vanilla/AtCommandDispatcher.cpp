@@ -1,4 +1,5 @@
 #include "AtCommandDispatcher.h"
+#include "FirmwareVersion.h"  // FIRMWARE_BUILD_VERSION (single source of truth)
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -86,7 +87,7 @@ struct AtheloCommandHandler : public IAtCommandHandler {
         return normalizedCmd == "ATHELO" || normalizedCmd == "HELLO";
     }
     AtCommandResult execute(const std::string& /*originalCmd*/) const override {
-        return AtCommandResult(AtCommandDispatcher::buildHeloResponse(deviceId_, "ESP32-CAN-Bridge", "0.2.0").c_str());
+        return AtCommandResult(AtCommandDispatcher::buildHeloResponse(deviceId_, "ESP32-CAN-Bridge", FIRMWARE_BUILD_VERSION).c_str());
     }
     const std::array<uint8_t, 16>& deviceId_;
 };
@@ -190,7 +191,9 @@ struct AtiCommandHandler : public IAtCommandHandler {
         return normalizedCmd == "ATI";
     }
     AtCommandResult execute(const std::string& /*originalCmd*/) const override {
-        return AtCommandResult("ESP32 CAN Bridge v0.1");
+        // Composed from the shared build-identifying version (semver + git
+        // hash + date) so this banner can never go stale again.
+        return AtCommandResult("ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION);
     }
 };
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <iosfwd>
 
 namespace vehicle_sim::domain {
@@ -21,42 +22,64 @@ constexpr const char* DEFAULT_FORMAT = "plain";
 // Default vehicle type — standard OBD2 PIDs (SAE J1979).
 constexpr const char* DEFAULT_VEHICLE_TYPE = "generic";
 
-// Last-resort default ESP32 USB serial port for provisioning, used only when
-// neither --connect usb:<path> nor the ESP32_PORT env var names a device.
-// Mirrors the Makefile's ESP32_PORT auto-detection pattern (/dev/cu.usbserial*).
+// Default ESP32 USB serial port for provisioning. Used as a last-resort
+// fallback when auto-detect finds no /dev/cu.* match (rare; the device
+// enumerates with a predictable name on macOS, and the Makefile's
+// ESP32_PORT auto-discovery covers the standard prefixes). The provisioner's
+// auto-detect helper is the primary resolver; this is just a backstop.
 constexpr const char* ESP32_DEFAULT_USB_PORT = "/dev/cu.usbserial-210";
 
-// WiFi provisioning over the ESP32 USB serial console (AT command set).
-// Local, pre-association (no AUTH required): USB serial is the bootstrap
-// channel used before any WiFi/credential state exists on the device.
+// WiFi provisioning over the ESP32's AT console (AT command set). Two
+// transports reach it, and they are INTERCHANGEABLE: the firmware dispatches
+// the same command set on both (AtCommandDispatcher::handleCommand serves
+// handleSerialCommand and handleTcpCommand from one registry).
+//   * USB serial — local, pre-association (no AUTH required): the bootstrap
+//     channel used before any WiFi/credential state exists on the device.
+//   * TCP console — the AUTH'd console the firmware serves once the device
+//     is associated (port 3333). Useful for a headless device already on
+//     the network.
+//
+// The transport for provisioning is selected by the universal `--connect`
+// flag, which folds onto `transport` here (the --connect-{usb,tcp,auto}
+// aliases merely compose the same strings). Valid values: "auto"
+// (auto-detect the first /dev/cu.* that matches the standard ESP32
+// prefixes), "usb:<path>" (explicit path), or "tcp:<host>[:<port>]" (port
+// defaults to 3333). Anything else (ble:, demo, file:) is rejected at
+// validation time.
 struct WifiProvisioningOptions {
     std::string set_wifi_ssid;   // --set-wifi-creds <SSID> <PASS>
     std::string set_wifi_pass;
     bool clear_wifi_creds = false;  // --clear-wifi-creds
-    bool reboot_esp32 = false;      // --reboot (send ATREBOOT over USB)
-    // Device path the provisioner opens. Resolution order (parseArgs fills
-    // this in): an explicit --connect usb:<path> tail, then the ESP32_PORT
-    // env var (the Makefile's auto-detected device path), then
-    // ESP32_DEFAULT_USB_PORT.
-    std::string usb_port = ESP32_DEFAULT_USB_PORT;
-    std::string transport;          // resolved transport (filled in by parseArgs)
-    bool status_requested = false;  // --status: print ESP32 status
+    bool reboot_esp32 = false;      // --reboot (send ATREBOOT over the console)
+    bool status_requested = false;  // --status (print a [STATE] snapshot from the device)
+    std::string transport;          // "auto", "usb:<path>", or "tcp:<host>[:<port>]" (set from --connect; empty = auto-detect)
 
-    // True when a USB-serial provisioning operation was requested. Used by
-    // main.cpp to short-circuit to runProvisioning() before telemetry dispatch.
+    // True when a provisioning operation was requested. Used by main.cpp to
+    // short-circuit to runProvisioning() before telemetry dispatch.
     [[nodiscard]] bool active() const {
-        return !set_wifi_ssid.empty() || clear_wifi_creds || reboot_esp32 || status_requested;
+        return !set_wifi_ssid.empty() || clear_wifi_creds || reboot_esp32 ||
+               status_requested;
     }
 };
 
 // Telemetry connect/transport options.
+//
+// The `connect_target` field is the canonical transport selector — both for
+// telemetry (when no provisioning flag is set) AND for provisioning (folded
+// onto `WifiProvisioningOptions::transport` by parseArgs when a provisioning
+// flag IS set). The --connect-{usb,tcp,ble,auto} aliases are sugar: parseArgs
+// folds them onto the same target so every downstream consumer sees a
+// single source of truth.
 struct TelemetryOptions {
     std::string connect_target;  // "demo", BLE address/UUID, "file:<path>", "tcp:<ip>:<port>", "usb:<path>", or "auto"
-    std::string connect_usb;     // `--connect-usb <path>` shortcut for `--connect usb:<path>`
-    std::string connect_tcp;     // `--connect-tcp <ip>[:<port>]` shortcut for `--connect tcp:...`
-    std::string connect_file;    // `--connect-file <path>` synonym for `--connect file:<path>`
-    bool connect_ble = false;    // `--connect-ble` flag
-    bool connect_auto = false;   // `--connect-auto` flag
+    std::string connect_file;     // `--connect-file <path>` synonym for `--connect file:<path>`
+    // --connect-{usb,tcp} short-form values (the tail after the colon). Folded
+    // onto connect_target in parseArgs() so every downstream consumer sees a
+    // single source of truth.
+    std::string connect_usb;
+    std::string connect_tcp;
+    bool connect_ble = false;  // --connect-ble: marker flag (no value)
+    bool connect_auto = false;  // --connect-auto: marker flag
     std::string format = DEFAULT_FORMAT;
     std::string vehicle_type;
     int update_interval_ms = DEFAULT_UPDATE_INTERVAL_MS;
@@ -68,8 +91,6 @@ struct TelemetryOptions {
 // Logging output options.
 struct LoggingOptions {
     std::string log_base;        // --log <base>: canonical decoded-CSV base ("<base>.csv")
-    std::string log_csv;         // Deprecated alias (kept for migration). Mapped onto log_base in main.cpp.
-    std::string log_raw;         // Deprecated alias (kept for migration). Mapped onto log_base in main.cpp.
     std::string adapter_protocol = "raw";  // --adapter-protocol raw|elm327
 };
 
@@ -79,9 +100,11 @@ struct ModeFlags {
     bool list_signals = false;
     bool discover_mode = false;
     bool help_requested = false;
-    bool led_help = false;   // --led-help: show StatusLED pattern reference
-    bool led_diag = false;   // Show StatusLED pattern help
-    std::string help_text;
+    bool led_help = false;  // Show StatusLED pattern help
+    bool examples_requested = false;  // --examples: show curated usage examples
+    std::vector<std::string> help_focus;  // --help --<opt>: filter examples to these topics
+    std::string help_text;       // CLI11-derived OPTIONS list (captured on --help)
+    std::string examples_text;   // CLI11-derived EXAMPLES (captured on --examples)
 };
 
 struct CliOptions {
@@ -112,18 +135,44 @@ struct CliOptions {
 // Parse command-line arguments into a structured result.
 CliOptions parseArgs(int argc, char* argv[]);
 
-// Display help text including registered vehicles from the service.
-// help_text is the CLI11-derived help (auto OPTIONS + footer) captured in
-// parseArgs on --help; it is passed in rather than re-derived so printHelp
-// stays a pure presenter.
-void printHelp(std::ostream& out, const domain::DBCTranslationService& service,
-               const std::string& help_text);
+// Display the OPTIONS list (CLI11-derived). help_text is the rendered OPTIONS
+// block captured in parseArgs on --help; it is passed in rather than re-derived
+// so printHelp stays a pure presenter. The SUPPORTED VEHICLES block belongs to
+// --list (printed via printSupportedSignals), not to --help.
+void printHelp(std::ostream& out, const std::string& help_text);
+
+// Display curated usage examples. When focus is non-empty, only examples whose
+// topic intersects the focus set are shown (so "--help --connect" produces
+// just the --connect examples). topics are the bare flag names without leading
+// dashes, e.g. {"connect", "scan"}.
+void printExamples(std::ostream& out, const std::string& examples_text,
+                   const std::vector<std::string>& focus);
 
 // List supported signals for each registered vehicle.
 void printSupportedSignals(std::ostream& out, const domain::DBCTranslationService& service);
 
 // Display StatusLED pattern reference guide.
 void printLedHelp(std::ostream& out);
+
+// Resolve a provisioning transport string to a concrete /dev/cu.* path.
+//   "auto"  / ""    -> auto-detect (first matching /dev/cu.{usbserial,SLAB_USBtoUART,wchusbserial}*)
+//   "usb:<path>"    -> <path> verbatim
+//   anything else   -> "" (validation has rejected it; resolver is defensive)
+// Returns the resolved path, or empty if no candidate was found.
+//
+// This is the USB leg's helper only: the FULL transport resolution (usb: AND
+// tcp:, including the single canonical tcp: parse) lives in
+// createProvisioningPort() — ProvisioningRunner.h. Do not branch on the
+// transport scheme at call sites; go through that factory.
+std::string resolveSerialPort(const std::string& transport);
+
+// Same resolution with the auto-detect glob patterns injected — the seam the
+// unit suite uses to make the "auto" fallback leg hermetic against whatever
+// happens to be plugged into the build host (see ProvisioningRunner.h's
+// autoDetectSerialPort(patterns) overload). Production callers use the single
+// -argument form above.
+std::string resolveSerialPort(const std::string& transport,
+                              const std::vector<std::string>& globPatterns);
 
 // Validate CLI options against the registry
 // Returns error message if validation fails, empty string if valid

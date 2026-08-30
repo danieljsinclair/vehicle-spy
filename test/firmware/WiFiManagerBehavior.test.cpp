@@ -360,7 +360,13 @@ TEST(WiFiBehaviorConnectingTest, IdleStatusNoTimeoutStaysConnecting) {
     EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
 }
 
-TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
+TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutStoredNvsStaysConnectingWhenNoAuthReason) {
+    // RESILIENT AUTH / LINK-LEVEL DROP: initial-connect timeout with stored NVS
+    // creds only falls back to AP mode when the last-known failure is an
+    // AUTH-MECHANISM failure. With no auth failure recorded (lastDisconnectReason
+    // == 0, e.g. a mesh AP rebooting) the device must KEEP RETRYING STA — the
+    // mesh will be back in 2–30 minutes. Escalating to AP mode here is the bug
+    // the auth-fallback fix corrected.
     Harness h;
     h.prefs.credCount = 1; h.prefs.ssid = "net"; h.prefs.pass = "pw";
     h.build();
@@ -372,8 +378,8 @@ TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutStoredNvsFallsBackToAp) {
     h.wifi.statusVal = WL_IDLE_STATUS;
     h.mgr->update(cap + 1);
 
-    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL);
-    EXPECT_GE(h.wifi.softApCalls, 1);
+    EXPECT_EQ(h.mgr->getState(), WiFiState::State::WIFI_CONNECTING);
+    EXPECT_EQ(h.wifi.softApCalls, 0);
 }
 
 TEST(WiFiBehaviorConnectingTest, InitialConnectTimeoutBakedInGoesReconnecting) {

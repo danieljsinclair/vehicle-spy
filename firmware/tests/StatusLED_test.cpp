@@ -131,11 +131,11 @@ TEST_F(StatusLEDTest, GetPatternSteps_ClientConnectedPattern) {
 TEST_F(StatusLEDTest, GetPatternSteps_ApModePattern) {
     auto [steps, count] = StatusLED::getPatternSteps(StatusLED::Pattern::AP_MODE);
     EXPECT_EQ(count, 6u);
-    // LONG_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR
+    // LONG_FLASH ON, SHORT_GAP OFF, TINY_FLASH ON, TINY_GAP OFF, TINY_FLASH ON, SEPARATOR
     EXPECT_EQ(steps[0].state, LEDState::ON);
     EXPECT_EQ(steps[0].durationMs, StatusLEDConstants::LONG_FLASH_MS);
     EXPECT_EQ(steps[1].state, LEDState::OFF);
-    EXPECT_EQ(steps[1].durationMs, StatusLEDConstants::TINY_GAP_MS);
+    EXPECT_EQ(steps[1].durationMs, StatusLEDConstants::SHORT_GAP_MS);
     EXPECT_EQ(steps[2].state, LEDState::ON);
     EXPECT_EQ(steps[2].durationMs, StatusLEDConstants::TINY_FLASH_MS);
     EXPECT_EQ(steps[3].state, LEDState::OFF);
@@ -156,13 +156,13 @@ TEST_F(StatusLEDTest, GetPatternSteps_OtaInProgressPattern) {
 }
 
 TEST_F(StatusLEDTest, GetPatternSteps_ErrorPatterns) {
-    // ERROR_AUTH_FAILURE: 3 short pulses + 2 tiny pulses + separator = 11 steps
+    // ERROR_AUTH_FAILURE: 3 short pulses + 3 tiny pulses + separator = 13 steps
     auto [stepsAuth, countAuth] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_AUTH_FAILURE);
-    EXPECT_EQ(countAuth, 11u);
+    EXPECT_EQ(countAuth, 13u);
 
-    // ERROR_RECOVERABLE: 3 short pulses + 3 tiny pulses + separator = 13 steps
+    // ERROR_RECOVERABLE: 3 short pulses + 2 tiny pulses + separator = 11 steps
     auto [stepsRec, countRec] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_RECOVERABLE);
-    EXPECT_EQ(countRec, 13u);
+    EXPECT_EQ(countRec, 11u);
 
     // ERROR_NO_NTP_SERVICE: 3 short pulses + 1 tiny pulse + separator = 9 steps
     auto [stepsNtp, countNtp] = StatusLED::getPatternSteps(StatusLED::Pattern::ERROR_NO_NTP_SERVICE);
@@ -170,7 +170,7 @@ TEST_F(StatusLEDTest, GetPatternSteps_ErrorPatterns) {
 }
 
 TEST_F(StatusLEDTest, GetPatternSteps_FatalPattern) {
-    auto [steps, count] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE);
+    auto [steps, count] = StatusLED::getPatternSteps(StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS);
     // SOS: 3 short, 3 long, 3 short, separator = 19 steps
     EXPECT_EQ(count, 19u);
 }
@@ -250,13 +250,13 @@ TEST_F(StatusLEDTest, Update_ApModePattern_FullCycle) {
     statusLed->update(t);
     EXPECT_TRUE(outputMock.ledOn);
 
-    // Step 2: TINY_GAP OFF
+    // Step 2: SHORT_GAP OFF (gap between LONG and first TINY)
     t += StatusLEDConstants::LONG_FLASH_MS;
     statusLed->update(t);
     EXPECT_FALSE(outputMock.ledOn);
 
     // Step 3: TINY_FLASH ON
-    t += StatusLEDConstants::TINY_GAP_MS;
+    t += StatusLEDConstants::SHORT_GAP_MS;
     statusLed->update(t);
     EXPECT_TRUE(outputMock.ledOn);
 
@@ -342,7 +342,7 @@ TEST_F(StatusLEDTest, GetPatternName_ReturnsDisplayNameForEachPattern) {
     EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_AUTH_FAILURE), "ERROR_AUTH_FAILURE");
     EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_RECOVERABLE), "ERROR_RECOVERABLE");
     EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::ERROR_NO_NTP_SERVICE), "ERROR_NO_NTP_SERVICE");
-    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::FATAL_UNRECOVERABLE), "FATAL_UNRECOVERABLE");
+    EXPECT_STREQ(statusLed->getPatternName(StatusLED::Pattern::FATAL_UNRECOVERABLE_SOS), "FATAL_UNRECOVERABLE_SOS");
 }
 
 TEST_F(StatusLEDTest, GetPatternName_OutOfRangeValue_ReturnsUnknownFallback) {

@@ -3,8 +3,11 @@
 // LoopHeartbeat.h - Periodic loop-state snapshot for serial diagnostics
 // Extracted from can-bridge.ino for host testability
 //
-// Produces a formatted "[STATE] uptime=<ms> wifi=<name> monitor=<ACTIVE|idle>\r\n"
-// line at a configurable interval. The .ino calls tick() each loop iteration
+// Produces a formatted "[STATE] uptime=<ms> wifi=<name> ... monitor=<ACTIVE|idle>
+// [auth=<detail>] fw=<build-version>\r\n" line at a configurable interval. The
+// fw= field always sits at the END of the line (append-only field order —
+// consumers match prefixes) and carries the build-identifying firmware
+// version (firmware/vanilla/FirmwareVersion.h). The .ino calls tick() each loop iteration
 // with millis() and the live firmware state; when the interval has elapsed,
 // tick() returns true and snapshot() holds the formatted line.
 //

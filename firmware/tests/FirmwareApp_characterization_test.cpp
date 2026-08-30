@@ -31,6 +31,7 @@
 //     through public accessors and mock expectations only.
 
 #include "FirmwareApp_test_fixture.h"
+#include "vanilla/FirmwareVersion.h"  // FIRMWARE_BUILD_VERSION (ATI banner value)
 
 using namespace esp32_firmware;
 using namespace esp32_firmware::firmwareapp_test;
@@ -281,16 +282,16 @@ TEST_F(FirmwareAppTest, SetAtCommandAdapters_CalledTwice_LastWins) {
     firmwareApp->init();
     firmwareApp->setAtCommandAdapters(firstTcp, firstSerial, esp, wifi, firstToken, firstCredClear, monitor, testDeviceId);
     firmwareApp->handleTcpAtCommand("ATI");
-    EXPECT_EQ(firstTcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>");
+    EXPECT_EQ(firstTcp.lastPrinted, "ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION "\r\r>");
     EXPECT_EQ(secondTcp.lastPrinted, "");  // not yet routed here
 
     // Re-wire with a second set of spies.
     firmwareApp->setAtCommandAdapters(secondTcp, secondSerial, esp, wifi, secondToken, secondCredClear, monitor, testDeviceId);
     firmwareApp->handleTcpAtCommand("ATI");
 
-    EXPECT_EQ(secondTcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>")
+    EXPECT_EQ(secondTcp.lastPrinted, "ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION "\r\r>")
         << "command must route to the LAST-wired adapter set";
-    EXPECT_EQ(firstTcp.lastPrinted, "ESP32 CAN Bridge v0.1\r\r>")
+    EXPECT_EQ(firstTcp.lastPrinted, "ESP32 CAN Bridge v" FIRMWARE_BUILD_VERSION "\r\r>")
         << "first set must be left untouched after re-wire (no double handling)";
 }
 

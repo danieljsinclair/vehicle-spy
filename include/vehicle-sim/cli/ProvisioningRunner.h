@@ -5,6 +5,11 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
+
+namespace vehicle_sim::pipeline {
+class ISocket;
+}
 
 namespace vehicle_sim::cli {
 
@@ -47,6 +52,89 @@ public:
 /** Build the production serial port for `port` (a /dev/cu.* path). */
 std::unique_ptr<ISerialPort> createSerialPort(const std::string& port);
 
+/**
+ * Build the production TCP console port for host:port. The firmware serves
+ * [STATE] heartbeats over TCP to an authenticated client, so open() performs
+ * the same AUTH handshake the live TCP transport does (send "AUTH <token>",
+ * expect "OK") before the read loop can see heartbeats. After auth the
+ * cadence is device-driven — no command is sent. Used by the TCP leg of
+ * --status / --connect auto so a device with no USB serial can still deliver
+ * a [STATE] snapshot. Returns a port whose read()/selectReadable() drain
+ * whatever the firmware pushes.
+ */
+std::unique_ptr<ISerialPort> createTcpConsolePort(const std::string& host, int port);
+
+/**
+ * Build a TCP console port with an injected ISocket (for unit tests). The
+ * socket seam lets the suite script the AUTH response + [STATE] bytes with a
+ * FakeSocket — no real socket, no real connect/recv, no real ESP32. Production
+ * calls the host/port overload above, which wires a real PosixSocket.
+ */
+std::unique_ptr<ISerialPort> createTcpConsolePort(
+    const std::string& host,
+    int port,
+    std::shared_ptr<vehicle_sim::pipeline::ISocket> socket);
+
+/**
+ * THE single provisioning transport resolver: map a --connect transport onto
+ * the port that speaks it. Every provisioning command AND --status obtains
+ * its port here — there is no other transport dispatch at any call site.
+ *   "auto" / ""             -> PosixSerialPort on the auto-detected /dev/cu.*
+ *                              (ESP32_DEFAULT_USB_PORT backstop); "auto" is
+ *                              just usb:-with-auto-detection and flows through
+ *                              the SAME scheme entry.
+ *   "usb:<path>"            -> PosixSerialPort on <path> verbatim
+ *   "tcp:<host>[:<port>]"   -> TcpConsolePort on the AUTH'd console; port
+ *                              defaults to 3333 (the firmware console port)
+ *
+ * The tcp: form is parsed by the engine's single canonical parser
+ * (vehicle_sim::pipeline::parseTcpTarget) — the grammar is never duplicated.
+ * Scheme dispatch is a prefix->builder table (see the .cpp), so adding a
+ * transport later is one ISerialPort implementation plus one table entry; no
+ * call-site changes anywhere (OCP).
+ *
+ * Returns nullptr when the transport cannot be resolved (malformed tcp:
+ * target, empty usb: path, or an unknown scheme). Validation rejects those
+ * earlier with a user-facing error, so a nullptr here is a defensive
+ * backstop that surfaces as a "could not resolve" diagnostic.
+ */
+std::unique_ptr<ISerialPort> createProvisioningPort(const std::string& transport);
+
+/**
+ * Same resolution with the TCP console's ISocket injected, so the unit suite
+ * can script the AUTH handshake + replies with a FakeSocket — no real socket,
+ * no real device. The usb: forms ignore the socket. Production calls the
+ * overload above, which wires a real PosixSocket.
+ */
+std::unique_ptr<ISerialPort> createProvisioningPort(
+    const std::string& transport,
+    std::shared_ptr<vehicle_sim::pipeline::ISocket> socket);
+
+/**
+ * Operator-facing diagnostic when a resolved port fails to open(): names the
+ * console kind, its endpoint, and the scheme-appropriate likely cause — e.g.
+ * "USB serial /dev/cu.usbserial-110 (device detached or wrong path)" or
+ * "TCP console 192.168.68.91:3333 (connect or AUTH failed; ...)". Routed
+ * through the same scheme table as the factory, so a new transport brings
+ * its own diagnostic with it.
+ */
+std::string describeProvisioningOpenFailure(const std::string& transport);
+
+// Auto-detect the ESP32's USB serial port by globbing the standard macOS
+// prefixes (/dev/cu.usbserial*, /dev/cu.SLAB_USBtoUART, /dev/cu.wchusbserial*).
+// Returns the first match, or "" if none matched. Used by the USB-first leg of
+// --status / --connect auto so a connected device resolves instantly with no
+// broadcast. (resolveSerialPort() wraps this with a default-port fallback; call
+// this directly when you need to distinguish "found USB" from "nothing".)
+std::string autoDetectSerialPort();
+
+// Same detection over caller-supplied glob patterns — the seam the unit suite
+// uses to script "no device" / "device present" deterministically. The real
+// /dev/cu.* namespace depends on what is physically plugged into the build
+// host, so a test driving the no-arg overload flips red the moment an adapter
+// enumerates. Production callers use the no-arg form above.
+std::string autoDetectSerialPort(const std::vector<std::string>& globPatterns);
+
 // Provisioning reply substrings the firmware emits over USB serial.
 //   ATSETWIFI<ssid>,<pass>\r -> "OK WiFi credentials stored. Rebooting to connect..."
 //   ATCLEARWIFI\r            -> "OK WiFi credentials cleared. Rebooting..."
@@ -56,6 +144,11 @@ constexpr const char* PROVISION_OK_STORED = "stored";
 constexpr const char* PROVISION_OK_CLEARED = "cleared";
 constexpr const char* PROVISION_OK_REBOOT = "REBOOT";
 
+// Substring that marks a LoopHeartbeat [STATE] line. The device emits these
+// on a 5-second cadence (firmware/can-bridge/can-bridge.ino HEARTBEAT_INTERVAL_MS);
+// --status waits for the NEXT one and prints it verbatim.
+constexpr const char* PROVISION_OK_STATUS = "[STATE]";
+
 // Default provisioning timeout. The device floods periodic [STATE] heartbeat /
 // WiFi state lines over USB serial while it stores creds and reboots; under that
 // load the "OK WiFi credentials stored. Rebooting..." ack can arrive well after
@@ -63,6 +156,20 @@ constexpr const char* PROVISION_OK_REBOOT = "REBOOT";
 // TIMEOUT even though provisioning succeeded). 120s gives the store+reboot
 // sequence comfortable headroom so the matcher can capture the real ack.
 constexpr int PROVISION_TIMEOUT_S = 120;
+
+// --status wait budget. The heartbeat is on a 5-second cadence, so waiting up
+// to 8s gives one full cycle plus jitter headroom. A timeout is reported as
+// "no [STATE] line received in Ns (B bytes received)" — the byte count
+// separates a silent peer (0 bytes) from a device that talked without ever
+// framing a [STATE] line.
+constexpr int PROVISION_STATUS_TIMEOUT_S = 8;
+
+// Auto-discovery wait budget (UDP broadcast discovery). The ESP32 floods
+// discovery beacons roughly every 500ms after reset, but quiet stretches can
+// gap up to ~30s. Waiting 12s covers several beacon cycles plus realistic
+// jitter without making the operator wait half a minute. Used by both the
+// --discover manual scan and the --connect auto / --status fallback hunt.
+constexpr int AUTO_DISCOVERY_TIMEOUT_S = 12;
 
 /**
  * Send a single AT command over the ESP32 USB serial console and wait for the
@@ -91,16 +198,37 @@ constexpr int PROVISION_TIMEOUT_S = 120;
  * (std::cout) and errors to `err` (std::cerr).
  *
  * SRP: this function only decides WHICH command to send; the byte-level serial
- * I/O lives in runProvisioningCommand().
+ * I/O lives in runProvisioningCommand() / runStatus().
  *
  * Test seam: the overload taking an injected ISerialPort lets unit tests run
  * the full dispatch (flag -> AT command selection -> frame bytes) without a
- * real device. The (opts, out, err) form opens a real port and delegates.
+ * real device. The (opts, out, err) form resolves opts.transport via the
+ * single transport resolver (auto / usb:<path> / tcp:<host>[:<port>] — see
+ * createProvisioningPort) and opens a real port.
  */
 [[nodiscard]] int runProvisioning(const WifiProvisioningOptions& opts,
                                   ISerialPort& port,
                                   std::ostream& out,
                                   std::ostream& err);
+
+/**
+ * Read from the serial port until the next "[STATE] ..." heartbeat line appears
+ * (or the deadline elapses), then write the captured line to `out`. The
+ * heartbeat is on a 5-second cadence, so a fresh [STATE] line should arrive
+ * within PROVISION_STATUS_TIMEOUT_S; the timeout is reported via err.
+ *
+ * No AT command is sent — [STATE] lines are device-driven, not acks.
+ *
+ * @return 0 on success (a [STATE] line was captured), 1 on timeout.
+ *
+ * SRP: this function only owns the wait-for-state-line loop; the byte-level
+ * serial I/O is delegated to the ISerialPort seam. The test suite injects a
+ * FakeSerialPort that scripts the [STATE] line directly.
+ */
+[[nodiscard]] int runStatus(ISerialPort& port,
+                            int timeoutS,
+                            std::ostream& out,
+                            std::ostream& err);
 
 [[nodiscard]] int runProvisioning(const WifiProvisioningOptions& opts,
                                   std::ostream& out,

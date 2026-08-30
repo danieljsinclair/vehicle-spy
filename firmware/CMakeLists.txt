@@ -83,6 +83,22 @@ add_library(esp32-firmware-lib
     ${CANBRIDGE_SOURCES}
 )
 
+# ── Build-identifying version header (git hash + dirty flag + date) ──────────
+# vanilla/FirmwareBuildInfo.h is GENERATED (gitignored) and regenerated on
+# EVERY host-test build: a custom target has no output stamping, so no build
+# can skip it and a new commit / dirtied tree is always picked up. The
+# generator only rewrites the file when its content changed (no recompile
+# churn). Git-less environments degrade to "<semver>+unknown (no-vcs)" and
+# never fail the build. The semver itself lives in vanilla/FirmwareVersion.h
+# (checked in, single source of truth).
+add_custom_target(gen_firmware_build_info
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/gen_firmware_build_info.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/vanilla
+    COMMENT "Regenerating vanilla/FirmwareBuildInfo.h (git hash + build date)"
+    VERBATIM
+)
+add_dependencies(esp32-firmware-lib gen_firmware_build_info)
+
 # Include directories
 target_include_directories(esp32-firmware-lib
     PUBLIC
@@ -126,6 +142,7 @@ add_executable(esp32-firmware-tests
     tests/NvsWifiCredentialStore_test.cpp
     tests/WifiCredentialSharedBacking_test.cpp
     tests/TokenStore_test.cpp
+    tests/FirmwareVersion_test.cpp
 )
 
 target_link_libraries(esp32-firmware-tests
