@@ -18,9 +18,17 @@ namespace vehicle_sim::util {
 
 namespace {
 
-// How many directories resolveResource()/resourceCandidates() walk up from the
-// executable's directory while looking for a resource.
-constexpr int kMaxParentDirDepth = 8;
+// Absolute paths must never be re-anchored under the executable directory or
+// CWD: joining "/abs/path" onto a directory yields garbage ("<dir>/abs").
+// Before this short-circuit, absolute inputs were only found by accident —
+// the ancestor walk reaching "/" emitted "//abs", which POSIX collapses — and
+// not at all from deep checkouts (see the walk termination below). Detect
+// Unix roots and Windows drive letters ("C:/", "C:\").
+bool isAbsolutePath(const std::string& path) {
+    if (path.empty()) return false;
+    if (path.front() == '/' || path.front() == '\\') return true;
+    return path.size() > 2 && path[1] == ':' && (path[2] == '/' || path[2] == '\\');
+}
 
 // Parent directory of `path` (no trailing slash), or "" at the filesystem root.
 std::string parentDir(const std::string& path) {
@@ -91,17 +99,26 @@ std::vector<std::string> ExecutablePath::resourceCandidates(
         }
     };
 
+    // Absolute input: it is its own only candidate. Re-anchoring it under the
+    // exe dir / CWD only produces garbage paths.
+    if (isAbsolutePath(relativeResourcePath)) {
+        return {relativeResourcePath};
+    }
+
     // 1. Walk up from the executable directory: <dir>/<relativeResourcePath>.
     //    Handles nested build dirs (build-native/, build-native/test/), so both
     //    the released binary and the test binary find the resource shipped
-    //    under the project root regardless of CWD.
+    //    under the project root regardless of CWD. The walk runs to the
+    //    filesystem root (terminated structurally when parentDir() stops
+    //    making progress) — a fixed depth cap would silently truncate the
+    //    search for checkouts nested deeper than the cap.
     if (const std::string exeDir = directory(); !exeDir.empty()) {
         std::string dir = exeDir;
-        int depth = 0;
-        while (depth < kMaxParentDirDepth && !dir.empty()) {
+        while (!dir.empty()) {
             pushUnique(joinPath(dir, relativeResourcePath));
-            dir = parentDir(dir);
-            ++depth;
+            const std::string parent = parentDir(dir);
+            if (parent == dir) break;  // reached the filesystem root
+            dir = parent;
         }
     }
 
