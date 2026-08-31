@@ -41,7 +41,15 @@ namespace WiFiState {
         bool tcpServerNeedsRestart = false;
         int escalatedToApReason = 0;  // wifi_err_reason_t that triggered AP fallback (0 = not escalated)
         std::string lastConnectedIp;    // STA IP captured at the last WIFI_CONNECTED entry (empty before first connect)
-        bool reconnectPending = false;   // true after a drop, until the re-connect IP check resolves
+        // True after a drop-driven re-entry to WIFI_CONNECTING (onDisconnected
+        // event from WIFI_CONNECTED, or the ConnectedSta poll drop), until the
+        // re-connect resolves. Dual role: (1) ConnectingStateHandler consumes
+        // it on the FIRST Connecting tick to re-anchor connectStartTime — the
+        // drop paths have no clock of their own, and without the re-anchor the
+        // 30s AP-fallback budget would be measured from boot time and expire
+        // on the very first failed tick after any mid-session drop; (2) it
+        // records "a reconnect is pending" for the re-connect IP check.
+        bool reconnectPending = false;
         uint32_t disconnectStartMs = 0;  // timestamp of the most recent drop (for outage-duration safety check)
         uint32_t reconnectAttempts = 0;  // consecutive reconnect (re-begin) attempts since the last drop
         // RESILIENT AUTH (firmware bug fix): an auth-failure reason (AUTH_FAIL 202,

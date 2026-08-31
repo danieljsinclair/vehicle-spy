@@ -1288,6 +1288,157 @@ TEST_F(WiFiManagerTest, LinkLevelDrop_LongOutageThenMeshReturns_Reassociates) {
         << "when the mesh returns during a long outage, the device must re-associate";
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// REJOIN BUDGET (2026-08-31 road-test fix): ctx.connectStartTime anchors the
+// 30s shouldFallbackToApMode budget. It used to be stamped only on fresh
+// boot/provisioning entries to WIFI_CONNECTING (DisconnectedStateHandler) and
+// on AP-mode STA recovery — NEVER on a drop-driven re-entry. After the first
+// successful join, one WL_NO_SSID_AVAIL / WL_CONNECT_FAILED tick then read
+// "duration since boot" (>30s, always) and escalated INSTANTLY to AP mode;
+// the AP state retries STA only every 5 min. On a hotspot that drops idle
+// clients (iPhone) this reads as "right SSID, right band, still won't join".
+// Fix: every drop-driven re-entry to WIFI_CONNECTING (onDisconnected event or
+// ConnectedSta poll) arms a fresh connect budget, consumed on the first
+// Connecting tick. Genuine budget exhaustion still escalates as before.
+// ══════════════════════════════════════════════════════════════════════════════
+
+TEST_F(WiFiManagerTest, DropReentry_EventDrop_GetsFreshConnectBudget_NotInstantAp) {
+    // The owner's reported scenario: joined fine, the hotspot dropped the idle
+    // client (BEACON_TIMEOUT 200) many minutes into the session, and the next
+    // association attempt reports WL_NO_SSID_AVAIL. The first failed tick
+    // after the drop must stay in WIFI_CONNECTING (fresh 30s budget), NOT
+    // escalate instantly to AP mode on the stale boot-time budget.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+
+    driveToConnected(*wifiManager, wifiMock);
+    // Long, uneventful connected uptime (10 min since boot): under the old
+    // code the budget anchor was still boot time, so it was always exhausted.
+    wifiManager->update(600000);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // The hotspot drops the idle client...
+    wifiManager->onDisconnected(200);  // WIFI_REASON_BEACON_TIMEOUT
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    // ...and the re-association attempt cannot see the SSID.
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+
+    // First Connecting tick after the drop, ~100ms later: fresh budget means
+    // retry, not AP fallback.
+    wifiManager->update(600100);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "drop re-entry must get a fresh 30s budget, not instant AP fallback";
+    EXPECT_NE(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+    // The budget anchor must now be the drop re-entry, not boot time.
+    EXPECT_EQ(wifiManager->getContext().connectStartTime, 600100u);
+}
+
+TEST_F(WiFiManagerTest, DropReentry_PolledDrop_GetsFreshConnectBudget_NotInstantAp) {
+    // Same fresh-budget contract via the per-tick self-heal path: the drop the
+    // WiFi event callback did NOT surface is observed by
+    // ConnectedStaStateHandler on its own tick (status != WL_CONNECTED).
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+
+    driveToConnected(*wifiManager, wifiMock);
+    wifiManager->update(600000);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    // The link drops between ticks — the next update() observes it.
+    wifiMock.setStatus(WiFiMock::Status::WL_DISCONNECTED);
+    wifiManager->update(600050);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // The re-association attempt then fails outright.
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECT_FAILED);
+    wifiManager->update(600100);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING)
+        << "polled-drop re-entry must get a fresh 30s budget, not instant AP fallback";
+    EXPECT_NE(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+}
+
+TEST_F(WiFiManagerTest, DropReentry_BudgetStillFinite_ExhaustionEscalatesToAp) {
+    // The fresh budget is a real budget, not an amnesty: when the failure
+    // persists the full 30s after the drop re-entry, the device must still
+    // escalate to AP mode exactly as a genuine first-attempt timeout does.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+
+    driveToConnected(*wifiManager, wifiMock);
+    wifiManager->onDisconnected(WIFI_REASON_NO_AP_FOUND);  // 201 scan-miss drop
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    ASSERT_FALSE(wifiManager->getContext().pendingAuthFail);
+
+    // First failed tick on the fresh budget: retry, stay CONNECTING.
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+    wifiManager->update(600100);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // Re-assert the failed status (the retry's begin() reset the mock to
+    // WL_IDLE_STATUS) and outlast the fresh 30s budget.
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+    wifiManager->update(600100 + WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1000);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_NO_AP)
+        << "scan-miss persisting past the fresh budget must still escalate to the NO_AP state";
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+}
+
+TEST_F(WiFiManagerTest, DropReentry_RepeatedDrops_EachGetsOneFreshBudget) {
+    // Each drop re-entry RESTARTS (does not extend) the budget: two drops do
+    // not accumulate into a 60s allowance. After a recovery and a second
+    // drop, escalation is judged from the second drop alone.
+    prefsMock.setValue("wifi", "cred_count", "1");
+    prefsMock.setValue("wifi", "ssid_0", "test-ssid");
+    prefsMock.setValue("wifi", "pass_0", "test-pass");
+    wifiManager = std::make_unique<WiFiManager>(
+        wifiMock, prefsMock, serialTraceMock, nullptr, nullptr);
+
+    driveToConnected(*wifiManager, wifiMock);
+
+    // Drop #1: first failed tick retries on the fresh budget.
+    wifiManager->onDisconnected(200);  // WIFI_REASON_BEACON_TIMEOUT
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+    wifiManager->update(60001);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // Failure persists 20s into budget #1 — still within it.
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);  // re-assert after begin() reset
+    wifiManager->update(60001 + 20000);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // The hotspot comes back: re-associate, then drops us again (drop #2).
+    wifiMock.setStatus(WiFiMock::Status::WL_CONNECTED);
+    wifiManager->update(80002);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTED);
+
+    wifiManager->onDisconnected(200);
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+    wifiManager->update(82001);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+
+    // Outlast ONE fresh budget measured from drop #2. If budgets accumulated
+    // (drop #1 + drop #2), the allowance would run to ~120s past drop #1 and
+    // the device would still be CONNECTING here.
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);  // re-assert after begin() reset
+    wifiManager->update(82001 + WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1000);
+
+    EXPECT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_AUTH_FAIL)
+        << "escalation after drop #2 must be judged from drop #2 alone (no budget accumulation)";
+    EXPECT_EQ(wifiMock.getModeEnum(), WiFiMock::Mode::WIFI_AP);
+}
+
 // Sanity: the existing auth-fail campaign path is NOT broken by this fix.
 // A real auth rejection (reason 15/23/202) must still escalate to AP mode
 // once the strategy campaign is exhausted.
@@ -1419,9 +1570,19 @@ TEST_F(WiFiManagerTest, ApModeNoAp_AfterRetryInterval_AttemptsStaReassociation) 
         wifiMock, prefsMock, serialTraceMock, "baked-ssid", "baked-pass");
     driveToConnected(*wifiManager, wifiMock);
 
+    // Escalate to the NO_AP fallback. REJOIN BUDGET: the drop re-entry grants
+    // a fresh 30s connect budget, so the scan-miss must PERSIST past it — a
+    // single failed tick no longer escalates instantly (that instant
+    // escalation was the rejoin-budget bug). First tick re-anchors the budget
+    // and retries...
     wifiManager->onDisconnected(WIFI_REASON_NO_AP_FOUND);  // 201
     wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
     wifiManager->update(WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 1000);
+    ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_CONNECTING);
+    // ...then (re-asserting the failed status after begin() reset the mock)
+    // outlast the fresh budget to reach the NO_AP fallback.
+    wifiMock.setStatus(WiFiMock::Status::WL_NO_SSID_AVAIL);
+    wifiManager->update(2 * WiFiConfig::WIFI_CONNECT_TIMEOUT_MS + 2000);
     ASSERT_EQ(wifiManager->getState(), WiFiState::State::WIFI_AP_MODE_NO_AP);
 
     // First tick in AP mode arms the retry timer; before the interval the
