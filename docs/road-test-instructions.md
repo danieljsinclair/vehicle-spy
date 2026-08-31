@@ -230,6 +230,9 @@ Notes on each part, all verified:
   `subaru_ej25.json`, `2jz.json`, `11_merlin_v12.json`.
 - `--play` for real audio. Swap for `--silent` (full pipeline at zero volume) when benching
   headlessly. `--duration <s>` bounds a non-interactive run; `--interactive` runs open-ended.
+  Either way the CLI now exits on its own when the drive ends: stdin EOF (vehicle-sim closing
+  the pipe) terminates the whole CLI immediately (2026-08-30) — no leftover engine process
+  after a road test.
 - Add `--gearbox-log /tmp/gearbox.csv` to record shift decisions — **confirmed working on the
   live-telemetry path** on the canonical checkout (columns: frame, dt, speedKmh, throttleRaw,
   throttleSmoothed, vehicleSpeedFeedbackKmh, engineRpmFeedback, currentGear, targetGear,
@@ -248,12 +251,14 @@ The engine-sim-cli status line should show RPM climbing off idle, `Running`, a g
 
 ### Stopping the engine — stop/start semantics, not ignition-off
 
-Engine stop on brake + PARK is gated by **drive-selected-since-start** — by design. Observed live
-2026-08-29: with the engine `Running`, brake + PARK held for 9.6 s while the gear had never left
-P → no stop (a correct refusal); in a replay whose capture contains a real D period, the twin
-fires `Stopping` within 13 ms of gear→P. Test recipe: brake → engine starts → select D (briefly
-is enough) → hold brake → shift to P → engine stops. v1 boundary: door-open / exit-vehicle stop
-is unwired (0x311 not captured, no door column in the CSV).
+Engine stop is **edge-triggered on the brake-light RELEASE while in PARK** (owner change
+2026-08-30; was: brake + PARK level) and gated by **drive-selected-since-start** — by design.
+Pressing the brake in PARK no longer cuts ignition — that fired while the driver braked to
+select first gear. Test recipe: brake → engine starts → select D (briefly is enough) → shift
+to P → **release the brake** → engine stops. If the driver shifts out of P before releasing
+the brake, no stop occurs (that is a drive-off). Expect the engine to keep running while the
+brake is held in P, however long. v1 boundary: door-open / exit-vehicle stop is unwired
+(0x311 not captured, no door column in the CSV).
 
 ### Known twin defects — expect these, do not chase them as new bugs
 
