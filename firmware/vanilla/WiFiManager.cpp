@@ -79,6 +79,21 @@ struct ConnectingStateHandler : public IWiFiStateHandler {
           resetDiscoveryBackoff_(std::move(resetDiscoveryBackoff)) {}
 
     StateTransition execute(uint32_t now, WiFiState::Context& ctx) override {
+        // REJOIN BUDGET: a drop-driven re-entry (onDisconnected event or the
+        // ConnectedSta poll) arms reconnectPending so this handler re-anchors
+        // the connect budget — the event callback has no clock, and leaving
+        // connectStartTime at its boot/provisioning value makes the first
+        // WL_NO_SSID_AVAIL / WL_CONNECT_FAILED tick after a mid-session drop
+        // read "duration since boot" (>30s, always) and escalate INSTANTLY to
+        // AP mode. Consume the marker here, on the FIRST Connecting tick, so
+        // each drop gets exactly one fresh 30s budget (edge-triggered: not
+        // re-stamped on later ticks, so genuine budget exhaustion still
+        // escalates to AP as before).
+        if (ctx.reconnectPending) {
+            ctx.connectStartTime = now;
+            ctx.reconnectPending = false;
+        }
+
         const int status = wifi_.status();
         const uint32_t connectDuration = now - ctx.connectStartTime;
 
@@ -697,6 +712,10 @@ void WiFiManager::onDisconnected(int reason) {
         if (ctx_.state == WiFiState::State::WIFI_CONNECTED) {
             ctx_.state = WiFiState::State::WIFI_CONNECTING;
             ctx_.reconnectAttempts = 0;  // Restart aggressive-first-retries window (req-1)
+            // REJOIN BUDGET: arm the fresh-budget marker so the first
+            // Connecting tick re-anchors connectStartTime (this callback has
+            // no clock to stamp it here). See ConnectingStateHandler::execute.
+            ctx_.reconnectPending = true;
         }
         ctx_.lastRetryMs = 0;  // Arm the retry so the first strategy fires promptly
         // Single trace line: captures the true origin state and the campaign
@@ -717,6 +736,10 @@ void WiFiManager::onDisconnected(int reason) {
         ctx_.tcpServerNeedsRestart = true;
         ctx_.lastRetryMs = 0;  // Will be set on next update
         ctx_.reconnectAttempts = 0;  // Restart aggressive-first-retries window (req-1)
+        // REJOIN BUDGET: arm the fresh-budget marker so the first Connecting
+        // tick re-anchors connectStartTime (this callback has no clock to
+        // stamp it here). See ConnectingStateHandler::execute.
+        ctx_.reconnectPending = true;
         // Transient/recoverable disconnect: the stack re-associates rather than
         // abandoning STA. Logged as RECONNECTING because that is the semantic
         // role of this re-entry into WIFI_CONNECTING from a live connection
