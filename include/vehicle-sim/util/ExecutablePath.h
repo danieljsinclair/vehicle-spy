@@ -29,10 +29,13 @@ public:
     /// Resolve a resource path that is shipped relative to the executable's
     /// *install root* (e.g. "resources/dbc/Model3CAN.dbc").
     ///
-    /// Search order (first existing file/dir wins):
+    /// An absolute input is returned as-is (after an existence check) — it is
+    /// never re-anchored under the executable directory or CWD. For a relative
+    /// input, the search order (first existing file/dir wins) is:
     ///   1. Walk up from the executable's directory trying
-    ///      <dir>/<relativeResourcePath> at each level (handles nested build
-    ///      dirs such as build-native/ and build-native/test/).
+    ///      <dir>/<relativeResourcePath> at each level, all the way to the
+    ///      filesystem root (handles nested build dirs such as build-native/
+    ///      and build-native/test/, at any checkout depth).
     ///   2. The current working directory: <cwd>/<relativeResourcePath>.
     ///
     /// @return absolute path to the first existing resource, or a best-effort
@@ -41,9 +44,11 @@ public:
         const std::string& relativeResourcePath) noexcept;
 
     /// Ordered list of every concrete path resolveResource() checks for a
-    /// resource: <exeDir>/<rel>, then each ancestor directory up to 8 levels
-    /// up, then <cwd>/<rel>. Consecutive duplicates (e.g. re-reaching the
-    /// filesystem root) are collapsed. No existence checks are performed.
+    /// resource. An absolute input yields the input alone; a relative input
+    /// yields <exeDir>/<rel>, then each ancestor directory up to the
+    /// filesystem root, then <cwd>/<rel>. Consecutive duplicates (e.g.
+    /// re-reaching the filesystem root) are collapsed. No existence checks
+    /// are performed.
     ///
     /// Exposed so load-failure diagnostics can report the full candidate list
     /// ("paths tried") instead of a single opaque composed path.
