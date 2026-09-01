@@ -1229,6 +1229,19 @@ $(SONAR_COMPILE_DB_MERGED): $(BUILD_COV_DIR)/compile_commands.json $(SONAR_COMPI
 	@python3 scripts/merge_compile_commands.py $@ \
 		$(BUILD_COV_DIR)/compile_commands.json $(SONAR_COMPILE_DB_FW)
 
+# Derive -Dsonar.branch.name from the current git branch (worktree-aware).
+# In a worktree, git rev-parse --abbrev-ref HEAD returns the worktree's branch.
+# If derivation fails, FAIL FAST — never publish a branchless scan that
+# overwrites SonarCloud master. Master scans remain possible (master -> "master").
+BRANCH := $(shell git -C $$(dirname $(abspath $(firstword $(MAKEFILE_LIST)))) rev-parse --abbrev-ref HEAD 2>/dev/null)
+ifeq ($(BRANCH),)
+  $(error SONAR GUARD: cannot derive sonar.branch.name from git (no branch / no git). Refusing to publish a branchless scan.)
+endif
+ifeq ($(BRANCH),HEAD)
+  $(error SONAR GUARD: HEAD is detached — cannot derive a branch name. Check out a named branch before scanning.)
+endif
+SONAR_BRANCH_FLAG := -Dsonar.branch.name=$(BRANCH)
+
 # == Shared sonar-scanner runner (DRY for all three projects) ==
 # Uploads to SonarCloud using the properties file named by
 # $(SS_PROPERTIES), CE-polls to SUCCESS, then caches the issue + measures
@@ -1241,7 +1254,7 @@ define run_sonar_scan
 	@if [ -z "$${SONAR_TOKEN_ES}" ]; then \
 		echo "  ${RED}SONAR_TOKEN_ES not set — skipping $(SS_LABEL) scan${NC}"; exit 1; \
 	fi
-	@echo "=== [$(SS_LABEL)] Running sonar-scanner ==="
+	@echo "=== [$(SS_LABEL)] Running sonar-scanner (branch: $(BRANCH)) ==="
 	@mkdir -p $$(dirname $(SS_SCANNER_LOG))
 	@# NOTE: do NOT add -Dsonar.scm.disabled=true here. The scanner uses the SCM
 	@# (git) provider to honour .gitignore during file indexing. With SCM
@@ -1250,6 +1263,7 @@ define run_sonar_scan
 	@# instead of 46), which made SonarCloud return an EMPTY measures array for
 	@# vehicle-spy-esp32. Keeping SCM enabled restores 46 files / 78.7% coverage.
 	@SONAR_TOKEN="$${SONAR_TOKEN_ES}" sonar-scanner \
+		$(SONAR_BRANCH_FLAG) \
 		-Dproject.settings=$(SS_PROPERTIES) \
 		-Dsonar.working.directory=$(SS_BUILD_DIR)/.sonar \
 		> $(SS_SCANNER_LOG) 2>&1; \
