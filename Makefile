@@ -1,5 +1,5 @@
 .PHONY: all clean test test-cpp help ios ios-signed xcode native deploy deploy-app deploy-ios run run-app run-ios \
-	        install-deps ios-icons app-icons regen-appicon scrub update-dbc \
+	        install-deps app-icons scrub update-dbc \
 	        firmware firmware-flash flash flash-usb monitor firmware-port capture capture-usb startup-log firmware-clean \
 	        capture-tcp ota-keys flash-over-tcp flash-over-usb \
 			reboot reboot-usb reboot-over-usb reboot-over-tcp reboot-tcp reboot-wifi reboot-over-wifi check-esp32 \
@@ -115,6 +115,7 @@ clean:
 	done; \
 	rm -rf ~/Library/Developer/Xcode/DerivedData/VehicleSimApp-*; \
 	rm -rf vehicle-sim-ios/VehicleSim/build; \
+	rm -f vehicle-sim-ios/VehicleSim/Assets.xcassets/AppIcon.appiconset/*.png; \
 	if [ -n "$$FAILED" ]; then \
 		echo "Scrub note: could not remove:$$FAILED"; \
 	fi
@@ -299,24 +300,8 @@ ICON_FILES = \
 	$(ICON_CATALOG)/AppIcon.png \
 	$(ICON_CATALOG)/AppIcon-dark.png
 
-# The icons are COMMITTED artifacts (un-ignored in .gitignore): a pristine
-# checkout already has them, so every iOS leg builds without ImageMagick.
-# The legs only verify presence; regeneration is the opt-in target below.
-ios-icons app-icons:
-	@if [ ! -f $(ICON_CATALOG)/AppIcon.png ] || [ ! -f $(ICON_CATALOG)/AppIcon-dark.png ]; then \
-		echo "${RED}Error: committed app icons missing from $(ICON_CATALOG).${NC}" >&2; \
-		echo "  Restore from git:  git checkout -- $(ICON_CATALOG)" >&2; \
-		echo "  Or regenerate (needs ImageMagick):  make regen-appicon" >&2; \
-		exit 1; \
-	fi
-
-# Opt-in regeneration — the ONLY path that invokes ImageMagick.
-regen-appicon:
-	@$(MAKE) clean-icons
-	@$(MAKE) $(ICON_FILES)
-
-clean-icons:
-	@rm -f $(ICON_CATALOG)/*.png
+# Convenience aggregate. The actual timestamped build products are ICON_FILES.
+ios-icons app-icons: $(ICON_FILES)
 
 define generate_icon_light
 @mkdir -p "$(ICON_CATALOG)"
@@ -330,14 +315,14 @@ define generate_icon_dark
 @mkdir -p "$(ICON_CATALOG)"
 @IMGT=$$(command -v magick 2>/dev/null); \
 	if [ -z "$$IMGT" ]; then echo "${RED}Error: ImageMagick not installed. Run 'make install-deps'.${NC}" >&2; exit 1; fi; \
-	echo "  Generating $@ (1024x1024) from $< (black -> white for dark mode)"; \
-	$$IMGT "$<" -channel RGB -fill white -opaque black +channel -trim +repage -resize "1024x1024" -background transparent -gravity center -extent "1024x1024" "$@"
+	echo "  Generating $@ (1024x1024) from $< (near-black -> white for dark mode)"; \
+	$$IMGT "$<" -alpha on -channel RGB -fuzz 20% -fill white -opaque black +channel -fuzz 0% -trim +repage -resize "1024x1024" -background transparent -gravity center -extent "1024x1024" "$@"
 endef
 
-$(ICON_CATALOG)/AppIcon.png: $(ICON_SOURCE)
+$(ICON_CATALOG)/AppIcon.png: $(ICON_SOURCE) Makefile
 	$(generate_icon_light)
 
-$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_SOURCE)
+$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_SOURCE) Makefile
 	$(generate_icon_dark)
 
 # -- DBC ------------------------------------------------------------------
@@ -1646,7 +1631,6 @@ help:
 	@echo "  run              - Deploy and launch on device (aliases: run-app, run-ios)"
 	@echo "  xcode            - Open in Xcode"
 	@echo "  install-deps     - Install Homebrew dependencies"
-	@echo "  regen-appicon    - Regenerate committed app icons (opt-in, needs ImageMagick)"
 	@echo "  update-dbc       - Update DBC files from opendbc"
 	@echo "  clean            - Clean build artifacts"
 	@echo "  scrub            - Full clean including toolchain sentinel"
