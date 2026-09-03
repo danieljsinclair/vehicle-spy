@@ -319,10 +319,10 @@ define generate_icon_dark
 	$$IMGT "$<" -alpha on -channel RGB -fuzz 20% -fill white -opaque black +channel -fuzz 0% -trim +repage -resize "1024x1024" -background transparent -gravity center -extent "1024x1024" "$@"
 endef
 
-$(ICON_CATALOG)/AppIcon.png: $(ICON_SOURCE) Makefile
+$(ICON_CATALOG)/AppIcon.png: $(ICON_SOURCE)
 	$(generate_icon_light)
 
-$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_SOURCE) Makefile
+$(ICON_CATALOG)/AppIcon-dark.png: $(ICON_SOURCE)
 	$(generate_icon_dark)
 
 # -- DBC ------------------------------------------------------------------
@@ -750,7 +750,10 @@ LLVM_PROFDATA := $(shell xcrun --find llvm-profdata 2>/dev/null || which llvm-pr
 
 # == C++ core coverage build (build-cov) ==
 BUILD_COV_DIR       ?= build-cov
-BUILD_COV_STAMP     := $(BUILD_COV_DIR)/.build-cov-ready.stamp
+# Real artefact dependency replaces the .stamp file (KISS — Make's natural
+# mtime check is sufficient; no .stamp bookkeeping required). The library
+# archive is the real artefact produced by `cmake --build vehicle-sim-lib`.
+BUILD_COV_STAMP     := $(BUILD_COV_DIR)/libvehicle-sim-lib.a
 COVERAGE_XML_CPP    := $(BUILD_COV_DIR)/coverage-sonar.xml
 COVERAGE_LCOV       := $(BUILD_COV_DIR)/lcov.info
 # Source inputs that invalidate the coverage build when they change.
@@ -776,7 +779,8 @@ $(BUILD_COV_STAMP): $(COV_BUILD_INPUTS) $(BUILD_COV_DIR)/CMakeCache.txt
 		-DCMAKE_CXX_FLAGS="-fprofile-instr-generate -fcoverage-mapping -g" \
 		-DCMAKE_EXE_LINKER_FLAGS="-fprofile-instr-generate" \
 		-DBUILD_IOS=OFF -DBUILD_TESTS=ON .
-	@touch $@
+	# `cmake --build` updates the libvehicle-sim-lib.a mtime above; that IS
+	# the artefact Make tracks (no separate .stamp file needed).
 
 # coverage-run: run the C++ tests under llvm-cov, merge profdata, export lcov,
 # convert to SonarCloud generic XML. File-artefact target: re-runs only when
