@@ -152,7 +152,7 @@ TEST(ConsoleProgressReporterTest, EmitsEveryFrameOnNewline) {
 TEST(ConsoleProgressReporterTest, EmitsAllSchemaFields) {
     std::ostringstream out;
     ConsoleProgressReporter reporter(out, "tesla");
-    VehicleSignal sig(VehicleSignal::Params{.timestampUtcMs = 1234567ULL, .throttlePercent = 42.5, .speedKmh = 88.0, .accelerationG = 0.25, .brakePercent = 7.5, .steeringAngleDeg = -13.0, .motorRpm = 1234.0, .motorHvVoltage = 390.0, .motorHvCurrent = 120.0, .motorTorqueNm = 250.0, .gearSelector = 4097});
+    VehicleSignal sig(VehicleSignal::Params{.timestampUtcMs = 1234567ULL, .throttlePercent = 42.5, .speedKmh = 88.0, .accelerationG = 0.25, .brakePercent = 7.5, .brakeLight = true, .steeringAngleDeg = -13.0, .motorRpm = 1234.0, .motorHvVoltage = 390.0, .motorHvCurrent = 120.0, .motorTorqueNm = 250.0, .gearSelector = 4097});
     reporter.onFrame(sig, 0, 0);
     reporter.onComplete(ReplayStats{});
 
@@ -170,6 +170,35 @@ TEST(ConsoleProgressReporterTest, EmitsAllSchemaFields) {
     EXPECT_NE(s.find("motor_hv_current=120.00"), std::string::npos);
     EXPECT_NE(s.find("motor_torque_nm=250.00"), std::string::npos);
     EXPECT_NE(s.find("gear_selector=D"), std::string::npos);
+    EXPECT_NE(s.find("brake_light=1"), std::string::npos);
+}
+
+// brake_light is the ONLY brake signal on CAN vehicles without a pressure
+// signal (the Tesla maps VCLEFT_brakeLightStatus, never brakePercent) — the
+// console showed a permanently blank brake while the CSV pipe carried the
+// light fine, which read as "brake doesn't decode" during a live road check
+// (owner report 2026-09-06). Binary 1/0/blank contract, same as the CSV
+// column: absent stays blank (never a false 0).
+TEST(ConsoleProgressReporterTest, BrakeLightBinaryWithBlankForAbsent) {
+    VehicleSignal::Params base{.timestampUtcMs = 100ULL, .throttlePercent = 0.0, .speedKmh = 0.0};
+
+    std::ostringstream outOn;
+    base.brakeLight = true;
+    ConsoleProgressReporter(outOn, "tesla").onFrame(VehicleSignal(base), 0, 0);
+
+    std::ostringstream outOff;
+    base.brakeLight = false;
+    ConsoleProgressReporter(outOff, "tesla").onFrame(VehicleSignal(base), 0, 0);
+
+    std::ostringstream outAbsent;
+    base.brakeLight = std::nullopt;
+    ConsoleProgressReporter(outAbsent, "tesla").onFrame(VehicleSignal(base), 0, 0);
+
+    EXPECT_NE(outOn.str().find("brake_light=1"), std::string::npos);
+    EXPECT_NE(outOff.str().find("brake_light=0"), std::string::npos);
+    // Absent renders blank ("brake_light= " with the next field's spacing),
+    // never a false 0 — same contract as the CSV column.
+    EXPECT_NE(outAbsent.str().find("brake_light= "), std::string::npos);
 }
 
 TEST(ConsoleProgressReporterTest, ShowsPercentageWhenTotalHintsKnown) {
