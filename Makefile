@@ -125,7 +125,6 @@ scrub: clean
 	rm -rf ~/Library/Developer/Xcode/DerivedData/*
 	rm -rf ~/Library/Developer/Xcode/Archives/*
 	rm -rf ~/Library/Developer/Xcode/iOS\ DeviceSupport/*
-	rm -f .firmware-ready
 	@echo "All cleaned. Run 'make' to rebuild."
 
 # -- Native C++ ----------------------------------------------------------
