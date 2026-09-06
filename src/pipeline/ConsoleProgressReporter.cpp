@@ -21,6 +21,17 @@ std::string formatOptional(const std::optional<double>& value) {
     return value ? formatOptional(*value) : "";
 }
 
+// Binary brake LIGHT, 1/0/blank — the same contract as the CSV brake_light
+// column. brakePercent is the analog pedal/pressure signal; CAN vehicles
+// without one (the Tesla maps only VCLEFT_brakeLightStatus) leave it blank
+// FOREVER, so the console previously showed no brake at all while the CSV
+// pipe carried the light fine — read as "brake doesn't decode" during a live
+// road check (owner report 2026-09-06). Absent stays blank, never a false 0.
+std::string formatBrakeLight(const std::optional<bool>& value) {
+    if (!value.has_value()) return "";
+    return *value ? "1" : "0";
+}
+
 std::string gearLabel(const std::optional<std::int32_t>& gear) {
     return gear ? domain::Gear::labelOr(*gear, std::to_string(*gear)) : "";
 }
@@ -63,6 +74,7 @@ void ConsoleProgressReporter::emit(
          << "  speed_kmh=" << formatOptional(signal.getSpeedKmh())
          << "  throttle_percent=" << formatOptional(signal.getThrottlePercent())
          << "  brake_percent=" << formatOptional(signal.getBrakePercent())
+         << "  brake_light=" << formatBrakeLight(signal.getBrakeLight())
          << "  acceleration_g=" << formatOptional(signal.getAccelerationG())
          << "  steering_angle_deg=" << formatOptional(signal.getSteeringAngleDeg())
          << "  motor_rpm=" << formatOptional(signal.getMotorRpm())
