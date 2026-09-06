@@ -457,16 +457,24 @@ FIRMWARE_SRCS := $(wildcard $(FIRMWARE_DIR)/*.ino) \
                  $(wildcard $(FIRMWARE_DIR)/HardwareStatusLEDOutput.cpp)
 
 # Regenerate firmware/vanilla/FirmwareBuildInfo.h (semver + git hash + dirty
-# flag + UTC date) BEFORE the cross-compile. PHONY prerequisite => the
-# generator runs on EVERY firmware build: a new commit (new hash) or a dirtied
-# tree changes the reported version even when no source file did. The script
-# only rewrites the header when its content changed, so an unchanged value
-# does not retrigger compiles.
-.PHONY: gen-firmware-build-info
-gen-firmware-build-info:
+# flag + UTC date) BEFORE the cross-compile. The header is a REAL file target
+# with a FORCE prerequisite: the generator script runs on every make
+# invocation, but it only REWRITES the header when its content changed (new
+# commit hash, dirty flip, UTC-date rollover, semver bump) — an unchanged
+# value keeps its mtime, so make sees the .bin as up to date and skips the
+# cross-compile entirely. (The previous .PHONY prerequisite made the .bin
+# permanently stale: arduino-cli recompiled on every `make firmware` even
+# with zero source changes.)
+.PHONY: FORCE
+FORCE:
+
+firmware/vanilla/FirmwareBuildInfo.h: FORCE
 	@bash scripts/gen_firmware_build_info.sh
 
-$(FIRMWARE_BUILD)/can-bridge.ino.bin: gen-firmware-build-info $(FIRMWARE_SRCS)
+# The generated header is named EXPLICITLY alongside the wildcard set: the
+# wildcard only sees files that exist at parse time, so a fresh clone (no
+# header yet) would otherwise compile before generating it.
+$(FIRMWARE_BUILD)/can-bridge.ino.bin: firmware/vanilla/FirmwareBuildInfo.h $(FIRMWARE_SRCS)
 	@echo "--- Building ESP32 firmware ${CYAN}$(FIRMWARE_BUILD)/can-bridge.ino.bin${NC} ---"
 	@mkdir -p $(FIRMWARE_BUILD)
 	@$(show_wifi)
