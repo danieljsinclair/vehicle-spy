@@ -58,6 +58,7 @@ void TraceLogger::writeRow(const domain::VehicleSignal& signal) {
 
     const CsvRowParams params{
         signal.getTimestampUtcMs(),
+        0,  // wall_clock_ms not available for trace logs
         vehicleId_,
         signal.getSpeedKmh(),
         signal.getThrottlePercent(),

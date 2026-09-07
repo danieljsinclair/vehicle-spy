@@ -44,6 +44,7 @@ int InteractiveRunContext::runImpl(
         auto row = source->next();
         const CsvRowParams params{
             row.timestamp_ms,
+            0,  // wall_clock_ms not available for interactive
             row.vehicle_id,
             std::optional<double>(row.speed_kmh),
             std::optional<double>(row.throttle_percent),

@@ -15,18 +15,19 @@ namespace vehicle_sim::telemetry {
 /**
  * Parameters for one CSV data row.
  *
- * Bundles the 13 decoded-telemetry columns into one object so csvRowLine()
+ * Bundles the 14 decoded-telemetry columns into one object so csvRowLine()
  * takes a single parameter (cpp:S107) and the column order lives in exactly
  * one place (DRY). Adding a column = add a field here + one emit line in the
  * sink — no second copy to keep in sync.
  *
- * The four required fields (timestampMs, vehicleId, gearSelector,
+ * The five required fields (timestampMs, wallClockMs, vehicleId, gearSelector,
  * dbcSignalCount) have no default initialisers: every producer must supply
  * them explicitly. The nine signal fields are optional<double> or
  * optional<int>; a nullopt renders as an empty cell ("not reported").
  */
 struct CsvRowParams {
     std::uint64_t         timestampMs;
+    std::uint64_t         wallClockMs;
     VehicleId             vehicleId;
     std::optional<double> speedKmh;
     std::optional<double> throttlePercent;
@@ -49,10 +50,11 @@ struct CsvRowParams {
  * <base>.csv` file are byte-identical by construction rather than by two
  * hand-maintained copies of the column list.
  *
- * Schema (13 columns):
- *   timestamp_ms, vehicle_id, speed_kmh, throttle_percent, brake_light,
- *   acceleration_g, steering_angle_deg, motor_rpm, motor_hv_voltage,
- *   motor_hv_current, motor_torque_nm, gear_selector, dbc_signal_count
+ * Schema (14 columns):
+ *   timestamp_ms, wall_clock_ms, vehicle_id, speed_kmh, throttle_percent,
+ *   brake_light, acceleration_g, steering_angle_deg, motor_rpm,
+ *   motor_hv_voltage, motor_hv_current, motor_torque_nm, gear_selector,
+ *   dbc_signal_count
  *
  * Doubles render with two decimal places; absent (nullopt) values render as
  * an empty cell. `brake_light` is a BINARY column: "1"/"0"/empty, never

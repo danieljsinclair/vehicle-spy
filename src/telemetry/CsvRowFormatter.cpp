@@ -47,9 +47,10 @@ std::string formatBrakeLight(const std::optional<int>& brakeLight) {
 } // namespace
 
 std::string csvHeaderLine() {
-    return "timestamp_ms,vehicle_id,speed_kmh,throttle_percent,brake_light,"
-           "acceleration_g,steering_angle_deg,motor_rpm,motor_hv_voltage,"
-           "motor_hv_current,motor_torque_nm,gear_selector,dbc_signal_count";
+    return "timestamp_ms,wall_clock_ms,vehicle_id,speed_kmh,throttle_percent,"
+           "brake_light,acceleration_g,steering_angle_deg,motor_rpm,"
+           "motor_hv_voltage,motor_hv_current,motor_torque_nm,gear_selector,"
+           "dbc_signal_count";
 }
 
 int countPopulated(const domain::VehicleSignal& signal) {
@@ -80,6 +81,7 @@ std::string csvRowLine(const CsvRowParams& params) {
     // CR/LF and corrupt the record layout — and they sever the taint flow at the
     // sink (cpp:S5145) without any suppression.
     oss << csvNumericCell(std::to_string(params.timestampMs)) << ","
+        << csvNumericCell(std::to_string(params.wallClockMs)) << ","
         << cli::forLog(params.vehicleId.asString()) << ","
         << formatOptional(params.speedKmh) << ","
         << formatOptional(params.throttlePercent) << ","

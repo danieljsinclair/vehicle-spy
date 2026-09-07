@@ -47,8 +47,11 @@ void CsvStdoutSink::writeRow(const domain::VehicleSignal& signal) {
         gear = GearSelector::fromRegistry(gearLabel);
     }
 
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     const CsvRowParams params{
         signal.getTimestampUtcMs(),
+        static_cast<std::uint64_t>(nowMs),
         vehicleId_,
         signal.getSpeedKmh(),
         signal.getThrottlePercent(),
